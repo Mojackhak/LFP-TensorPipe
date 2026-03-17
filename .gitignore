@@ -6,7 +6,7 @@
 !.gitignore
 !.env.example
 !*.env.example
-!.LICENSE
+!LICENSE
 !demo/
 !demo/**
 
