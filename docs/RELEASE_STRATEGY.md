@@ -47,8 +47,8 @@ The public repository receives:
 - selected developer-facing runtime documentation
 - public-safe desktop packaging documentation
 - public-safe desktop build helper scripts and PyInstaller specs
-- selected tests, one lightweight public CI workflow, one Python release
-  workflow, and safe helper tools
+- one lightweight public CI workflow, one Python release workflow, and safe
+  helper tools
 - exclusion of release-helper tests that depend on private-only packaging
   modules
 - release tags that match the private source tag
@@ -57,10 +57,11 @@ The public repository receives:
 
 The public repository must not become a second development trunk.
 
-Public mirror CI is intentionally minimal and smoke-oriented. Full-suite pytest
-validation remains a private-repository responsibility, and Python release
-artifacts are built by a separate public tag workflow rather than by the
-default CI gate.
+Public mirror CI is intentionally minimal and limited to editable-install plus
+import verification on Ubuntu. Public pytest smoke gates are intentionally
+omitted. Full-suite pytest validation remains a private-repository
+responsibility, and Python release artifacts are built by a separate public tag
+workflow rather than by the default CI gate.
 
 ## 3. Distribution Lines
 

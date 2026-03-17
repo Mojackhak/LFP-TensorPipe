@@ -6,8 +6,8 @@ on:
   pull_request:
 
 jobs:
-  smoke:
-    name: Smoke (Ubuntu, py3.11)
+  basic:
+    name: Basic (Ubuntu, py3.11)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -28,9 +28,3 @@ jobs:
 
       - name: Import check
         run: python -c "import lfptensorpipe; print('import_ok')"
-
-      - name: Smoke pytest
-        run: >
-          pytest -q
-          tests/test_main_entry.py
-          tests/test_desktop_smoke.py
