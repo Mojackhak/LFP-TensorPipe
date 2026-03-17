@@ -1,0 +1,46 @@
+name: lfptp
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+
+  # ---- core scientific stack ----
+  - numpy>=2.0,<3
+  - scipy
+  - pandas
+  - openpyxl
+  - matplotlib
+  - cmcrameri
+  - statsmodels
+  - joblib
+  - tqdm
+  - cloudpickle
+  - pyyaml
+  - h5py
+  - toml
+  - send2trash
+  - nibabel
+  - requests>=2.31
+
+  # ---- neuro / lfp ----
+  - mne
+  - mne-connectivity
+  - autoreject
+  - scikit-learn
+
+  # ---- optional (handy) ----
+  - ipython
+  - jupyterlab
+  - pytest
+  - pyside6
+
+  - pip:
+      # Spectral parameterization (specparam, formerly fooof)
+      - specparam==2.0.0rc6
+      - tensorpac
+      - tqdm-joblib
+      - nex>=1.0.6
+
+      # Core package (edit path as needed)
+      - -e ..

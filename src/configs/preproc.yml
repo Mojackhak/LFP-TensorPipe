@@ -1,0 +1,18 @@
+filter_advance_defaults:
+  notch_widths: 2.0
+  epoch_dur: 1.0
+  p2p_thresh:
+  - 1.0e-06
+  - 0.001
+  autoreject_correct_factor: 1.5
+filter_basic_defaults:
+  notches:
+  - 50
+  - 100
+  l_freq: 1.0
+  h_freq: 200.0
+viz_tfr_defaults:
+  fmin: 1.0
+  fmax: 100.0
+  n_freqs: 40
+  decim: 4

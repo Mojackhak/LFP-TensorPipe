@@ -1,0 +1,2 @@
+# Keep this file for temporary production exceptions only.
+# Slice 75 currently expects this allowlist to stay empty.

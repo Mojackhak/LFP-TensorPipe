@@ -1,0 +1,26 @@
+{
+  "schema": "lfptensorpipe.alignment-config",
+  "version": 1,
+  "alignment": {
+    "method": "pad_warper",
+    "method_params": {
+      "annotations": [
+        "turn_L"
+      ],
+      "pad_left": 0.5,
+      "anno_left": 0.5,
+      "anno_right": 0.5,
+      "pad_right": 0.5,
+      "duration_range": [
+        1.0,
+        10.0
+      ],
+      "drop_bad": true,
+      "drop_fields": [
+        "bad",
+        "edge"
+      ],
+      "sample_rate": 50.0
+    }
+  }
+}

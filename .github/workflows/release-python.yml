@@ -1,0 +1,78 @@
+name: Release Python
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing Git tag to package and release
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-python-release:
+    name: Build And Publish Python Artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        id: release
+        env:
+          INPUT_RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            tag_name="${INPUT_RELEASE_TAG}"
+          else
+            tag_name="${GITHUB_REF_NAME}"
+          fi
+
+          if [ -z "${tag_name}" ]; then
+            echo "release tag is required" >&2
+            exit 1
+          fi
+
+          git fetch --tags --force
+          git rev-parse "refs/tags/${tag_name}" >/dev/null
+          git checkout "refs/tags/${tag_name}"
+          echo "tag_name=${tag_name}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Upgrade pip and install build tool
+        run: python -m pip install --upgrade pip build
+
+      - name: Build wheel and sdist
+        run: python -m build
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dist-${{ steps.release.outputs.tag_name }}
+          path: dist/*
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
+        run: |
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" dist/* --clobber
+          else
+            gh release create "${RELEASE_TAG}" dist/* \
+              --title "${RELEASE_TAG}" \
+              --generate-notes
+          fi

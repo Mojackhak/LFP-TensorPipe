@@ -1,0 +1,76 @@
+"""Localize orchestration package.
+
+App layer assembles runtime paths and state transitions; heavy localize compute
+belongs in `lfptensorpipe.anat` and related backend modules.
+"""
+
+from __future__ import annotations
+
+from .service import (
+    ContactViewerLauncher,
+    LocalizePaths,
+    LocalizeRuntimeRunner,
+    can_open_contact_viewer,
+    clear_localize_runtime_cache,
+    discover_atlases,
+    discover_spaces,
+    has_reconstruction_mat,
+    infer_subject_space,
+    is_stale_context_message,
+    launch_contact_viewer,
+    load_localize_paths,
+    load_reconstruction_contacts,
+    localize_csv_path,
+    localize_indicator_state,
+    localize_panel_state,
+    localize_mat_path,
+    localize_match_signature,
+    localize_ordered_pair_representative_csv_path,
+    localize_ordered_pair_representative_pkl_path,
+    localize_representative_csv_path,
+    localize_representative_pkl_path,
+    localize_undirected_pair_representative_csv_path,
+    localize_undirected_pair_representative_pkl_path,
+    matlab_runtime_status,
+    reset_matlab_runtime,
+    run_localize_apply,
+    shutdown_matlab_runtime,
+    submit_matlab_task,
+    warmup_matlab_async,
+)
+from .viewer_worker import main, parse_args
+
+__all__ = [
+    "ContactViewerLauncher",
+    "LocalizePaths",
+    "LocalizeRuntimeRunner",
+    "can_open_contact_viewer",
+    "clear_localize_runtime_cache",
+    "discover_atlases",
+    "discover_spaces",
+    "has_reconstruction_mat",
+    "infer_subject_space",
+    "is_stale_context_message",
+    "launch_contact_viewer",
+    "load_localize_paths",
+    "load_reconstruction_contacts",
+    "localize_csv_path",
+    "localize_indicator_state",
+    "localize_panel_state",
+    "localize_mat_path",
+    "localize_match_signature",
+    "localize_ordered_pair_representative_csv_path",
+    "localize_ordered_pair_representative_pkl_path",
+    "localize_representative_csv_path",
+    "localize_representative_pkl_path",
+    "localize_undirected_pair_representative_csv_path",
+    "localize_undirected_pair_representative_pkl_path",
+    "matlab_runtime_status",
+    "reset_matlab_runtime",
+    "run_localize_apply",
+    "shutdown_matlab_runtime",
+    "submit_matlab_task",
+    "warmup_matlab_async",
+    "parse_args",
+    "main",
+]

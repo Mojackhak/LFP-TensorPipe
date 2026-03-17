@@ -1,0 +1,133 @@
+metric_defaults:
+  default:
+    boxsize:
+    - 60.0
+    - 50.0
+    font_size: 10
+    tick_label_size: 7
+    x_label_offset_mm: 6.0
+    y_label_offset_mm: 10.0
+    colorbar_pad_mm: 4.0
+    cbar_label_offset_mm: 10.0
+    colorbar_label: null
+  raw_power:
+    boxsize:
+    - 60.0
+    - 50.0
+    font_size: 10
+    tick_label_size: 7
+    x_label_offset_mm: 6.0
+    y_label_offset_mm: 10.0
+    colorbar_pad_mm: 4.0
+    cbar_label_offset_mm: 10.0
+    colorbar_label: Raw power (dB)
+  periodic:
+    boxsize:
+    - 60.0
+    - 50.0
+    font_size: 10
+    tick_label_size: 7
+    x_label_offset_mm: 6.0
+    y_label_offset_mm: 10.0
+    colorbar_pad_mm: 4.0
+    cbar_label_offset_mm: 10.0
+    colorbar_label: Periodic (dB)
+  aperiodic:
+    boxsize:
+    - 60.0
+    - 50.0
+    font_size: 10
+    tick_label_size: 7
+    x_label_offset_mm: 6.0
+    y_label_offset_mm: 18.0
+    colorbar_pad_mm: 4.0
+    cbar_label_offset_mm: 10.0
+    colorbar_label: Aperiodic (Z-scored)
+  coherence:
+    boxsize:
+    - 60.0
+    - 50.0
+    font_size: 10
+    tick_label_size: 7
+    x_label_offset_mm: 6.0
+    y_label_offset_mm: 10.0
+    colorbar_pad_mm: 4.0
+    cbar_label_offset_mm: 10.0
+    colorbar_label: Coherence
+  plv:
+    boxsize:
+    - 60.0
+    - 50.0
+    font_size: 10
+    tick_label_size: 7
+    x_label_offset_mm: 6.0
+    y_label_offset_mm: 10.0
+    colorbar_pad_mm: 4.0
+    cbar_label_offset_mm: 10.0
+    colorbar_label: PLV
+  ciplv:
+    boxsize:
+    - 60.0
+    - 50.0
+    font_size: 10
+    tick_label_size: 7
+    x_label_offset_mm: 6.0
+    y_label_offset_mm: 10.0
+    colorbar_pad_mm: 4.0
+    cbar_label_offset_mm: 10.0
+    colorbar_label: ciPLV
+  pli:
+    boxsize:
+    - 60.0
+    - 50.0
+    font_size: 10
+    tick_label_size: 7
+    x_label_offset_mm: 6.0
+    y_label_offset_mm: 10.0
+    colorbar_pad_mm: 4.0
+    cbar_label_offset_mm: 10.0
+    colorbar_label: PLI
+  wpli:
+    boxsize:
+    - 60.0
+    - 50.0
+    font_size: 10
+    tick_label_size: 7
+    x_label_offset_mm: 6.0
+    y_label_offset_mm: 10.0
+    colorbar_pad_mm: 4.0
+    cbar_label_offset_mm: 10.0
+    colorbar_label: wPLI
+  trgc:
+    boxsize:
+    - 60.0
+    - 50.0
+    font_size: 10
+    tick_label_size: 7
+    x_label_offset_mm: 6.0
+    y_label_offset_mm: 10.0
+    colorbar_pad_mm: 4.0
+    cbar_label_offset_mm: 10.0
+    colorbar_label: TRGC
+  psi:
+    boxsize:
+    - 60.0
+    - 50.0
+    font_size: 10
+    tick_label_size: 7
+    x_label_offset_mm: 6.0
+    y_label_offset_mm: 10.0
+    colorbar_pad_mm: 4.0
+    cbar_label_offset_mm: 10.0
+    colorbar_label: PSI
+  burst:
+    boxsize:
+    - 60.0
+    - 50.0
+    font_size: 10
+    tick_label_size: 7
+    x_label_offset_mm: 6.0
+    y_label_offset_mm: 18.0
+    colorbar_pad_mm: 4.0
+    cbar_label_offset_mm: 10.0
+    colorbar_label: 'Burst ($\mathrm{log}_{10}$ power)'

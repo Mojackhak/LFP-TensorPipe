@@ -1,0 +1,1 @@
+"""Burst-related features (envelope-based burst detection)."""

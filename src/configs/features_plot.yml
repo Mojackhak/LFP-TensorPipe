@@ -1,0 +1,66 @@
+plot_defaults:
+  default:
+    boxsize:
+    - 60.0
+    - 50.0
+    font_size: 10
+    tick_label_size: 7
+    x_label_offset_mm: 6.0
+    y_label_offset_mm: 10.0
+    colorbar_pad_mm: 4.0
+    cbar_label_offset_mm: 10.0
+    legend_position: outside_right
+  by_derived_type:
+    raw:
+      boxsize:
+      - 60.0
+      - 50.0
+      font_size: 10
+      tick_label_size: 7
+      x_label_offset_mm: 6.0
+      y_label_offset_mm: 10.0
+      colorbar_pad_mm: 4.0
+      cbar_label_offset_mm: 10.0
+      legend_position: outside_right
+    spectral:
+      boxsize:
+      - 60.0
+      - 50.0
+      font_size: 10
+      tick_label_size: 7
+      x_label_offset_mm: 6.0
+      y_label_offset_mm: 10.0
+      colorbar_pad_mm: 4.0
+      cbar_label_offset_mm: 10.0
+      legend_position: outside_right
+    trace:
+      boxsize:
+      - 60.0
+      - 50.0
+      font_size: 10
+      tick_label_size: 7
+      x_label_offset_mm: 6.0
+      y_label_offset_mm: 10.0
+      colorbar_pad_mm: 4.0
+      cbar_label_offset_mm: 10.0
+      legend_position: outside_right
+    scalar:
+      boxsize:
+      - 60.0
+      - 50.0
+      font_size: 10
+      tick_label_size: 7
+      x_label_offset_mm: 6.0
+      y_label_offset_mm: 10.0
+      colorbar_pad_mm: 4.0
+      cbar_label_offset_mm: 10.0
+      legend_position: none
+  by_metric:
+    aperiodic:
+      y_label_offset_mm: 18.0
+    burst:
+      y_label_offset_mm: 18.0
+  by_metric_and_derived_type:
+    aperiodic:
+      scalar:
+        cbar_label_offset_mm: 10.0

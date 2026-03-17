@@ -1,0 +1,531 @@
+{
+  "schema": "lfptensorpipe.tensor-config",
+  "version": 3,
+  "tensor": {
+    "selected_metrics": [
+      "raw_power",
+      "periodic_aperiodic",
+      "coherence",
+      "plv",
+      "ciplv",
+      "pli",
+      "wpli",
+      "trgc",
+      "psi",
+      "burst"
+    ],
+    "active_metric": "burst",
+    "mask_edge_effects": true,
+    "metric_params": {
+      "raw_power": {
+        "low_freq_hz": 4.0,
+        "high_freq_hz": 75.0,
+        "freq_step_hz": 0.5,
+        "time_resolution_s": 0.3,
+        "hop_s": 0.025,
+        "method": "morlet",
+        "min_cycles": 3.0,
+        "max_cycles": null,
+        "time_bandwidth": 1.0,
+        "notches": [
+          41.75,
+          83.5,
+          125.25,
+          167.0
+        ],
+        "notch_widths": 2.0,
+        "selected_channels": [
+          "0_1",
+          "1_2",
+          "2_3",
+          "8_9",
+          "9_10",
+          "10_11"
+        ]
+      },
+      "periodic_aperiodic": {
+        "low_freq_hz": 4.0,
+        "high_freq_hz": 75.0,
+        "freq_step_hz": 0.5,
+        "time_resolution_s": 0.3,
+        "hop_s": 0.025,
+        "method": "morlet",
+        "freq_range_hz": [
+          1.0,
+          80.0
+        ],
+        "min_cycles": 3.0,
+        "max_cycles": null,
+        "time_bandwidth": 1.0,
+        "freq_smooth_enabled": true,
+        "freq_smooth_sigma": 1.5,
+        "time_smooth_enabled": true,
+        "time_smooth_kernel_size": 13,
+        "aperiodic_mode": "fixed",
+        "peak_width_limits_hz": [
+          2.0,
+          12.0
+        ],
+        "max_n_peaks": 8.0,
+        "min_peak_height": 0.15,
+        "peak_threshold": 2.0,
+        "fit_qc_threshold": 0.6,
+        "notches": [
+          41.75,
+          83.5,
+          125.25,
+          167.0
+        ],
+        "notch_widths": 2.0,
+        "selected_channels": [
+          "0_1",
+          "1_2",
+          "2_3",
+          "8_9",
+          "9_10",
+          "10_11"
+        ]
+      },
+      "coherence": {
+        "low_freq_hz": 4.0,
+        "high_freq_hz": 75.0,
+        "freq_step_hz": 0.5,
+        "time_resolution_s": 0.3,
+        "hop_s": 0.025,
+        "method": "morlet",
+        "mt_bandwidth": null,
+        "min_cycles": 3.0,
+        "max_cycles": null,
+        "notches": [
+          41.75,
+          83.5,
+          125.25,
+          167.0
+        ],
+        "notch_widths": 2.0,
+        "selected_pairs": [
+          [
+            "0_1",
+            "1_2"
+          ],
+          [
+            "0_1",
+            "2_3"
+          ],
+          [
+            "1_2",
+            "2_3"
+          ],
+          [
+            "8_9",
+            "9_10"
+          ],
+          [
+            "10_11",
+            "8_9"
+          ],
+          [
+            "10_11",
+            "9_10"
+          ]
+        ]
+      },
+      "plv": {
+        "low_freq_hz": 4.0,
+        "high_freq_hz": 75.0,
+        "freq_step_hz": 0.5,
+        "time_resolution_s": 0.3,
+        "hop_s": 0.025,
+        "method": "morlet",
+        "mt_bandwidth": null,
+        "min_cycles": 3.0,
+        "max_cycles": null,
+        "notches": [
+          41.75,
+          83.5,
+          125.25,
+          167.0
+        ],
+        "notch_widths": 2.0,
+        "selected_pairs": [
+          [
+            "0_1",
+            "1_2"
+          ],
+          [
+            "0_1",
+            "2_3"
+          ],
+          [
+            "1_2",
+            "2_3"
+          ],
+          [
+            "8_9",
+            "9_10"
+          ],
+          [
+            "10_11",
+            "8_9"
+          ],
+          [
+            "10_11",
+            "9_10"
+          ]
+        ]
+      },
+      "ciplv": {
+        "low_freq_hz": 4.0,
+        "high_freq_hz": 75.0,
+        "freq_step_hz": 0.5,
+        "time_resolution_s": 0.3,
+        "hop_s": 0.025,
+        "method": "morlet",
+        "mt_bandwidth": null,
+        "min_cycles": 3.0,
+        "max_cycles": null,
+        "notches": [
+          41.75,
+          83.5,
+          125.25,
+          167.0
+        ],
+        "notch_widths": 2.0,
+        "selected_pairs": [
+          [
+            "0_1",
+            "1_2"
+          ],
+          [
+            "0_1",
+            "2_3"
+          ],
+          [
+            "1_2",
+            "2_3"
+          ],
+          [
+            "8_9",
+            "9_10"
+          ],
+          [
+            "10_11",
+            "8_9"
+          ],
+          [
+            "10_11",
+            "9_10"
+          ]
+        ]
+      },
+      "pli": {
+        "low_freq_hz": 4.0,
+        "high_freq_hz": 75.0,
+        "freq_step_hz": 0.5,
+        "time_resolution_s": 0.3,
+        "hop_s": 0.025,
+        "method": "morlet",
+        "mt_bandwidth": null,
+        "min_cycles": 3.0,
+        "max_cycles": null,
+        "notches": [
+          41.75,
+          83.5,
+          125.25,
+          167.0
+        ],
+        "notch_widths": 2.0,
+        "selected_pairs": [
+          [
+            "0_1",
+            "1_2"
+          ],
+          [
+            "0_1",
+            "2_3"
+          ],
+          [
+            "1_2",
+            "2_3"
+          ],
+          [
+            "8_9",
+            "9_10"
+          ],
+          [
+            "10_11",
+            "8_9"
+          ],
+          [
+            "10_11",
+            "9_10"
+          ]
+        ]
+      },
+      "wpli": {
+        "low_freq_hz": 4.0,
+        "high_freq_hz": 75.0,
+        "freq_step_hz": 0.5,
+        "time_resolution_s": 0.3,
+        "hop_s": 0.025,
+        "method": "morlet",
+        "mt_bandwidth": null,
+        "min_cycles": 3.0,
+        "max_cycles": null,
+        "notches": [
+          41.75,
+          83.5,
+          125.25,
+          167.0
+        ],
+        "notch_widths": 2.0,
+        "selected_pairs": [
+          [
+            "0_1",
+            "1_2"
+          ],
+          [
+            "0_1",
+            "2_3"
+          ],
+          [
+            "1_2",
+            "2_3"
+          ],
+          [
+            "8_9",
+            "9_10"
+          ],
+          [
+            "10_11",
+            "8_9"
+          ],
+          [
+            "10_11",
+            "9_10"
+          ]
+        ]
+      },
+      "trgc": {
+        "low_freq_hz": 4.0,
+        "high_freq_hz": 75.0,
+        "freq_step_hz": 0.5,
+        "time_resolution_s": 0.3,
+        "hop_s": 0.025,
+        "method": "morlet",
+        "mt_bandwidth": null,
+        "min_cycles": 3.0,
+        "max_cycles": null,
+        "gc_n_lags": 20,
+        "group_by_samples": false,
+        "round_ms": 50.0,
+        "notches": [
+          41.75,
+          83.5,
+          125.25,
+          167.0
+        ],
+        "notch_widths": 2.0,
+        "selected_pairs": [
+          [
+            "0_1",
+            "1_2"
+          ],
+          [
+            "0_1",
+            "2_3"
+          ],
+          [
+            "1_2",
+            "2_3"
+          ],
+          [
+            "8_9",
+            "9_10"
+          ],
+          [
+            "8_9",
+            "10_11"
+          ],
+          [
+            "9_10",
+            "10_11"
+          ]
+        ]
+      },
+      "psi": {
+        "bands": [
+          {
+            "name": "theta",
+            "start": 4.0,
+            "end": 8.0
+          },
+          {
+            "name": "alpha",
+            "start": 8.0,
+            "end": 13.0
+          },
+          {
+            "name": "beta_low",
+            "start": 13.0,
+            "end": 20.0
+          },
+          {
+            "name": "beta_high",
+            "start": 20.0,
+            "end": 35.0
+          },
+          {
+            "name": "gamma",
+            "start": 35.0,
+            "end": 75.0
+          }
+        ],
+        "time_resolution_s": 0.3,
+        "hop_s": 0.025,
+        "method": "morlet",
+        "mt_bandwidth": null,
+        "min_cycles": 3.0,
+        "max_cycles": null,
+        "notches": [
+          41.75,
+          83.5,
+          125.25,
+          167.0
+        ],
+        "notch_widths": 2.0,
+        "selected_pairs": [
+          [
+            "0_1",
+            "1_2"
+          ],
+          [
+            "0_1",
+            "2_3"
+          ],
+          [
+            "1_2",
+            "2_3"
+          ],
+          [
+            "8_9",
+            "9_10"
+          ],
+          [
+            "8_9",
+            "10_11"
+          ],
+          [
+            "9_10",
+            "10_11"
+          ]
+        ]
+      },
+      "burst": {
+        "bands": [
+          {
+            "name": "delta",
+            "start": 1.0,
+            "end": 4.0
+          },
+          {
+            "name": "theta",
+            "start": 4.0,
+            "end": 8.0
+          },
+          {
+            "name": "alpha",
+            "start": 8.0,
+            "end": 13.0
+          },
+          {
+            "name": "beta_low",
+            "start": 13.0,
+            "end": 20.0
+          },
+          {
+            "name": "beta_high",
+            "start": 20.0,
+            "end": 35.0
+          },
+          {
+            "name": "gamma",
+            "start": 35.0,
+            "end": 75.0
+          }
+        ],
+        "percentile": 75.0,
+        "baseline_keep": null,
+        "min_cycles": 2.0,
+        "max_cycles": null,
+        "hop_s": null,
+        "decim": 1,
+        "thresholds": [
+          [
+            5.104381023241116e-06,
+            1.0130246110058576e-05,
+            4.659518574806918e-06,
+            4.4881487083860475e-06,
+            8.50267731972522e-06,
+            4.8748380270153485e-06
+          ],
+          [
+            1.996311123671148e-06,
+            2.927941617116902e-06,
+            3.1314129507140106e-06,
+            1.9447587994963775e-06,
+            2.5857190191262614e-06,
+            2.5954333937387725e-06
+          ],
+          [
+            2.050964896288722e-06,
+            3.966786908480835e-06,
+            5.840420811646647e-06,
+            1.957485526842133e-06,
+            4.039611476152071e-06,
+            6.047371525414341e-06
+          ],
+          [
+            2.252215921615353e-06,
+            4.945096482735725e-06,
+            7.536054548379767e-06,
+            1.9677672870793573e-06,
+            4.585268309938016e-06,
+            5.0050179275959485e-06
+          ],
+          [
+            2.9441435296203798e-06,
+            6.309456495406631e-06,
+            9.15845983664521e-06,
+            2.6046092843686845e-06,
+            5.458714355617258e-06,
+            6.284116166060631e-06
+          ],
+          [
+            3.51559134450419e-06,
+            4.347313466329615e-06,
+            5.3748027425551214e-06,
+            3.3841126066179827e-06,
+            4.20061288083946e-06,
+            5.2388983614046465e-06
+          ]
+        ],
+        "notches": [
+          41.75,
+          83.5,
+          125.25,
+          167.0
+        ],
+        "notch_widths": 2.0,
+        "selected_channels": [
+          "0_1",
+          "1_2",
+          "2_3",
+          "8_9",
+          "9_10",
+          "10_11"
+        ]
+      }
+    }
+  }
+}

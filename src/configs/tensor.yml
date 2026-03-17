@@ -1,0 +1,387 @@
+bands_defaults:
+- name: delta
+  start: 1.0
+  end: 4.0
+- name: theta
+  start: 4.0
+  end: 8.0
+- name: alpha
+  start: 8.0
+  end: 13.0
+- name: beta_low
+  start: 13.0
+  end: 20.0
+- name: beta_high
+  start: 20.0
+  end: 35.0
+- name: gamma
+  start: 35.0
+  end: 100.0
+psi_bands_defaults:
+- name: delta
+  start: 1.0
+  end: 4.0
+- name: theta
+  start: 4.0
+  end: 8.0
+- name: alpha
+  start: 8.0
+  end: 13.0
+- name: beta_low
+  start: 13.0
+  end: 20.0
+- name: beta_high
+  start: 20.0
+  end: 35.0
+- name: gamma
+  start: 35.0
+  end: 100.0
+burst_bands_defaults:
+- name: delta
+  start: 1.0
+  end: 4.0
+- name: theta
+  start: 4.0
+  end: 8.0
+- name: alpha
+  start: 8.0
+  end: 13.0
+- name: beta_low
+  start: 13.0
+  end: 20.0
+- name: beta_high
+  start: 20.0
+  end: 35.0
+- name: gamma
+  start: 35.0
+  end: 100.0
+metric_defaults:
+  periodic_aperiodic:
+    low_freq_hz: 1.0
+    high_freq_hz: 75.0
+    freq_step_hz: 0.5
+    time_resolution_s: 5.0
+    hop_s: 0.25
+    method: morlet
+    freq_range_hz:
+    - 1.0
+    - 80.0
+    min_cycles: 3.0
+    max_cycles: 13.0
+    time_bandwidth: 1.0
+    smooth_enabled: true
+    kernel_size: 13
+    aperiodic_mode: fixed
+    peak_width_limits_hz:
+    - 2.0
+    - 12.0
+    max_n_peaks: 8.0
+    min_peak_height: 0.15
+    peak_threshold: 2.0
+    fit_qc_threshold: 0.6
+    selected_channels:
+    - '0_1'
+    - '1_2'
+    - '2_3'
+    - '8_9'
+    - '9_10'
+    - '10_11'
+    specparam_low_freq: 1.0
+    specparam_high_freq: 80.0
+    mask_edge_effects: true
+    notches:
+    - 41.75
+    - 83.5
+    - 125.25
+    - 167.0
+    notch_widths:
+    - 2.0
+    - 2.0
+    - 2.0
+    - 2.0
+    interpolation_applied: true
+    n_channels: 6
+    n_freqs: 149
+    n_times: 1256
+    component: periodic
+    n_params: 4
+    effective_n_jobs:
+      n_jobs: 1
+      outer_n_jobs: 1
+  raw_power:
+    low_freq_hz: 1.0
+    high_freq_hz: 75.0
+    freq_step_hz: 0.5
+    time_resolution_s: 5.0
+    hop_s: 0.25
+    method: morlet
+    min_cycles: 3.0
+    max_cycles: 13.0
+    time_bandwidth: 1.0
+    selected_channels:
+    - '0_1'
+    - '1_2'
+    - '2_3'
+    - '8_9'
+    - '9_10'
+    - '10_11'
+    mask_edge_effects: true
+    notches:
+    - 41.75
+    - 83.0
+    - 125.25
+    - 167.0
+    notch_widths:
+    - 2.0
+    - 2.0
+    - 2.0
+    - 2.0
+    interpolation_applied: true
+    n_channels: 6
+    n_freqs: 159
+    n_times: 3860
+    effective_n_jobs:
+      n_jobs: 1
+      outer_n_jobs: 1
+  plv:
+    low_freq_hz: 1.0
+    high_freq_hz: 75.0
+    freq_step_hz: 0.5
+    time_resolution_s: 5.0
+    hop_s: 0.25
+    method: morlet
+    mt_bandwidth: null
+    min_cycles: 3.0
+    max_cycles: 13.0
+    gc_n_lags: null
+    selected_pairs:
+    - - '0_1'
+      - '1_2'
+    - - '0_1'
+      - '2_3'
+    - - '1_2'
+      - '2_3'
+    - - '8_9'
+      - '9_10'
+    - - '10_11'
+      - '8_9'
+    - - '10_11'
+      - '9_10'
+  ciplv:
+    low_freq_hz: 1.0
+    high_freq_hz: 75.0
+    freq_step_hz: 0.5
+    time_resolution_s: 5.0
+    hop_s: 0.25
+    method: morlet
+    mt_bandwidth: null
+    min_cycles: 3.0
+    max_cycles: null
+    gc_n_lags: null
+    selected_pairs:
+    - - '0_1'
+      - '1_2'
+    - - '0_1'
+      - '2_3'
+    - - '1_2'
+      - '2_3'
+    - - '8_9'
+      - '9_10'
+    - - '10_11'
+      - '8_9'
+    - - '10_11'
+      - '9_10'
+  pli:
+    low_freq_hz: 1.0
+    high_freq_hz: 75.0
+    freq_step_hz: 0.5
+    time_resolution_s: 5.0
+    hop_s: 0.25
+    method: morlet
+    mt_bandwidth: null
+    min_cycles: 3.0
+    max_cycles: 13.0
+    gc_n_lags: null
+    selected_pairs:
+    - - '0_1'
+      - '1_2'
+    - - '0_1'
+      - '2_3'
+    - - '1_2'
+      - '2_3'
+    - - '8_9'
+      - '9_10'
+    - - '10_11'
+      - '8_9'
+    - - '10_11'
+      - '9_10'
+  wpli:
+    low_freq_hz: 1.0
+    high_freq_hz: 75.0
+    freq_step_hz: 0.5
+    time_resolution_s: 5.0
+    hop_s: 0.25
+    method: morlet
+    mt_bandwidth: null
+    min_cycles: 3.0
+    max_cycles: 13.0
+    gc_n_lags: null
+    selected_pairs:
+    - - '0_1'
+      - '1_2'
+    - - '0_1'
+      - '2_3'
+    - - '1_2'
+      - '2_3'
+    - - '8_9'
+      - '9_10'
+    - - '10_11'
+      - '8_9'
+    - - '10_11'
+      - '9_10'
+  trgc:
+    low_freq_hz: 1.0
+    high_freq_hz: 75.0
+    freq_step_hz: 0.5
+    time_resolution_s: 5.0
+    hop_s: 0.25
+    method: morlet
+    mt_bandwidth: null
+    min_cycles: 3.0
+    max_cycles: null
+    gc_n_lags: 20
+    group_by_samples: false
+    round_ms: 50.0
+    selected_pairs:
+    - - '0_1'
+      - '1_2'
+    - - '0_1'
+      - '2_3'
+    - - '1_2'
+      - '2_3'
+    - - '8_9'
+      - '9_10'
+    - - '8_9'
+      - '10_11'
+    - - '9_10'
+      - '10_11'
+  psi:
+    bands:
+    - name: delta
+      start: 1.0
+      end: 4.0
+    - name: theta
+      start: 4.0
+      end: 8.0
+    - name: alpha
+      start: 8.0
+      end: 13.0
+    - name: beta_low
+      start: 13.0
+      end: 20.0
+    - name: beta_high
+      start: 20.0
+      end: 35.0
+    - name: gamma
+      start: 35.0
+      end: 75.0
+    method: morlet
+    mt_bandwidth: null
+    time_resolution_s: 5.0
+    hop_s: 0.25
+    min_cycles: 3.0
+    max_cycles: 13.0
+    selected_pairs:
+    - - '0_1'
+      - '1_2'
+    - - '0_1'
+      - '2_3'
+    - - '1_2'
+      - '2_3'
+    - - '8_9'
+      - '9_10'
+    - - '8_9'
+      - '10_11'
+    - - '9_10'
+      - '10_11'
+  burst:
+    bands:
+    - name: delta
+      start: 1.0
+      end: 4.0
+    - name: theta
+      start: 4.0
+      end: 8.0
+    - name: alpha
+      start: 8.0
+      end: 13.0
+    - name: beta_low
+      start: 13.0
+      end: 20.0
+    - name: beta_high
+      start: 20.0
+      end: 35.0
+    - name: gamma
+      start: 35.0
+      end: 75.0
+    percentile: 75.0
+    baseline_keep: null
+    min_cycles: 2.0
+    max_cycles: null
+    hop_s: null
+    decim: 1
+    thresholds_path: null
+    thresholds: null
+    selected_channels:
+    - '0_1'
+    - '1_2'
+    - '2_3'
+    - '8_9'
+    - '9_10'
+    - '10_11'
+  coherence:
+    low_freq_hz: 1.0
+    high_freq_hz: 75.0
+    freq_step_hz: 0.5
+    time_resolution_s: 5.0
+    hop_s: 0.25
+    method: morlet
+    mt_bandwidth: null
+    min_cycles: 3.0
+    max_cycles: 13.0
+    gc_n_lags: null
+    selected_pairs:
+    - - '0_1'
+      - '1_2'
+    - - '0_1'
+      - '2_3'
+    - - '1_2'
+      - '2_3'
+    - - '8_9'
+      - '9_10'
+    - - '10_11'
+      - '8_9'
+    - - '10_11'
+      - '9_10'
+selector_defaults:
+  undirected_pairs:
+  - 0_1-1_2
+  - 0_1-2_3
+  - 1_2-2_3
+  - 8_9-9_10
+  - 10_11-8_9
+  - 10_11-9_10
+  directed_pairs:
+  - (0_1,1_2)
+  - (0_1,2_3)
+  - (1_2,2_3)
+  - (8_9,9_10)
+  - (8_9,10_11)
+  - (9_10,10_11)
+  channels:
+  - '0_1'
+  - '1_2'
+  - '2_3'
+  - '8_9'
+  - '9_10'
+  - '10_11'

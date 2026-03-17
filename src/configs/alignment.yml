@@ -1,0 +1,52 @@
+trials: []
+defaults:
+  method_params_by_method:
+    linear_warper:
+      anchors_percent:
+        0.0: strike_L
+        50.0: strike_R
+        100.0: strike_L
+      epoch_duration_range:
+      - 0.6
+      - 2.0
+      linear_warp: true
+      percent_tolerance: 15.0
+      drop_bad: true
+      drop_fields:
+      - bad
+      - edge
+      sample_rate: 5.0
+    pad_warper:
+      annotations: []
+      pad_left: 0.5
+      anno_left: 0.5
+      anno_right: 0.5
+      pad_right: 0.5
+      duration_range:
+      - 0.0
+      - 1000000.0
+      drop_bad: true
+      drop_fields:
+      - bad
+      - edge
+      sample_rate: 50.0
+    stack_warper:
+      annotations: []
+      duration_range:
+      - 0.0
+      - 1000000.0
+      drop_bad: true
+      drop_fields:
+      - bad
+      - edge
+      sample_rate: 5.0
+    concat_warper:
+      annotations: []
+      duration_range:
+      - 0.0
+      - 1000000.0
+      drop_bad: true
+      drop_fields:
+      - bad
+      - edge
+      sample_rate: 50.0

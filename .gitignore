@@ -1,0 +1,103 @@
+# Allowlist: ignore everything except specific file types
+*
+.*
+!*/
+!.*/
+!.gitignore
+!.env.example
+!*.env.example
+!.LICENSE
+!demo/
+!demo/**
+
+# Code
+!*.py
+!*.pyi
+!*.ipynb
+!*.R
+!*.Rmd
+!*.qmd
+!*.m
+!*.mlx
+
+# Config and metadata
+!*.toml
+!*.yaml
+!*.yml
+!*.json
+!*.ini
+!*.cfg
+!*.txt
+!*.md
+!*.rst
+
+# Build / environment
+!*.lock
+build/
+dist/
+
+# Editor / transient buffers
+*.tmp
+*.swp
+*~
+
+# Scripts / commands
+!*.sh
+!*.bash
+!*.zsh
+!*.ps1
+
+# Data samples
+!*.csv
+!*.tsv
+!docs/assets/app-tutorial/*.png
+
+# Test folders
+test/
+tests/
+!tests/
+tests/*
+!tests/*.py
+!tests/gui/
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyd
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# R caches
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+
+# MATLAB caches and generated files
+*.asv
+*.m~
+*.mex*
+*.slxc
+*.autosave
+slprj/
+codegen/
+
+# macOS metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.fseventsd
+
+# Ignore all recipes except demo
+recipes/*
+!recipes/demo/
+!recipes/demo/**
+
+AGENTS.override.md

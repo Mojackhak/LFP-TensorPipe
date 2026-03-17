@@ -1,0 +1,89 @@
+[build-system]
+requires = ["hatchling>=1.25", "hatch-vcs>=0.4"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lfp-tensorpipe"
+dynamic = ["version"]
+description = "Workflow-core Python package for DBS LFP analysis: reproducible end-to-end pipelines producing analysis tensors and downstream derived metrics."
+readme = "README.md"
+requires-python = "==3.11.*"
+license = { file = "LICENSE" }
+authors = [{ name = "Mojackhak", email = "ankanghu9@gmail.com" }]
+
+dependencies = [
+  "numpy>=2.0,<3",
+  "scipy",
+  "pandas",
+  "matplotlib",
+  "mne",
+  "mne-connectivity",
+  "autoreject",
+  "scikit-learn",
+  "specparam",
+  "statsmodels",
+  "joblib",
+  "tqdm",
+  "tqdm-joblib",
+  "cloudpickle",
+  "toml",
+  "Send2Trash",
+  "nibabel",
+  "probeinterface",
+  "spikeinterface",
+  "librosa",
+  "nex",
+  "PyYAML",
+  "PySide6",
+]
+
+[project.scripts]
+lfptensorpipe = "lfptensorpipe.main:main"
+lfptp = "lfptensorpipe.main:main"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-cov>=5",
+  "ruff>=0.6",
+  "black>=24",
+  "mypy>=1.10",
+  "build>=1.2",
+  "twine>=5.1",
+  "pre-commit>=3.7",
+]
+desktop = [
+  "pyinstaller>=6",
+]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lfptensorpipe"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/configs" = "lfptensorpipe/resources/config_defaults"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint.per-file-ignores]
+"src/lfptensorpipe/gui/dialogs/common.py" = ["F401"]
+"src/lfptensorpipe/gui/dialogs/*.py" = ["F405"]
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
