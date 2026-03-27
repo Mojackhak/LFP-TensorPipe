@@ -8,6 +8,7 @@ Plotting helpers for single-effect series/scalar and DataFrame heatmap APIs.
 from __future__ import annotations
 
 import heapq
+import re
 from typing import Dict, List, Optional, Tuple, Union
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -860,7 +861,7 @@ def _resolve_p_value_series(df: pd.DataFrame, *, preferred: Optional[str] = None
     candidates = _unique_preserve_order([c for c in candidates if c and c in df.columns])
 
     p = pd.Series(np.nan, index=df.index, dtype=float)
-    p_arr = p.to_numpy()
+    p_arr = p.to_numpy(copy=True)
 
     for c in candidates:
         v = pd.to_numeric(df[c], errors="coerce").astype(float)
@@ -1915,6 +1916,428 @@ def plot_single_effect_scalar(
         transparent=transparent,
     )
 
+
+def plot_triple_interaction_scalar(
+    df: pd.DataFrame,
+    emm: pd.DataFrame,
+    tuk: pd.DataFrame,
+    value_col: str = "value",
+    x_var: str = "phase",
+    panel_var: str = "region",
+    facet_var: str = "lat",
+    jitter_var: Optional[str] = None,
+    fill_var: Optional[str] = None,
+    outline_var: Optional[str] = None,
+    x_levels: Optional[List] = None,
+    panel_levels: Optional[List] = None,
+    facet_levels: Optional[List] = None,
+    x_label: Optional[str] = None,
+    single_x_label: bool = True,
+    y_label: Optional[str] = None,
+    single_y_label: bool = True,
+    x_limits: Optional[Tuple[float, float]] = None,
+    y_limits: Optional[Tuple[float, float]] = None,
+    x_log: bool = False,
+    y_log: bool = False,
+    xtick_rotation: float = 0.0,
+    ytick_rotation: float = 0.0,
+    title: Optional[str] = None,
+    font_family: str = "Arial",
+    jitter_palette: Union[str, List, Dict] = "viridis",
+    fill_palette: Union[str, List, Dict] = "viridis",
+    outline_palette: Union[str, List, Dict, None] = None,
+    jitter_width: float = 0.18,
+    jitter_alpha: float = 0.35,
+    jitter_size: float = 12.0,
+    grid: bool = True,
+    grid_alpha: float = 0.3,
+    dpi: int = 100,
+    seed: int = 1,
+    show_top_right_axes: bool = True,
+    show_box: bool = True,
+    box_width: float = 0.55,
+    fill_alpha: float = 0.40,
+    whiskers: Union[str, float, Tuple[float, float]] = "tukey",
+    box_edge_color: str = "black",
+    box_edge_width: float = 1.0,
+    median_color: str = "black",
+    median_linewidth: float = 1.0,
+    whisker_color: str = "black",
+    whisker_linewidth: float = 1.0,
+    cap_linewidth: float = 1.0,
+    outlier_marker: str = "o",
+    outlier_markersize: float = 3.0,
+    show_emm_line: bool = True,
+    show_emm_ci: bool = True,
+    show_raw_mean_line: bool = True,
+    emm_line_width: float = 1.0,
+    emm_line_color: str = "black",
+    emm_line_style: str = "-",
+    raw_mean_line_width: float = 1.0,
+    raw_mean_line_color: str = "#404040",
+    raw_mean_line_style: str = "--",
+    error_bar_linewidth: float = 1.0,
+    error_bar_cap: float = 3.0,
+    error_bar_color: str = "black",
+    vertical_lines: Optional[Union[List, np.ndarray]] = None,
+    vline_color: str = "gray",
+    vline_style: str = "--",
+    vline_width: float = 1.0,
+    vline_alpha: float = 0.6,
+    horizontal_lines: Optional[Union[List, np.ndarray]] = None,
+    hline_color: str = "gray",
+    hline_style: str = "--",
+    hline_width: float = 1.0,
+    hline_alpha: float = 0.6,
+    vertical_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    horizontal_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    label_fontsize: int = 16,
+    label_top_bg_color: str = "lightgray",
+    label_right_bg_color: str = "lightgray",
+    label_text_color: str = "black",
+    label_fontweight: str = "normal",
+    strip_top_height_mm: float = 2.5,
+    strip_right_width_mm: float = 3.0,
+    strip_pad_mm: float = 0.3,
+    title_fontsize: int = 20,
+    axis_label_fontsize: int = 16,
+    tick_label_fontsize: int = 12,
+    legend_loc: str = "none",
+    legend_ncol: Optional[int] = None,
+    legend_framealpha: float = 0.9,
+    legend_fontsize: int = 10,
+    boxsize: Tuple[float, float] = DEFAULT_BOXSIZE_MM,
+    panel_gap: Tuple[float, float] = (0.0, 0.0),
+    include_global_label_margins: bool = True,
+    x_label_offset_mm: float = 1.25,
+    y_label_offset_mm: float = 1.5,
+    show_brackets: bool = True,
+    hide_ns: bool = True,
+    y_start: float = 0.70,
+    y_end: float = 0.95,
+    y_step: Optional[float] = 0.08,
+    bracket_height_frac: float = 0.018,
+    bracket_color: str = "black",
+    bracket_linewidth: float = 1.2,
+    bracket_text_size: int = 12,
+    transparent: bool = False,
+) -> plt.Figure:
+    """Triple interaction scalar plot (panel × facet)."""
+    return _plot_interaction_scalar_grid(
+        df=df,
+        emm=emm,
+        tuk=tuk,
+        value_col=value_col,
+        x_var=x_var,
+        col_var=panel_var,
+        row_var=facet_var,
+        col_levels=panel_levels,
+        row_levels=facet_levels,
+        jitter_var=jitter_var,
+        fill_var=fill_var,
+        outline_var=outline_var,
+        x_levels=x_levels,
+        x_label=x_label,
+        single_x_label=single_x_label,
+        y_label=y_label,
+        single_y_label=single_y_label,
+        x_limits=x_limits,
+        y_limits=y_limits,
+        x_log=x_log,
+        y_log=y_log,
+        xtick_rotation=xtick_rotation,
+        ytick_rotation=ytick_rotation,
+        title=title,
+        font_family=font_family,
+        jitter_palette=jitter_palette,
+        fill_palette=fill_palette,
+        outline_palette=outline_palette,
+        jitter_width=jitter_width,
+        jitter_alpha=jitter_alpha,
+        jitter_size=jitter_size,
+        grid=grid,
+        grid_alpha=grid_alpha,
+        dpi=dpi,
+        seed=seed,
+        show_top_right_axes=show_top_right_axes,
+        show_box=show_box,
+        box_width=box_width,
+        fill_alpha=fill_alpha,
+        whiskers=whiskers,
+        box_edge_color=box_edge_color,
+        box_edge_width=box_edge_width,
+        median_color=median_color,
+        median_linewidth=median_linewidth,
+        whisker_color=whisker_color,
+        whisker_linewidth=whisker_linewidth,
+        cap_linewidth=cap_linewidth,
+        outlier_marker=outlier_marker,
+        outlier_markersize=outlier_markersize,
+        show_emm_line=show_emm_line,
+        show_emm_ci=show_emm_ci,
+        show_raw_mean_line=show_raw_mean_line,
+        emm_line_width=emm_line_width,
+        emm_line_color=emm_line_color,
+        emm_line_style=emm_line_style,
+        raw_mean_line_width=raw_mean_line_width,
+        raw_mean_line_color=raw_mean_line_color,
+        raw_mean_line_style=raw_mean_line_style,
+        error_bar_linewidth=error_bar_linewidth,
+        error_bar_cap=error_bar_cap,
+        error_bar_color=error_bar_color,
+        vertical_lines=vertical_lines,
+        vline_color=vline_color,
+        vline_style=vline_style,
+        vline_width=vline_width,
+        vline_alpha=vline_alpha,
+        horizontal_lines=horizontal_lines,
+        hline_color=hline_color,
+        hline_style=hline_style,
+        hline_width=hline_width,
+        hline_alpha=hline_alpha,
+        vertical_shadows=vertical_shadows,
+        horizontal_shadows=horizontal_shadows,
+        label_fontsize=label_fontsize,
+        label_top_bg_color=label_top_bg_color,
+        label_right_bg_color=label_right_bg_color,
+        label_text_color=label_text_color,
+        label_fontweight=label_fontweight,
+        strip_top_height_mm=strip_top_height_mm,
+        strip_right_width_mm=strip_right_width_mm,
+        strip_pad_mm=strip_pad_mm,
+        title_fontsize=title_fontsize,
+        axis_label_fontsize=axis_label_fontsize,
+        tick_label_fontsize=tick_label_fontsize,
+        legend_loc=legend_loc,
+        legend_ncol=legend_ncol,
+        legend_framealpha=legend_framealpha,
+        legend_fontsize=legend_fontsize,
+        boxsize=boxsize,
+        panel_gap=panel_gap,
+        include_global_label_margins=include_global_label_margins,
+        x_label_offset_mm=x_label_offset_mm,
+        y_label_offset_mm=y_label_offset_mm,
+        show_brackets=show_brackets,
+        hide_ns=hide_ns,
+        y_start=y_start,
+        y_end=y_end,
+        y_step=y_step,
+        bracket_height_frac=bracket_height_frac,
+        bracket_color=bracket_color,
+        bracket_linewidth=bracket_linewidth,
+        bracket_text_size=bracket_text_size,
+        transparent=transparent,
+    )
+
+
+def plot_double_interaction_scalar(
+    df: pd.DataFrame,
+    emm: pd.DataFrame,
+    tuk: pd.DataFrame,
+    value_col: str = "value",
+    x_var: str = "phase",
+    panel_var: str = "region",
+    jitter_var: Optional[str] = None,
+    fill_var: Optional[str] = None,
+    outline_var: Optional[str] = None,
+    x_levels: Optional[List] = None,
+    panel_levels: Optional[List] = None,
+    x_label: Optional[str] = None,
+    single_x_label: bool = True,
+    y_label: Optional[str] = None,
+    single_y_label: bool = True,
+    x_limits: Optional[Tuple[float, float]] = None,
+    y_limits: Optional[Tuple[float, float]] = None,
+    x_log: bool = False,
+    y_log: bool = False,
+    xtick_rotation: float = 0.0,
+    ytick_rotation: float = 0.0,
+    title: Optional[str] = None,
+    font_family: str = "Arial",
+    jitter_palette: Union[str, List, Dict] = "viridis",
+    fill_palette: Union[str, List, Dict] = "viridis",
+    outline_palette: Union[str, List, Dict, None] = None,
+    jitter_width: float = 0.18,
+    jitter_alpha: float = 0.35,
+    jitter_size: float = 12.0,
+    grid: bool = True,
+    grid_alpha: float = 0.3,
+    dpi: int = 100,
+    seed: int = 1,
+    show_top_right_axes: bool = True,
+    show_box: bool = True,
+    box_width: float = 0.55,
+    fill_alpha: float = 0.40,
+    whiskers: Union[str, float, Tuple[float, float]] = "tukey",
+    box_edge_color: str = "black",
+    box_edge_width: float = 1.0,
+    median_color: str = "black",
+    median_linewidth: float = 1.0,
+    whisker_color: str = "black",
+    whisker_linewidth: float = 1.0,
+    cap_linewidth: float = 1.0,
+    outlier_marker: str = "o",
+    outlier_markersize: float = 3.0,
+    show_emm_line: bool = True,
+    show_emm_ci: bool = True,
+    show_raw_mean_line: bool = True,
+    emm_line_width: float = 1.0,
+    emm_line_color: str = "black",
+    emm_line_style: str = "-",
+    raw_mean_line_width: float = 1.0,
+    raw_mean_line_color: str = "#404040",
+    raw_mean_line_style: str = "--",
+    error_bar_linewidth: float = 1.0,
+    error_bar_cap: float = 3.0,
+    error_bar_color: str = "black",
+    vertical_lines: Optional[Union[List, np.ndarray]] = None,
+    vline_color: str = "gray",
+    vline_style: str = "--",
+    vline_width: float = 1.0,
+    vline_alpha: float = 0.6,
+    horizontal_lines: Optional[Union[List, np.ndarray]] = None,
+    hline_color: str = "gray",
+    hline_style: str = "--",
+    hline_width: float = 1.0,
+    hline_alpha: float = 0.6,
+    vertical_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    horizontal_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    label_fontsize: int = 16,
+    label_top_bg_color: str = "lightgray",
+    label_text_color: str = "black",
+    label_fontweight: str = "normal",
+    strip_top_height_mm: float = 2.5,
+    strip_pad_mm: float = 0.3,
+    title_fontsize: int = 20,
+    axis_label_fontsize: int = 16,
+    tick_label_fontsize: int = 12,
+    legend_loc: str = "none",
+    legend_ncol: Optional[int] = None,
+    legend_framealpha: float = 0.9,
+    legend_fontsize: int = 10,
+    boxsize: Tuple[float, float] = DEFAULT_BOXSIZE_MM,
+    panel_gap: Tuple[float, float] = (0.0, 0.0),
+    include_global_label_margins: bool = True,
+    x_label_offset_mm: float = 1.25,
+    y_label_offset_mm: float = 1.5,
+    show_brackets: bool = True,
+    hide_ns: bool = True,
+    y_start: float = 0.70,
+    y_end: float = 0.95,
+    y_step: Optional[float] = 0.08,
+    bracket_height_frac: float = 0.018,
+    bracket_color: str = "black",
+    bracket_linewidth: float = 1.2,
+    bracket_text_size: int = 12,
+    transparent: bool = False,
+) -> plt.Figure:
+    """Double interaction scalar plot (panel only)."""
+    return _plot_interaction_scalar_grid(
+        df=df,
+        emm=emm,
+        tuk=tuk,
+        value_col=value_col,
+        x_var=x_var,
+        col_var=panel_var,
+        row_var=None,
+        col_levels=panel_levels,
+        row_levels=None,
+        jitter_var=jitter_var,
+        fill_var=fill_var,
+        outline_var=outline_var,
+        x_levels=x_levels,
+        x_label=x_label,
+        single_x_label=single_x_label,
+        y_label=y_label,
+        single_y_label=single_y_label,
+        x_limits=x_limits,
+        y_limits=y_limits,
+        x_log=x_log,
+        y_log=y_log,
+        xtick_rotation=xtick_rotation,
+        ytick_rotation=ytick_rotation,
+        title=title,
+        font_family=font_family,
+        jitter_palette=jitter_palette,
+        fill_palette=fill_palette,
+        outline_palette=outline_palette,
+        jitter_width=jitter_width,
+        jitter_alpha=jitter_alpha,
+        jitter_size=jitter_size,
+        grid=grid,
+        grid_alpha=grid_alpha,
+        dpi=dpi,
+        seed=seed,
+        show_top_right_axes=show_top_right_axes,
+        show_box=show_box,
+        box_width=box_width,
+        fill_alpha=fill_alpha,
+        whiskers=whiskers,
+        box_edge_color=box_edge_color,
+        box_edge_width=box_edge_width,
+        median_color=median_color,
+        median_linewidth=median_linewidth,
+        whisker_color=whisker_color,
+        whisker_linewidth=whisker_linewidth,
+        cap_linewidth=cap_linewidth,
+        outlier_marker=outlier_marker,
+        outlier_markersize=outlier_markersize,
+        show_emm_line=show_emm_line,
+        show_emm_ci=show_emm_ci,
+        show_raw_mean_line=show_raw_mean_line,
+        emm_line_width=emm_line_width,
+        emm_line_color=emm_line_color,
+        emm_line_style=emm_line_style,
+        raw_mean_line_width=raw_mean_line_width,
+        raw_mean_line_color=raw_mean_line_color,
+        raw_mean_line_style=raw_mean_line_style,
+        error_bar_linewidth=error_bar_linewidth,
+        error_bar_cap=error_bar_cap,
+        error_bar_color=error_bar_color,
+        vertical_lines=vertical_lines,
+        vline_color=vline_color,
+        vline_style=vline_style,
+        vline_width=vline_width,
+        vline_alpha=vline_alpha,
+        horizontal_lines=horizontal_lines,
+        hline_color=hline_color,
+        hline_style=hline_style,
+        hline_width=hline_width,
+        hline_alpha=hline_alpha,
+        vertical_shadows=vertical_shadows,
+        horizontal_shadows=horizontal_shadows,
+        label_fontsize=label_fontsize,
+        label_top_bg_color=label_top_bg_color,
+        label_right_bg_color=label_top_bg_color,
+        label_text_color=label_text_color,
+        label_fontweight=label_fontweight,
+        strip_top_height_mm=strip_top_height_mm,
+        strip_right_width_mm=0.0,
+        strip_pad_mm=strip_pad_mm,
+        title_fontsize=title_fontsize,
+        axis_label_fontsize=axis_label_fontsize,
+        tick_label_fontsize=tick_label_fontsize,
+        legend_loc=legend_loc,
+        legend_ncol=legend_ncol,
+        legend_framealpha=legend_framealpha,
+        legend_fontsize=legend_fontsize,
+        boxsize=boxsize,
+        panel_gap=panel_gap,
+        include_global_label_margins=include_global_label_margins,
+        x_label_offset_mm=x_label_offset_mm,
+        y_label_offset_mm=y_label_offset_mm,
+        show_brackets=show_brackets,
+        hide_ns=hide_ns,
+        y_start=y_start,
+        y_end=y_end,
+        y_step=y_step,
+        bracket_height_frac=bracket_height_frac,
+        bracket_color=bracket_color,
+        bracket_linewidth=bracket_linewidth,
+        bracket_text_size=bracket_text_size,
+        transparent=transparent,
+    )
+
 def _auto_limits_series(
     dfw: pd.DataFrame,
     *,
@@ -2432,6 +2855,268 @@ def plot_single_effect_series(
     )
 
 
+def plot_triple_interaction_series(
+    df: pd.DataFrame,
+    value_col: str = "value",
+    x_var: str = "phase",
+    panel_var: str = "region",
+    facet_var: str = "lat",
+    x_levels: Optional[List] = None,
+    panel_levels: Optional[List] = None,
+    facet_levels: Optional[List] = None,
+    x_label: Optional[str] = None,
+    single_x_label: bool = True,
+    y_label: Optional[str] = None,
+    single_y_label: bool = True,
+    x_limits: Optional[Tuple[float, float]] = None,
+    y_limits: Optional[Tuple[float, float]] = None,
+    y_ticks: Optional[Union[List[float], np.ndarray]] = None,
+    y_tick_labels: Optional[List[str]] = None,
+    x_log: bool = False,
+    y_log: bool = False,
+    title: Optional[str] = None,
+    font_family: str = "Arial",
+    line_palette: Union[str, List, Dict] = "viridis",
+    line_width: float = 2.0,
+    line_alpha: float = 0.95,
+    show_ribbon: bool = True,
+    ribbon_alpha: float = 0.25,
+    ribbon: str = "sem",
+    grid: bool = True,
+    grid_alpha: float = 0.3,
+    dpi: int = 100,
+    show_top_right_axes: bool = True,
+    vertical_lines: Optional[Union[List, np.ndarray]] = None,
+    vline_color: str = "gray",
+    vline_style: str = "--",
+    vline_width: float = 1.0,
+    vline_alpha: float = 0.6,
+    horizontal_lines: Optional[Union[List, np.ndarray]] = None,
+    hline_color: str = "gray",
+    hline_style: str = "--",
+    hline_width: float = 1.0,
+    hline_alpha: float = 0.6,
+    vertical_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    horizontal_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    label_fontsize: int = 16,
+    label_top_bg_color: str = "lightgray",
+    label_right_bg_color: str = "lightgray",
+    label_text_color: str = "black",
+    label_fontweight: str = "normal",
+    strip_top_height_mm: float = 2.5,
+    strip_right_width_mm: float = 3.0,
+    strip_pad_mm: float = 0.3,
+    title_fontsize: int = 20,
+    axis_label_fontsize: int = 16,
+    tick_label_fontsize: int = 12,
+    legend_loc: str = "right",
+    legend_ncol: Optional[int] = None,
+    legend_framealpha: float = 0.9,
+    legend_fontsize: int = 10,
+    boxsize: Tuple[float, float] = DEFAULT_BOXSIZE_MM,
+    panel_gap: Tuple[float, float] = (3.0, 3.0),
+    include_global_label_margins: bool = True,
+    x_label_offset_mm: float = 1.25,
+    y_label_offset_mm: float = 1.5,
+    transparent: bool = False,
+) -> plt.Figure:
+    """Triple interaction series plot (panel × facet)."""
+    return _plot_interaction_series_grid(
+        df=df,
+        value_col=value_col,
+        line_var=x_var,
+        col_var=panel_var,
+        row_var=facet_var,
+        line_levels=x_levels,
+        col_levels=panel_levels,
+        row_levels=facet_levels,
+        x_label=x_label,
+        single_x_label=single_x_label,
+        y_label=y_label,
+        single_y_label=single_y_label,
+        x_limits=x_limits,
+        y_limits=y_limits,
+        y_ticks=y_ticks,
+        y_tick_labels=y_tick_labels,
+        x_log=x_log,
+        y_log=y_log,
+        title=title,
+        font_family=font_family,
+        line_palette=line_palette,
+        line_width=line_width,
+        line_alpha=line_alpha,
+        show_ribbon=show_ribbon,
+        ribbon_alpha=ribbon_alpha,
+        ribbon=ribbon,
+        grid=grid,
+        grid_alpha=grid_alpha,
+        dpi=dpi,
+        show_top_right_axes=show_top_right_axes,
+        vertical_lines=vertical_lines,
+        vline_color=vline_color,
+        vline_style=vline_style,
+        vline_width=vline_width,
+        vline_alpha=vline_alpha,
+        horizontal_lines=horizontal_lines,
+        hline_color=hline_color,
+        hline_style=hline_style,
+        hline_width=hline_width,
+        hline_alpha=hline_alpha,
+        vertical_shadows=vertical_shadows,
+        horizontal_shadows=horizontal_shadows,
+        label_fontsize=label_fontsize,
+        label_top_bg_color=label_top_bg_color,
+        label_right_bg_color=label_right_bg_color,
+        label_text_color=label_text_color,
+        label_fontweight=label_fontweight,
+        strip_top_height_mm=strip_top_height_mm,
+        strip_right_width_mm=strip_right_width_mm,
+        strip_pad_mm=strip_pad_mm,
+        title_fontsize=title_fontsize,
+        axis_label_fontsize=axis_label_fontsize,
+        tick_label_fontsize=tick_label_fontsize,
+        legend_loc=legend_loc,
+        legend_ncol=legend_ncol,
+        legend_framealpha=legend_framealpha,
+        legend_fontsize=legend_fontsize,
+        boxsize=boxsize,
+        panel_gap=panel_gap,
+        include_global_label_margins=include_global_label_margins,
+        x_label_offset_mm=x_label_offset_mm,
+        y_label_offset_mm=y_label_offset_mm,
+        transparent=transparent,
+    )
+
+
+def plot_double_interaction_series(
+    df: pd.DataFrame,
+    value_col: str = "value",
+    x_var: str = "phase",
+    panel_var: str = "region",
+    x_levels: Optional[List] = None,
+    panel_levels: Optional[List] = None,
+    x_label: Optional[str] = None,
+    single_x_label: bool = True,
+    y_label: Optional[str] = None,
+    single_y_label: bool = True,
+    x_limits: Optional[Tuple[float, float]] = None,
+    y_limits: Optional[Tuple[float, float]] = None,
+    y_ticks: Optional[Union[List[float], np.ndarray]] = None,
+    y_tick_labels: Optional[List[str]] = None,
+    x_log: bool = False,
+    y_log: bool = False,
+    title: Optional[str] = None,
+    font_family: str = "Arial",
+    line_palette: Union[str, List, Dict] = "viridis",
+    line_width: float = 2.0,
+    line_alpha: float = 0.95,
+    show_ribbon: bool = True,
+    ribbon_alpha: float = 0.25,
+    ribbon: str = "sem",
+    grid: bool = True,
+    grid_alpha: float = 0.3,
+    dpi: int = 100,
+    show_top_right_axes: bool = True,
+    vertical_lines: Optional[Union[List, np.ndarray]] = None,
+    vline_color: str = "gray",
+    vline_style: str = "--",
+    vline_width: float = 1.0,
+    vline_alpha: float = 0.6,
+    horizontal_lines: Optional[Union[List, np.ndarray]] = None,
+    hline_color: str = "gray",
+    hline_style: str = "--",
+    hline_width: float = 1.0,
+    hline_alpha: float = 0.6,
+    vertical_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    horizontal_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    label_fontsize: int = 16,
+    label_top_bg_color: str = "lightgray",
+    label_text_color: str = "black",
+    label_fontweight: str = "normal",
+    strip_top_height_mm: float = 2.5,
+    strip_pad_mm: float = 0.3,
+    title_fontsize: int = 20,
+    axis_label_fontsize: int = 16,
+    tick_label_fontsize: int = 12,
+    legend_loc: str = "right",
+    legend_ncol: Optional[int] = None,
+    legend_framealpha: float = 0.9,
+    legend_fontsize: int = 10,
+    boxsize: Tuple[float, float] = DEFAULT_BOXSIZE_MM,
+    panel_gap: Tuple[float, float] = (3.0, 3.0),
+    include_global_label_margins: bool = True,
+    x_label_offset_mm: float = 1.25,
+    y_label_offset_mm: float = 1.5,
+    transparent: bool = False,
+) -> plt.Figure:
+    """Double interaction series plot (panel only)."""
+    return _plot_interaction_series_grid(
+        df=df,
+        value_col=value_col,
+        line_var=x_var,
+        col_var=panel_var,
+        row_var=None,
+        line_levels=x_levels,
+        col_levels=panel_levels,
+        row_levels=None,
+        x_label=x_label,
+        single_x_label=single_x_label,
+        y_label=y_label,
+        single_y_label=single_y_label,
+        x_limits=x_limits,
+        y_limits=y_limits,
+        y_ticks=y_ticks,
+        y_tick_labels=y_tick_labels,
+        x_log=x_log,
+        y_log=y_log,
+        title=title,
+        font_family=font_family,
+        line_palette=line_palette,
+        line_width=line_width,
+        line_alpha=line_alpha,
+        show_ribbon=show_ribbon,
+        ribbon_alpha=ribbon_alpha,
+        ribbon=ribbon,
+        grid=grid,
+        grid_alpha=grid_alpha,
+        dpi=dpi,
+        show_top_right_axes=show_top_right_axes,
+        vertical_lines=vertical_lines,
+        vline_color=vline_color,
+        vline_style=vline_style,
+        vline_width=vline_width,
+        vline_alpha=vline_alpha,
+        horizontal_lines=horizontal_lines,
+        hline_color=hline_color,
+        hline_style=hline_style,
+        hline_width=hline_width,
+        hline_alpha=hline_alpha,
+        vertical_shadows=vertical_shadows,
+        horizontal_shadows=horizontal_shadows,
+        label_fontsize=label_fontsize,
+        label_top_bg_color=label_top_bg_color,
+        label_right_bg_color=label_top_bg_color,
+        label_text_color=label_text_color,
+        label_fontweight=label_fontweight,
+        strip_top_height_mm=strip_top_height_mm,
+        strip_right_width_mm=0.0,
+        strip_pad_mm=strip_pad_mm,
+        title_fontsize=title_fontsize,
+        axis_label_fontsize=axis_label_fontsize,
+        tick_label_fontsize=tick_label_fontsize,
+        legend_loc=legend_loc,
+        legend_ncol=legend_ncol,
+        legend_framealpha=legend_framealpha,
+        legend_fontsize=legend_fontsize,
+        boxsize=boxsize,
+        panel_gap=panel_gap,
+        include_global_label_margins=include_global_label_margins,
+        x_label_offset_mm=x_label_offset_mm,
+        y_label_offset_mm=y_label_offset_mm,
+        transparent=transparent,
+    )
+
+
 def _cell_aggregate_xyz(df_list: List[pd.DataFrame], mode: str = "mean"):
     """
     Aggregate a list of 2D DataFrames onto a common numeric X/Y grid.
@@ -2682,9 +3367,10 @@ def _plot_interaction_df_grid(
                 X, Y, Z, y_coords, y_tick_labels = cell_cache[(i, j)]
                 m = ax.pcolormesh(X, Y, Z, shading="auto", cmap=cmap_obj, norm=norm, zorder=1)
                 last_mappable = m
-                if nrows == 1 and ncols == 1 and y_tick_labels is not None:
+                if y_tick_labels is not None:
                     ax.set_yticks(y_coords)
                     ax.set_yticklabels(y_tick_labels)
+                    ax.tick_params(labelleft=(j == 0))
 
             if vertical_lines is not None:
                 for xv in vertical_lines:
@@ -2901,3 +3587,1919 @@ def plot_single_effect_df(
         input_vars_text_color=input_vars_text_color,
         transparent=transparent,
     )
+
+
+def plot_triple_interaction_df(
+    df: pd.DataFrame,
+    panel_var: str = "region",
+    facet_var: str = "lat",
+    panel_levels: Optional[List] = None,
+    facet_levels: Optional[List] = None,
+    value_col: str = "value",
+    mode: str = "mean",
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
+    single_x_label: bool = True,
+    single_y_label: bool = True,
+    x_limits: Optional[Tuple[float, float]] = None,
+    y_limits: Optional[Tuple[float, float]] = None,
+    x_log: bool = False,
+    y_log: bool = False,
+    title: Optional[str] = None,
+    font_family: str = "Arial",
+    cmap: Union[str, plt.Colormap] = "viridis",
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+    vmode: str = "auto",
+    dpi: int = 300,
+    grid: bool = False,
+    grid_alpha: float = 0.3,
+    boxsize: Tuple[float, float] = DEFAULT_BOXSIZE_MM,
+    panel_gap: Tuple[float, float] = (3.0, 3.0),
+    include_global_label_margins: bool = True,
+    x_label_offset_mm: float = 1.25,
+    y_label_offset_mm: float = 1.5,
+    cbar_label_offset_mm: float = 1.5,
+    vertical_lines: Optional[Union[List, np.ndarray]] = None,
+    vline_color: str = "white",
+    vline_style: str = "--",
+    vline_width: float = 1.0,
+    vline_alpha: float = 0.8,
+    vertical_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    horizontal_lines: Optional[Union[List, np.ndarray]] = None,
+    hline_color: str = "white",
+    hline_style: str = "--",
+    hline_width: float = 1.0,
+    hline_alpha: float = 0.8,
+    horizontal_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    label_fontsize: int = 16,
+    label_top_bg_color: str = "lightgray",
+    label_right_bg_color: str = "lightgray",
+    label_text_color: str = "black",
+    label_fontweight: str = "normal",
+    strip_top_height_mm: float = 2.5,
+    strip_right_width_mm: float = 3.0,
+    strip_pad_mm: float = 0.3,
+    title_fontsize: int = 20,
+    axis_label_fontsize: int = 16,
+    tick_label_fontsize: int = 12,
+    colorbar_label: Optional[str] = None,
+    colorbar_width_mm: float = 3.0,
+    colorbar_pad_mm: float = 1.5,
+    annotate_input_vars: bool = False,
+    input_vars_box_loc: str = "upper left",
+    input_vars_fontsize: int = 10,
+    input_vars_facecolor: str = "#f0f0f0",
+    input_vars_text_color: str = "black",
+    transparent: bool = False,
+) -> plt.Figure:
+    """Grid of heatmaps (panel × facet)."""
+    return _plot_interaction_df_grid(
+        df=df,
+        value_col=value_col,
+        mode=mode,
+        col_var=panel_var,
+        row_var=facet_var,
+        col_levels=panel_levels,
+        row_levels=facet_levels,
+        x_label=x_label,
+        single_x_label=single_x_label,
+        y_label=y_label,
+        single_y_label=single_y_label,
+        x_limits=x_limits,
+        y_limits=y_limits,
+        x_log=x_log,
+        y_log=y_log,
+        title=title,
+        font_family=font_family,
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        vmode=vmode,
+        dpi=dpi,
+        grid=grid,
+        grid_alpha=grid_alpha,
+        boxsize=boxsize,
+        panel_gap=panel_gap,
+        include_global_label_margins=include_global_label_margins,
+        x_label_offset_mm=x_label_offset_mm,
+        y_label_offset_mm=y_label_offset_mm,
+        cbar_label_offset_mm=cbar_label_offset_mm,
+        vertical_lines=vertical_lines,
+        vline_color=vline_color,
+        vline_style=vline_style,
+        vline_width=vline_width,
+        vline_alpha=vline_alpha,
+        vertical_shadows=vertical_shadows,
+        horizontal_lines=horizontal_lines,
+        hline_color=hline_color,
+        hline_style=hline_style,
+        hline_width=hline_width,
+        hline_alpha=hline_alpha,
+        horizontal_shadows=horizontal_shadows,
+        label_fontsize=label_fontsize,
+        label_top_bg_color=label_top_bg_color,
+        label_right_bg_color=label_right_bg_color,
+        label_text_color=label_text_color,
+        label_fontweight=label_fontweight,
+        strip_top_height_mm=strip_top_height_mm,
+        strip_right_width_mm=strip_right_width_mm,
+        strip_pad_mm=strip_pad_mm,
+        title_fontsize=title_fontsize,
+        axis_label_fontsize=axis_label_fontsize,
+        tick_label_fontsize=tick_label_fontsize,
+        colorbar_label=colorbar_label,
+        colorbar_width_mm=colorbar_width_mm,
+        colorbar_pad_mm=colorbar_pad_mm,
+        annotate_input_vars=annotate_input_vars,
+        input_vars_box_loc=input_vars_box_loc,
+        input_vars_fontsize=input_vars_fontsize,
+        input_vars_facecolor=input_vars_facecolor,
+        input_vars_text_color=input_vars_text_color,
+        transparent=transparent,
+    )
+
+
+def plot_double_interaction_df(
+    df: pd.DataFrame,
+    panel_var: str = "region",
+    panel_levels: Optional[List] = None,
+    value_col: str = "value",
+    mode: str = "mean",
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
+    single_x_label: bool = True,
+    single_y_label: bool = True,
+    x_limits: Optional[Tuple[float, float]] = None,
+    y_limits: Optional[Tuple[float, float]] = None,
+    x_log: bool = False,
+    y_log: bool = False,
+    title: Optional[str] = None,
+    font_family: str = "Arial",
+    cmap: Union[str, plt.Colormap] = "viridis",
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+    vmode: str = "auto",
+    dpi: int = 300,
+    grid: bool = False,
+    grid_alpha: float = 0.3,
+    boxsize: Tuple[float, float] = DEFAULT_BOXSIZE_MM,
+    panel_gap: Tuple[float, float] = (3.0, 3.0),
+    include_global_label_margins: bool = True,
+    x_label_offset_mm: float = 1.25,
+    y_label_offset_mm: float = 1.5,
+    cbar_label_offset_mm: float = 1.5,
+    vertical_lines: Optional[Union[List, np.ndarray]] = None,
+    vline_color: str = "white",
+    vline_style: str = "--",
+    vline_width: float = 1.0,
+    vline_alpha: float = 0.8,
+    vertical_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    horizontal_lines: Optional[Union[List, np.ndarray]] = None,
+    hline_color: str = "white",
+    hline_style: str = "--",
+    hline_width: float = 1.0,
+    hline_alpha: float = 0.8,
+    horizontal_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    label_fontsize: int = 16,
+    label_top_bg_color: str = "lightgray",
+    label_text_color: str = "black",
+    label_fontweight: str = "normal",
+    strip_top_height_mm: float = 2.5,
+    strip_pad_mm: float = 0.3,
+    title_fontsize: int = 20,
+    axis_label_fontsize: int = 16,
+    tick_label_fontsize: int = 12,
+    colorbar_label: Optional[str] = None,
+    colorbar_width_mm: float = 3.0,
+    colorbar_pad_mm: float = 1.5,
+    annotate_input_vars: bool = False,
+    input_vars_box_loc: str = "upper left",
+    input_vars_fontsize: int = 10,
+    input_vars_facecolor: str = "#f0f0f0",
+    input_vars_text_color: str = "black",
+    transparent: bool = False,
+) -> plt.Figure:
+    """Side-by-side heatmaps (panel only)."""
+    return _plot_interaction_df_grid(
+        df=df,
+        value_col=value_col,
+        mode=mode,
+        col_var=panel_var,
+        row_var=None,
+        col_levels=panel_levels,
+        row_levels=None,
+        x_label=x_label,
+        single_x_label=single_x_label,
+        y_label=y_label,
+        single_y_label=single_y_label,
+        x_limits=x_limits,
+        y_limits=y_limits,
+        x_log=x_log,
+        y_log=y_log,
+        title=title,
+        font_family=font_family,
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        vmode=vmode,
+        dpi=dpi,
+        grid=grid,
+        grid_alpha=grid_alpha,
+        boxsize=boxsize,
+        panel_gap=panel_gap,
+        include_global_label_margins=include_global_label_margins,
+        x_label_offset_mm=x_label_offset_mm,
+        y_label_offset_mm=y_label_offset_mm,
+        cbar_label_offset_mm=cbar_label_offset_mm,
+        vertical_lines=vertical_lines,
+        vline_color=vline_color,
+        vline_style=vline_style,
+        vline_width=vline_width,
+        vline_alpha=vline_alpha,
+        vertical_shadows=vertical_shadows,
+        horizontal_lines=horizontal_lines,
+        hline_color=hline_color,
+        hline_style=hline_style,
+        hline_width=hline_width,
+        hline_alpha=hline_alpha,
+        horizontal_shadows=horizontal_shadows,
+        label_fontsize=label_fontsize,
+        label_top_bg_color=label_top_bg_color,
+        label_right_bg_color=label_top_bg_color,
+        label_text_color=label_text_color,
+        label_fontweight=label_fontweight,
+        strip_top_height_mm=strip_top_height_mm,
+        strip_right_width_mm=0.0,
+        strip_pad_mm=strip_pad_mm,
+        title_fontsize=title_fontsize,
+        axis_label_fontsize=axis_label_fontsize,
+        tick_label_fontsize=tick_label_fontsize,
+        colorbar_label=colorbar_label,
+        colorbar_width_mm=colorbar_width_mm,
+        colorbar_pad_mm=colorbar_pad_mm,
+        annotate_input_vars=annotate_input_vars,
+        input_vars_box_loc=input_vars_box_loc,
+        input_vars_fontsize=input_vars_fontsize,
+        input_vars_facecolor=input_vars_facecolor,
+        input_vars_text_color=input_vars_text_color,
+        transparent=transparent,
+    )
+
+
+def _finite(arr):
+    """Return finite values from array-like."""
+    a = np.asarray(arr)
+    return a[np.isfinite(a)]
+
+
+def _auto_limits(x_arrays, y_arrays, x_pad_frac, y_pad_frac, y_log: bool = False):
+    """Compute padded limits from multiple x/y arrays."""
+    if x_arrays:
+        xs = _finite(np.concatenate([np.asarray(v).ravel() for v in x_arrays if v is not None]))
+    else:
+        xs = np.array([0.0, 1.0])
+
+    if y_arrays:
+        ys = _finite(np.concatenate([np.asarray(v).ravel() for v in y_arrays if v is not None]))
+    else:
+        ys = np.array([0.0, 1.0])
+
+    if xs.size == 0:
+        xs = np.array([0.0, 1.0])
+    if ys.size == 0:
+        ys = np.array([0.0, 1.0])
+
+    x0, x1 = float(np.min(xs)), float(np.max(xs))
+    y0, y1 = float(np.min(ys)), float(np.max(ys))
+
+    xr = x1 - x0
+    yr = y1 - y0
+    x_pad = xr * float(x_pad_frac)
+    y_pad = yr * float(y_pad_frac)
+
+    if y_log:
+        y0 = max(y0, 1e-12)
+
+    return (x0 - x_pad, x1 + x_pad), (y0 - y_pad, y1 + y_pad)
+
+
+def _pick_p_column(slope_df: pd.DataFrame, preferred: str) -> Optional[str]:
+    """Pick a p-value column name from slope_df with strict priority fallbacks."""
+    if slope_df is None or slope_df.empty:
+        return None
+
+    candidates: List[str] = []
+    if preferred:
+        candidates.append(str(preferred))
+    candidates.extend(list(_P_VALUE_PRIORITY))
+    candidates.extend(list(_P_VALUE_FALLBACK))
+    candidates = _unique_preserve_order([c for c in candidates if c])
+
+    for cand in candidates:
+        if cand not in slope_df.columns:
+            continue
+        v = pd.to_numeric(slope_df[cand], errors="coerce").astype(float).to_numpy()
+        if np.any(np.isfinite(v)):
+            return cand
+    return None
+
+
+def _format_slope_text(
+    slope_row: pd.Series,
+    *,
+    beta_col: str,
+    lower_col: str,
+    upper_col: str,
+    p_col: Optional[str],
+    text_fmt: str,
+) -> str:
+    """Format slope annotation string."""
+    beta = float(slope_row.get(beta_col, np.nan))
+    lower = float(slope_row.get(lower_col, np.nan))
+    upper = float(slope_row.get(upper_col, np.nan))
+
+    pval = _resolve_p_value_from_row(slope_row, preferred=p_col)
+    stars = p_to_stars(pval)
+
+    return text_fmt.format(beta=beta, lower=lower, upper=upper, p=pval, q=pval, stars=stars)
+
+
+def _plot_interaction_fit_grid(
+    *,
+    df: pd.DataFrame,
+    curve: pd.DataFrame,
+    slope: pd.DataFrame,
+    value_col: str,
+    x_var: str,
+    col_var: Optional[str],
+    row_var: Optional[str],
+    color_var: Optional[str],
+    col_levels: Optional[List],
+    row_levels: Optional[List],
+    x_label: Optional[str],
+    single_x_label: bool,
+    y_label: Optional[str],
+    single_y_label: bool,
+    x_limits: Optional[Tuple[float, float]],
+    y_limits: Optional[Tuple[float, float]],
+    x_log: bool,
+    y_log: bool,
+    title: Optional[str],
+    font_family: str,
+    palette: Union[str, List, Dict],
+    jitter_alpha: float,
+    jitter_size: float,
+    curve_line_width: float,
+    curve_line_color: str,
+    ribbon_alpha: float,
+    show_ribbon: bool,
+    grid: bool,
+    grid_alpha: float,
+    dpi: int,
+    seed: int,
+    show_top_right_axes: bool,
+    vertical_lines: Optional[Union[List, np.ndarray]],
+    vline_color: str,
+    vline_style: str,
+    vline_width: float,
+    vline_alpha: float,
+    horizontal_lines: Optional[Union[List, np.ndarray]],
+    hline_color: str,
+    hline_style: str,
+    hline_width: float,
+    hline_alpha: float,
+    vertical_shadows: Optional[Dict[Tuple[float, float], str]],
+    horizontal_shadows: Optional[Dict[Tuple[float, float], str]],
+    label_fontsize: int,
+    label_top_bg_color: str,
+    label_right_bg_color: str,
+    label_text_color: str,
+    label_fontweight: str,
+    strip_top_height_mm: float,
+    strip_right_width_mm: float,
+    strip_pad_mm: float,
+    title_fontsize: int,
+    axis_label_fontsize: int,
+    tick_label_fontsize: int,
+    legend_loc: str,
+    legend_ncol: Optional[int],
+    legend_framealpha: float,
+    legend_fontsize: int,
+    boxsize: Tuple[float, float],
+    panel_gap: Tuple[float, float],
+    include_global_label_margins: bool,
+    x_label_offset_mm: float,
+    y_label_offset_mm: float,
+    slope_beta_col: str,
+    slope_lower_col: str,
+    slope_upper_col: str,
+    slope_p_col: str,
+    slope_text_fmt: str,
+    slope_text_loc: Union[str, Tuple[float, float]],
+    slope_text_coord: str,
+    slope_text_offset: Tuple[float, float],
+    slope_text_ha: Optional[str],
+    slope_text_va: Optional[str],
+    slope_text_box_alpha: float,
+    transparent: bool,
+) -> plt.Figure:
+    """Core fit grid plotter."""
+    rng = np.random.default_rng(seed)
+    plt.rcParams["font.family"] = font_family
+
+    dfw = df.copy()
+    curw = _normalize_emm_ci_columns(curve.copy())
+    slw = slope.copy()
+
+    if col_var is not None:
+        if col_levels is None:
+            col_levels = _ordered_levels(dfw[col_var], None)
+    else:
+        col_levels = [None]
+    if row_var is not None:
+        if row_levels is None:
+            row_levels = _ordered_levels(dfw[row_var], None)
+    else:
+        row_levels = [None]
+
+    nrows = len(row_levels)
+    ncols = len(col_levels)
+
+    top_h = strip_top_height_mm if (col_var is not None and ncols > 1) else 0.0
+    right_w = strip_right_width_mm if (row_var is not None and nrows > 1) else 0.0
+
+    if color_var is None or color_var not in dfw.columns:
+        color_levels = ["raw"]
+        cmap = {"raw": "gray"}
+        dfw["_color_level"] = "raw"
+    else:
+        color_levels = _ordered_levels(dfw[color_var], None)
+        cmap = _build_color_map(color_levels, palette)
+        dfw["_color_level"] = dfw[color_var]
+
+    if x_limits is None or y_limits is None:
+        x_arrays = []
+        y_arrays = []
+        if x_var in dfw.columns:
+            x_arrays.append(dfw[x_var].to_numpy(dtype=float))
+        if x_var in curw.columns:
+            x_arrays.append(curw[x_var].to_numpy(dtype=float))
+        if value_col in dfw.columns:
+            y_arrays.append(dfw[value_col].to_numpy(dtype=float))
+        if "emmean" in curw.columns:
+            y_arrays.append(curw["emmean"].to_numpy(dtype=float))
+        if "lower.CL" in curw.columns:
+            y_arrays.append(curw["lower.CL"].to_numpy(dtype=float))
+        if "upper.CL" in curw.columns:
+            y_arrays.append(curw["upper.CL"].to_numpy(dtype=float))
+
+        x_lim_auto, y_lim_auto = _auto_limits(
+            x_arrays,
+            y_arrays,
+            x_pad_frac=0.05,
+            y_pad_frac=0.05,
+            y_log=y_log,
+        )
+        if x_limits is None:
+            x_limits = x_lim_auto
+        if y_limits is None:
+            y_limits = y_lim_auto
+
+    fig, axes, layout = _init_box_figure(
+        nrows=nrows,
+        ncols=ncols,
+        boxsize_mm=boxsize,
+        panel_gap_mm=panel_gap,
+        strip_top_height_mm=top_h,
+        strip_right_width_mm=right_w,
+        strip_pad_mm=strip_pad_mm,
+        colorbar_width_mm=0.0,
+        colorbar_pad_mm=0.0,
+        single_x_label=single_x_label,
+        single_y_label=single_y_label,
+        axis_label_fontsize=axis_label_fontsize,
+        include_global_label_margins=include_global_label_margins,
+        x_label_text=(x_label or x_var),
+        y_label_text=(y_label or value_col),
+        x_label_offset_mm=x_label_offset_mm,
+        y_label_offset_mm=y_label_offset_mm,
+        dpi=dpi,
+        font_family=font_family,
+        sharex=True,
+        sharey=True,
+        transparent=transparent,
+    )
+
+    p_col = _pick_p_column(slw, slope_p_col)
+
+    for i, row_lv in enumerate(row_levels):
+        for j, col_lv in enumerate(col_levels):
+            ax = axes[i, j]
+
+            if vertical_shadows:
+                for (x0, x1), c in vertical_shadows.items():
+                    _safe_axvspan(ax, x0, x1, color=_rgba_color(c), zorder=0)
+            if horizontal_shadows:
+                for (y0, y1), c in horizontal_shadows.items():
+                    _safe_axhspan(ax, y0, y1, color=_rgba_color(c), zorder=0)
+
+            cell_raw = dfw
+            cell_curve = curw
+            cell_slope = slw
+
+            if col_var is not None and col_lv is not None and col_var in dfw.columns:
+                cell_raw = cell_raw[cell_raw[col_var] == col_lv]
+            if row_var is not None and row_lv is not None and row_var in dfw.columns:
+                cell_raw = cell_raw[cell_raw[row_var] == row_lv]
+
+            if col_var is not None and col_lv is not None and col_var in curw.columns:
+                cell_curve = cell_curve[cell_curve[col_var] == col_lv]
+            if row_var is not None and row_lv is not None and row_var in curw.columns:
+                cell_curve = cell_curve[cell_curve[row_var] == row_lv]
+
+            if col_var is not None and col_lv is not None and col_var in slw.columns:
+                cell_slope = cell_slope[cell_slope[col_var] == col_lv]
+            if row_var is not None and row_lv is not None and row_var in slw.columns:
+                cell_slope = cell_slope[cell_slope[row_var] == row_lv]
+
+            if not cell_raw.empty:
+                xs = cell_raw[x_var].to_numpy(dtype=float)
+                ys = cell_raw[value_col].to_numpy(dtype=float)
+                cols = [cmap.get(lv, "gray") for lv in cell_raw["_color_level"].tolist()]
+                ax.scatter(xs, ys, c=cols, alpha=jitter_alpha, s=jitter_size, linewidths=0, zorder=2)
+
+            if not cell_curve.empty and x_var in cell_curve.columns and "emmean" in cell_curve.columns:
+                cell_curve = cell_curve.sort_values(x_var)
+                xg = cell_curve[x_var].to_numpy(dtype=float)
+                em = cell_curve["emmean"].to_numpy(dtype=float)
+
+                if show_ribbon and {"lower.CL", "upper.CL"}.issubset(cell_curve.columns):
+                    lo = cell_curve["lower.CL"].to_numpy(dtype=float)
+                    hi = cell_curve["upper.CL"].to_numpy(dtype=float)
+                    ax.fill_between(
+                        xg,
+                        lo,
+                        hi,
+                        color=curve_line_color,
+                        alpha=ribbon_alpha,
+                        linewidth=0,
+                        zorder=1.5,
+                    )
+
+                ax.plot(xg, em, color=curve_line_color, lw=curve_line_width, zorder=3, label="Fit")
+
+            if cell_slope is not None and not cell_slope.empty:
+                row0 = cell_slope.iloc[0]
+                text = _format_slope_text(
+                    row0,
+                    beta_col=slope_beta_col,
+                    lower_col=slope_lower_col,
+                    upper_col=slope_upper_col,
+                    p_col=p_col,
+                    text_fmt=slope_text_fmt,
+                )
+
+                if isinstance(slope_text_loc, tuple):
+                    x0, y0 = slope_text_loc
+                    coord_alias = str(slope_text_coord).strip().lower()
+                    if coord_alias in {"axes", "axes fraction"}:
+                        xycoords = "axes fraction"
+                    elif coord_alias in {"data"}:
+                        xycoords = "data"
+                    elif coord_alias in {"figure", "figure fraction"}:
+                        xycoords = "figure fraction"
+                    else:
+                        xycoords = "axes fraction"
+
+                    ha = slope_text_ha or ("left" if x0 <= 0.5 else "right")
+                    va = slope_text_va or ("top" if y0 >= 0.5 else "bottom")
+
+                    ax.annotate(
+                        text,
+                        xy=(x0, y0),
+                        xycoords=xycoords,
+                        textcoords="offset points",
+                        xytext=slope_text_offset,
+                        ha=ha,
+                        va=va,
+                        fontsize=tick_label_fontsize,
+                        bbox=dict(
+                            boxstyle="round,pad=0.25",
+                            facecolor="white",
+                            edgecolor="none",
+                            alpha=slope_text_box_alpha,
+                        ),
+                        zorder=10,
+                        clip_on=False,
+                    )
+                else:
+                    anchors = {
+                        "upper left": dict(x=0.05, y=0.95, ha="left", va="top"),
+                        "upper right": dict(x=0.95, y=0.95, ha="right", va="top"),
+                        "lower left": dict(x=0.05, y=0.05, ha="left", va="bottom"),
+                        "lower right": dict(x=0.95, y=0.05, ha="right", va="bottom"),
+                    }
+                    an = anchors.get(str(slope_text_loc).lower(), anchors["upper left"])
+                    ax.text(
+                        an["x"],
+                        an["y"],
+                        text,
+                        transform=ax.transAxes,
+                        ha=an["ha"],
+                        va=an["va"],
+                        fontsize=tick_label_fontsize,
+                        bbox=dict(
+                            boxstyle="round,pad=0.25",
+                            facecolor="white",
+                            edgecolor="none",
+                            alpha=slope_text_box_alpha,
+                        ),
+                        zorder=10,
+                        clip_on=False,
+                    )
+
+            if vertical_lines is not None:
+                for xv in vertical_lines:
+                    ax.axvline(
+                        x=xv,
+                        color=vline_color,
+                        linestyle=vline_style,
+                        linewidth=vline_width,
+                        alpha=vline_alpha,
+                        zorder=4,
+                    )
+
+            if horizontal_lines is not None:
+                for yv in horizontal_lines:
+                    ax.axhline(
+                        y=yv,
+                        color=hline_color,
+                        linestyle=hline_style,
+                        linewidth=hline_width,
+                        alpha=hline_alpha,
+                        zorder=4,
+                    )
+
+            ax.set_xlim(*x_limits)
+            ax.set_ylim(*y_limits)
+
+            if x_log:
+                ax.set_xscale("log")
+            if y_log:
+                ax.set_yscale("log")
+
+            ax.tick_params(labelsize=tick_label_fontsize)
+
+            if grid:
+                ax.grid(True, alpha=grid_alpha, linestyle="--", zorder=0)
+
+            ax.spines["top"].set_visible(show_top_right_axes)
+            ax.spines["right"].set_visible(show_top_right_axes)
+
+            if (i == nrows - 1) and (not single_x_label):
+                ax.set_xlabel(x_label or x_var, fontsize=axis_label_fontsize)
+            if (j == 0) and (not single_y_label):
+                ax.set_ylabel(y_label or value_col, fontsize=axis_label_fontsize)
+
+    col_labs = [f"{lv}" for lv in col_levels] if (col_var is not None and ncols > 1) else None
+    row_labs = [f"{lv}" for lv in row_levels] if (row_var is not None and nrows > 1) else None
+    _ = _add_strips_mm(
+        fig,
+        axes,
+        col_labels=col_labs,
+        row_labels=row_labs,
+        strip_top_height_mm=top_h,
+        strip_right_width_mm=right_w,
+        strip_pad_mm=strip_pad_mm,
+        label_fontsize=label_fontsize,
+        label_top_bg_color=label_top_bg_color,
+        label_right_bg_color=label_right_bg_color,
+        label_text_color=label_text_color,
+        label_fontweight=label_fontweight,
+    )
+
+    if transparent:
+        _ensure_strip_background_opaque(fig)
+
+    _draw_global_labels_and_title(
+        fig,
+        layout,
+        x_label=(x_label or x_var),
+        y_label=(y_label or value_col),
+        axis_label_fontsize=axis_label_fontsize,
+        title=title,
+        title_fontsize=title_fontsize,
+        single_x_label=single_x_label,
+        single_y_label=single_y_label,
+        font_family=font_family,
+    )
+
+    if legend_loc != "none":
+        handles = [
+            Line2D([0], [0], color=curve_line_color, lw=curve_line_width, label="Fit"),
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="none",
+                markerfacecolor="gray",
+                alpha=jitter_alpha,
+                markersize=float(np.sqrt(jitter_size)),
+                label=f"Raw ({color_var or 'raw'})",
+            ),
+        ]
+        if legend_ncol is None:
+            legend_ncol = 1
+
+        inside_map = not _is_outside_legend_loc(legend_loc)
+        _place_legend(
+            fig,
+            axes[0, 0],
+            handles,
+            [h.get_label() for h in handles],
+            legend_loc=legend_loc,
+            legend_fontsize=legend_fontsize,
+            legend_ncol=legend_ncol,
+            legend_framealpha=legend_framealpha,
+            inside_map=inside_map,
+        )
+
+    return fig
+
+
+def plot_triple_interaction_fit(
+    df: pd.DataFrame,
+    curve: pd.DataFrame,
+    slope: pd.DataFrame,
+    value_col: str = "Value",
+    x_var: str = "LogI_c",
+    panel_var: str = "Region",
+    facet_var: str = "Stimulus",
+    color_var: Optional[str] = "Subject",
+    panel_levels: Optional[List] = None,
+    facet_levels: Optional[List] = None,
+    x_label: Optional[str] = None,
+    single_x_label: bool = True,
+    y_label: Optional[str] = None,
+    single_y_label: bool = True,
+    x_limits: Optional[Tuple[float, float]] = None,
+    y_limits: Optional[Tuple[float, float]] = None,
+    x_log: bool = False,
+    y_log: bool = False,
+    title: Optional[str] = None,
+    font_family: str = "Arial",
+    palette: Union[str, List, Dict] = "viridis",
+    jitter_alpha: float = 0.35,
+    jitter_size: float = 10.0,
+    curve_line_width: float = 2.0,
+    curve_line_color: str = "black",
+    ribbon_alpha: float = 0.20,
+    show_ribbon: bool = True,
+    grid: bool = True,
+    grid_alpha: float = 0.3,
+    dpi: int = 100,
+    seed: int = 1,
+    show_top_right_axes: bool = True,
+    vertical_lines: Optional[Union[List, np.ndarray]] = None,
+    vline_color: str = "gray",
+    vline_style: str = "--",
+    vline_width: float = 1.0,
+    vline_alpha: float = 0.6,
+    horizontal_lines: Optional[Union[List, np.ndarray]] = None,
+    hline_color: str = "gray",
+    hline_style: str = "--",
+    hline_width: float = 1.0,
+    hline_alpha: float = 0.6,
+    vertical_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    horizontal_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    label_fontsize: int = 14,
+    label_top_bg_color: str = "lightgray",
+    label_right_bg_color: str = "lightgray",
+    label_text_color: str = "black",
+    label_fontweight: str = "normal",
+    strip_top_height_mm: float = 2.5,
+    strip_right_width_mm: float = 3.0,
+    strip_pad_mm: float = 0.3,
+    title_fontsize: int = 18,
+    axis_label_fontsize: int = 14,
+    tick_label_fontsize: int = 12,
+    legend_loc: str = "none",
+    legend_ncol: Optional[int] = None,
+    legend_framealpha: float = 0.9,
+    legend_fontsize: int = 10,
+    boxsize: Tuple[float, float] = DEFAULT_BOXSIZE_MM,
+    panel_gap: Tuple[float, float] = (3.0, 3.0),
+    include_global_label_margins: bool = True,
+    x_label_offset_mm: float = 1.25,
+    y_label_offset_mm: float = 1.5,
+    slope_beta_col: str = "slope",
+    slope_lower_col: str = "lower",
+    slope_upper_col: str = "upper",
+    slope_p_col: str = "q",
+    slope_text_fmt: str = "β = {beta:.3f}\\nq = {q:.3f} ({stars})",
+    slope_text_loc: Union[str, Tuple[float, float]] = "upper left",
+    slope_text_coord: str = "axes fraction",
+    slope_text_offset: Tuple[float, float] = (0.0, 0.0),
+    slope_text_ha: Optional[str] = None,
+    slope_text_va: Optional[str] = None,
+    slope_text_box_alpha: float = 0.9,
+    transparent: bool = False,
+) -> plt.Figure:
+    """Triple interaction fit plot (panel × facet)."""
+    return _plot_interaction_fit_grid(
+        df=df,
+        curve=curve,
+        slope=slope,
+        value_col=value_col,
+        x_var=x_var,
+        col_var=panel_var,
+        row_var=facet_var,
+        color_var=color_var,
+        col_levels=panel_levels,
+        row_levels=facet_levels,
+        x_label=x_label,
+        single_x_label=single_x_label,
+        y_label=y_label,
+        single_y_label=single_y_label,
+        x_limits=x_limits,
+        y_limits=y_limits,
+        x_log=x_log,
+        y_log=y_log,
+        title=title,
+        font_family=font_family,
+        palette=palette,
+        jitter_alpha=jitter_alpha,
+        jitter_size=jitter_size,
+        curve_line_width=curve_line_width,
+        curve_line_color=curve_line_color,
+        ribbon_alpha=ribbon_alpha,
+        show_ribbon=show_ribbon,
+        grid=grid,
+        grid_alpha=grid_alpha,
+        dpi=dpi,
+        seed=seed,
+        show_top_right_axes=show_top_right_axes,
+        vertical_lines=vertical_lines,
+        vline_color=vline_color,
+        vline_style=vline_style,
+        vline_width=vline_width,
+        vline_alpha=vline_alpha,
+        horizontal_lines=horizontal_lines,
+        hline_color=hline_color,
+        hline_style=hline_style,
+        hline_width=hline_width,
+        hline_alpha=hline_alpha,
+        vertical_shadows=vertical_shadows,
+        horizontal_shadows=horizontal_shadows,
+        label_fontsize=label_fontsize,
+        label_top_bg_color=label_top_bg_color,
+        label_right_bg_color=label_right_bg_color,
+        label_text_color=label_text_color,
+        label_fontweight=label_fontweight,
+        strip_top_height_mm=strip_top_height_mm,
+        strip_right_width_mm=strip_right_width_mm,
+        strip_pad_mm=strip_pad_mm,
+        title_fontsize=title_fontsize,
+        axis_label_fontsize=axis_label_fontsize,
+        tick_label_fontsize=tick_label_fontsize,
+        legend_loc=legend_loc,
+        legend_ncol=legend_ncol,
+        legend_framealpha=legend_framealpha,
+        legend_fontsize=legend_fontsize,
+        boxsize=boxsize,
+        panel_gap=panel_gap,
+        include_global_label_margins=include_global_label_margins,
+        x_label_offset_mm=x_label_offset_mm,
+        y_label_offset_mm=y_label_offset_mm,
+        slope_beta_col=slope_beta_col,
+        slope_lower_col=slope_lower_col,
+        slope_upper_col=slope_upper_col,
+        slope_p_col=slope_p_col,
+        slope_text_fmt=slope_text_fmt,
+        slope_text_loc=slope_text_loc,
+        slope_text_coord=slope_text_coord,
+        slope_text_offset=slope_text_offset,
+        slope_text_ha=slope_text_ha,
+        slope_text_va=slope_text_va,
+        slope_text_box_alpha=slope_text_box_alpha,
+        transparent=transparent,
+    )
+
+
+def plot_double_interaction_fit(
+    df: pd.DataFrame,
+    curve: pd.DataFrame,
+    slope: pd.DataFrame,
+    value_col: str = "Value",
+    x_var: str = "LogI_c",
+    panel_var: str = "Region",
+    color_var: Optional[str] = "Subject",
+    panel_levels: Optional[List] = None,
+    x_label: Optional[str] = None,
+    single_x_label: bool = True,
+    y_label: Optional[str] = None,
+    single_y_label: bool = True,
+    x_limits: Optional[Tuple[float, float]] = None,
+    y_limits: Optional[Tuple[float, float]] = None,
+    x_log: bool = False,
+    y_log: bool = False,
+    title: Optional[str] = None,
+    font_family: str = "Arial",
+    palette: Union[str, List, Dict] = "viridis",
+    jitter_alpha: float = 0.35,
+    jitter_size: float = 10.0,
+    curve_line_width: float = 2.0,
+    curve_line_color: str = "black",
+    ribbon_alpha: float = 0.20,
+    show_ribbon: bool = True,
+    grid: bool = True,
+    grid_alpha: float = 0.3,
+    dpi: int = 100,
+    seed: int = 1,
+    show_top_right_axes: bool = True,
+    vertical_lines: Optional[Union[List, np.ndarray]] = None,
+    vline_color: str = "gray",
+    vline_style: str = "--",
+    vline_width: float = 1.0,
+    vline_alpha: float = 0.6,
+    horizontal_lines: Optional[Union[List, np.ndarray]] = None,
+    hline_color: str = "gray",
+    hline_style: str = "--",
+    hline_width: float = 1.0,
+    hline_alpha: float = 0.6,
+    vertical_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    horizontal_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    label_fontsize: int = 14,
+    label_top_bg_color: str = "lightgray",
+    label_text_color: str = "black",
+    label_fontweight: str = "normal",
+    strip_top_height_mm: float = 2.5,
+    strip_pad_mm: float = 0.3,
+    title_fontsize: int = 18,
+    axis_label_fontsize: int = 14,
+    tick_label_fontsize: int = 12,
+    legend_loc: str = "none",
+    legend_ncol: Optional[int] = None,
+    legend_framealpha: float = 0.9,
+    legend_fontsize: int = 10,
+    boxsize: Tuple[float, float] = DEFAULT_BOXSIZE_MM,
+    panel_gap: Tuple[float, float] = (3.0, 3.0),
+    include_global_label_margins: bool = True,
+    x_label_offset_mm: float = 1.25,
+    y_label_offset_mm: float = 1.5,
+    slope_beta_col: str = "slope",
+    slope_lower_col: str = "lower",
+    slope_upper_col: str = "upper",
+    slope_p_col: str = "q",
+    slope_text_fmt: str = "β = {beta:.3f}\\nq = {q:.3f} ({stars})",
+    slope_text_loc: Union[str, Tuple[float, float]] = "upper left",
+    slope_text_coord: str = "axes fraction",
+    slope_text_offset: Tuple[float, float] = (0.0, 0.0),
+    slope_text_ha: Optional[str] = None,
+    slope_text_va: Optional[str] = None,
+    slope_text_box_alpha: float = 0.9,
+    transparent: bool = False,
+) -> plt.Figure:
+    """Double interaction fit plot (panel only)."""
+    return _plot_interaction_fit_grid(
+        df=df,
+        curve=curve,
+        slope=slope,
+        value_col=value_col,
+        x_var=x_var,
+        col_var=panel_var,
+        row_var=None,
+        color_var=color_var,
+        col_levels=panel_levels,
+        row_levels=None,
+        x_label=x_label,
+        single_x_label=single_x_label,
+        y_label=y_label,
+        single_y_label=single_y_label,
+        x_limits=x_limits,
+        y_limits=y_limits,
+        x_log=x_log,
+        y_log=y_log,
+        title=title,
+        font_family=font_family,
+        palette=palette,
+        jitter_alpha=jitter_alpha,
+        jitter_size=jitter_size,
+        curve_line_width=curve_line_width,
+        curve_line_color=curve_line_color,
+        ribbon_alpha=ribbon_alpha,
+        show_ribbon=show_ribbon,
+        grid=grid,
+        grid_alpha=grid_alpha,
+        dpi=dpi,
+        seed=seed,
+        show_top_right_axes=show_top_right_axes,
+        vertical_lines=vertical_lines,
+        vline_color=vline_color,
+        vline_style=vline_style,
+        vline_width=vline_width,
+        vline_alpha=vline_alpha,
+        horizontal_lines=horizontal_lines,
+        hline_color=hline_color,
+        hline_style=hline_style,
+        hline_width=hline_width,
+        hline_alpha=hline_alpha,
+        vertical_shadows=vertical_shadows,
+        horizontal_shadows=horizontal_shadows,
+        label_fontsize=label_fontsize,
+        label_top_bg_color=label_top_bg_color,
+        label_right_bg_color=label_top_bg_color,
+        label_text_color=label_text_color,
+        label_fontweight=label_fontweight,
+        strip_top_height_mm=strip_top_height_mm,
+        strip_right_width_mm=0.0,
+        strip_pad_mm=strip_pad_mm,
+        title_fontsize=title_fontsize,
+        axis_label_fontsize=axis_label_fontsize,
+        tick_label_fontsize=tick_label_fontsize,
+        legend_loc=legend_loc,
+        legend_ncol=legend_ncol,
+        legend_framealpha=legend_framealpha,
+        legend_fontsize=legend_fontsize,
+        boxsize=boxsize,
+        panel_gap=panel_gap,
+        include_global_label_margins=include_global_label_margins,
+        x_label_offset_mm=x_label_offset_mm,
+        y_label_offset_mm=y_label_offset_mm,
+        slope_beta_col=slope_beta_col,
+        slope_lower_col=slope_lower_col,
+        slope_upper_col=slope_upper_col,
+        slope_p_col=slope_p_col,
+        slope_text_fmt=slope_text_fmt,
+        slope_text_loc=slope_text_loc,
+        slope_text_coord=slope_text_coord,
+        slope_text_offset=slope_text_offset,
+        slope_text_ha=slope_text_ha,
+        slope_text_va=slope_text_va,
+        slope_text_box_alpha=slope_text_box_alpha,
+        transparent=transparent,
+    )
+
+
+def plot_single_effect_fit(
+    df: pd.DataFrame,
+    curve: pd.DataFrame,
+    slope: pd.DataFrame,
+    value_col: str = "Value",
+    x_var: str = "LogI_c",
+    color_var: Optional[str] = "Subject",
+    x_label: Optional[str] = None,
+    single_x_label: bool = True,
+    y_label: Optional[str] = None,
+    single_y_label: bool = True,
+    x_limits: Optional[Tuple[float, float]] = None,
+    y_limits: Optional[Tuple[float, float]] = None,
+    x_log: bool = False,
+    y_log: bool = False,
+    title: Optional[str] = None,
+    font_family: str = "Arial",
+    palette: Union[str, List, Dict] = "viridis",
+    jitter_alpha: float = 0.35,
+    jitter_size: float = 10.0,
+    curve_line_width: float = 2.0,
+    curve_line_color: str = "black",
+    ribbon_alpha: float = 0.20,
+    show_ribbon: bool = True,
+    grid: bool = True,
+    grid_alpha: float = 0.3,
+    dpi: int = 100,
+    seed: int = 1,
+    show_top_right_axes: bool = True,
+    vertical_lines: Optional[Union[List, np.ndarray]] = None,
+    vline_color: str = "gray",
+    vline_style: str = "--",
+    vline_width: float = 1.0,
+    vline_alpha: float = 0.6,
+    horizontal_lines: Optional[Union[List, np.ndarray]] = None,
+    hline_color: str = "gray",
+    hline_style: str = "--",
+    hline_width: float = 1.0,
+    hline_alpha: float = 0.6,
+    vertical_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    horizontal_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    title_fontsize: int = 18,
+    axis_label_fontsize: int = 14,
+    tick_label_fontsize: int = 12,
+    legend_loc: str = "none",
+    legend_ncol: Optional[int] = None,
+    legend_framealpha: float = 0.9,
+    legend_fontsize: int = 10,
+    boxsize: Tuple[float, float] = DEFAULT_BOXSIZE_MM,
+    include_global_label_margins: bool = True,
+    x_label_offset_mm: float = 1.25,
+    y_label_offset_mm: float = 1.5,
+    slope_beta_col: str = "slope",
+    slope_lower_col: str = "lower",
+    slope_upper_col: str = "upper",
+    slope_p_col: str = "q",
+    slope_text_fmt: str = "β = {beta:.3f}\\nq = {q:.3f} ({stars})",
+    slope_text_loc: Union[str, Tuple[float, float]] = "upper left",
+    slope_text_coord: str = "axes fraction",
+    slope_text_offset: Tuple[float, float] = (0.0, 0.0),
+    slope_text_ha: Optional[str] = None,
+    slope_text_va: Optional[str] = None,
+    slope_text_box_alpha: float = 0.9,
+    transparent: bool = False,
+) -> plt.Figure:
+    """Single fit plot (no faceting)."""
+    return _plot_interaction_fit_grid(
+        df=df,
+        curve=curve,
+        slope=slope,
+        value_col=value_col,
+        x_var=x_var,
+        col_var=None,
+        row_var=None,
+        color_var=color_var,
+        col_levels=None,
+        row_levels=None,
+        x_label=x_label,
+        single_x_label=single_x_label,
+        y_label=y_label,
+        single_y_label=single_y_label,
+        x_limits=x_limits,
+        y_limits=y_limits,
+        x_log=x_log,
+        y_log=y_log,
+        title=title,
+        font_family=font_family,
+        palette=palette,
+        jitter_alpha=jitter_alpha,
+        jitter_size=jitter_size,
+        curve_line_width=curve_line_width,
+        curve_line_color=curve_line_color,
+        ribbon_alpha=ribbon_alpha,
+        show_ribbon=show_ribbon,
+        grid=grid,
+        grid_alpha=grid_alpha,
+        dpi=dpi,
+        seed=seed,
+        show_top_right_axes=show_top_right_axes,
+        vertical_lines=vertical_lines,
+        vline_color=vline_color,
+        vline_style=vline_style,
+        vline_width=vline_width,
+        vline_alpha=vline_alpha,
+        horizontal_lines=horizontal_lines,
+        hline_color=hline_color,
+        hline_style=hline_style,
+        hline_width=hline_width,
+        hline_alpha=hline_alpha,
+        vertical_shadows=vertical_shadows,
+        horizontal_shadows=horizontal_shadows,
+        label_fontsize=14,
+        label_top_bg_color="lightgray",
+        label_right_bg_color="lightgray",
+        label_text_color="black",
+        label_fontweight="normal",
+        strip_top_height_mm=0.0,
+        strip_right_width_mm=0.0,
+        strip_pad_mm=0.0,
+        title_fontsize=title_fontsize,
+        axis_label_fontsize=axis_label_fontsize,
+        tick_label_fontsize=tick_label_fontsize,
+        legend_loc=legend_loc,
+        legend_ncol=legend_ncol,
+        legend_framealpha=legend_framealpha,
+        legend_fontsize=legend_fontsize,
+        boxsize=boxsize,
+        panel_gap=(0.0, 0.0),
+        include_global_label_margins=include_global_label_margins,
+        x_label_offset_mm=x_label_offset_mm,
+        y_label_offset_mm=y_label_offset_mm,
+        slope_beta_col=slope_beta_col,
+        slope_lower_col=slope_lower_col,
+        slope_upper_col=slope_upper_col,
+        slope_p_col=slope_p_col,
+        slope_text_fmt=slope_text_fmt,
+        slope_text_loc=slope_text_loc,
+        slope_text_coord=slope_text_coord,
+        slope_text_offset=slope_text_offset,
+        slope_text_ha=slope_text_ha,
+        slope_text_va=slope_text_va,
+        slope_text_box_alpha=slope_text_box_alpha,
+        transparent=transparent,
+    )
+
+
+def plot_prism_boxplot(
+    df: pd.DataFrame,
+    tuk: Optional[pd.DataFrame] = None,
+    *,
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
+    title: Optional[str] = None,
+    font_family: str = "Arial",
+    group_order: Optional[List[str]] = None,
+    x_levels: Optional[List[str]] = None,
+    jitter_palette: Union[str, List, Dict] = "viridis",
+    fill_palette: Union[str, List, Dict] = "viridis",
+    outline_palette: Union[str, List, Dict] = "viridis",
+    xtick_rotation: float = 0.0,
+    ytick_rotation: float = 0.0,
+    x_log: bool = False,
+    y_log: bool = False,
+    x_limits: Optional[Tuple[float, float]] = None,
+    y_limits: Optional[Tuple[float, float]] = None,
+    y_min_zero: bool = False,
+    fill_alpha: float = 0.40,
+    show_points: bool = True,
+    jitter_alpha: float = 0.35,
+    jitter_size: float = 12.0,
+    jitter_width: float = 0.18,
+    show_box: bool = True,
+    box_width: float = 0.55,
+    whiskers: Union[str, float, Tuple[float, float]] = "tukey",
+    box_edge_color: str = "black",
+    box_edge_width: float = 1.0,
+    median_color: str = "black",
+    median_linewidth: float = 1.0,
+    whisker_color: str = "black",
+    whisker_linewidth: float = 1.0,
+    cap_linewidth: float = 1.0,
+    outlier_marker: str = "o",
+    outlier_markersize: float = 3.0,
+    show_raw_mean_line: bool = True,
+    raw_mean_line_width: float = 1.0,
+    raw_mean_line_color: str = "#404040",
+    raw_mean_line_style: str = "--",
+    grid: bool = True,
+    grid_alpha: float = 0.3,
+    dpi: int = 150,
+    seed: int = 1,
+    show_top_right_axes: bool = True,
+    vertical_lines: Optional[Union[List, np.ndarray]] = None,
+    vline_color: str = "gray",
+    vline_style: str = "--",
+    vline_width: float = 1.0,
+    vline_alpha: float = 0.6,
+    horizontal_lines: Optional[Union[List, np.ndarray]] = None,
+    hline_color: str = "gray",
+    hline_style: str = "--",
+    hline_width: float = 1.0,
+    hline_alpha: float = 0.6,
+    vertical_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    horizontal_shadows: Optional[Dict[Tuple[float, float], str]] = None,
+    show_brackets: bool = True,
+    hide_ns: bool = True,
+    y_start: float = 0.70,
+    y_end: float = 0.95,
+    y_step: Optional[float] = 0.08,
+    bracket_height_frac: float = 0.018,
+    bracket_color: str = "black",
+    bracket_linewidth: float = 1.2,
+    bracket_text_size: int = 12,
+    title_fontsize: int = 18,
+    axis_label_fontsize: int = 14,
+    tick_label_fontsize: int = 12,
+    legend_loc: str = "none",
+    legend_ncol: Optional[int] = None,
+    legend_framealpha: float = 0.9,
+    legend_fontsize: int = 10,
+    boxsize: Tuple[float, float] = DEFAULT_BOXSIZE_MM,
+    include_global_label_margins: bool = True,
+    x_label_offset_mm: float = 1.25,
+    y_label_offset_mm: float = 1.5,
+    transparent: bool = False,
+) -> plt.Figure:
+    """
+    GraphPad/Prism-style one-factor boxplot.
+
+    Parameters
+    ----------
+    df:
+        Wide table; each column is a group, rows are replicates (NaN allowed).
+    tuk:
+        Prism multiple-comparisons table (optional). Expected:
+          - first column contains comparisons like "A vs. B"
+          - a column containing star summary ("*", "**", "ns", etc.)
+        The function will try to infer which column has stars.
+    """
+    plt.rcParams["font.family"] = font_family
+    rng = np.random.default_rng(seed)
+
+    if df is None or df.empty:
+        raise ValueError("df is empty; expected a wide table with group columns.")
+
+    if x_levels is None:
+        if group_order is not None:
+            x_levels = list(group_order)
+        else:
+            x_levels = list(df.columns)
+    groups = list(x_levels)
+    missing = [g for g in groups if g not in df.columns]
+    if missing:
+        raise ValueError(f"x_levels/group_order contains missing groups: {missing}")
+
+    jitter_cmap = _build_color_map(groups, jitter_palette)
+    fill_cmap = _build_color_map(groups, fill_palette)
+    outline_cmap = _build_color_map(groups, outline_palette) if outline_palette is not None else {}
+    use_outline_for_lines = outline_palette is not None
+    x_offset = 1.0 if x_log else 0.0
+    x_to_num = {str(g): i + x_offset for i, g in enumerate(groups)}
+
+    fig, axes, layout = _init_box_figure(
+        nrows=1,
+        ncols=1,
+        boxsize_mm=boxsize,
+        panel_gap_mm=(0.0, 0.0),
+        strip_top_height_mm=0.0,
+        strip_right_width_mm=0.0,
+        strip_pad_mm=0.0,
+        colorbar_width_mm=0.0,
+        colorbar_pad_mm=0.0,
+        single_x_label=True,
+        single_y_label=True,
+        axis_label_fontsize=axis_label_fontsize,
+        include_global_label_margins=include_global_label_margins,
+        x_label_text=(x_label or ""),
+        y_label_text=(y_label or ""),
+        x_label_offset_mm=x_label_offset_mm,
+        y_label_offset_mm=y_label_offset_mm,
+        dpi=dpi,
+        font_family=font_family,
+        sharex=False,
+        sharey=False,
+        transparent=transparent,
+    )
+    ax = axes[0, 0]
+
+    if vertical_shadows:
+        for (x0, x1), c in vertical_shadows.items():
+            _safe_axvspan(ax, x0, x1, color=_rgba_color(c), zorder=0)
+    if horizontal_shadows:
+        for (y0, y1), c in horizontal_shadows.items():
+            _safe_axhspan(ax, y0, y1, color=_rgba_color(c), zorder=0)
+
+    data_for_boxes: List[np.ndarray] = []
+    pos_for_boxes: List[float] = []
+    all_vals = []
+
+    for g in groups:
+        vals = df[g].to_numpy(dtype=float)
+        vals = vals[np.isfinite(vals)]
+        all_vals.append(vals)
+        if vals.size:
+            data_for_boxes.append(vals)
+            pos_for_boxes.append(float(x_to_num[str(g)]))
+
+    if show_box and data_for_boxes:
+        whis = _parse_whiskers(whiskers)
+        bp = ax.boxplot(
+            data_for_boxes,
+            positions=pos_for_boxes,
+            widths=box_width,
+            patch_artist=True,
+            showfliers=True,
+            whis=whis,
+            medianprops=dict(color=median_color, linewidth=median_linewidth),
+            whiskerprops=dict(color=whisker_color, linewidth=whisker_linewidth),
+            capprops=dict(color=whisker_color, linewidth=cap_linewidth),
+            flierprops=dict(
+                marker=outlier_marker,
+                markersize=outlier_markersize,
+                markerfacecolor=whisker_color,
+                markeredgecolor=whisker_color,
+                alpha=0.7,
+            ),
+        )
+
+        for k, b in enumerate(bp["boxes"]):
+            g = groups[k] if k < len(groups) else None
+            face = fill_cmap.get(g, "gray")
+            outline_c = outline_cmap.get(g, box_edge_color) if use_outline_for_lines else box_edge_color
+            b.set_facecolor(mpl.colors.to_rgba(face, fill_alpha))
+            b.set_edgecolor(outline_c)
+            b.set_linewidth(box_edge_width)
+
+            if use_outline_for_lines:
+                if k < len(bp.get("medians", [])):
+                    bp["medians"][k].set_color(outline_c)
+                    bp["medians"][k].set_linewidth(median_linewidth)
+
+                for idx in (2 * k, 2 * k + 1):
+                    if idx < len(bp.get("whiskers", [])):
+                        bp["whiskers"][idx].set_color(outline_c)
+                        bp["whiskers"][idx].set_linewidth(whisker_linewidth)
+                    if idx < len(bp.get("caps", [])):
+                        bp["caps"][idx].set_color(outline_c)
+                        bp["caps"][idx].set_linewidth(cap_linewidth)
+
+                if k < len(bp.get("fliers", [])):
+                    fl = bp["fliers"][k]
+                    fl.set_markerfacecolor(outline_c)
+                    fl.set_markeredgecolor(outline_c)
+
+    if show_points:
+        for g in groups:
+            vals = df[g].to_numpy(dtype=float)
+            vals = vals[np.isfinite(vals)]
+            if not vals.size:
+                continue
+            x0 = float(x_to_num[str(g)])
+            xs = x0 + (rng.random(vals.size) - 0.5) * jitter_width
+            ax.scatter(
+                xs,
+                vals,
+                color=jitter_cmap.get(g, "gray"),
+                alpha=jitter_alpha,
+                s=jitter_size,
+                linewidths=0,
+                zorder=3,
+            )
+
+    if show_raw_mean_line:
+        xs_mean: List[float] = []
+        ys_mean: List[float] = []
+        for g in groups:
+            vals = df[g].to_numpy(dtype=float)
+            vals = vals[np.isfinite(vals)]
+            if not vals.size:
+                continue
+            xs_mean.append(float(x_to_num[str(g)]))
+            ys_mean.append(float(np.mean(vals)))
+        if ys_mean:
+            ax.plot(
+                np.array(xs_mean, dtype=float),
+                np.array(ys_mean, dtype=float),
+                color=raw_mean_line_color,
+                lw=raw_mean_line_width,
+                ls=raw_mean_line_style,
+                zorder=2.9,
+                label="Raw mean",
+            )
+
+    if vertical_lines is not None:
+        for xv in vertical_lines:
+            ax.axvline(
+                x=xv,
+                color=vline_color,
+                linestyle=vline_style,
+                linewidth=vline_width,
+                alpha=vline_alpha,
+                zorder=4,
+            )
+    if horizontal_lines is not None:
+        for yv in horizontal_lines:
+            ax.axhline(
+                y=yv,
+                color=hline_color,
+                linestyle=hline_style,
+                linewidth=hline_width,
+                alpha=hline_alpha,
+                zorder=4,
+            )
+
+    default_x_limits = (-0.5 + x_offset, len(groups) - 0.5 + x_offset)
+    x_limits_use = x_limits if x_limits is not None else default_x_limits
+    ax.set_xlim(*x_limits_use)
+    xtick_pos = [x_to_num[str(g)] for g in groups]
+    ax.set_xticks(xtick_pos)
+    ax.set_xticklabels([str(g) for g in groups], fontsize=tick_label_fontsize, rotation=xtick_rotation)
+    if x_log:
+        ax.set_xscale("log")
+    if y_log:
+        ax.set_yscale("log")
+    for t in ax.get_yticklabels():
+        t.set_rotation(ytick_rotation)
+    ax.tick_params(labelsize=tick_label_fontsize)
+
+    if grid:
+        ax.grid(True, alpha=grid_alpha, linestyle="--", zorder=0)
+
+    ax.spines["top"].set_visible(show_top_right_axes)
+    ax.spines["right"].set_visible(show_top_right_axes)
+
+    if y_limits is not None:
+        ax.set_ylim(*y_limits)
+    elif all_vals and any(v.size for v in all_vals):
+        ymin = float(np.min([np.min(v) for v in all_vals if v.size]))
+        if y_min_zero and ymin > 0:
+            ymin = 0.0
+        ymax = float(np.max([np.max(v) for v in all_vals if v.size]))
+        yr = ymax - ymin
+        if yr <= 0:
+            yr = 1.0
+
+        ymin = ymin - 0.10 * yr
+        ymax = ymax + 0.30 * yr
+
+        ax.set_ylim(ymin - 0.10 * yr, ymax + 0.30 * yr)
+    y_limits_use = ax.get_ylim()
+
+    if show_brackets and tuk is not None and not tuk.empty:
+        cols = list(tuk.columns)
+        pair_col = cols[0]
+        star_col = next(
+            (c for c in reversed(cols) if re.search(r"(summary|p\s*value\s*summary)", str(c), flags=re.I)),
+            None,
+        )
+        if star_col is None and len(cols) >= 2:
+            star_col = cols[-2]
+
+        def _norm_label(s) -> str:
+            txt = str(s).replace("\xa0", " ")
+            txt = txt.replace("–", "-").replace("—", "-")
+            return re.sub(r"\s+", " ", txt).strip()
+
+        def _draw_brackets_from_pairs(
+            ax,
+            pairs: List[Tuple[str, str, str]],
+            x_to_num: Dict[str, int],
+            *,
+            y_limits_local: Optional[Tuple[float, float]],
+            y_start: float,
+            y_end: float,
+            y_step: Optional[float],
+            bracket_height_frac: float,
+            color: str,
+            lw: float,
+            text_size: int,
+        ):
+            if not pairs:
+                return
+            intervals = []
+            for g1, g2, lab in pairs:
+                if g1 not in x_to_num or g2 not in x_to_num:
+                    continue
+                x1, x2 = float(x_to_num[g1]), float(x_to_num[g2])
+                if x1 == x2:
+                    continue
+                lo, hi = (x1, x2) if x1 < x2 else (x2, x1)
+                intervals.append({"lo": lo, "hi": hi, "label": lab})
+            if not intervals:
+                return
+
+            intervals.sort(key=lambda d: (d["lo"], d["hi"]))
+            heap: List[Tuple[float, int]] = []
+            next_layer_id = 0
+            for d in intervals:
+                lo, hi = d["lo"], d["hi"]
+                if heap and heap[0][0] < lo:
+                    _, lid = heapq.heappop(heap)
+                else:
+                    lid = next_layer_id
+                    next_layer_id += 1
+                d["layer"] = lid
+                heapq.heappush(heap, (hi, lid))
+            n_layers = max(d["layer"] for d in intervals) + 1
+
+            if y_limits_local is None:
+                y0, y1 = ax.get_ylim()
+            else:
+                y0, y1 = y_limits_local
+            y_range = float(y1 - y0)
+            if y_range <= 0:
+                return
+            tick = y_range * float(bracket_height_frac)
+            top = y0 + y_range * float(y_end)
+            base = y0 + y_range * float(y_start)
+            usable = max(0.0, top - base)
+            if y_step is None:
+                step = 0.0 if n_layers <= 1 else max(usable / (n_layers - 1), tick * 1.0)
+            else:
+                step = y_range * abs(float(y_step))
+            intervals.sort(key=lambda d: d["layer"])
+            for d in intervals:
+                lo, hi, lab, layer = d["lo"], d["hi"], d["label"], d["layer"]
+                y = max(base, top - layer * step)
+                ax.plot([lo, lo, hi, hi], [y, y + tick, y + tick, y], color=color, lw=lw, zorder=5, clip_on=False)
+                ax.text(
+                    (lo + hi) / 2.0,
+                    y + tick - 0.035 * y_range,
+                    str(lab),
+                    ha="center",
+                    va="bottom",
+                    fontsize=text_size,
+                    color=color,
+                    zorder=6,
+                    clip_on=False,
+                )
+
+        pairs = []
+        norm_map = {_norm_label(g): g for g in x_levels}
+        for _, row in tuk.iterrows():
+            comp = row.get(pair_col, None)
+            stars = row.get(star_col, None)
+            if comp is None or pd.isna(comp) or stars is None or pd.isna(stars):
+                continue
+            s = _norm_label(stars)
+            if s.lower() == "ns" and hide_ns:
+                continue
+            txt = _norm_label(comp)
+            parts = re.split(r"\s+vs\.?\s+", txt, maxsplit=1, flags=re.I)
+            if len(parts) != 2:
+                continue
+            a, b = _norm_label(parts[0]), _norm_label(parts[1])
+            g1 = norm_map.get(a) or (a if a in x_levels else None)
+            g2 = norm_map.get(b) or (b if b in x_levels else None)
+            if g1 is None or g2 is None:
+                continue
+            pairs.append((g1, g2, s))
+
+        _draw_brackets_from_pairs(
+            ax,
+            pairs,
+            x_to_num,
+            y_limits_local=y_limits_use,
+            y_start=y_start,
+            y_end=y_end,
+            y_step=y_step,
+            bracket_height_frac=bracket_height_frac,
+            color=bracket_color,
+            lw=bracket_linewidth,
+            text_size=bracket_text_size,
+        )
+
+    _draw_global_labels_and_title(
+        fig,
+        layout,
+        x_label=x_label,
+        y_label=y_label,
+        axis_label_fontsize=axis_label_fontsize,
+        title=title,
+        title_fontsize=title_fontsize,
+        single_x_label=True,
+        single_y_label=True,
+        font_family=font_family,
+    )
+
+    if legend_loc != "none":
+        handles = [
+            Line2D(
+                [0],
+                [0],
+                marker="s",
+                color="none",
+                markerfacecolor=mpl.colors.to_rgba("gray", fill_alpha),
+                markeredgecolor=box_edge_color,
+                label="Box",
+            ),
+        ]
+        if show_raw_mean_line:
+            handles.append(
+                Line2D([0], [0], color=raw_mean_line_color, lw=raw_mean_line_width, ls=raw_mean_line_style, label="Raw mean")
+            )
+        handles.append(
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="none",
+                markerfacecolor="gray",
+                alpha=jitter_alpha,
+                markersize=float(np.sqrt(jitter_size)),
+                label="Points",
+            )
+        )
+        if legend_ncol is None:
+            legend_ncol = 1
+
+        inside_map = not _is_outside_legend_loc(legend_loc)
+        _place_legend(
+            fig,
+            ax,
+            handles,
+            [h.get_label() for h in handles],
+            legend_loc=legend_loc,
+            legend_fontsize=legend_fontsize,
+            legend_ncol=legend_ncol,
+            legend_framealpha=legend_framealpha,
+            inside_map=inside_map,
+        )
+
+    return fig
+
+
+def _parse_plate_grid_lines(
+    grid_lines: Optional[Union[List, np.ndarray]],
+    *,
+    ncols: int,
+    nrows: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Parse `grid_lines` into (x_lines, y_lines) for plate-style heatmaps."""
+    if ncols <= 0 or nrows <= 0:
+        raise ValueError(f"ncols and nrows must be positive; got ncols={ncols}, nrows={nrows}.")
+
+    if grid_lines is None:
+        x_lines = np.arange(0, ncols + 1, dtype=float)
+        y_lines = np.arange(0, nrows + 1, dtype=float)
+        return x_lines, y_lines
+
+    if isinstance(grid_lines, (tuple, list)) and len(grid_lines) == 2:
+        xg, yg = grid_lines[0], grid_lines[1]
+        if isinstance(xg, (list, tuple, np.ndarray)) and isinstance(yg, (list, tuple, np.ndarray)):
+            x_lines = np.asarray(xg, dtype=float).ravel()
+            y_lines = np.asarray(yg, dtype=float).ravel()
+        else:
+            arr = np.asarray(grid_lines, dtype=float).ravel()
+            x_lines = arr
+            y_lines = arr
+    else:
+        arr = np.asarray(grid_lines, dtype=float).ravel()
+        x_lines = arr
+        y_lines = arr
+
+    x_lines = np.unique(x_lines[(x_lines >= 0) & (x_lines <= ncols)])
+    y_lines = np.unique(y_lines[(y_lines >= 0) & (y_lines <= nrows)])
+    return x_lines, y_lines
+
+
+def plot_well_heatmap_df(
+    df_value: pd.DataFrame,
+    df_p: Optional[pd.DataFrame] = None,
+    *,
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
+    xtick_rotation: float = 0.0,
+    ytick_rotation: float = 0.0,
+    title: Optional[str] = None,
+    font_family: str = "Arial",
+    cmap: Union[str, plt.Colormap] = "viridis",
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+    vmode: str = "auto",
+    dpi: int = 300,
+    boxsize: Tuple[float, float] = DEFAULT_BOXSIZE_MM,
+    include_global_label_margins: bool = True,
+    x_label_offset_mm: float = 1.25,
+    y_label_offset_mm: float = 1.5,
+    cbar_label_offset_mm: float = 1.5,
+    grid_lines: Optional[Union[List, np.ndarray]] = None,
+    gline_color: str = "white",
+    gline_width: float = 1.0,
+    gline_alpha: float = 0.8,
+    title_fontsize: int = 20,
+    axis_label_fontsize: int = 16,
+    tick_label_fontsize: int = 12,
+    colorbar_label: Optional[str] = None,
+    colorbar_width_mm: float = 3.0,
+    colorbar_pad_mm: float = 1.5,
+    show_p: bool = True,
+    hide_ns: bool = True,
+    p_text_color: str = "black",
+    p_text_size: int = 12,
+    transparent: bool = False,
+) -> plt.Figure:
+    """Plot a plate-style (well-grid) heatmap using mm-based `boxsize` geometry."""
+    if not isinstance(df_value, pd.DataFrame):
+        raise TypeError("df_value must be a pandas DataFrame.")
+    if df_value.ndim != 2:
+        raise ValueError("df_value must be 2-dimensional.")
+
+    dfv = df_value.copy()
+    for c in dfv.columns:
+        dfv[c] = pd.to_numeric(dfv[c], errors="coerce")
+    Z = dfv.to_numpy(dtype=float)
+
+    nrows, ncols = Z.shape
+    if nrows == 0 or ncols == 0:
+        raise ValueError("df_value must have at least one row and one column.")
+
+    dfp_aligned: Optional[pd.DataFrame] = None
+    if df_p is not None:
+        if not isinstance(df_p, pd.DataFrame):
+            raise TypeError("df_p must be a pandas DataFrame or None.")
+
+        missing_rows = set(df_value.index) - set(df_p.index)
+        missing_cols = set(df_value.columns) - set(df_p.columns)
+        if missing_rows or missing_cols:
+            raise ValueError(
+                "df_p is missing labels present in df_value. "
+                f"Missing rows: {sorted(missing_rows)}; missing cols: {sorted(missing_cols)}"
+            )
+
+        dfp_aligned = df_p.reindex(index=df_value.index, columns=df_value.columns).copy()
+        for c in dfp_aligned.columns:
+            dfp_aligned[c] = pd.to_numeric(dfp_aligned[c], errors="coerce")
+
+    single_x_label = bool(x_label)
+    single_y_label = bool(y_label)
+
+    fig, axes, layout = _init_box_figure(
+        nrows=1,
+        ncols=1,
+        boxsize_mm=boxsize,
+        panel_gap_mm=(0.0, 0.0),
+        strip_top_height_mm=0.0,
+        strip_right_width_mm=0.0,
+        strip_pad_mm=0.0,
+        colorbar_width_mm=colorbar_width_mm,
+        colorbar_pad_mm=colorbar_pad_mm,
+        single_x_label=single_x_label,
+        single_y_label=single_y_label,
+        axis_label_fontsize=float(axis_label_fontsize),
+        include_global_label_margins=include_global_label_margins,
+        x_label_text=(x_label or ""),
+        y_label_text=(y_label or ""),
+        colorbar_label_text=colorbar_label,
+        x_label_offset_mm=x_label_offset_mm,
+        y_label_offset_mm=y_label_offset_mm,
+        cbar_label_offset_mm=cbar_label_offset_mm,
+        dpi=dpi,
+        font_family=font_family,
+        sharex=False,
+        sharey=False,
+        transparent=transparent,
+    )
+    ax = axes[0, 0]
+
+    vmin_use, vmax_use = _compute_global_vrange([Z], vmin=vmin, vmax=vmax, vmode=vmode)
+    cmap_obj = plt.get_cmap(cmap) if isinstance(cmap, str) else cmap
+    norm = mpl.colors.Normalize(vmin=vmin_use, vmax=vmax_use)
+
+    Zm = np.ma.masked_invalid(Z)
+
+    x_edges = np.arange(ncols + 1, dtype=float)
+    y_edges = np.arange(nrows + 1, dtype=float)
+
+    mappable = ax.pcolormesh(
+        x_edges,
+        y_edges,
+        Zm,
+        shading="auto",
+        cmap=cmap_obj,
+        norm=norm,
+        zorder=1,
+    )
+
+    x_lines, y_lines = _parse_plate_grid_lines(grid_lines, ncols=ncols, nrows=nrows)
+    if x_lines.size or y_lines.size:
+        ax.vlines(x_lines, ymin=0, ymax=nrows, colors=gline_color, linewidth=gline_width, alpha=gline_alpha, zorder=2)
+        ax.hlines(y_lines, xmin=0, xmax=ncols, colors=gline_color, linewidth=gline_width, alpha=gline_alpha, zorder=2)
+
+    ax.set_xlim(0, ncols)
+    ax.set_ylim(0, nrows)
+    ax.invert_yaxis()
+
+    x_centers = np.arange(ncols, dtype=float) + 0.5
+    y_centers = np.arange(nrows, dtype=float) + 0.5
+    ax.set_xticks(x_centers)
+    ax.set_yticks(y_centers)
+
+    ax.set_xticklabels([str(c) for c in df_value.columns])
+    ax.set_yticklabels([str(r) for r in df_value.index])
+
+    ax.tick_params(labelsize=tick_label_fontsize)
+    for lab in ax.get_xticklabels():
+        lab.set_rotation(xtick_rotation)
+    for lab in ax.get_yticklabels():
+        lab.set_rotation(ytick_rotation)
+
+    ax.set_xlabel("")
+    ax.set_ylabel("")
+    ax.spines["top"].set_visible(True)
+    ax.spines["right"].set_visible(True)
+
+    if show_p and dfp_aligned is not None:
+        for i in range(nrows):
+            for j in range(ncols):
+                if not np.isfinite(Z[i, j]):
+                    continue
+                stars = p_to_stars(dfp_aligned.iat[i, j])
+                if hide_ns and stars == "n.s.":
+                    continue
+                ax.text(
+                    j + 0.5,
+                    i + 0.75,
+                    stars,
+                    ha="center",
+                    va="center",
+                    color=p_text_color,
+                    fontsize=p_text_size,
+                    zorder=3,
+                )
+
+    _draw_global_labels_and_title(
+        fig,
+        layout,
+        x_label=x_label,
+        y_label=y_label,
+        axis_label_fontsize=float(axis_label_fontsize),
+        title=title,
+        title_fontsize=float(title_fontsize),
+        single_x_label=single_x_label,
+        single_y_label=single_y_label,
+        font_family=font_family,
+    )
+
+    if mappable is not None and colorbar_width_mm > 0:
+        right_edge = layout["rect"][2]
+        _add_global_colorbar(
+            fig,
+            layout,
+            mappable=mappable,
+            right_edge=float(right_edge),
+            colorbar_label=colorbar_label,
+            tick_label_fontsize=float(tick_label_fontsize),
+            axis_label_fontsize=float(axis_label_fontsize),
+            font_family=font_family,
+        )
+
+    return fig
