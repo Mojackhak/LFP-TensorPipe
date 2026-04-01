@@ -101,3 +101,10 @@ recipes/*
 !recipes/demo/**
 
 AGENTS.override.md
+
+# Local paper workspace files
+paper/README.md
+paper/**/README.md
+!paper/pd/README.md
+paper/pd/submission/
+paper/pd/submission/**
