@@ -1,0 +1,28 @@
+{
+  "schema": "lfptensorpipe.alignment-config",
+  "version": 1,
+  "alignment": {
+    "method": "linear_warper",
+    "method_params": {
+      "anchors_percent": {
+        "0.0": "strike_L",
+        "18.0": "off_R",
+        "50.0": "strike_R",
+        "68.0": "off_L",
+        "100.0": "strike_L"
+      },
+      "epoch_duration_range": [
+        0.6,
+        2.0
+      ],
+      "linear_warp": true,
+      "percent_tolerance": 10.0,
+      "drop_bad": true,
+      "drop_fields": [
+        "bad",
+        "edge"
+      ],
+      "sample_rate": 5.0
+    }
+  }
+}

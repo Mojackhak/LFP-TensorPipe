@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "bands_hz": {
+    "alpha": [
+      8.0,
+      13.0
+    ],
+    "beta_high": [
+      20.0,
+      35.0
+    ],
+    "beta_low": [
+      13.0,
+      20.0
+    ],
+    "delta": [
+      1.0,
+      4.0
+    ],
+    "gamma": [
+      35.0,
+      100.0
+    ],
+    "theta": [
+      4.0,
+      8.0
+    ]
+  },
+  "bandpower_per_channel": {
+    "ch0": {
+      "alpha": 0.5,
+      "beta_high": 0.125,
+      "beta_low": 0.0,
+      "delta": 0.0,
+      "gamma": 0.02,
+      "theta": 0.0
+    },
+    "ch1": {
+      "alpha": 0.32,
+      "beta_high": 0.045,
+      "beta_low": 0.0,
+      "delta": 0.0,
+      "gamma": 0.005,
+      "theta": 0.0
+    },
+    "ch2": {
+      "alpha": 0.72,
+      "beta_high": 0.18,
+      "beta_low": 0.0,
+      "delta": 0.0,
+      "gamma": 0.0,
+      "theta": 0.0
+    },
+    "ch3": {
+      "alpha": 0.125,
+      "beta_high": 0.02,
+      "beta_low": 0.0,
+      "delta": 0.0,
+      "gamma": 0.00125,
+      "theta": 0.0
+    }
+  },
+  "total_power_per_channel": {
+    "ch0": 0.645,
+    "ch1": 0.37,
+    "ch2": 0.9,
+    "ch3": 0.14625
+  },
+  "bandpower_mean": {
+    "alpha": 0.41625,
+    "beta_high": 0.0925,
+    "beta_low": 0.0,
+    "delta": 0.0,
+    "gamma": 0.0065625,
+    "theta": 0.0
+  }
+}

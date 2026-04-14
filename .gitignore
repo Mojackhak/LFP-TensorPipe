@@ -1,0 +1,54 @@
+# Explicit exclusions.
+build/
+dist/
+tools/
+packaging/
+tests/
+test/
+
+# Editor / transient buffers
+*.tmp
+*.swp
+*~
+
+# Python caches
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyd
+.mypy_cache/
+**/.mypy_cache/
+.pytest_cache/
+**/.pytest_cache/
+.ruff_cache/
+**/.ruff_cache/
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+
+# R caches
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+
+# MATLAB caches and generated files
+*.asv
+*.m~
+*.mex*
+*.slxc
+*.autosave
+slprj/
+codegen/
+
+# macOS metadata.
+.DS_Store
+**/.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.fseventsd

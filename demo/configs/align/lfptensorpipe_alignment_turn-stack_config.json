@@ -1,0 +1,23 @@
+{
+  "schema": "lfptensorpipe.alignment-config",
+  "version": 1,
+  "alignment": {
+    "method": "stack_warper",
+    "method_params": {
+      "annotations": [
+        "turn_L",
+        "turn_R"
+      ],
+      "duration_range": [
+        1.0,
+        1000000.0
+      ],
+      "drop_bad": true,
+      "drop_fields": [
+        "bad",
+        "edge"
+      ],
+      "sample_rate": 5.0
+    }
+  }
+}

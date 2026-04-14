@@ -1,0 +1,32 @@
+Part 1: Information
+IPG SN: IPG_SERIAL_REDACTED
+IPG version: 01-V1.0.1.1,02-V1.0.1.0
+PCBA SN: PCBA_SERIAL_REDACTED
+PCBA version: G106RS_V4
+Sampling device: S502
+Sampling device version: V2.3.3
+---------------------------------------------
+Part 2: Sampling parameter
+Sampling channel: CH1_8+1-,CH2_8+2-,CH3_8+3-,CH4_8+4-,CH5_8+5-,CH6_8+6-,CH7_8+7-
+Sampling mode: Fixed frequency sampling
+Sampling rate: 500Hz
+Active charge balanced: ON
+Sense blanking duration: 1500μs
+ECG artifact correction: ON
+Sampling start time: 2000-01-01 00:00:00.443
+Sampling duration: 20min
+---------------------------------------------
+Part 3: Initial stimulation parameter
+Stimulation output: OFF
+Stimulation mode: Voltage
+Lead information: Lead 1-Left Brain,Lead 2-Right Brain
+Stimulation parameters: Program,Electrode,Amp,PW,Freq
+Lead 1-P1,C+4-,1.90,60,120
+Lead 1-P2,C+1-,2.50,60,120
+Lead 2-P1,C+8-,3.00,70,120
+Lead 2-P2,C+5-,2.50,60,120
+---------------------------------------------
+Part 4: Packet loss
+Packet loss count: 4
+Packet loss rate: 0.01%
+Packet loss detail: 612,1657~1658,35253

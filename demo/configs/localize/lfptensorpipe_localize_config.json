@@ -1,0 +1,137 @@
+{
+  "schema": "lfptensorpipe.localize-config",
+  "version": 1,
+  "localize": {
+    "atlas": "Custom_Ewert_Zhang_Middlebrooks0.05",
+    "selected_regions": [
+      "SNr",
+      "STN"
+    ],
+    "match": {
+      "completed": true,
+      "channels": [
+        "0_1",
+        "1_2",
+        "2_3",
+        "8_9",
+        "9_10",
+        "10_11"
+      ],
+      "mapped_count": 6,
+      "mappings": [
+        {
+          "channel": "0_1",
+          "anode": "L_K0 (L)",
+          "cathode": "L_K1 (L)",
+          "rep_coord": "Mid"
+        },
+        {
+          "channel": "1_2",
+          "anode": "L_K1 (L)",
+          "cathode": "L_K2 (L)",
+          "rep_coord": "Mid"
+        },
+        {
+          "channel": "2_3",
+          "anode": "L_K2 (L)",
+          "cathode": "L_K3 (L)",
+          "rep_coord": "Mid"
+        },
+        {
+          "channel": "8_9",
+          "anode": "R_K8 (R)",
+          "cathode": "R_K9 (R)",
+          "rep_coord": "Mid"
+        },
+        {
+          "channel": "9_10",
+          "anode": "R_K9 (R)",
+          "cathode": "R_K10 (R)",
+          "rep_coord": "Mid"
+        },
+        {
+          "channel": "10_11",
+          "anode": "R_K10 (R)",
+          "cathode": "R_K11 (R)",
+          "rep_coord": "Mid"
+        }
+      ]
+    },
+    "lead_signature": [
+      {
+        "display_name": "SceneRay SR1202 R",
+        "contacts": [
+          {
+            "token": "R_K8 (R)",
+            "contact_name": "K8 (R)"
+          },
+          {
+            "token": "R_K9 (R)",
+            "contact_name": "K9 (R)"
+          },
+          {
+            "token": "R_K10 (R)",
+            "contact_name": "K10 (R)"
+          },
+          {
+            "token": "R_K11 (R)",
+            "contact_name": "K11 (R)"
+          },
+          {
+            "token": "R_K12 (R)",
+            "contact_name": "K12 (R)"
+          },
+          {
+            "token": "R_K13 (R)",
+            "contact_name": "K13 (R)"
+          },
+          {
+            "token": "R_K14 (R)",
+            "contact_name": "K14 (R)"
+          },
+          {
+            "token": "R_K15 (R)",
+            "contact_name": "K15 (R)"
+          }
+        ]
+      },
+      {
+        "display_name": "SceneRay SR1202 L",
+        "contacts": [
+          {
+            "token": "L_K0 (L)",
+            "contact_name": "K0 (L)"
+          },
+          {
+            "token": "L_K1 (L)",
+            "contact_name": "K1 (L)"
+          },
+          {
+            "token": "L_K2 (L)",
+            "contact_name": "K2 (L)"
+          },
+          {
+            "token": "L_K3 (L)",
+            "contact_name": "K3 (L)"
+          },
+          {
+            "token": "L_K4 (L)",
+            "contact_name": "K4 (L)"
+          },
+          {
+            "token": "L_K5 (L)",
+            "contact_name": "K5 (L)"
+          },
+          {
+            "token": "L_K6 (L)",
+            "contact_name": "K6 (L)"
+          },
+          {
+            "token": "L_K7 (L)",
+            "contact_name": "K7 (L)"
+          }
+        ]
+      }
+    ]
+  }
+}

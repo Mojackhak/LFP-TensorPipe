@@ -1,0 +1,115 @@
+derive_param_cfg:
+  aperiodic:
+    raw: false
+    spectral: false
+    trace: true
+    scalar: true
+  psi:
+    raw: true
+    spectral: false
+    trace: true
+    scalar: true
+  burst:
+    raw: true
+    spectral: false
+    trace: false
+    scalar: true
+  default:
+    raw: true
+    spectral: true
+    trace: true
+    scalar: true
+reducer_cfg:
+  burst:
+    burst:
+    - mean
+    - occupation
+    - rate
+    - duration
+  default:
+    default:
+    - mean
+reducer_rule_by_method:
+  burst:
+    linear_warper:
+    - mean
+    - occupation
+    stack_warper:
+    - mean
+    - occupation
+collapse_base_cfg:
+  value_col: Value
+  time_interval_mode: percent
+  freq_interval_mode: absolute
+  inclusive: false
+  drop_value: true
+  keep_full_dim_cols: false
+  on_missing: skip
+post_transform_mode:
+  raw: none
+  spectral: none
+  trace: none
+  scalar: none
+plot_advance_defaults:
+  transform_mode: none
+  normalize_mode: mean
+  baseline_mode: mean
+  baseline_percent_ranges:
+  - - 0.0
+    - 100.0
+  colormap: viridis
+  x_log: false
+  y_log: false
+features_axes_defaults:
+  bands_by_metric:
+    aperiodic:
+    - name: Delta
+      start: 1.0
+      end: 4.0
+    - name: Theta
+      start: 4.0
+      end: 8.0
+    - name: Alpha
+      start: 8.0
+      end: 13.0
+    - name: Beta_low
+      start: 13.0
+      end: 20.0
+    - name: Beta_high
+      start: 20.0
+      end: 35.0
+    - name: Gamma
+      start: 35.0
+      end: 100.0
+    periodic:
+    - name: theta
+      start: 4.0
+      end: 8.0
+    - name: alpha
+      start: 8.0
+      end: 13.0
+    - name: beta_low
+      start: 13.0
+      end: 20.0
+    - name: beta_high
+      start: 20.0
+      end: 35.0
+    - name: gamma
+      start: 35.0
+      end: 75.0
+    raw_power:
+    - name: theta
+      start: 4.0
+      end: 8.0
+    - name: alpha
+      start: 8.0
+      end: 13.0
+    - name: beta_low
+      start: 13.0
+      end: 20.0
+    - name: beta_high
+      start: 20.0
+      end: 35.0
+    - name: gamma
+      start: 35.0
+      end: 75.0

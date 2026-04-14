@@ -1,0 +1,18 @@
+{
+  "schema": "lfptensorpipe.alignment-config",
+  "version": 1,
+  "alignment": {
+    "method": "concat_warper",
+    "method_params": {
+      "annotations": [
+        "walk"
+      ],
+      "drop_bad": false,
+      "drop_fields": [
+        "bad",
+        "edge"
+      ],
+      "sample_rate": 50.0
+    }
+  }
+}
