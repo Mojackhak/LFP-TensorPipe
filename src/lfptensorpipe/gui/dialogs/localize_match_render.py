@@ -97,9 +97,7 @@ def _render_lead_columns(dialog) -> None:
             button.clicked.connect(
                 lambda checked=False, tk=token: dialog._on_contact_clicked(tk, False)
             )
-            button.setToolTip(
-                "Select this contact for the current channel binding."
-            )
+            button.setToolTip("Select this contact for the current channel binding.")
             column_layout.addWidget(button)
         column_layout.addStretch(1)
         dialog._lead_scroll_layout.addWidget(column)
@@ -120,14 +118,18 @@ def _render_channel_list(dialog) -> None:
 
 
 def _render_mapping_table(dialog) -> None:
-    ordered = [channel for channel in dialog._all_channels if channel in dialog._mapping]
+    ordered = [
+        channel for channel in dialog._all_channels if channel in dialog._mapping
+    ]
     dialog._mapping_table.setRowCount(len(ordered))
     for row_idx, channel in enumerate(ordered):
         mapping = dialog._mapping[channel]
         dialog._mapping_table.setItem(row_idx, 0, QTableWidgetItem(channel))
         dialog._mapping_table.setItem(row_idx, 1, QTableWidgetItem(mapping["anode"]))
         dialog._mapping_table.setItem(row_idx, 2, QTableWidgetItem(mapping["cathode"]))
-        dialog._mapping_table.setItem(row_idx, 3, QTableWidgetItem(mapping["rep_coord"]))
+        dialog._mapping_table.setItem(
+            row_idx, 3, QTableWidgetItem(mapping["rep_coord"])
+        )
         dialog._mapping_table.setItem(
             row_idx,
             4,
@@ -192,8 +194,7 @@ def _on_mapping_row_clicked(dialog, row: int, col: int) -> None:
     dialog._active_channel = channel
     dialog._selected_channel_label.setText(channel)
     dialog._selected_channel_label.setToolTip(
-        "Current record channel being edited. "
-        f"Selected: {channel or '-'}."
+        "Current record channel being edited. " f"Selected: {channel or '-'}."
     )
     existing = dialog._mapping.get(channel)
     if existing is None:

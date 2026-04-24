@@ -17,9 +17,7 @@ class MainWindowAlignmentRunMixin:
     @staticmethod
     def _alignment_merge_location_status_text(ready: bool) -> str:
         return (
-            "Merge Location Info: Ready"
-            if ready
-            else "Merge Location Info: Not Ready"
+            "Merge Location Info: Ready" if ready else "Merge Location Info: Not Ready"
         )
 
     @staticmethod

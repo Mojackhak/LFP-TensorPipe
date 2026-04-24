@@ -170,7 +170,9 @@ def resolve_elspec(paths: Any, elmodel: str) -> dict[str, Any]:
     return payload
 
 
-def split_contactnames(contactnames: list[str]) -> tuple[list[str], list[str], list[str]]:
+def split_contactnames(
+    contactnames: list[str],
+) -> tuple[list[str], list[str], list[str]]:
     right: list[str] = []
     left: list[str] = []
     other: list[str] = []
@@ -190,7 +192,9 @@ def split_contactnames(contactnames: list[str]) -> tuple[list[str], list[str], l
     return right, left, other
 
 
-def fallback_contactnames(template: list[str], lead_label: str, n_contacts: int) -> list[str]:
+def fallback_contactnames(
+    template: list[str], lead_label: str, n_contacts: int
+) -> list[str]:
     out: list[str] = []
     for base in template:
         token = str(base).strip()
@@ -250,7 +254,9 @@ def load_reconstruction_contacts(
     for lead_idx in range(n_leads):
         lead_label = ordinal_label(lead_idx + 1)
         elmodel = elmodels[lead_idx] if lead_idx < len(elmodels) else "Unknown"
-        n_contacts = int(min(native_coords[lead_idx].shape[0], mni_coords[lead_idx].shape[0]))
+        n_contacts = int(
+            min(native_coords[lead_idx].shape[0], mni_coords[lead_idx].shape[0])
+        )
         if n_contacts <= 0:
             contacts: list[dict[str, Any]] = []
             leads.append(

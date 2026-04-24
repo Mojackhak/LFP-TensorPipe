@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from .preproc_plotting_backend import (
     _attach_plot_autosave as _attach_plot_autosave_impl,
+    _defer_close_for_active_mne_browsers as _defer_close_for_active_mne_browsers_impl,
+    _finalize_app_shutdown as _finalize_app_shutdown_impl,
     _open_mne_raw_plot as _open_mne_raw_plot_impl,
+    _request_close_all_mne_browsers as _request_close_all_mne_browsers_impl,
 )
 from .preproc_plotting_steps import (
     _on_preproc_annotations_plot as _on_preproc_annotations_plot_impl,
@@ -23,6 +26,15 @@ from .preproc_plotting_viz import (
 
 
 class MainWindowPreprocPlottingMixin:
+    def _defer_close_for_active_mne_browsers(self, event) -> bool:
+        return _defer_close_for_active_mne_browsers_impl(self, event)
+
+    def _request_close_all_mne_browsers(self) -> None:
+        _request_close_all_mne_browsers_impl(self)
+
+    def _finalize_app_shutdown(self) -> None:
+        _finalize_app_shutdown_impl(self)
+
     def _on_preproc_viz_psd_advance(self) -> None:
         _on_preproc_viz_psd_advance_impl(self)
 

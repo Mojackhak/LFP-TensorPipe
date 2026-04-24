@@ -29,7 +29,9 @@ import scipy.io
 # -----------------------------------------------------------------------------
 # Public low-level helpers (no caching across calls)
 # -----------------------------------------------------------------------------
-def points_in_region(coords: np.ndarray, region_nii_path: str, threshold: float) -> np.ndarray:
+def points_in_region(
+    coords: np.ndarray, region_nii_path: str, threshold: float
+) -> np.ndarray:
     """Check whether points (MNI) fall inside a region mask.
 
     Note: This function loads the NIfTI on every call. For batch mapping, prefer
@@ -101,7 +103,9 @@ def get_mid_coords(coords: np.ndarray) -> np.ndarray:
 _NiftiCacheValue = tuple[np.ndarray, np.ndarray, np.ndarray]  # data, affine, inv_affine
 
 
-def _load_region_volume(region_path: str, nifti_cache: dict[str, _NiftiCacheValue]) -> _NiftiCacheValue:
+def _load_region_volume(
+    region_path: str, nifti_cache: dict[str, _NiftiCacheValue]
+) -> _NiftiCacheValue:
     """Load a NIfTI region volume with per-call caching."""
     cached = nifti_cache.get(region_path)
     if cached is not None:
@@ -256,11 +260,14 @@ def _map_coords_to_regions(
 def get_mni_coords(d):
     return d["coords"]["mni"][0][0][0]
 
+
 def get_mni_reco(d):
     return d["reco"]["mni"][0][0][0][0][0][0]
 
-COORDS_MODE = Literal['coords', 'reco']
-POINT_NAMES_MODE = Literal['single', 'pair']
+
+COORDS_MODE = Literal["coords", "reco"]
+POINT_NAMES_MODE = Literal["single", "pair"]
+
 
 def get_points_loc(
     coordsFile: str | Path,
@@ -268,8 +275,8 @@ def get_points_loc(
     atlas_path: str | Path,
     threshold: float | Mapping[str, float],
     side_dict: dict[str, int | Sequence[int]],
-    coords_mode: COORDS_MODE = 'coords',
-    point_names_mode: POINT_NAMES_MODE = 'pair'
+    coords_mode: COORDS_MODE = "coords",
+    point_names_mode: POINT_NAMES_MODE = "pair",
 ) -> pd.DataFrame:
     """Map Lead-DBS exported contact coordinates to atlas regions.
 
@@ -312,21 +319,20 @@ def get_points_loc(
 
         for idx in idx_list:
             # Keep hard-coded Lead-DBS structure access.
-            if coords_mode == 'coords':
+            if coords_mode == "coords":
                 coords = get_mni_coords(coords_raw)[idx]
             else:  # coords_mode == 'reco'
                 coords = get_mni_reco(coords_raw)[idx]
-            if point_names_mode == 'pair':
+            if point_names_mode == "pair":
                 point_names = [
-                    f"{i + points_num}_{i + points_num + 1}" for i in range(coords.shape[0])
+                    f"{i + points_num}_{i + points_num + 1}"
+                    for i in range(coords.shape[0])
                 ]
                 points_num += coords.shape[0] + 1
             else:  # point_names_mode == 'single'
-                point_names = [
-                    f"{i + points_num}" for i in range(coords.shape[0])
-                ]
+                point_names = [f"{i + points_num}" for i in range(coords.shape[0])]
                 points_num += coords.shape[0]
-            
+
             points_index = pd.RangeIndex(coords.shape[0])
 
             basic_df = pd.DataFrame(
@@ -352,7 +358,6 @@ def get_points_loc(
             )
 
             side_frames.append(pd.concat([basic_df, mapped_df], axis=1))
-
 
     if not side_frames:
         return pd.DataFrame()

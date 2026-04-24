@@ -8,7 +8,10 @@ from typing import Any
 import numpy as np
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
-from lfptensorpipe.app.preproc_service import preproc_step_log_path, preproc_step_raw_path
+from lfptensorpipe.app.preproc_service import (
+    preproc_step_log_path,
+    preproc_step_raw_path,
+)
 from lfptensorpipe.app.runlog_store import read_run_log
 from lfptensorpipe.lfp.runtime import (
     apply_dynamic_edge_mask_strict as _apply_dynamic_edge_mask_strict_runtime,
@@ -235,7 +238,10 @@ def compute_tensor_metric_filter_notch_warnings(
             metric_widths,
             strict=False,
         ):
-            if abs(float(metric_notch) - float(filter_notch)) <= TENSOR_NOTCH_TOLERANCE_HZ:
+            if (
+                abs(float(metric_notch) - float(filter_notch))
+                <= TENSOR_NOTCH_TOLERANCE_HZ
+            ):
                 matched_width = float(metric_width)
                 break
 

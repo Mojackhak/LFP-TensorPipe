@@ -20,7 +20,6 @@ from typing import Callable, Literal
 
 import numpy as np
 
-
 TransformMode = Literal[
     "dB",
     "log",
@@ -79,6 +78,7 @@ def get_transform_pair(
         return forward, inverse
 
     if mode == "fisherz":
+
         def forward(x: np.ndarray) -> np.ndarray:
             x = np.asarray(x, dtype=float)
             out = np.full_like(x, np.nan, dtype=float)
@@ -94,6 +94,7 @@ def get_transform_pair(
         return forward, inverse
 
     if mode == "fisherz_sqrt":
+
         def forward(x: np.ndarray) -> np.ndarray:
             x = np.asarray(x, dtype=float)
             out = np.full_like(x, np.nan, dtype=float)
@@ -110,6 +111,7 @@ def get_transform_pair(
         return forward, inverse
 
     if mode == "logit":
+
         def forward(x: np.ndarray) -> np.ndarray:
             x = np.asarray(x, dtype=float)
             out = np.full_like(x, np.nan, dtype=float)

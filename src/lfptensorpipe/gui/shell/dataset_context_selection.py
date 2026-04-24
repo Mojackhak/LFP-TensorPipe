@@ -38,9 +38,7 @@ class MainWindowDatasetContextSelectionMixin:
         try:
             self._persist_record_params_snapshot(reason="record_context_switch")
         except Exception as exc:  # noqa: BLE001
-            self.statusBar().showMessage(
-                f"Outgoing record autosave skipped: {exc}"
-            )
+            self.statusBar().showMessage(f"Outgoing record autosave skipped: {exc}")
 
     def _initialize_dataset_context(self) -> None:
         self._config_store.ensure_core_files()
@@ -274,3 +272,5 @@ class MainWindowDatasetContextSelectionMixin:
             self._record_add_button.setEnabled(has_subject)
         if self._record_delete_button is not None:
             self._record_delete_button.setEnabled(has_record)
+        if self._record_rename_button is not None:
+            self._record_rename_button.setEnabled(has_record)

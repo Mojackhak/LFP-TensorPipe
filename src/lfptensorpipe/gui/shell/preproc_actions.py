@@ -226,12 +226,6 @@ class MainWindowPreprocActionsMixin:
         if self._preproc_ecg_method_combo is not None:
             method = str(self._preproc_ecg_method_combo.currentData() or "svd")
         picks = list(self._preproc_ecg_selected_channels)
-        if not picks:
-            self._show_warning(
-                "ECG Apply",
-                "Select at least one ECG pick channel.",
-            )
-            return
         ok, message = self._run_with_busy(
             "ECG Apply",
             lambda: self._apply_ecg_step_runtime(

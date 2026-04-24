@@ -114,4 +114,8 @@ def build_explicit_pairs(
     if not out_pairs:
         raise ValueError("`pairs` is empty; no connectivity pairs to compute.")
 
-    return np.asarray(seeds_idx, dtype=int), np.asarray(targets_idx, dtype=int), out_pairs
+    return (
+        np.asarray(seeds_idx, dtype=int),
+        np.asarray(targets_idx, dtype=int),
+        out_pairs,
+    )

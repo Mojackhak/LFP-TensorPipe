@@ -43,8 +43,9 @@ class ResetReferenceDialog(QDialog):
         channel_names: tuple[str, ...],
         current_rows: tuple[ResetReferenceRow, ...],
         default_rows: tuple[ResetReferenceRow, ...] = (),
-        set_default_callback: Callable[[tuple[ResetReferenceRow, ...]], None]
-        | None = None,
+        set_default_callback: (
+            Callable[[tuple[ResetReferenceRow, ...]], None] | None
+        ) = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -168,9 +169,7 @@ class ResetReferenceDialog(QDialog):
         cancel_button.clicked.connect(self.reject)
         save_button.clicked.connect(self._on_save)
         cancel_button.setToolTip("Close without applying pair changes.")
-        save_button.setToolTip(
-            "Use the current reset-reference pairs for this import."
-        )
+        save_button.setToolTip("Use the current reset-reference pairs for this import.")
         footer_layout.addWidget(self._clear_draft_button)
         footer_layout.addWidget(self._clear_all_button)
         footer_layout.addWidget(self._set_default_button)
@@ -330,9 +329,7 @@ class ResetReferenceDialog(QDialog):
             self._show_warning("Reset Reference", f"Unknown anode channel: {anode}")
             return
         if cathode and cathode not in self._channel_names:
-            self._show_warning(
-                "Reset Reference", f"Unknown cathode channel: {cathode}"
-            )
+            self._show_warning("Reset Reference", f"Unknown cathode channel: {cathode}")
             return
         if cathode and cathode == anode:
             self._show_warning(

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication
 
 from lfptensorpipe.desktop_runtime import (
     LOCALIZE_VIEWER_WORKER_FLAG,
+    PREPROC_PLOT_WORKER_FLAG,
     RUNTIME_PLAN_WORKER_FLAG,
     TENSOR_WORKER_FLAG,
     detect_embedded_worker_flag,
@@ -141,6 +142,7 @@ def _run_embedded_worker(
     tensor_worker_main: Callable[[list[str] | None], int] | None = None,
     runtime_plan_worker_main: Callable[[list[str] | None], int] | None = None,
     localize_viewer_worker_main: Callable[[list[str] | None], int] | None = None,
+    preproc_plot_worker_main: Callable[[list[str] | None], int] | None = None,
 ) -> int:
     if flag == TENSOR_WORKER_FLAG:
         if tensor_worker_main is None:
@@ -161,6 +163,13 @@ def _run_embedded_worker(
             )
 
         return localize_viewer_worker_main(worker_argv)
+    if flag == PREPROC_PLOT_WORKER_FLAG:
+        if preproc_plot_worker_main is None:
+            from lfptensorpipe.gui.shell.preproc_plot_worker import (
+                main as preproc_plot_worker_main,
+            )
+
+        return preproc_plot_worker_main(worker_argv)
     raise ValueError(f"Unsupported embedded worker flag: {flag}")
 
 
@@ -170,6 +179,7 @@ def main(
     tensor_worker_main: Callable[[list[str] | None], int] | None = None,
     runtime_plan_worker_main: Callable[[list[str] | None], int] | None = None,
     localize_viewer_worker_main: Callable[[list[str] | None], int] | None = None,
+    preproc_plot_worker_main: Callable[[list[str] | None], int] | None = None,
     smoke_raw_plot_main: Callable[[str, int], int] | None = None,
     smoke_demo_records_main: Callable[[str], int] | None = None,
     smoke_demo_record_imports_main: Callable[[str], int] | None = None,
@@ -193,6 +203,7 @@ def main(
             tensor_worker_main=tensor_worker_main,
             runtime_plan_worker_main=runtime_plan_worker_main,
             localize_viewer_worker_main=localize_viewer_worker_main,
+            preproc_plot_worker_main=preproc_plot_worker_main,
         )
 
     args = parse_args(argv_list)
@@ -263,7 +274,7 @@ def main(
     app_font.setFamily("Arial")
     app.setFont(QFont(app_font))
     app.setApplicationName("LFP-TensorPipe")
-    runtime_icon = preferred_runtime_icon_path()
+    runtime_icon = None if sys.platform == "darwin" else preferred_runtime_icon_path()
     if runtime_icon is not None:
         app_icon = QIcon(str(runtime_icon))
         if not app_icon.isNull():

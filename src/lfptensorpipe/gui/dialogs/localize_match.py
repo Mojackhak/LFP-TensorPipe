@@ -14,6 +14,7 @@ from .common import (
     QHeaderView,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QLineEdit,
     QListWidget,
     QPushButton,
@@ -65,7 +66,6 @@ class LocalizeMatchDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Match: Record Channels ↔ Lead-DBS Contacts")
         self.resize(800, 600)
-        self.setMinimumSize(800, 600)
         self._all_channels = tuple(str(item) for item in channel_names)
         self._lead_specs = list(lead_specs)
         self._mapping: dict[str, dict[str, str]] = {}
@@ -82,6 +82,7 @@ class LocalizeMatchDialog(QDialog):
         self._build_contact_maps()
 
         root = QVBoxLayout(self)
+        root.setSizeConstraint(QLayout.SetNoConstraint)
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(6)
 

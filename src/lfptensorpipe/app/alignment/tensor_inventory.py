@@ -8,7 +8,10 @@ import numpy as np
 
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import indicator_from_log
-from lfptensorpipe.app.tensor_service import tensor_metric_log_path, tensor_metric_tensor_path
+from lfptensorpipe.app.tensor_service import (
+    tensor_metric_log_path,
+    tensor_metric_tensor_path,
+)
 
 
 def _completed_tensor_metrics(resolver: PathResolver) -> list[str]:

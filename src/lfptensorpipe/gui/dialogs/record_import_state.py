@@ -45,8 +45,17 @@ def _update_parse_button_state(dialog) -> None:
     dialog._parse_button.setEnabled(_is_parse_ready(dialog))
 
 
+def _update_sync_configure_button_state(dialog) -> None:
+    dialog._sync_configure_button.setEnabled(
+        dialog._parsed is not None and dialog._sync_check.isChecked()
+    )
+
+
 def _update_confirm_button_state(dialog) -> None:
     if dialog._parsed is None:
+        dialog._confirm_button.setEnabled(False)
+        return
+    if dialog._sync_check.isChecked() and dialog._sync_state is None:
         dialog._confirm_button.setEnabled(False)
         return
     if dialog._reset_check.isChecked() and len(dialog._reset_rows) == 0:
@@ -57,8 +66,11 @@ def _update_confirm_button_state(dialog) -> None:
 
 def _invalidate_parse_state(dialog) -> None:
     dialog._parsed = None
+    dialog._sync_state = None
     dialog._parsed_channel_signature = ()
     _set_result_placeholder(dialog)
+    dialog._set_sync_summary()
+    _update_sync_configure_button_state(dialog)
     dialog._reset_configure_button.setEnabled(False)
     _update_parse_button_state(dialog)
     _update_confirm_button_state(dialog)

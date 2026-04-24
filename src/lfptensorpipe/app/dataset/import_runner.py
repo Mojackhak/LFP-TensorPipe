@@ -28,6 +28,8 @@ def import_record_from_raw(
     rawdata_record_fif_path_fn: Callable[[Path, str, str], Path],
     derivatives_record_root_fn: Callable[[Path, str, str], Path],
     sourcedata_record_raw_dir_fn: Callable[[Path, str, str], Path],
+    persist_import_sync_artifacts_fn: Callable[..., Any] | None = None,
+    sync_state: Any | None = None,
     read_only_project_root: Path | None = None,
 ):
     """Persist one already-parsed raw into standardized record paths."""
@@ -62,21 +64,46 @@ def import_record_from_raw(
     derivatives_root = derivatives_record_root_fn(
         project_root, normalized_subject, normalized_record
     )
-    derivatives_root.mkdir(parents=True, exist_ok=True)
-    raw_fif_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        raw.save(str(raw_fif_path), overwrite=True)
-    except Exception as exc:
-        return result_cls(ok=False, message=f"Failed to save raw.fif: {exc}")
-
+    sync_root = derivatives_root / "import"
     source_copy_path: Path | None = None
-    if not bool(is_fif_input):
-        source_copy_path = (
-            sourcedata_record_raw_dir_fn(project_root, normalized_subject, normalized_record)
-            / source_path.name
-        )
-        source_copy_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_path, source_copy_path)
+    raw_record_root = raw_fif_path.parents[1]
+
+    try:
+        derivatives_root.mkdir(parents=True, exist_ok=True)
+        raw_fif_path.parent.mkdir(parents=True, exist_ok=True)
+        raw.save(str(raw_fif_path), overwrite=True)
+
+        if not bool(is_fif_input):
+            source_copy_path = (
+                sourcedata_record_raw_dir_fn(
+                    project_root, normalized_subject, normalized_record
+                )
+                / source_path.name
+            )
+            source_copy_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, source_copy_path)
+
+        if sync_state is not None:
+            if persist_import_sync_artifacts_fn is None:
+                raise RuntimeError("Missing persist_import_sync_artifacts_fn.")
+            persist_import_sync_artifacts_fn(
+                project_root=project_root,
+                subject=normalized_subject,
+                record=normalized_record,
+                raw_fif_path=raw_fif_path,
+                sync_state=sync_state,
+            )
+    except Exception as exc:
+        for root in (
+            sync_root,
+            source_copy_path.parents[1] if source_copy_path is not None else None,
+            raw_record_root,
+            derivatives_root,
+        ):
+            if root is None or not root.exists():
+                continue
+            shutil.rmtree(root, ignore_errors=True)
+        return result_cls(ok=False, message=f"Failed to import record: {exc}")
 
     return result_cls(
         ok=True,
@@ -164,7 +191,9 @@ def import_record(
     source_copy_path: Path | None = None
     if not is_fif_input:
         source_copy_path = (
-            sourcedata_record_raw_dir_fn(project_root, normalized_subject, normalized_record)
+            sourcedata_record_raw_dir_fn(
+                project_root, normalized_subject, normalized_record
+            )
             / source_path.name
         )
         source_copy_path.parent.mkdir(parents=True, exist_ok=True)

@@ -18,7 +18,8 @@ def cap_first(x: Any) -> Any:
     if isinstance(x, str) and x and x[0].islower():
         return x[0].upper() + x[1:]
     return x
-    
+
+
 def capitalize_df(df: pd.DataFrame) -> pd.DataFrame:
     """
     Capitalize the first character of strings (values, columns, index) only if it is lowercase.
@@ -37,6 +38,7 @@ def capitalize_df(df: pd.DataFrame) -> pd.DataFrame:
     out.columns = [cap_first(c) for c in out.columns]
     out.index = [cap_first(i) for i in out.index]
     return out
+
 
 _LEFT_TOKENS = {"lh", "l", "left"}
 _RIGHT_TOKENS = {"rh", "r", "right"}
@@ -65,16 +67,19 @@ def normalize_side(value: Any) -> str:
         return "Right"
     return "Bilat"
 
+
 def normalize_fog(fog: str) -> str:
-    if fog.lower() in ['fog', 'freeze', 'freezing']:
-        return 'FoG'
+    if fog.lower() in ["fog", "freeze", "freezing"]:
+        return "FoG"
     else:
         return fog
 
-def tuple_1st(side: Any|tuple[Any, Any]) -> Any:
+
+def tuple_1st(side: Any | tuple[Any, Any]) -> Any:
     if isinstance(side, tuple):
         side = side[0]
     return side
+
 
 def join_sequence(x: Union[str, Sequence[str]], sep: str = "-") -> str:
     """
@@ -89,7 +94,9 @@ def join_sequence(x: Union[str, Sequence[str]], sep: str = "-") -> str:
         # Optional: validate items are strings (fail fast, avoid silent nonsense)
         bad = [i for i, v in enumerate(x) if not isinstance(v, str)]
         if bad:
-            raise TypeError(f"Expected Sequence[str], but got non-str at indices {bad}.")
+            raise TypeError(
+                f"Expected Sequence[str], but got non-str at indices {bad}."
+            )
         return sep.join(x)
 
     raise TypeError(f"Expected str or Sequence[str], got {type(x).__name__}.")

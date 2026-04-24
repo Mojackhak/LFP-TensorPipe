@@ -28,11 +28,15 @@ def swap_reciprocal_pairs_on_channel_axis(
         tensor_out (and perm if requested).
     """
     if tensor.ndim != 4:
-        raise ValueError(f"tensor must be 4D (epochs, channels, freqs, times); got shape {tensor.shape}")
+        raise ValueError(
+            f"tensor must be 4D (epochs, channels, freqs, times); got shape {tensor.shape}"
+        )
 
     n_channels = int(tensor.shape[1])
     if len(pair_names) != n_channels:
-        raise ValueError(f"len(pair_names) ({len(pair_names)}) != n_channels ({n_channels})")
+        raise ValueError(
+            f"len(pair_names) ({len(pair_names)}) != n_channels ({n_channels})"
+        )
 
     idx_of = {tuple(p): i for i, p in enumerate(pair_names)}
 

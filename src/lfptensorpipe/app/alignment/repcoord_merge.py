@@ -114,7 +114,9 @@ def _merge_channel_representative_coords(
     frame: pd.DataFrame,
     context: RecordContext,
 ) -> tuple[pd.DataFrame, str | None]:
-    rep_frame, warning = _load_repcoord_frame(_localize_representative_pkl_path(context))
+    rep_frame, warning = _load_repcoord_frame(
+        _localize_representative_pkl_path(context)
+    )
     if rep_frame is None:
         return frame, warning
 

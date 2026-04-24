@@ -174,6 +174,7 @@ class MainWindow(
         self._subject_add_button: QPushButton | None = None
         self._record_add_button: QPushButton | None = None
         self._record_delete_button: QPushButton | None = None
+        self._record_rename_button: QPushButton | None = None
         self._preproc_raw_plot_button: QPushButton | None = None
         self._preproc_filter_advance_button: QPushButton | None = None
         self._preproc_filter_apply_button: QPushButton | None = None
@@ -330,6 +331,11 @@ class MainWindow(
         self._preproc_viz_tfr_params = self._load_preproc_viz_tfr_defaults()
         self._preproc_viz_last_step: str | None = None
         self._plot_close_hooks: list[tuple[Any, Any]] = []
+        self._active_mne_browsers: dict[int, dict[str, Any]] = {}
+        self._mne_browser_shutdown_pending = False
+        self._mne_browser_shutdown_prev_quit_on_last_window_closed: bool | None = None
+        self._mne_browser_shutdown_excluded_tokens: set[int] = set()
+        self._finalizing_mainwindow_close = False
         self._busy_timer = QTimer(self)
         self._busy_timer.setInterval(BUSY_INTERVAL_MS)
         self._busy_timer.timeout.connect(self._on_busy_tick)
@@ -433,6 +439,8 @@ class MainWindow(
         )
 
     def closeEvent(self, event: Any) -> None:
+        if self._defer_close_for_active_mne_browsers(event):
+            return
         try:
             self._shutdown_tensor_run()
         finally:

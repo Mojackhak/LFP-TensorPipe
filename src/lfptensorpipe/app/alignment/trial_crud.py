@@ -229,8 +229,7 @@ def create_alignment_paradigm(
         "method": "stack_warper",
         "method_params": dict(entry["method_params"]),
         "method_params_by_method": {
-            key: dict(value)
-            for key, value in entry["method_params_by_method"].items()
+            key: dict(value) for key, value in entry["method_params_by_method"].items()
         },
     }
     svc._append_alignment_history(

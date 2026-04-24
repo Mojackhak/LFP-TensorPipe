@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from .common import *  # noqa: F403
+
+
 class ChannelPairDialog(QDialog):
     """Stateful bipolar channel-pair selector."""
 
@@ -177,9 +179,6 @@ class ChannelPairDialog(QDialog):
             )
             return
         if len(set(names)) != len(names):
-            self._show_warning(
-                "Channel Pair", "Bipolar channel names must be unique."
-            )
+            self._show_warning("Channel Pair", "Bipolar channel names must be unique.")
             return
         self.accept()
-

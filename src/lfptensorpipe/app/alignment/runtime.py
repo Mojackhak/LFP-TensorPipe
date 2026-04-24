@@ -32,7 +32,9 @@ def run_align_epochs(
 ) -> tuple[bool, str, list[dict[str, Any]]]:
     """Run Align Epochs for one selected trial."""
     _normalize_slug = svc._normalize_slug
-    load_alignment_paradigms = load_alignment_paradigms_fn or svc.load_alignment_paradigms
+    load_alignment_paradigms = (
+        load_alignment_paradigms_fn or svc.load_alignment_paradigms
+    )
     indicator_from_log = svc.indicator_from_log
     preproc_step_log_path = svc.preproc_step_log_path
     _completed_tensor_metrics = svc._completed_tensor_metrics
@@ -42,7 +44,9 @@ def run_align_epochs(
         validate_alignment_method_params_fn or svc.validate_alignment_method_params
     )
     default_alignment_method_params = svc.default_alignment_method_params
-    update_alignment_paradigm = update_alignment_paradigm_fn or svc.update_alignment_paradigm
+    update_alignment_paradigm = (
+        update_alignment_paradigm_fn or svc.update_alignment_paradigm
+    )
     _build_warper = build_warper_fn or svc._build_warper
     _resolve_target_n_samples = svc._resolve_target_n_samples
     save_pkl = save_pkl_fn or svc.save_pkl
@@ -112,7 +116,10 @@ def run_align_epochs(
         selected_annotations = [
             str(item).strip() for item in selected_annotations if str(item).strip()
         ]
-        if method in {"pad_warper", "stack_warper", "concat_warper"} and not selected_annotations:
+        if (
+            method in {"pad_warper", "stack_warper", "concat_warper"}
+            and not selected_annotations
+        ):
             raise ValueError("Select at least one annotation label.")
         sample_rate = float(
             method_params.get(

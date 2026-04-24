@@ -10,6 +10,7 @@ from lfptensorpipe.app.path_resolver import RecordContext
 
 from .. import service as svc
 
+
 def run_raw_power_metric(
     context: RecordContext,
     *,
@@ -225,9 +226,7 @@ def run_raw_power_metric(
             "freqs_full": [float(item) for item in freqs_full.tolist()],
             "notches": [float(item) for item in runtime_notches],
             "notch_widths": [float(item) for item in runtime_notch_widths],
-            "inherited_filter_notches": [
-                float(item) for item in inheritance.notches
-            ],
+            "inherited_filter_notches": [float(item) for item in inheritance.notches],
             "inherited_filter_notch_widths": [
                 float(item) for item in inheritance.notch_widths
             ],
@@ -259,9 +258,7 @@ def run_raw_power_metric(
             "mask_edge_effects": bool(mask_edge_effects),
             "notches": [float(item) for item in runtime_notches],
             "notch_widths": [float(item) for item in runtime_notch_widths],
-            "inherited_filter_notches": [
-                float(item) for item in inheritance.notches
-            ],
+            "inherited_filter_notches": [float(item) for item in inheritance.notches],
             "inherited_filter_notch_widths": [
                 float(item) for item in inheritance.notch_widths
             ],
@@ -339,7 +336,6 @@ def run_raw_power_metric(
             message=f"Raw power failed: {exc}",
         )
         return False, f"Raw power failed: {exc}"
-
 
 
 __all__ = ["run_raw_power_metric"]

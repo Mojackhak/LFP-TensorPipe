@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from .common import *  # noqa: F403
+
+
 class FilterAdvanceDialog(QDialog):
     """Advance dialog for preprocess filter parameters."""
 

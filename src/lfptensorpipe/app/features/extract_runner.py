@@ -12,7 +12,11 @@ import pandas as pd
 from lfptensorpipe.app.alignment_service import alignment_paradigm_log_path
 from lfptensorpipe.app.config_store import AppConfigStore
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
-from lfptensorpipe.app.runlog_store import RunLogRecord, indicator_from_log, write_run_log
+from lfptensorpipe.app.runlog_store import (
+    RunLogRecord,
+    indicator_from_log,
+    write_run_log,
+)
 from lfptensorpipe.io.pkl_io import load_pkl, save_pkl
 from lfptensorpipe.tabular.grid import grid_nested_values, split_nested_values
 
@@ -251,7 +255,9 @@ def run_extract_features(
                     alignment_method=alignment_method,
                     axis_node=metric_axes.get(metric_key),
                     override_outputs=metric_outputs.get(metric_key),
-                    reducer_override=str(metric_reducers.get(metric_key, "")).strip().lower(),
+                    reducer_override=str(metric_reducers.get(metric_key, ""))
+                    .strip()
+                    .lower(),
                 ): metric_key
                 for metric_key, src_path in metric_items
             }
@@ -281,7 +287,9 @@ def run_extract_features(
                 alignment_method=alignment_method,
                 axis_node=metric_axes.get(metric_key),
                 override_outputs=metric_outputs.get(metric_key),
-                reducer_override=str(metric_reducers.get(metric_key, "")).strip().lower(),
+                reducer_override=str(metric_reducers.get(metric_key, ""))
+                .strip()
+                .lower(),
             )
 
     for metric_key, _src_path in metric_items:

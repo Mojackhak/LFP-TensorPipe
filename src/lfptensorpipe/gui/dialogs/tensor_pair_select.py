@@ -141,9 +141,7 @@ class TensorPairSelectDialog(QDialog):
         clear_draft_button.setToolTip("Clear the current draft pair.")
         clear_all_button.setToolTip("Remove all configured pairs.")
         restore_button.setToolTip("Restore saved default pair selection.")
-        set_default_button.setToolTip(
-            "Save the current pair selection as the default."
-        )
+        set_default_button.setToolTip("Save the current pair selection as the default.")
         save_button.setToolTip("Use the selected pairs for the active metric.")
         cancel_button.setToolTip("Close without changing the selection.")
         footer_layout.addWidget(clear_draft_button)
@@ -278,8 +276,7 @@ class TensorPairSelectDialog(QDialog):
             preview = self._display_pair(pair)  # type: ignore[arg-type]
         self._draft_pair_preview.setText(preview)
         self._draft_pair_preview.setToolTip(
-            "Current normalized draft pair preview. "
-            f"Preview: {preview or 'None'}."
+            "Current normalized draft pair preview. " f"Preview: {preview or 'None'}."
         )
         self._draft_apply_button.setEnabled(bool(source and target))
 

@@ -263,7 +263,9 @@ def cut_frequency_grid_by_intervals(
     return kept, removed_mask
 
 
-def build_frequency_grid(low_freq: float, high_freq: float, step_hz: float) -> np.ndarray:
+def build_frequency_grid(
+    low_freq: float, high_freq: float, step_hz: float
+) -> np.ndarray:
     if low_freq <= 0.0:
         raise ValueError("Low frequency must be > 0.")
     if high_freq <= low_freq:

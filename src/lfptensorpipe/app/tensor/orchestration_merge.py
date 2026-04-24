@@ -62,7 +62,10 @@ def merge_metric_params_map(
             merged["selected_channels"] = list(legacy_channels)
         if metric_key in directed_or_undirected and "selected_pairs" not in merged:
             pairs_source = legacy_pairs_raw.get(metric_key)
-            if pairs_source is None and metric_key in svc.TENSOR_UNDIRECTED_SELECTOR_KEYS:
+            if (
+                pairs_source is None
+                and metric_key in svc.TENSOR_UNDIRECTED_SELECTOR_KEYS
+            ):
                 pairs_source = legacy_pairs_raw.get("undirected")
             if pairs_source is None and metric_key in svc.TENSOR_DIRECTED_SELECTOR_KEYS:
                 pairs_source = legacy_pairs_raw.get("directed")

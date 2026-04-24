@@ -17,6 +17,7 @@ from .dataset_types import ParsedImportPreview
 from .record_import_state import (
     _invalidate_parse_state,
     _update_confirm_button_state,
+    _update_sync_configure_button_state,
 )
 from .reset_reference import ResetReferenceDialog
 
@@ -76,7 +77,9 @@ def _on_browse_marker(dialog) -> None:
     _invalidate_parse_state(dialog)
 
 
-def _collect_parse_request(dialog) -> tuple[str, dict[str, str], dict[str, Any] | None, Path]:
+def _collect_parse_request(
+    dialog,
+) -> tuple[str, dict[str, str], dict[str, Any] | None, Path]:
     import_type = dialog.selected_import_type
     file_path_text = dialog._file_path_edit.text().strip()
     if not file_path_text:
@@ -127,20 +130,37 @@ def _show_parse_error(dialog, exc: Exception) -> None:
 
 
 def _format_parse_result(dialog, preview: ParsedImportPreview) -> str:
-    raw = preview.raw
+    raw = preview.base_raw
+    if dialog._sync_check.isChecked() and preview.synced_raw is not None:
+        raw = preview.synced_raw
     report = preview.report
     sfreq = float(raw.info["sfreq"]) if raw is not None else 0.0
     duration = float(raw.n_times / sfreq) if sfreq > 0 else 0.0
-    return "\n".join(
-        [
-            f"vendor: {report.get('vendor', 'unknown')}",
-            f"version: {report.get('version', 'unknown')}",
-            f"status: {report.get('status', 'ok')}",
-            f"n_channels: {len(raw.ch_names)}",
-            f"sfreq: {sfreq:.2f}",
-            f"duration: {duration:.3f} s",
-        ]
-    )
+    lines = [
+        f"vendor: {report.get('vendor', 'unknown')}",
+        f"version: {report.get('version', 'unknown')}",
+        f"status: {report.get('status', 'ok')}",
+        f"n_channels: {len(raw.ch_names)}",
+        f"sfreq: {sfreq:.2f}",
+        f"duration: {duration:.3f} s",
+    ]
+    if dialog._sync_check.isChecked():
+        if dialog._sync_state is None:
+            lines.append("sync: needs config")
+        else:
+            estimate = dialog._sync_state.estimate
+            lines.extend(
+                [
+                    "sync: ready",
+                    f"pairs: {estimate.pair_count}",
+                    f"lag: {estimate.lag_s:.6f} s",
+                    f"sfreq_sync: {estimate.sfreq_after_hz:.6f}",
+                    "figure: summary.png",
+                ]
+            )
+    else:
+        lines.append("sync: off")
+    return "\n".join(lines)
 
 
 def _on_parse(dialog) -> None:
@@ -175,7 +195,7 @@ def _on_parse(dialog) -> None:
         )
 
     dialog._parsed = ParsedImportPreview(
-        raw=raw,
+        base_raw=raw,
         report=report,
         source_path=source_path,
         is_fif_input=bool(is_fif_input),
@@ -183,7 +203,36 @@ def _on_parse(dialog) -> None:
     )
     dialog._parsed_channel_signature = current_signature
     dialog._result_label.setText(_format_parse_result(dialog, dialog._parsed))
+    _update_sync_configure_button_state(dialog)
+    dialog._set_sync_summary()
     dialog._reset_configure_button.setEnabled(dialog._reset_check.isChecked())
+    _update_confirm_button_state(dialog)
+
+
+def _on_sync_configure(dialog) -> None:
+    if dialog._parsed is None:
+        return
+    sync_dialog = dialog._create_import_sync_dialog(
+        raw=dialog._parsed.base_raw,
+        current_state=dialog._sync_state,
+    )
+    if sync_dialog.exec() != QDialog.Accepted:
+        return
+    state = sync_dialog.selected_state
+    if state is None:
+        return
+    dialog._sync_state = state
+    dialog._parsed.synced_raw = dialog._build_import_synced_raw(
+        dialog._parsed.base_raw,
+        state.estimate,
+    )
+    dialog._parsed.sync_estimate = state.estimate
+    dialog._parsed.sync_state = state
+    dialog._parsed.sync_figure_data = (
+        state.external_figure_data or state.lfp_figure_data
+    )
+    dialog._set_sync_summary()
+    dialog._result_label.setText(_format_parse_result(dialog, dialog._parsed))
     _update_confirm_button_state(dialog)
 
 

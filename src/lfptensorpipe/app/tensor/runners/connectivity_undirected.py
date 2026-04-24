@@ -10,6 +10,7 @@ from lfptensorpipe.app.path_resolver import RecordContext
 
 from .. import service as svc
 
+
 def run_undirected_connectivity_metric(
     context: RecordContext,
     *,
@@ -62,7 +63,9 @@ def run_undirected_connectivity_metric(
     _write_metric_config = svc._write_metric_config
     _write_outputs_atomically = svc._write_outputs_atomically
     _build_frequency_grid = svc._build_frequency_grid
-    _compute_notch_intervals = compute_notch_intervals_fn or svc._compute_notch_intervals
+    _compute_notch_intervals = (
+        compute_notch_intervals_fn or svc._compute_notch_intervals
+    )
     _cut_frequency_grid_by_intervals = svc._cut_frequency_grid_by_intervals
     _normalize_metric_method = svc._normalize_metric_method
     _compute_mask_radii_seconds = svc._compute_mask_radii_seconds
@@ -261,9 +264,7 @@ def run_undirected_connectivity_metric(
             "freqs_full": [float(item) for item in freqs_full.tolist()],
             "notches": [float(item) for item in runtime_notches],
             "notch_widths": [float(item) for item in runtime_notch_widths],
-            "inherited_filter_notches": [
-                float(item) for item in inheritance.notches
-            ],
+            "inherited_filter_notches": [float(item) for item in inheritance.notches],
             "inherited_filter_notch_widths": [
                 float(item) for item in inheritance.notch_widths
             ],
@@ -290,17 +291,13 @@ def run_undirected_connectivity_metric(
             "hop_s": float(hop_s),
             "connectivity_metric": str(connectivity_metric),
             "method": str(method_norm),
-            "mt_bandwidth": (
-                float(mt_bandwidth) if mt_bandwidth is not None else None
-            ),
+            "mt_bandwidth": (float(mt_bandwidth) if mt_bandwidth is not None else None),
             "min_cycles": (float(min_cycles) if min_cycles is not None else None),
             "max_cycles": (float(max_cycles) if max_cycles is not None else None),
             "mask_edge_effects": bool(mask_edge_effects),
             "notches": [float(item) for item in runtime_notches],
             "notch_widths": [float(item) for item in runtime_notch_widths],
-            "inherited_filter_notches": [
-                float(item) for item in inheritance.notches
-            ],
+            "inherited_filter_notches": [float(item) for item in inheritance.notches],
             "inherited_filter_notch_widths": [
                 float(item) for item in inheritance.notch_widths
             ],

@@ -329,10 +329,14 @@ def interpolate_tensor_with_metadata(
     meta_i["params"]["freq_match_tol_hz"] = float(info["tol_hz"])
     meta_i["params"]["freqs_in_is_subset_of_freqs_out"] = bool(info["is_subset"])
     meta_i["params"]["missing_out_idx"] = (
-        None if info["missing_out_idx"] is None else np.asarray(info["missing_out_idx"], dtype=int)
+        None
+        if info["missing_out_idx"] is None
+        else np.asarray(info["missing_out_idx"], dtype=int)
     )
     meta_i["params"]["missing_freqs_hz"] = (
-        None if info["missing_freqs"] is None else np.asarray(info["missing_freqs"], dtype=float)
+        None
+        if info["missing_freqs"] is None
+        else np.asarray(info["missing_freqs"], dtype=float)
     )
     if method == "savgol":
         meta_i["params"]["savgol_window"] = int(savgol_window)
@@ -431,7 +435,7 @@ def interpolate_tensor_with_metadata_transformed(
 
     if transform_mode is None:
         transform_mode = "none"
-        
+
     freqs_in = np.asarray(metadata["axes"]["freq"], dtype=float)
 
     tensor_i = interpolate_freq_axis_transformed(
@@ -470,10 +474,14 @@ def interpolate_tensor_with_metadata_transformed(
     meta_i["params"]["freq_match_tol_hz"] = float(info["tol_hz"])
     meta_i["params"]["freqs_in_is_subset_of_freqs_out"] = bool(info["is_subset"])
     meta_i["params"]["missing_out_idx"] = (
-        None if info["missing_out_idx"] is None else np.asarray(info["missing_out_idx"], dtype=int)
+        None
+        if info["missing_out_idx"] is None
+        else np.asarray(info["missing_out_idx"], dtype=int)
     )
     meta_i["params"]["missing_freqs_hz"] = (
-        None if info["missing_freqs"] is None else np.asarray(info["missing_freqs"], dtype=float)
+        None
+        if info["missing_freqs"] is None
+        else np.asarray(info["missing_freqs"], dtype=float)
     )
 
     meta_i["params"]["interp_transform_mode"] = str(transform_mode)

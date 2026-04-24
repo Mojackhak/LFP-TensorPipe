@@ -24,7 +24,10 @@ def alignment_paradigm_log_path(
     create: bool = False,
 ) -> Path:
     """Return alignment paradigm log path."""
-    return alignment_paradigm_dir(resolver, paradigm_slug, create=create) / "lfptensorpipe_log.json"
+    return (
+        alignment_paradigm_dir(resolver, paradigm_slug, create=create)
+        / "lfptensorpipe_log.json"
+    )
 
 
 def alignment_warp_fn_path(
@@ -34,7 +37,9 @@ def alignment_warp_fn_path(
     create: bool = False,
 ) -> Path:
     """Return saved warper callable path."""
-    return alignment_paradigm_dir(resolver, paradigm_slug, create=create) / "warp_fn.pkl"
+    return (
+        alignment_paradigm_dir(resolver, paradigm_slug, create=create) / "warp_fn.pkl"
+    )
 
 
 def alignment_warp_labels_path(
@@ -44,7 +49,10 @@ def alignment_warp_labels_path(
     create: bool = False,
 ) -> Path:
     """Return saved warp labels path."""
-    return alignment_paradigm_dir(resolver, paradigm_slug, create=create) / "warp_labels.pkl"
+    return (
+        alignment_paradigm_dir(resolver, paradigm_slug, create=create)
+        / "warp_labels.pkl"
+    )
 
 
 def alignment_metric_tensor_warped_path(

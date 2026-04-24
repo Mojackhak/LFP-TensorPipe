@@ -7,7 +7,9 @@ from typing import Sequence
 import numpy as np
 
 
-def segment_lengths_from_anchors_percent(anchors_percent: Sequence[float], n_samples: int) -> list[int]:
+def segment_lengths_from_anchors_percent(
+    anchors_percent: Sequence[float], n_samples: int
+) -> list[int]:
     """Compute integer sample counts per segment given anchor percentages.
 
     The last segment is adjusted to ensure the total sums exactly to `n_samples`.

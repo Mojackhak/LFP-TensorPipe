@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from .common import *  # noqa: F403
+
+
 class TensorChannelSelectDialog(QDialog):
     """Tensor-specific channel selector with default actions."""
 
@@ -124,4 +126,3 @@ class TensorChannelSelectDialog(QDialog):
             return
         self._selected_action = action
         self.accept()
-

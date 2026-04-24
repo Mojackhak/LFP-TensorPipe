@@ -83,11 +83,12 @@ def validate_run_log(payload: dict[str, Any]) -> list[str]:
             errors.append(f"Key '{RUNLOG_VERSION_KEY}' must be an integer.")
         elif version < 1:
             errors.append(f"Key '{RUNLOG_VERSION_KEY}' must be >= 1.")
-    if (
-        RUNLOG_MIGRATION_META_KEY in payload
-        and not isinstance(payload[RUNLOG_MIGRATION_META_KEY], dict)
+    if RUNLOG_MIGRATION_META_KEY in payload and not isinstance(
+        payload[RUNLOG_MIGRATION_META_KEY], dict
     ):
-        errors.append(f"Key '{RUNLOG_MIGRATION_META_KEY}' must be a JSON object (dict).")
+        errors.append(
+            f"Key '{RUNLOG_MIGRATION_META_KEY}' must be a JSON object (dict)."
+        )
 
     return errors
 
@@ -201,9 +202,7 @@ def append_run_log_event(
     if state:
         payload[RUNLOG_STATE_KEY] = state
     existing_migration_meta = (
-        existing.get(RUNLOG_MIGRATION_META_KEY)
-        if isinstance(existing, dict)
-        else None
+        existing.get(RUNLOG_MIGRATION_META_KEY) if isinstance(existing, dict) else None
     )
     payload = stamp_run_log_metadata(payload)
     if isinstance(existing_migration_meta, dict):

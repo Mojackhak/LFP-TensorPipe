@@ -67,9 +67,7 @@ def refresh_stage_controls(
         )
         button.setEnabled(enabled)
         button.setChecked(spec.key == window._active_stage_key)
-        tooltip = (
-            f"Open {spec.display_name}. Enabled only when all upstream stages are green."
-        )
+        tooltip = f"Open {spec.display_name}. Enabled only when all upstream stages are green."
         if not enabled:
             tooltip = f"{tooltip} Unavailable until previous stages are green."
         button.setToolTip(tooltip)

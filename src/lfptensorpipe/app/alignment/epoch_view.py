@@ -15,9 +15,7 @@ def _normalize_pick_list(value: Any) -> list[int] | None:
     if not isinstance(value, list):
         return None
     normalized = {
-        int(item)
-        for item in value
-        if isinstance(item, (int, float)) and int(item) >= 0
+        int(item) for item in value if isinstance(item, (int, float)) and int(item) >= 0
     }
     return sorted(normalized)
 

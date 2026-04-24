@@ -12,6 +12,7 @@ from lfptensorpipe.app.shared.downstream_invalidation import (
 
 from . import service as svc
 
+
 def finish_alignment_epochs(
     context: RecordContext,
     *,
@@ -29,7 +30,9 @@ def finish_alignment_epochs(
     load_pkl = svc.load_pkl
     _finish_time_axis_values = svc._finish_time_axis_values
     split_tensor4d_to_nested_df = svc.split_tensor4d_to_nested_df
-    _merge_representative_coords_for_metric = svc._merge_representative_coords_for_metric
+    _merge_representative_coords_for_metric = (
+        svc._merge_representative_coords_for_metric
+    )
     alignment_trial_raw_table_path = svc.alignment_trial_raw_table_path
     save_pkl = svc.save_pkl
     _append_alignment_history = svc._append_alignment_history
@@ -51,7 +54,9 @@ def finish_alignment_epochs(
     trial_cfg = _load_trial_config_from_log(resolver, slug=slug)
     run_ready = False
     if isinstance(trial_cfg, dict):
-        run_ready = alignment_method_panel_state(resolver, paradigm=trial_cfg) == "green"
+        run_ready = (
+            alignment_method_panel_state(resolver, paradigm=trial_cfg) == "green"
+        )
     if not run_ready:
         run_ready = indicator_from_log(log_path) == "green"
     if not run_ready:

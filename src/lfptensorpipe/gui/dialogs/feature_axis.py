@@ -112,7 +112,9 @@ class FeatureAxisConfigureDialog(QDialog):
         restore_default_button.setToolTip(
             f"Restore saved default {self._item_label.lower()} rows."
         )
-        cancel_button.setToolTip(f"Close without changing the {self._item_label.lower()} rows.")
+        cancel_button.setToolTip(
+            f"Close without changing the {self._item_label.lower()} rows."
+        )
         save_button.setToolTip(
             f"Use the current {self._item_label.lower()} rows for this metric."
         )

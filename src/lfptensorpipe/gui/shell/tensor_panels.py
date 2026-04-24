@@ -105,14 +105,17 @@ class MainWindowTensorPanelsMixin:
         self._subject_add_button = QPushButton("+")
         self._record_add_button = QPushButton("+")
         self._record_delete_button = QPushButton("-")
+        self._record_rename_button = QPushButton("R")
         self._project_add_button.clicked.connect(self._on_project_add)
         self._subject_add_button.clicked.connect(self._on_subject_add)
         self._record_add_button.clicked.connect(self._on_record_add)
         self._record_delete_button.clicked.connect(self._on_record_delete)
+        self._record_rename_button.clicked.connect(self._on_record_rename)
         self._project_add_button.setEnabled(True)
         self._subject_add_button.setEnabled(False)
         self._record_add_button.setEnabled(False)
         self._record_delete_button.setEnabled(False)
+        self._record_rename_button.setEnabled(False)
         self._project_add_button.setToolTip(
             "Add an existing project folder to recent projects."
         )
@@ -124,6 +127,9 @@ class MainWindowTensorPanelsMixin:
         )
         self._record_delete_button.setToolTip(
             "Delete the selected record and all derived artifacts."
+        )
+        self._record_rename_button.setToolTip(
+            "Rename the selected record and preserve artifacts."
         )
 
         grid.addWidget(QLabel("Project"), 0, 0)
@@ -144,6 +150,7 @@ class MainWindowTensorPanelsMixin:
         record_actions_layout.setSpacing(GRID_SPACING)
         record_actions_layout.addWidget(self._record_add_button)
         record_actions_layout.addWidget(self._record_delete_button)
+        record_actions_layout.addWidget(self._record_rename_button)
         record_actions_layout.addStretch(1)
         grid.addWidget(record_actions, 2, 2)
 

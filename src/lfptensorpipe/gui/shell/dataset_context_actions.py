@@ -1,4 +1,4 @@
-"""Dataset-context create/delete MainWindow methods."""
+"""Dataset-context create/rename/delete MainWindow methods."""
 
 from __future__ import annotations
 
@@ -93,7 +93,13 @@ class MainWindowDatasetContextActionsMixin:
             self._show_warning("Record +", normalized_record)
             return
 
-        raw_to_import = preview.raw
+        raw_to_import = getattr(preview, "base_raw", None)
+        if raw_to_import is None:
+            raw_to_import = preview.raw
+        synced_raw = getattr(preview, "synced_raw", None)
+        use_sync = bool(getattr(dialog, "use_sync", False))
+        if use_sync and synced_raw is not None:
+            raw_to_import = synced_raw
         if dialog.use_reset_reference and dialog.reset_rows:
             rows = tuple(
                 (row.anode, row.cathode, row.name) for row in dialog.reset_rows
@@ -116,6 +122,7 @@ class MainWindowDatasetContextActionsMixin:
                 raw=raw_to_import,
                 source_path=preview.source_path,
                 is_fif_input=preview.is_fif_input,
+                sync_state=getattr(dialog, "sync_state", None) if use_sync else None,
                 read_only_project_root=self._demo_data_source_readonly,
             ),
         )
@@ -174,3 +181,79 @@ class MainWindowDatasetContextActionsMixin:
         self._set_record_values(records)
         self._set_empty_record_context()
         self.statusBar().showMessage(result.message)
+
+    def _on_record_rename(self) -> None:
+        if (
+            self._current_project is None
+            or self._current_subject is None
+            or self._current_record is None
+        ):
+            self._show_warning(
+                "Record R",
+                "Select project, subject, and record first.",
+            )
+            return
+
+        new_record, ok = self._prompt_text(
+            "Record R",
+            f"Rename record '{self._current_record}' to:",
+            text=self._current_record,
+        )
+        if not ok:
+            return
+
+        valid, normalized_new_record = validate_record_name(new_record)
+        if not valid:
+            self._show_warning("Record R", normalized_new_record)
+            return
+        if normalized_new_record == self._current_record:
+            self._show_warning(
+                "Record R",
+                "New record name must be different from the current record.",
+            )
+            return
+
+        existing_records = set(
+            self._discover_records_runtime(
+                self._current_project,
+                self._current_subject,
+            )
+        )
+        if normalized_new_record in existing_records:
+            self._show_warning(
+                "Record R",
+                f"Record already exists: {normalized_new_record}",
+            )
+            return
+
+        try:
+            self._persist_record_params_snapshot(reason="record_rename")
+        except Exception as exc:  # noqa: BLE001
+            self.statusBar().showMessage(f"Record rename autosave skipped: {exc}")
+
+        result = self._run_with_busy(
+            "Record Rename",
+            lambda: self._rename_record_runtime(
+                project_root=self._current_project,
+                subject=self._current_subject,
+                record=self._current_record,
+                new_record=normalized_new_record,
+                read_only_project_root=self._demo_data_source_readonly,
+            ),
+        )
+        if not result.ok:
+            self._show_warning("Record R", result.message)
+            return
+
+        records = self._discover_records_runtime(
+            self._current_project,
+            self._current_subject,
+        )
+        self._set_record_values(records)
+        self._set_empty_record_context()
+        if self._select_record_item(normalized_new_record):
+            self.statusBar().showMessage(result.message)
+            return
+        self.statusBar().showMessage(
+            f"{result.message} Select the renamed record manually."
+        )

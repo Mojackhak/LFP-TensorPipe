@@ -134,7 +134,9 @@ def _annotations_signature(rows: list[dict[str, Any]]) -> list[dict[str, Any]] |
     return normalized_rows
 
 
-def _read_annotations_csv_signature(resolver: PathResolver) -> list[dict[str, Any]] | None:
+def _read_annotations_csv_signature(
+    resolver: PathResolver,
+) -> list[dict[str, Any]] | None:
     csv_path = resolver.preproc_root / "annotations" / "annotations.csv"
     if not csv_path.exists():
         return None
@@ -190,11 +192,7 @@ def _normalize_ecg_signature(
         normalized_picks: list[str] = []
     elif isinstance(picks, (list, tuple)):
         normalized_picks = sorted(
-            {
-                str(item).strip()
-                for item in picks
-                if str(item).strip()
-            }
+            {str(item).strip() for item in picks if str(item).strip()}
         )
     else:
         return None

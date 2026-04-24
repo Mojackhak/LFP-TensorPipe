@@ -37,7 +37,7 @@ def _on_preproc_raw_plot(self) -> None:
         self.statusBar().showMessage(
             "Raw step opened from existing preprocess artifact."
         )
-        self._open_mne_raw_plot(raw_path, title_prefix="Raw", autosave_step="raw")
+        self._open_mne_raw_plot(raw_path, title_prefix="Raw")
         return
     ok, message = self._run_with_busy(
         "Raw Plot",
@@ -48,7 +48,7 @@ def _on_preproc_raw_plot(self) -> None:
         self.statusBar().showMessage(f"Raw Plot failed: {message}")
         return
     self.statusBar().showMessage(message)
-    self._open_mne_raw_plot(raw_path, title_prefix="Raw", autosave_step="raw")
+    self._open_mne_raw_plot(raw_path, title_prefix="Raw")
 
 
 def _open_step_plot(

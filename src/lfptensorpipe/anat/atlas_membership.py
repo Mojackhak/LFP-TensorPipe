@@ -43,7 +43,9 @@ def append_region_membership_columns(
     if out.empty:
         return out
 
-    names = list(region_names) if region_names is not None else discover_regions(atlas_path)
+    names = (
+        list(region_names) if region_names is not None else discover_regions(atlas_path)
+    )
     if not names:
         return out
 

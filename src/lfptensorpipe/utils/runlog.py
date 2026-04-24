@@ -24,6 +24,7 @@ def with_run_log(
 
     This is parallel-safe and avoids interleaving prints from multiple workers.
     """
+
     def decorator(func: Callable[..., Any]) -> Callable[..., dict[str, Any]]:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -64,7 +65,9 @@ def with_run_log(
                 log["error"] = {
                     "type": type(e).__name__,
                     "message": str(e),
-                    "traceback": traceback.format_exc(limit=50) if include_traceback else None,
+                    "traceback": (
+                        traceback.format_exc(limit=50) if include_traceback else None
+                    ),
                 }
 
             finally:
@@ -77,6 +80,7 @@ def with_run_log(
             return log
 
         return wrapper
+
     return decorator
 
 

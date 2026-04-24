@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from .common import *  # noqa: F403
+
+
 class QcAdvanceDialog(QDialog):
     """Advance dialog for preprocess Visualization QC PSD/TFR params."""
 

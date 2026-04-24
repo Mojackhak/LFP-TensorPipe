@@ -147,7 +147,9 @@ class TensorMetricAdvanceDialog(QDialog):
             min_cycles = QLineEdit()
             min_cycles.setToolTip("Minimum cycles used for spectral estimation.")
             max_cycles = QLineEdit()
-            max_cycles.setToolTip("Optional maximum cycles used for spectral estimation.")
+            max_cycles.setToolTip(
+                "Optional maximum cycles used for spectral estimation."
+            )
             time_bandwidth = QLineEdit()
             time_bandwidth.setToolTip(
                 "Used for multitaper spectral estimation. Higher values increase frequency smoothing and stability but reduce frequency resolution."
@@ -172,7 +174,9 @@ class TensorMetricAdvanceDialog(QDialog):
             min_cycles = QLineEdit()
             min_cycles.setToolTip("Minimum cycles used for spectral estimation.")
             max_cycles = QLineEdit()
-            max_cycles.setToolTip("Optional maximum cycles used for spectral estimation.")
+            max_cycles.setToolTip(
+                "Optional maximum cycles used for spectral estimation."
+            )
             time_bandwidth = QLineEdit()
             time_bandwidth.setToolTip(
                 "Used for multitaper spectral estimation. Higher values increase frequency smoothing and stability but reduce frequency resolution."
@@ -208,9 +212,7 @@ class TensorMetricAdvanceDialog(QDialog):
             peak_threshold = QLineEdit()
             peak_threshold.setToolTip("Peak detection threshold.")
             fit_qc = QLineEdit()
-            fit_qc.setToolTip(
-                "Minimum fit-quality threshold to keep a decomposition."
-            )
+            fit_qc.setToolTip("Minimum fit-quality threshold to keep a decomposition.")
             form.addRow("Method", method_combo)
             form.addRow("Min cycles", min_cycles)
             form.addRow("Max cycles", max_cycles)
@@ -263,7 +265,9 @@ class TensorMetricAdvanceDialog(QDialog):
             min_cycles = QLineEdit()
             min_cycles.setToolTip("Minimum cycles used for spectral estimation.")
             max_cycles = QLineEdit()
-            max_cycles.setToolTip("Optional maximum cycles used for spectral estimation.")
+            max_cycles.setToolTip(
+                "Optional maximum cycles used for spectral estimation."
+            )
             form.addRow("Method", method_combo)
             form.addRow("MT bandwidth", mt_bandwidth)
             form.addRow("Min cycles", min_cycles)
@@ -293,9 +297,7 @@ class TensorMetricAdvanceDialog(QDialog):
                 self._fields["round_ms"] = round_ms
                 self._trgc_group_by_samples_checkbox = group_by_samples
                 self._trgc_round_ms_edit = round_ms
-                group_by_samples.stateChanged.connect(
-                    self._sync_trgc_round_ms_enabled
-                )
+                group_by_samples.stateChanged.connect(self._sync_trgc_round_ms_enabled)
             self._append_shared_notch_fields(form)
             return
         if self._metric_key == "psi":
@@ -308,7 +310,9 @@ class TensorMetricAdvanceDialog(QDialog):
             min_cycles = QLineEdit()
             min_cycles.setToolTip("Minimum cycles used for spectral estimation.")
             max_cycles = QLineEdit()
-            max_cycles.setToolTip("Optional maximum cycles used for spectral estimation.")
+            max_cycles.setToolTip(
+                "Optional maximum cycles used for spectral estimation."
+            )
             form.addRow("Method", method_combo)
             form.addRow("MT bandwidth", mt_bandwidth)
             form.addRow("Min cycles", min_cycles)
@@ -442,8 +446,7 @@ class TensorMetricAdvanceDialog(QDialog):
                 self._loaded_thresholds_path = path
                 self._thresholds_path_label.setText(path)
                 self._thresholds_path_label.setToolTip(
-                    "Currently loaded burst thresholds file. "
-                    f"Loaded: {path}."
+                    "Currently loaded burst thresholds file. " f"Loaded: {path}."
                 )
             else:
                 self._loaded_thresholds_path = None
@@ -516,8 +519,7 @@ class TensorMetricAdvanceDialog(QDialog):
         self._loaded_thresholds_path = file_path
         self._thresholds_path_label.setText(file_path)
         self._thresholds_path_label.setToolTip(
-            "Currently loaded burst thresholds file. "
-            f"Loaded: {file_path}."
+            "Currently loaded burst thresholds file. " f"Loaded: {file_path}."
         )
 
     def _on_clear_thresholds(self) -> None:

@@ -37,10 +37,12 @@ class MainWindowPreprocChannelsMixin:
     def _intersect_channels(
         available: tuple[str, ...],
         selected: tuple[str, ...],
+        *,
+        preserve_empty: bool = False,
     ) -> tuple[str, ...]:
         selected_set = set(selected)
         kept = tuple(channel for channel in available if channel in selected_set)
-        if kept:
+        if kept or preserve_empty:
             return kept
         return available
 
@@ -112,6 +114,7 @@ class MainWindowPreprocChannelsMixin:
         self._preproc_ecg_selected_channels = self._intersect_channels(
             channels,
             self._preproc_ecg_selected_channels,
+            preserve_empty=True,
         )
         if self._preproc_ecg_channels_button is not None:
             self._preproc_ecg_channels_button.setEnabled(bool(channels))
@@ -134,6 +137,7 @@ class MainWindowPreprocChannelsMixin:
             title="ECG Channels",
             available=self._preproc_ecg_available_channels,
             selected=self._preproc_ecg_selected_channels,
+            allow_empty=True,
         )
         if chosen is None:
             return

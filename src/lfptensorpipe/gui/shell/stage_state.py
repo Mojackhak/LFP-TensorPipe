@@ -113,7 +113,9 @@ class MainWindowStageStateMixin:
         )
         raw_states.update(self._current_trial_stage_states())
         self._set_stage_state_maps(raw_states)
-        refresh_features_trials = getattr(self, "_refresh_features_trial_list_states", None)
+        refresh_features_trials = getattr(
+            self, "_refresh_features_trial_list_states", None
+        )
         if callable(refresh_features_trials):
             refresh_features_trials()
         self._refresh_stage_controls()

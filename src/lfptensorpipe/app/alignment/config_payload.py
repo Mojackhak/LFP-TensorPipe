@@ -34,7 +34,9 @@ def _read_alignment_payload(config_store: AppConfigStore) -> dict[str, Any]:
         if isinstance(method_defaults_candidate, dict):
             for raw_key, raw_params in method_defaults_candidate.items():
                 key = str(raw_key).strip()
-                if key not in ALIGNMENT_METHODS_BY_KEY or not isinstance(raw_params, dict):
+                if key not in ALIGNMENT_METHODS_BY_KEY or not isinstance(
+                    raw_params, dict
+                ):
                     continue
                 method_defaults_raw[key] = dict(raw_params)
     return {

@@ -20,18 +20,18 @@ from matplotlib.lines import Line2D
 
 mpl.rcParams["pdf.fonttype"] = 42
 mpl.rcParams["ps.fonttype"] = 42
-plt.rcParams['axes.linewidth'] = 1
-plt.rcParams['xtick.major.width'] = 1
-plt.rcParams['ytick.major.width'] = 1
-mpl.rcParams['xtick.major.pad'] = 1
-mpl.rcParams['ytick.major.pad'] = 1
-mpl.rcParams['axes.labelpad'] = 1
-mpl.rcParams['xtick.major.size'] = 2
-mpl.rcParams['ytick.major.size'] = 2
-mpl.rcParams['xtick.minor.size'] = 1
-mpl.rcParams['ytick.minor.size'] = 1
-mpl.rcParams['xtick.major.width'] = 1
-mpl.rcParams['ytick.major.width'] = 1
+plt.rcParams["axes.linewidth"] = 1
+plt.rcParams["xtick.major.width"] = 1
+plt.rcParams["ytick.major.width"] = 1
+mpl.rcParams["xtick.major.pad"] = 1
+mpl.rcParams["ytick.major.pad"] = 1
+mpl.rcParams["axes.labelpad"] = 1
+mpl.rcParams["xtick.major.size"] = 2
+mpl.rcParams["ytick.major.size"] = 2
+mpl.rcParams["xtick.minor.size"] = 1
+mpl.rcParams["ytick.minor.size"] = 1
+mpl.rcParams["xtick.major.width"] = 1
+mpl.rcParams["ytick.major.width"] = 1
 
 MM_PER_INCH = 25.4
 
@@ -43,7 +43,6 @@ _OUTSIDE_LEGEND_SPECS: Dict[str, Tuple[str, Tuple[float, float]]] = {
     "outside_bottom": ("lower center", (0.5, -0.04)),
     "outside_right": ("center left", (1.02, 0.5)),
     "outside_left": ("center right", (-0.02, 0.5)),
-
     # Legacy shorthands kept for backward compatibility.
     "right": ("right", (1.02, 0.5)),
     # "left" is not a valid Matplotlib loc string; interpret it as outside_left.
@@ -146,7 +145,9 @@ def _build_color_map(levels, palette):
     return dict(zip(levels, cols))
 
 
-def _series_grid_stats(series_list: List[pd.Series], n_grid: int = 400, ribbon: str = "sem"):
+def _series_grid_stats(
+    series_list: List[pd.Series], n_grid: int = 400, ribbon: str = "sem"
+):
     """
     Aggregate multiple pd.Series on a common x-grid.
 
@@ -167,7 +168,9 @@ def _series_grid_stats(series_list: List[pd.Series], n_grid: int = 400, ribbon: 
     for s in series_list:
         if not isinstance(s, pd.Series) or s.empty:
             continue
-        y_interp = np.interp(x_grid, s.index.to_numpy(dtype=float), s.to_numpy(dtype=float))
+        y_interp = np.interp(
+            x_grid, s.index.to_numpy(dtype=float), s.to_numpy(dtype=float)
+        )
         ys.append(y_interp)
 
     if len(ys) == 0:
@@ -363,20 +366,39 @@ def _compute_fig_layout_from_box_mm(
     if include_global_label_margins:
         if single_x_label and x_label_text:
             _, x_label_h_in = _measure_text_inches(
-                x_label_text, fontsize=axis_label_fontsize, font_family=font_family, dpi=dpi
+                x_label_text,
+                fontsize=axis_label_fontsize,
+                font_family=font_family,
+                dpi=dpi,
             )
         if single_y_label and y_label_text:
             y_label_w_in, _ = _measure_text_inches(
-                y_label_text, fontsize=axis_label_fontsize, rotation=90, font_family=font_family, dpi=dpi
+                y_label_text,
+                fontsize=axis_label_fontsize,
+                rotation=90,
+                font_family=font_family,
+                dpi=dpi,
             )
 
-    bottom_margin_in = (x_off_in + x_label_h_in + pad_in) if (include_global_label_margins and single_x_label) else 0.0
-    left_margin_in = (y_off_in + y_label_w_in + pad_in) if (include_global_label_margins and single_y_label) else 0.0
+    bottom_margin_in = (
+        (x_off_in + x_label_h_in + pad_in)
+        if (include_global_label_margins and single_x_label)
+        else 0.0
+    )
+    left_margin_in = (
+        (y_off_in + y_label_w_in + pad_in)
+        if (include_global_label_margins and single_y_label)
+        else 0.0
+    )
 
     # Space for colorbar label (outside to the right)
     if include_global_label_margins and colorbar_label_text:
         cbar_label_w_in, _ = _measure_text_inches(
-            colorbar_label_text, fontsize=axis_label_fontsize, rotation=270, font_family=font_family, dpi=dpi
+            colorbar_label_text,
+            fontsize=axis_label_fontsize,
+            rotation=270,
+            font_family=font_family,
+            dpi=dpi,
         )
         right_extras_in += cbar_off_in + cbar_label_w_in + pad_in
 
@@ -430,13 +452,10 @@ def _place_panels_fixed(
     fig_w_in, fig_h_in = fig.get_size_inches()
 
     total_w_frac = R - L
-    total_h_frac = T - B
     avail_w_in = total_w_frac * fig_w_in
-    avail_h_in = total_h_frac * fig_h_in
 
     nrows, ncols = axes.shape
     need_w_in = ncols * box_w_in + (ncols - 1) * gap_x_in
-    need_h_in = nrows * box_h_in + (nrows - 1) * gap_y_in
 
     if align == "center":
         x0_in = (avail_w_in - need_w_in) / 2.0
@@ -499,7 +518,9 @@ def _add_strips_mm(
     if col_labels is not None and top_h_frac > 0:
         for j, lab in enumerate(col_labels):
             pos = axes[0, j].get_position()
-            ax_strip = fig.add_axes([pos.x0, pos.y1 + pad_y_frac, pos.width, top_h_frac])
+            ax_strip = fig.add_axes(
+                [pos.x0, pos.y1 + pad_y_frac, pos.width, top_h_frac]
+            )
             ax_strip.set_facecolor(label_top_bg_color)
             ax_strip.text(
                 0.5,
@@ -521,7 +542,9 @@ def _add_strips_mm(
     if row_labels is not None and right_w_frac > 0:
         for i, lab in enumerate(row_labels):
             pos = axes[i, ncols - 1].get_position()
-            ax_strip = fig.add_axes([pos.x1 + pad_x_frac, pos.y0, right_w_frac, pos.height])
+            ax_strip = fig.add_axes(
+                [pos.x1 + pad_x_frac, pos.y0, right_w_frac, pos.height]
+            )
             ax_strip.set_facecolor(label_right_bg_color)
             ax_strip.text(
                 0.5,
@@ -653,11 +676,26 @@ def _draw_global_labels_and_title(
 
     if single_x_label and x_label:
         x_off_frac = float(layout["x_off_in"]) / fig_h_in
-        fig.text(cx, B - x_off_frac, x_label, ha="center", va="top", fontsize=axis_label_fontsize)
+        fig.text(
+            cx,
+            B - x_off_frac,
+            x_label,
+            ha="center",
+            va="top",
+            fontsize=axis_label_fontsize,
+        )
 
     if single_y_label and y_label:
         y_off_frac = float(layout["y_off_in"]) / fig_w_in
-        fig.text(L - y_off_frac, cy, y_label, ha="right", va="center", rotation=90, fontsize=axis_label_fontsize)
+        fig.text(
+            L - y_off_frac,
+            cy,
+            y_label,
+            ha="right",
+            va="center",
+            rotation=90,
+            fontsize=axis_label_fontsize,
+        )
 
     if title:
         fig.suptitle(title, fontsize=title_fontsize, y=min(0.995, T + 0.01))
@@ -782,6 +820,7 @@ def _ensure_strip_background_opaque(fig):
 
 # --------------------- scalar plotting ---------------------
 
+
 def p_to_stars(p):
     """Convert a p-value to significance stars."""
     try:
@@ -800,6 +839,7 @@ def p_to_stars(p):
         return "*"
     return "n.s."
 
+
 def _coerce_float_or_nan(x: object) -> float:
     """Best-effort float conversion; return NaN for non-numeric or non-finite values."""
     try:
@@ -807,6 +847,7 @@ def _coerce_float_or_nan(x: object) -> float:
     except Exception:
         return float("nan")
     return v if np.isfinite(v) else float("nan")
+
 
 def _unique_preserve_order(items: List[str]) -> List[str]:
     """Deduplicate while preserving order."""
@@ -819,7 +860,10 @@ def _unique_preserve_order(items: List[str]) -> List[str]:
         out.append(it)
     return out
 
-def _resolve_p_value_from_row(row: pd.Series, *, preferred: Optional[str] = None) -> float:
+
+def _resolve_p_value_from_row(
+    row: pd.Series, *, preferred: Optional[str] = None
+) -> float:
     """
     Resolve a single p-value from a row using a strict priority order.
 
@@ -844,7 +888,10 @@ def _resolve_p_value_from_row(row: pd.Series, *, preferred: Optional[str] = None
                 return float(v)
     return float("nan")
 
-def _resolve_p_value_series(df: pd.DataFrame, *, preferred: Optional[str] = None) -> pd.Series:
+
+def _resolve_p_value_series(
+    df: pd.DataFrame, *, preferred: Optional[str] = None
+) -> pd.Series:
     """
     Resolve a per-row p-value Series from a DataFrame using a strict priority order.
 
@@ -858,7 +905,9 @@ def _resolve_p_value_series(df: pd.DataFrame, *, preferred: Optional[str] = None
         candidates.append(str(preferred))
     candidates.extend(list(_P_VALUE_PRIORITY))
     candidates.extend(list(_P_VALUE_FALLBACK))
-    candidates = _unique_preserve_order([c for c in candidates if c and c in df.columns])
+    candidates = _unique_preserve_order(
+        [c for c in candidates if c and c in df.columns]
+    )
 
     p = pd.Series(np.nan, index=df.index, dtype=float)
     p_arr = p.to_numpy(copy=True)
@@ -874,10 +923,12 @@ def _resolve_p_value_series(df: pd.DataFrame, *, preferred: Optional[str] = None
     p_arr = np.where(np.isfinite(p_arr), p_arr, np.nan)
     return pd.Series(p_arr, index=df.index, dtype=float)
 
+
 def _is_ns_label(label: object) -> bool:
     """Return True if a star/label should be treated as non-significant."""
     s = str(label).strip().lower()
     return s in {"", "ns", "n.s.", "n.s", "na", "nan", "none"}
+
 
 def _stars_sort_rank(label: object) -> int:
     """
@@ -892,21 +943,32 @@ def _stars_sort_rank(label: object) -> int:
         return 9_999
     return 4 - min(n, 4)
 
+
 def _parse_whiskers(w):
-    if isinstance(w, (list, tuple)) and len(w) == 2: return (float(w[0]), float(w[1]))
-    if isinstance(w, (int, float)): return float(w)
-    if not isinstance(w, str): return 1.5
+    if isinstance(w, (list, tuple)) and len(w) == 2:
+        return (float(w[0]), float(w[1]))
+    if isinstance(w, (int, float)):
+        return float(w)
+    if not isinstance(w, str):
+        return 1.5
     s = w.strip().lower()
-    if s in ("tukey", "iqr", "iqr1.5"): return 1.5
-    if s == "minmax": return (0, 100)
+    if s in ("tukey", "iqr", "iqr1.5"):
+        return 1.5
+    if s == "minmax":
+        return (0, 100)
     if s.startswith("iqr"):
-        try: return float(s.replace("iqr", ""))
-        except Exception: return 1.5
+        try:
+            return float(s.replace("iqr", ""))
+        except Exception:
+            return 1.5
     if "," in s:
         try:
-            lo, hi = s.split(",", 1); return (float(lo), float(hi))
-        except Exception: return 1.5
+            lo, hi = s.split(",", 1)
+            return (float(lo), float(hi))
+        except Exception:
+            return 1.5
     return 1.5
+
 
 def _draw_tukey_brackets(
     ax,
@@ -917,12 +979,12 @@ def _draw_tukey_brackets(
     hide_ns: bool,
     y_start: float,
     y_end: float,
-    y_step: Optional[float],          # set to None to auto-compute
+    y_step: Optional[float],  # set to None to auto-compute
     bracket_height_frac: float,
     color: str,
     lw: float,
     text_size: int,
-    label_pad_frac: float = 0.015     # small extra pad above the bracket for the text
+    label_pad_frac: float = 0.015,  # small extra pad above the bracket for the text
 ):
     """
     Draw Tukey-style brackets with a minimal number of vertical layers (no horizontal overlap).
@@ -977,7 +1039,9 @@ def _draw_tukey_brackets(
     missing_star = tk["stars"].isna() | (tk["stars"].astype(str).str.strip() == "")
     if bool(missing_star.any()):
         tk["stars"] = tk["stars"].astype("object")
-        tk.loc[missing_star, "stars"] = tk.loc[missing_star, "p.value"].apply(p_to_stars)
+        tk.loc[missing_star, "stars"] = tk.loc[missing_star, "p.value"].apply(
+            p_to_stars
+        )
     # Optional hide ns
     if hide_ns:
         tk = tk[~tk["stars"].apply(_is_ns_label)]
@@ -999,9 +1063,8 @@ def _draw_tukey_brackets(
     tk["_p_rank"] = p_rank
     tk["_star_rank"] = tk["stars"].apply(_stars_sort_rank)
 
-    tk = (
-        tk.sort_values(["_p_rank", "_star_rank"], kind="mergesort")
-          .drop_duplicates(subset=["g_lo", "g_hi"], keep="first")
+    tk = tk.sort_values(["_p_rank", "_star_rank"], kind="mergesort").drop_duplicates(
+        subset=["g_lo", "g_hi"], keep="first"
     )
 
     # Build interval list using numeric x positions; drop pairs not on axis
@@ -1030,7 +1093,7 @@ def _draw_tukey_brackets(
     intervals.sort(key=lambda d: (d["lo"], d["hi"]))
 
     # Assign layers greedily with a min-heap of (end, layer_id)
-    heap: List[Tuple[float, int]] = []   # (current_end, layer_id)
+    heap: List[Tuple[float, int]] = []  # (current_end, layer_id)
     next_layer_id = 0
     for d in intervals:
         lo, hi = d["lo"], d["hi"]
@@ -1105,6 +1168,7 @@ def _draw_tukey_brackets(
             clip_on=False,
         )
 
+
 def _normalize_emm_ci_columns(emw: pd.DataFrame) -> pd.DataFrame:
     """Normalize common CI column name variants to lower.CL / upper.CL."""
     if emw.empty:
@@ -1125,6 +1189,7 @@ def _normalize_emm_ci_columns(emw: pd.DataFrame) -> pd.DataFrame:
             out = out.rename(columns={old: new})
     return out
 
+
 def _auto_y_limits_scalar(
     dfw: pd.DataFrame,
     emw: pd.DataFrame,
@@ -1136,7 +1201,11 @@ def _auto_y_limits_scalar(
     if y_limits is not None:
         return y_limits
 
-    raw = dfw[value_col].to_numpy(dtype=float) if value_col in dfw.columns else np.array([0.0, 1.0])
+    raw = (
+        dfw[value_col].to_numpy(dtype=float)
+        if value_col in dfw.columns
+        else np.array([0.0, 1.0])
+    )
     raw = raw[np.isfinite(raw)]
     if raw.size == 0:
         raw = np.array([0.0, 1.0])
@@ -1160,6 +1229,7 @@ def _auto_y_limits_scalar(
 
     yr = ymax - ymin
     return (ymin - 0.10 * yr, ymax + 0.3 * yr)
+
 
 def _plot_interaction_scalar_grid(
     *,
@@ -1323,8 +1393,14 @@ def _plot_interaction_scalar_grid(
         emw[row_var] = pd.Categorical(emw[row_var], categories=row_levels, ordered=True)
 
     # Color maps
-    jitter_levels = _ordered_levels(dfw[jitter_var], None) if jitter_var in dfw.columns else x_levels
-    fill_levels = _ordered_levels(dfw[fill_var], None) if fill_var in dfw.columns else x_levels
+    jitter_levels = (
+        _ordered_levels(dfw[jitter_var], None)
+        if jitter_var in dfw.columns
+        else x_levels
+    )
+    fill_levels = (
+        _ordered_levels(dfw[fill_var], None) if fill_var in dfw.columns else x_levels
+    )
 
     outline_levels: List = []
     if outline_var is not None and outline_var in dfw.columns:
@@ -1332,11 +1408,17 @@ def _plot_interaction_scalar_grid(
 
     jitter_cmap = _build_color_map(jitter_levels, jitter_palette)
     fill_cmap = _build_color_map(fill_levels, fill_palette)
-    outline_cmap = _build_color_map(outline_levels, outline_palette) if (outline_palette is not None and outline_levels) else {}
+    outline_cmap = (
+        _build_color_map(outline_levels, outline_palette)
+        if (outline_palette is not None and outline_levels)
+        else {}
+    )
 
     x_to_num = {str(lv): i for i, lv in enumerate(x_levels)}
 
-    y_limits_use = _auto_y_limits_scalar(dfw, emw, value_col=value_col, y_limits=y_limits)
+    y_limits_use = _auto_y_limits_scalar(
+        dfw, emw, value_col=value_col, y_limits=y_limits
+    )
 
     nrows = len(row_levels)
     ncols = len(col_levels)
@@ -1392,9 +1474,17 @@ def _plot_interaction_scalar_grid(
                 cell_raw = cell_raw[cell_raw[row_var] == row_lv]
 
             cell_emm = emw
-            if col_var is not None and col_lv is not None and col_var in cell_emm.columns:
+            if (
+                col_var is not None
+                and col_lv is not None
+                and col_var in cell_emm.columns
+            ):
                 cell_emm = cell_emm[cell_emm[col_var] == col_lv]
-            if row_var is not None and row_lv is not None and row_var in cell_emm.columns:
+            if (
+                row_var is not None
+                and row_lv is not None
+                and row_var in cell_emm.columns
+            ):
                 cell_emm = cell_emm[cell_emm[row_var] == row_lv]
 
             # Boxplot
@@ -1404,7 +1494,11 @@ def _plot_interaction_scalar_grid(
                 box_levels_used: List = []
 
                 for lv in x_levels:
-                    sub = cell_raw[cell_raw[x_var] == lv] if x_var in cell_raw.columns else cell_raw.iloc[0:0]
+                    sub = (
+                        cell_raw[cell_raw[x_var] == lv]
+                        if x_var in cell_raw.columns
+                        else cell_raw.iloc[0:0]
+                    )
                     vals = sub[value_col].to_numpy(dtype=float)
                     vals = vals[np.isfinite(vals)]
                     if vals.size:
@@ -1421,8 +1515,12 @@ def _plot_interaction_scalar_grid(
                         patch_artist=True,
                         showfliers=True,
                         whis=whis,
-                        medianprops=dict(color=median_color, linewidth=median_linewidth),
-                        whiskerprops=dict(color=whisker_color, linewidth=whisker_linewidth),
+                        medianprops=dict(
+                            color=median_color, linewidth=median_linewidth
+                        ),
+                        whiskerprops=dict(
+                            color=whisker_color, linewidth=whisker_linewidth
+                        ),
                         capprops=dict(color=whisker_color, linewidth=cap_linewidth),
                         flierprops=dict(
                             marker=outlier_marker,
@@ -1433,7 +1531,9 @@ def _plot_interaction_scalar_grid(
                         ),
                     )
 
-                    use_outline_for_lines = (outline_var is not None and outline_var in cell_raw.columns)
+                    use_outline_for_lines = (
+                        outline_var is not None and outline_var in cell_raw.columns
+                    )
 
                     for k, b in enumerate(bp["boxes"]):
                         lv = box_levels_used[k] if k < len(box_levels_used) else None
@@ -1441,7 +1541,9 @@ def _plot_interaction_scalar_grid(
                         # fill by fill_var (typically x_var)
                         if fill_var in cell_raw.columns and lv is not None:
                             sub_x = cell_raw[cell_raw[x_var] == lv]
-                            fill_level = sub_x[fill_var].iloc[0] if not sub_x.empty else lv
+                            fill_level = (
+                                sub_x[fill_var].iloc[0] if not sub_x.empty else lv
+                            )
                         else:
                             fill_level = lv
                         face = fill_cmap.get(fill_level, "gray")
@@ -1505,7 +1607,11 @@ def _plot_interaction_scalar_grid(
                 )
 
             # EMM CI + mean line
-            if (show_emm_ci or show_emm_line) and not cell_emm.empty and "emmean" in cell_emm.columns:
+            if (
+                (show_emm_ci or show_emm_line)
+                and not cell_emm.empty
+                and "emmean" in cell_emm.columns
+            ):
                 # order by x_levels
                 cell_emm = cell_emm.copy()
                 cell_emm["_x_str"] = cell_emm[x_var].astype(str)
@@ -1542,7 +1648,11 @@ def _plot_interaction_scalar_grid(
 
             # Raw mean line
             if show_raw_mean_line and not cell_raw.empty:
-                grp = cell_raw.groupby(x_var, observed=True)[value_col].mean().reindex(x_levels)
+                grp = (
+                    cell_raw.groupby(x_var, observed=True)[value_col]
+                    .mean()
+                    .reindex(x_levels)
+                )
                 x_pos = np.array([x_to_num[str(k)] for k in grp.index], dtype=float)
                 ax.plot(
                     x_pos,
@@ -1588,7 +1698,11 @@ def _plot_interaction_scalar_grid(
 
             ax.set_xlim(-0.5, len(x_levels) - 0.5)
             ax.set_xticks(range(len(x_levels)))
-            ax.set_xticklabels([str(x) for x in x_levels], fontsize=tick_label_fontsize, rotation=xtick_rotation)
+            ax.set_xticklabels(
+                [str(x) for x in x_levels],
+                fontsize=tick_label_fontsize,
+                rotation=xtick_rotation,
+            )
             for t in ax.get_yticklabels():
                 t.set_fontsize(tick_label_fontsize)
                 t.set_rotation(ytick_rotation)
@@ -1611,9 +1725,17 @@ def _plot_interaction_scalar_grid(
             # Tukey brackets
             if show_brackets:
                 cell_tk = tkw
-                if col_var is not None and col_lv is not None and col_var in cell_tk.columns:
+                if (
+                    col_var is not None
+                    and col_lv is not None
+                    and col_var in cell_tk.columns
+                ):
                     cell_tk = cell_tk[cell_tk[col_var] == col_lv]
-                if row_var is not None and row_lv is not None and row_var in cell_tk.columns:
+                if (
+                    row_var is not None
+                    and row_lv is not None
+                    and row_var in cell_tk.columns
+                ):
                     cell_tk = cell_tk[cell_tk[row_var] == row_lv]
 
                 _draw_tukey_brackets(
@@ -1632,8 +1754,12 @@ def _plot_interaction_scalar_grid(
                 )
 
     # strips
-    col_labs = [f"{lv}" for lv in col_levels] if (col_var is not None and ncols > 1) else None
-    row_labs = [f"{lv}" for lv in row_levels] if (row_var is not None and nrows > 1) else None
+    col_labs = (
+        [f"{lv}" for lv in col_levels] if (col_var is not None and ncols > 1) else None
+    )
+    row_labs = (
+        [f"{lv}" for lv in row_levels] if (row_var is not None and nrows > 1) else None
+    )
     _ = _add_strips_mm(
         fig,
         axes,
@@ -1679,10 +1805,26 @@ def _plot_interaction_scalar_grid(
             ),
         ]
         if show_emm_line:
-            handles.append(Line2D([0], [0], color=emm_line_color, lw=emm_line_width, ls=emm_line_style, label="EMM"))
+            handles.append(
+                Line2D(
+                    [0],
+                    [0],
+                    color=emm_line_color,
+                    lw=emm_line_width,
+                    ls=emm_line_style,
+                    label="EMM",
+                )
+            )
         if show_raw_mean_line:
             handles.append(
-                Line2D([0], [0], color=raw_mean_line_color, lw=raw_mean_line_width, ls=raw_mean_line_style, label="Raw mean")
+                Line2D(
+                    [0],
+                    [0],
+                    color=raw_mean_line_color,
+                    lw=raw_mean_line_width,
+                    ls=raw_mean_line_style,
+                    label="Raw mean",
+                )
             )
         handles.append(
             Line2D(
@@ -1713,6 +1855,7 @@ def _plot_interaction_scalar_grid(
         )
 
     return fig
+
 
 def plot_single_effect_scalar(
     df: pd.DataFrame,
@@ -1919,8 +2062,8 @@ def plot_single_effect_scalar(
 
 def plot_triple_interaction_scalar(
     df: pd.DataFrame,
-    emm: pd.DataFrame,
-    tuk: pd.DataFrame,
+    emm: Optional[pd.DataFrame] = None,
+    tuk: Optional[pd.DataFrame] = None,
     value_col: str = "value",
     x_var: str = "phase",
     panel_var: str = "region",
@@ -2022,7 +2165,10 @@ def plot_triple_interaction_scalar(
     bracket_text_size: int = 12,
     transparent: bool = False,
 ) -> plt.Figure:
-    """Triple interaction scalar plot (panel × facet)."""
+    """Triple interaction scalar plot (panel x facet).
+
+    `emm` and `tuk` can be None or empty DataFrames.
+    """
     return _plot_interaction_scalar_grid(
         df=df,
         emm=emm,
@@ -2132,8 +2278,8 @@ def plot_triple_interaction_scalar(
 
 def plot_double_interaction_scalar(
     df: pd.DataFrame,
-    emm: pd.DataFrame,
-    tuk: pd.DataFrame,
+    emm: Optional[pd.DataFrame] = None,
+    tuk: Optional[pd.DataFrame] = None,
     value_col: str = "value",
     x_var: str = "phase",
     panel_var: str = "region",
@@ -2231,7 +2377,10 @@ def plot_double_interaction_scalar(
     bracket_text_size: int = 12,
     transparent: bool = False,
 ) -> plt.Figure:
-    """Double interaction scalar plot (panel only)."""
+    """Double interaction scalar plot (panel only).
+
+    `emm` and `tuk` can be None or empty DataFrames.
+    """
     return _plot_interaction_scalar_grid(
         df=df,
         emm=emm,
@@ -2338,6 +2487,7 @@ def plot_double_interaction_scalar(
         transparent=transparent,
     )
 
+
 def _auto_limits_series(
     dfw: pd.DataFrame,
     *,
@@ -2376,12 +2526,20 @@ def _auto_limits_series(
     if col_var is None:
         col_levels_use: List = [None]
     else:
-        col_levels_use = list(col_levels) if col_levels is not None else _ordered_levels(dfw[col_var], None)
+        col_levels_use = (
+            list(col_levels)
+            if col_levels is not None
+            else _ordered_levels(dfw[col_var], None)
+        )
 
     if row_var is None:
         row_levels_use: List = [None]
     else:
-        row_levels_use = list(row_levels) if row_levels is not None else _ordered_levels(dfw[row_var], None)
+        row_levels_use = (
+            list(row_levels)
+            if row_levels is not None
+            else _ordered_levels(dfw[row_var], None)
+        )
 
     xmins: List[float] = []
     xmaxs: List[float] = []
@@ -2405,8 +2563,14 @@ def _auto_limits_series(
                 else:
                     sub = cell
 
-                series_list = [s for s in sub[value_col].tolist() if isinstance(s, pd.Series) and not s.empty]
-                xg, mean, low, high = _series_grid_stats(series_list, n_grid=n_grid, ribbon=ribbon)
+                series_list = [
+                    s
+                    for s in sub[value_col].tolist()
+                    if isinstance(s, pd.Series) and not s.empty
+                ]
+                xg, mean, low, high = _series_grid_stats(
+                    series_list, n_grid=n_grid, ribbon=ribbon
+                )
                 if xg.size == 0:
                     continue
 
@@ -2552,7 +2716,9 @@ def _plot_interaction_series_grid(
         row_levels = [None]
 
     if line_var in dfw.columns:
-        dfw[line_var] = pd.Categorical(dfw[line_var], categories=line_levels, ordered=True)
+        dfw[line_var] = pd.Categorical(
+            dfw[line_var], categories=line_levels, ordered=True
+        )
     if col_var and col_var in dfw.columns:
         dfw[col_var] = pd.Categorical(dfw[col_var], categories=col_levels, ordered=True)
     if row_var and row_var in dfw.columns:
@@ -2626,24 +2792,56 @@ def _plot_interaction_series_grid(
 
             for lv in line_levels:
                 sub = cell[cell[line_var] == lv]
-                series_list = [s for s in sub[value_col].tolist() if isinstance(s, pd.Series)]
+                series_list = [
+                    s for s in sub[value_col].tolist() if isinstance(s, pd.Series)
+                ]
                 xg, mean, low, high = _series_grid_stats(series_list, ribbon=ribbon)
                 if xg.size == 0:
                     continue
 
                 c = line_cmap.get(lv, "black")
-                ax.plot(xg, mean, color=c, lw=line_width, alpha=line_alpha, label=str(lv), zorder=3)
+                ax.plot(
+                    xg,
+                    mean,
+                    color=c,
+                    lw=line_width,
+                    alpha=line_alpha,
+                    label=str(lv),
+                    zorder=3,
+                )
 
                 if show_ribbon:
-                    ax.fill_between(xg, low, high, color=c, alpha=ribbon_alpha, linewidth=0, zorder=2)
+                    ax.fill_between(
+                        xg,
+                        low,
+                        high,
+                        color=c,
+                        alpha=ribbon_alpha,
+                        linewidth=0,
+                        zorder=2,
+                    )
 
             if vertical_lines is not None:
                 for xv in vertical_lines:
-                    ax.axvline(x=xv, color=vline_color, linestyle=vline_style, linewidth=vline_width, alpha=vline_alpha, zorder=4)
+                    ax.axvline(
+                        x=xv,
+                        color=vline_color,
+                        linestyle=vline_style,
+                        linewidth=vline_width,
+                        alpha=vline_alpha,
+                        zorder=4,
+                    )
 
             if horizontal_lines is not None:
                 for yv in horizontal_lines:
-                    ax.axhline(y=yv, color=hline_color, linestyle=hline_style, linewidth=hline_width, alpha=hline_alpha, zorder=4)
+                    ax.axhline(
+                        y=yv,
+                        color=hline_color,
+                        linestyle=hline_style,
+                        linewidth=hline_width,
+                        alpha=hline_alpha,
+                        zorder=4,
+                    )
 
             ax.set_xlim(*x_limits_use)
             ax.set_ylim(*y_limits_use)
@@ -2659,12 +2857,21 @@ def _plot_interaction_series_grid(
                     if y_ticks is not None:
                         ticks = np.asarray(y_ticks, dtype=float)
                         if ticks.size != len(labels):
-                            raise ValueError("y_ticks and y_tick_labels must have the same length.")
+                            raise ValueError(
+                                "y_ticks and y_tick_labels must have the same length."
+                            )
                     else:
                         if len(labels) == 1:
-                            ticks = np.array([(y_limits_use[0] + y_limits_use[1]) / 2.0], dtype=float)
+                            ticks = np.array(
+                                [(y_limits_use[0] + y_limits_use[1]) / 2.0], dtype=float
+                            )
                         else:
-                            ticks = np.linspace(y_limits_use[0], y_limits_use[1], num=len(labels), dtype=float)
+                            ticks = np.linspace(
+                                y_limits_use[0],
+                                y_limits_use[1],
+                                num=len(labels),
+                                dtype=float,
+                            )
                     ax.set_yticks(ticks)
                     ax.set_yticklabels(labels)
 
@@ -2681,8 +2888,12 @@ def _plot_interaction_series_grid(
                 ax.set_ylabel(y_label or value_col, fontsize=axis_label_fontsize)
 
     # strips
-    col_labs = [f"{lv}" for lv in col_levels] if (col_var is not None and ncols > 1) else None
-    row_labs = [f"{lv}" for lv in row_levels] if (row_var is not None and nrows > 1) else None
+    col_labs = (
+        [f"{lv}" for lv in col_levels] if (col_var is not None and ncols > 1) else None
+    )
+    row_labs = (
+        [f"{lv}" for lv in row_levels] if (row_var is not None and nrows > 1) else None
+    )
     _ = _add_strips_mm(
         fig,
         axes,
@@ -3181,7 +3392,9 @@ def _cell_aggregate_xyz(df_list: List[pd.DataFrame], mode: str = "mean"):
     return X, Y, Z, x_coords, y_coords, y_tick_labels
 
 
-def _compute_global_vrange(cells: List[np.ndarray], vmin: Optional[float], vmax: Optional[float], vmode: str):
+def _compute_global_vrange(
+    cells: List[np.ndarray], vmin: Optional[float], vmax: Optional[float], vmode: str
+):
     """Compute vmin/vmax from a list of Z arrays."""
     if vmin is not None and vmax is not None:
         return float(vmin), float(vmax)
@@ -3329,7 +3542,10 @@ def _plot_interaction_df_grid(
 
     # Pre-compute Z arrays for vmin/vmax
     Z_cells: List[np.ndarray] = []
-    cell_cache: Dict[Tuple[int, int], Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[List[str]]]] = {}
+    cell_cache: Dict[
+        Tuple[int, int],
+        Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[List[str]]],
+    ] = {}
 
     for i, row_lv in enumerate(row_levels):
         for j, col_lv in enumerate(col_levels):
@@ -3339,13 +3555,19 @@ def _plot_interaction_df_grid(
             if row_var is not None and row_lv is not None:
                 cell = cell[cell[row_var] == row_lv]
 
-            df_list = [d for d in cell[value_col].tolist() if isinstance(d, pd.DataFrame)]
-            X, Y, Z, _, y_coords, y_tick_labels = _cell_aggregate_xyz(df_list, mode=mode)
+            df_list = [
+                d for d in cell[value_col].tolist() if isinstance(d, pd.DataFrame)
+            ]
+            X, Y, Z, _, y_coords, y_tick_labels = _cell_aggregate_xyz(
+                df_list, mode=mode
+            )
             if Z is not None:
                 Z_cells.append(Z)
                 cell_cache[(i, j)] = (X, Y, Z, y_coords, y_tick_labels)
 
-    vmin_use, vmax_use = _compute_global_vrange(Z_cells, vmin=vmin, vmax=vmax, vmode=vmode)
+    vmin_use, vmax_use = _compute_global_vrange(
+        Z_cells, vmin=vmin, vmax=vmax, vmode=vmode
+    )
 
     cmap_obj = plt.get_cmap(cmap) if isinstance(cmap, str) else cmap
     norm = mpl.colors.Normalize(vmin=vmin_use, vmax=vmax_use)
@@ -3365,7 +3587,9 @@ def _plot_interaction_df_grid(
 
             if (i, j) in cell_cache:
                 X, Y, Z, y_coords, y_tick_labels = cell_cache[(i, j)]
-                m = ax.pcolormesh(X, Y, Z, shading="auto", cmap=cmap_obj, norm=norm, zorder=1)
+                m = ax.pcolormesh(
+                    X, Y, Z, shading="auto", cmap=cmap_obj, norm=norm, zorder=1
+                )
                 last_mappable = m
                 if y_tick_labels is not None:
                     ax.set_yticks(y_coords)
@@ -3374,11 +3598,25 @@ def _plot_interaction_df_grid(
 
             if vertical_lines is not None:
                 for xv in vertical_lines:
-                    ax.axvline(x=xv, color=vline_color, linestyle=vline_style, linewidth=vline_width, alpha=vline_alpha, zorder=3)
+                    ax.axvline(
+                        x=xv,
+                        color=vline_color,
+                        linestyle=vline_style,
+                        linewidth=vline_width,
+                        alpha=vline_alpha,
+                        zorder=3,
+                    )
 
             if horizontal_lines is not None:
                 for yv in horizontal_lines:
-                    ax.axhline(y=yv, color=hline_color, linestyle=hline_style, linewidth=hline_width, alpha=hline_alpha, zorder=3)
+                    ax.axhline(
+                        y=yv,
+                        color=hline_color,
+                        linestyle=hline_style,
+                        linewidth=hline_width,
+                        alpha=hline_alpha,
+                        zorder=3,
+                    )
 
             if x_log:
                 ax.set_xscale("log")
@@ -3390,10 +3628,16 @@ def _plot_interaction_df_grid(
                 ax.set_ylim(*y_limits)
 
             if i == nrows - 1:
-                ax.set_xlabel("" if single_x_label else (x_label or "x"), fontsize=axis_label_fontsize)
+                ax.set_xlabel(
+                    "" if single_x_label else (x_label or "x"),
+                    fontsize=axis_label_fontsize,
+                )
             if j == 0:
-                ax.set_ylabel("" if single_y_label else (y_label or value_col), fontsize=axis_label_fontsize)
-                
+                ax.set_ylabel(
+                    "" if single_y_label else (y_label or value_col),
+                    fontsize=axis_label_fontsize,
+                )
+
             ax.tick_params(labelsize=tick_label_fontsize)
             if grid:
                 ax.grid(True, alpha=grid_alpha, linestyle="--", zorder=4)
@@ -3402,8 +3646,12 @@ def _plot_interaction_df_grid(
             ax.spines["right"].set_visible(True)
 
     # strips
-    col_labs = [f"{lv}" for lv in col_levels] if (col_var is not None and ncols > 1) else None
-    row_labs = [f"{lv}" for lv in row_levels] if (row_var is not None and nrows > 1) else None
+    col_labs = (
+        [f"{lv}" for lv in col_levels] if (col_var is not None and ncols > 1) else None
+    )
+    row_labs = (
+        [f"{lv}" for lv in row_levels] if (row_var is not None and nrows > 1) else None
+    )
     right_edge = _add_strips_mm(
         fig,
         axes,
@@ -3452,7 +3700,12 @@ def _plot_interaction_df_grid(
             va=va,
             fontsize=input_vars_fontsize,
             color=input_vars_text_color,
-            bbox=dict(boxstyle="round,pad=0.3", facecolor=input_vars_facecolor, edgecolor="none", alpha=0.9),
+            bbox=dict(
+                boxstyle="round,pad=0.3",
+                facecolor=input_vars_facecolor,
+                edgecolor="none",
+                alpha=0.9,
+            ),
         )
 
     # colorbar
@@ -3856,12 +4109,16 @@ def _finite(arr):
 def _auto_limits(x_arrays, y_arrays, x_pad_frac, y_pad_frac, y_log: bool = False):
     """Compute padded limits from multiple x/y arrays."""
     if x_arrays:
-        xs = _finite(np.concatenate([np.asarray(v).ravel() for v in x_arrays if v is not None]))
+        xs = _finite(
+            np.concatenate([np.asarray(v).ravel() for v in x_arrays if v is not None])
+        )
     else:
         xs = np.array([0.0, 1.0])
 
     if y_arrays:
-        ys = _finite(np.concatenate([np.asarray(v).ravel() for v in y_arrays if v is not None]))
+        ys = _finite(
+            np.concatenate([np.asarray(v).ravel() for v in y_arrays if v is not None])
+        )
     else:
         ys = np.array([0.0, 1.0])
 
@@ -3922,7 +4179,9 @@ def _format_slope_text(
     pval = _resolve_p_value_from_row(slope_row, preferred=p_col)
     stars = p_to_stars(pval)
 
-    return text_fmt.format(beta=beta, lower=lower, upper=upper, p=pval, q=pval, stars=stars)
+    return text_fmt.format(
+        beta=beta, lower=lower, upper=upper, p=pval, q=pval, stars=stars
+    )
 
 
 def _plot_interaction_fit_grid(
@@ -4005,7 +4264,6 @@ def _plot_interaction_fit_grid(
     transparent: bool,
 ) -> plt.Figure:
     """Core fit grid plotter."""
-    rng = np.random.default_rng(seed)
     plt.rcParams["font.family"] = font_family
 
     dfw = df.copy()
@@ -4126,15 +4384,31 @@ def _plot_interaction_fit_grid(
             if not cell_raw.empty:
                 xs = cell_raw[x_var].to_numpy(dtype=float)
                 ys = cell_raw[value_col].to_numpy(dtype=float)
-                cols = [cmap.get(lv, "gray") for lv in cell_raw["_color_level"].tolist()]
-                ax.scatter(xs, ys, c=cols, alpha=jitter_alpha, s=jitter_size, linewidths=0, zorder=2)
+                cols = [
+                    cmap.get(lv, "gray") for lv in cell_raw["_color_level"].tolist()
+                ]
+                ax.scatter(
+                    xs,
+                    ys,
+                    c=cols,
+                    alpha=jitter_alpha,
+                    s=jitter_size,
+                    linewidths=0,
+                    zorder=2,
+                )
 
-            if not cell_curve.empty and x_var in cell_curve.columns and "emmean" in cell_curve.columns:
+            if (
+                not cell_curve.empty
+                and x_var in cell_curve.columns
+                and "emmean" in cell_curve.columns
+            ):
                 cell_curve = cell_curve.sort_values(x_var)
                 xg = cell_curve[x_var].to_numpy(dtype=float)
                 em = cell_curve["emmean"].to_numpy(dtype=float)
 
-                if show_ribbon and {"lower.CL", "upper.CL"}.issubset(cell_curve.columns):
+                if show_ribbon and {"lower.CL", "upper.CL"}.issubset(
+                    cell_curve.columns
+                ):
                     lo = cell_curve["lower.CL"].to_numpy(dtype=float)
                     hi = cell_curve["upper.CL"].to_numpy(dtype=float)
                     ax.fill_between(
@@ -4147,7 +4421,14 @@ def _plot_interaction_fit_grid(
                         zorder=1.5,
                     )
 
-                ax.plot(xg, em, color=curve_line_color, lw=curve_line_width, zorder=3, label="Fit")
+                ax.plot(
+                    xg,
+                    em,
+                    color=curve_line_color,
+                    lw=curve_line_width,
+                    zorder=3,
+                    label="Fit",
+                )
 
             if cell_slope is not None and not cell_slope.empty:
                 row0 = cell_slope.iloc[0]
@@ -4262,8 +4543,12 @@ def _plot_interaction_fit_grid(
             if (j == 0) and (not single_y_label):
                 ax.set_ylabel(y_label or value_col, fontsize=axis_label_fontsize)
 
-    col_labs = [f"{lv}" for lv in col_levels] if (col_var is not None and ncols > 1) else None
-    row_labs = [f"{lv}" for lv in row_levels] if (row_var is not None and nrows > 1) else None
+    col_labs = (
+        [f"{lv}" for lv in col_levels] if (col_var is not None and ncols > 1) else None
+    )
+    row_labs = (
+        [f"{lv}" for lv in row_levels] if (row_var is not None and nrows > 1) else None
+    )
     _ = _add_strips_mm(
         fig,
         axes,
@@ -4899,7 +5184,9 @@ def plot_prism_boxplot(
 
     jitter_cmap = _build_color_map(groups, jitter_palette)
     fill_cmap = _build_color_map(groups, fill_palette)
-    outline_cmap = _build_color_map(groups, outline_palette) if outline_palette is not None else {}
+    outline_cmap = (
+        _build_color_map(groups, outline_palette) if outline_palette is not None else {}
+    )
     use_outline_for_lines = outline_palette is not None
     x_offset = 1.0 if x_log else 0.0
     x_to_num = {str(g): i + x_offset for i, g in enumerate(groups)}
@@ -4973,7 +5260,11 @@ def plot_prism_boxplot(
         for k, b in enumerate(bp["boxes"]):
             g = groups[k] if k < len(groups) else None
             face = fill_cmap.get(g, "gray")
-            outline_c = outline_cmap.get(g, box_edge_color) if use_outline_for_lines else box_edge_color
+            outline_c = (
+                outline_cmap.get(g, box_edge_color)
+                if use_outline_for_lines
+                else box_edge_color
+            )
             b.set_facecolor(mpl.colors.to_rgba(face, fill_alpha))
             b.set_edgecolor(outline_c)
             b.set_linewidth(box_edge_width)
@@ -5061,7 +5352,9 @@ def plot_prism_boxplot(
     ax.set_xlim(*x_limits_use)
     xtick_pos = [x_to_num[str(g)] for g in groups]
     ax.set_xticks(xtick_pos)
-    ax.set_xticklabels([str(g) for g in groups], fontsize=tick_label_fontsize, rotation=xtick_rotation)
+    ax.set_xticklabels(
+        [str(g) for g in groups], fontsize=tick_label_fontsize, rotation=xtick_rotation
+    )
     if x_log:
         ax.set_xscale("log")
     if y_log:
@@ -5097,7 +5390,11 @@ def plot_prism_boxplot(
         cols = list(tuk.columns)
         pair_col = cols[0]
         star_col = next(
-            (c for c in reversed(cols) if re.search(r"(summary|p\s*value\s*summary)", str(c), flags=re.I)),
+            (
+                c
+                for c in reversed(cols)
+                if re.search(r"(summary|p\s*value\s*summary)", str(c), flags=re.I)
+            ),
             None,
         )
         if star_col is None and len(cols) >= 2:
@@ -5162,14 +5459,23 @@ def plot_prism_boxplot(
             base = y0 + y_range * float(y_start)
             usable = max(0.0, top - base)
             if y_step is None:
-                step = 0.0 if n_layers <= 1 else max(usable / (n_layers - 1), tick * 1.0)
+                step = (
+                    0.0 if n_layers <= 1 else max(usable / (n_layers - 1), tick * 1.0)
+                )
             else:
                 step = y_range * abs(float(y_step))
             intervals.sort(key=lambda d: d["layer"])
             for d in intervals:
                 lo, hi, lab, layer = d["lo"], d["hi"], d["label"], d["layer"]
                 y = max(base, top - layer * step)
-                ax.plot([lo, lo, hi, hi], [y, y + tick, y + tick, y], color=color, lw=lw, zorder=5, clip_on=False)
+                ax.plot(
+                    [lo, lo, hi, hi],
+                    [y, y + tick, y + tick, y],
+                    color=color,
+                    lw=lw,
+                    zorder=5,
+                    clip_on=False,
+                )
                 ax.text(
                     (lo + hi) / 2.0,
                     y + tick - 0.035 * y_range,
@@ -5244,7 +5550,14 @@ def plot_prism_boxplot(
         ]
         if show_raw_mean_line:
             handles.append(
-                Line2D([0], [0], color=raw_mean_line_color, lw=raw_mean_line_width, ls=raw_mean_line_style, label="Raw mean")
+                Line2D(
+                    [0],
+                    [0],
+                    color=raw_mean_line_color,
+                    lw=raw_mean_line_width,
+                    ls=raw_mean_line_style,
+                    label="Raw mean",
+                )
             )
         handles.append(
             Line2D(
@@ -5285,7 +5598,9 @@ def _parse_plate_grid_lines(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Parse `grid_lines` into (x_lines, y_lines) for plate-style heatmaps."""
     if ncols <= 0 or nrows <= 0:
-        raise ValueError(f"ncols and nrows must be positive; got ncols={ncols}, nrows={nrows}.")
+        raise ValueError(
+            f"ncols and nrows must be positive; got ncols={ncols}, nrows={nrows}."
+        )
 
     if grid_lines is None:
         x_lines = np.arange(0, ncols + 1, dtype=float)
@@ -5294,7 +5609,9 @@ def _parse_plate_grid_lines(
 
     if isinstance(grid_lines, (tuple, list)) and len(grid_lines) == 2:
         xg, yg = grid_lines[0], grid_lines[1]
-        if isinstance(xg, (list, tuple, np.ndarray)) and isinstance(yg, (list, tuple, np.ndarray)):
+        if isinstance(xg, (list, tuple, np.ndarray)) and isinstance(
+            yg, (list, tuple, np.ndarray)
+        ):
             x_lines = np.asarray(xg, dtype=float).ravel()
             y_lines = np.asarray(yg, dtype=float).ravel()
         else:
@@ -5375,7 +5692,9 @@ def plot_well_heatmap_df(
                 f"Missing rows: {sorted(missing_rows)}; missing cols: {sorted(missing_cols)}"
             )
 
-        dfp_aligned = df_p.reindex(index=df_value.index, columns=df_value.columns).copy()
+        dfp_aligned = df_p.reindex(
+            index=df_value.index, columns=df_value.columns
+        ).copy()
         for c in dfp_aligned.columns:
             dfp_aligned[c] = pd.to_numeric(dfp_aligned[c], errors="coerce")
 
@@ -5431,8 +5750,24 @@ def plot_well_heatmap_df(
 
     x_lines, y_lines = _parse_plate_grid_lines(grid_lines, ncols=ncols, nrows=nrows)
     if x_lines.size or y_lines.size:
-        ax.vlines(x_lines, ymin=0, ymax=nrows, colors=gline_color, linewidth=gline_width, alpha=gline_alpha, zorder=2)
-        ax.hlines(y_lines, xmin=0, xmax=ncols, colors=gline_color, linewidth=gline_width, alpha=gline_alpha, zorder=2)
+        ax.vlines(
+            x_lines,
+            ymin=0,
+            ymax=nrows,
+            colors=gline_color,
+            linewidth=gline_width,
+            alpha=gline_alpha,
+            zorder=2,
+        )
+        ax.hlines(
+            y_lines,
+            xmin=0,
+            xmax=ncols,
+            colors=gline_color,
+            linewidth=gline_width,
+            alpha=gline_alpha,
+            zorder=2,
+        )
 
     ax.set_xlim(0, ncols)
     ax.set_ylim(0, nrows)

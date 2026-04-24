@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from .method_params import default_alignment_method_params, validate_alignment_method_params
+from .method_params import (
+    default_alignment_method_params,
+    validate_alignment_method_params,
+)
 from .method_specs import (
     ALIGNMENT_METHODS,
     ALIGNMENT_METHODS_BY_KEY,

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from .common import *  # noqa: F403
+
+
 class ChannelSelectDialog(QDialog):
     """Reusable channel-selector dialog with checkbox rows."""
 
@@ -73,4 +75,3 @@ class ChannelSelectDialog(QDialog):
 
     def _on_clear(self) -> None:
         _dialog_set_all_check_state(self._list, checked=False)
-

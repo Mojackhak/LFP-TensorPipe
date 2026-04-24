@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
 import os
-from typing import Callable, Sequence, TypeVar
+from typing import Any, Callable, Sequence, TypeVar
 
 from joblib import Parallel, delayed
 from tqdm.auto import tqdm
@@ -64,7 +64,11 @@ def parallel_process_files(
 
 def _call_silently(func: Callable[..., T], file: object, kwargs: dict) -> T:
     """Call `func(file, **kwargs)` while silencing stdout/stderr."""
-    with open(os.devnull, "w") as devnull, redirect_stdout(devnull), redirect_stderr(devnull):
+    with (
+        open(os.devnull, "w") as devnull,
+        redirect_stdout(devnull),
+        redirect_stderr(devnull),
+    ):
         return func(file, **kwargs)
 
 
@@ -93,7 +97,7 @@ def parallel_process_files_tqdm(
         joblib backend preference. Common values: "processes" or "threads".
     silence_workers:
         If True (default), suppress worker stdout/stderr to keep console clean.
-        If False, allow worker prints to go through (may interleave across jobs).        
+        If False, allow worker prints to go through (may interleave across jobs).
     **kwargs:
         Forwarded to `func`.
 
@@ -110,9 +114,9 @@ def parallel_process_files_tqdm(
 
     with tqdm_joblib(bar):
         if silence_workers:
-            results: list[T] = Parallel(n_jobs=n_jobs, verbose=jl_verbose, prefer=prefer)(
-                delayed(_call_silently)(func, file, kwargs) for file in files
-            )
+            results: list[T] = Parallel(
+                n_jobs=n_jobs, verbose=jl_verbose, prefer=prefer
+            )(delayed(_call_silently)(func, file, kwargs) for file in files)
         else:
             # Direct call: allows worker prints, but output may interleave.
             results = Parallel(n_jobs=n_jobs, verbose=jl_verbose, prefer=prefer)(

@@ -23,12 +23,10 @@ Design notes:
   enabling reproducible batch processing and QC figure/log generation.
 """
 
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-import threading
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -38,6 +36,7 @@ from ..lfp.mask.annotations import MatchMode
 # -----------------------------------------------------------------------------
 # Utilities
 # -----------------------------------------------------------------------------
+
 
 def _append_info_description(raw: mne.io.BaseRaw, text: str) -> None:
     """Append a preprocessing note to raw.info['description'] without overwriting."""
@@ -108,7 +107,9 @@ def _ensure_mne_exports_for_autoreject() -> None:
         pass
 
 
-def _save_reject_log_plot_agg(reject_log: Any, reject_plot_path: Union[str, Path]) -> None:
+def _save_reject_log_plot_agg(
+    reject_log: Any, reject_plot_path: Union[str, Path]
+) -> None:
     """Save reject-log visualization using Agg backend only (thread-safe)."""
     from matplotlib.backends.backend_agg import FigureCanvasAgg  # noqa: PLC0415
     from matplotlib.figure import Figure  # noqa: PLC0415
@@ -274,7 +275,9 @@ def merge_contiguous_bad_annotations(
     tags_norm = tuple(_norm(t) for t in tags)
 
     if match_mode not in ("substring", "exact"):
-        raise ValueError(f"match_mode must be 'substring' or 'exact', got: {match_mode}")
+        raise ValueError(
+            f"match_mode must be 'substring' or 'exact', got: {match_mode}"
+        )
 
     def is_bad_desc(desc: str) -> bool:
         d = _norm(str(desc))
@@ -328,7 +331,11 @@ def merge_contiguous_bad_annotations(
         other_ann = ann.copy()
     else:
         keep_mask = np.array([not is_bad_desc(d) for d in ann.description], dtype=bool)
-        other_ann = ann[keep_mask] if np.any(keep_mask) else mne.Annotations([], [], [], orig_time=ann.orig_time)
+        other_ann = (
+            ann[keep_mask]
+            if np.any(keep_mask)
+            else mne.Annotations([], [], [], orig_time=ann.orig_time)
+        )
 
     # Combine
     if sort_by_onset:
@@ -354,11 +361,13 @@ def merge_contiguous_bad_annotations(
 # Config dataclasses
 # -----------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class BadAnnotationConfig:
     """
     Configuration for marking BAD segments.
     """
+
     l_freq: float = 1.0
     h_freq: float = 200.0
     epoch_dur: float = 1.0
@@ -376,7 +385,7 @@ class BadAnnotationConfig:
     desc_autoreject: str = "BAD"
     desc_gap: str = "BAD"
     merged_bad_desc: str = "BAD"
-    match_mode: MatchMode = 'exact'
+    match_mode: MatchMode = "exact"
 
     # Autoreject params
     random_state: int = 42
@@ -389,24 +398,29 @@ class LfpFilterConfig:
     """
     Configuration for final filtering + extracting good segments.
     """
+
     l_freq: float = 1.0
     h_freq: float = 200.0
     notches: Optional[Sequence[float]] = None
     notch_widths: Union[float, Sequence[float]] = 1.0
 
     # Filter kwargs (match your scripts defaults, but configurable)
-    pre_filter_kwargs: Dict[str, Any] = field(default_factory=lambda: dict(
-        l_trans_bandwidth="auto",
-        h_trans_bandwidth=4,
-        phase="zero",
-        fir_design="firwin",
-    ))
-    post_filter_kwargs: Dict[str, Any] = field(default_factory=lambda: dict(
-        l_trans_bandwidth="auto",
-        h_trans_bandwidth=4,
-        phase="zero",
-        fir_design="firwin",
-    ))
+    pre_filter_kwargs: Dict[str, Any] = field(
+        default_factory=lambda: dict(
+            l_trans_bandwidth="auto",
+            h_trans_bandwidth=4,
+            phase="zero",
+            fir_design="firwin",
+        )
+    )
+    post_filter_kwargs: Dict[str, Any] = field(
+        default_factory=lambda: dict(
+            l_trans_bandwidth="auto",
+            h_trans_bandwidth=4,
+            phase="zero",
+            fir_design="firwin",
+        )
+    )
 
     # Behavior switches
     do_pre_filter_before_extract: bool = True
@@ -420,10 +434,10 @@ class LfpFilterConfig:
     prefer_project_helper: bool = True
 
 
-
 # -----------------------------------------------------------------------------
 # Filtering utilities (standalone)
 # -----------------------------------------------------------------------------
+
 
 def apply_lfp_filter_config(
     raw: mne.io.BaseRaw,
@@ -478,13 +492,13 @@ def apply_lfp_filter_config(
         freqs = np.asarray(cfg.notches, dtype=float)
         if freqs.size > 0:
             out.notch_filter(freqs=freqs, notch_widths=cfg.notch_widths, picks=picks)
-            steps.append(
-                f"notch={freqs.tolist()} Hz; notch_widths={cfg.notch_widths}"
-            )
+            steps.append(f"notch={freqs.tolist()} Hz; notch_widths={cfg.notch_widths}")
 
     # 2) Band-pass filter
     if cfg.do_post_filter:
-        fkwargs = cfg.post_filter_kwargs if use_post_filter_kwargs else cfg.pre_filter_kwargs
+        fkwargs = (
+            cfg.post_filter_kwargs if use_post_filter_kwargs else cfg.pre_filter_kwargs
+        )
         out.filter(l_freq=cfg.l_freq, h_freq=cfg.h_freq, picks=picks, **fkwargs)
 
         # Keep the description compact: only include the most informative kwargs
@@ -506,9 +520,11 @@ def apply_lfp_filter_config(
 
     return out
 
+
 # -----------------------------------------------------------------------------
 # 1) BAD annotation function
 # -----------------------------------------------------------------------------
+
 
 def mark_lfp_bad_segments(
     raw: mne.io.BaseRaw,
@@ -563,7 +579,9 @@ def mark_lfp_bad_segments(
         raw_mark.set_channel_types(eeg_type_map)
 
     # 2) Filter for detection
-    raw_mark.filter(l_freq=cfg.l_freq, h_freq=cfg.h_freq, fir_design="firwin", phase="zero")
+    raw_mark.filter(
+        l_freq=cfg.l_freq, h_freq=cfg.h_freq, fir_design="firwin", phase="zero"
+    )
     if (notches is not None) and (notches.size > 0):
         raw_mark.notch_filter(freqs=notches, notch_widths=notch_widths)
 
@@ -581,12 +599,16 @@ def mark_lfp_bad_segments(
 
     if n_epochs == 0:
         _restore_channel_types(raw_mark, original_types)
-        return raw_mark, None, {
-            "n_epochs": 0,
-            "n_bad_p2p": 0,
-            "n_bad_autoreject": 0,
-            "note": "No epochs created; skipping marking.",
-        }
+        return (
+            raw_mark,
+            None,
+            {
+                "n_epochs": 0,
+                "n_bad_p2p": 0,
+                "n_bad_autoreject": 0,
+                "note": "No epochs created; skipping marking.",
+            },
+        )
 
     # 4) Hard p2p threshold (range)
     data = epochs_all.get_data()  # (n_epochs, n_ch, n_times)
@@ -622,10 +644,17 @@ def mark_lfp_bad_segments(
                 augment=False,
                 verbose=cfg.verbose,
             )
-            threshes = {ch: float(t) * float(cfg.autoreject_correct_factor) for ch, t in threshes.items()}
+            threshes = {
+                ch: float(t) * float(cfg.autoreject_correct_factor)
+                for ch, t in threshes.items()
+            }
 
-            p2p_thr = np.ptp(epochs_thresh.get_data(), axis=2)  # (n_epochs_remain, n_ch)
-            thr_vec = np.array([threshes[ch] for ch in epochs_thresh.ch_names], dtype=float)
+            p2p_thr = np.ptp(
+                epochs_thresh.get_data(), axis=2
+            )  # (n_epochs_remain, n_ch)
+            thr_vec = np.array(
+                [threshes[ch] for ch in epochs_thresh.ch_names], dtype=float
+            )
 
             bad_epochs_mask = (p2p_thr > thr_vec).any(axis=1)
             labels_int = (p2p_thr > thr_vec).astype(int)
@@ -745,39 +774,31 @@ def filter_lfp_with_bad_annotations(
     bad_annotations: Optional[mne.Annotations] = None,
     *,
     bad_descs: Union[str, Sequence[str]] = ("BAD",),
-
     # -------------------- Filtering params --------------------
     l_freq: float = 1.0,
     h_freq: float = 200.0,
-
     do_pre_filter: bool = False,
     pre_filter_kwargs: Optional[Dict[str, Any]] = None,
-
     # Optional: notch on continuous data BEFORE extraction (reduces join transients)
     do_pre_notch: bool = False,
     notches: Optional[Sequence[float]] = None,
     notch_widths: Union[float, Sequence[float]] = 1.0,
-
     # Post filtering (applied after extraction on compressed timeline)
     do_post_notch: bool = False,
     post_notches: Optional[Sequence[float]] = None,
     post_notch_widths: Union[float, Sequence[float]] = 1.0,
-
     do_post_filter: bool = False,
     post_filter_kwargs: Optional[Dict[str, Any]] = None,
-
     # -------------------- Annotation handling --------------------
-    overlap_policy: str = "split",  # "split" or "drop"
+    overlap_policy: str = "split",  # "split", "drop", or "compress"
     match_mode: MatchMode = "exact",  # "substring" or "exact"
     case_sensitive: bool = False,
-
     # -------------------- ADDED: report + concat markers --------------------
     verbose: bool = True,
     add_concat_annotations: bool = True,
     concat_desc: str = "EDGE",
     concat_duration: float = 0.0,
     # ----------------------------------------------------------
-
 ) -> Tuple[mne.io.RawArray, mne.io.RawArray, Dict[str, Any]]:
     """
     End-to-end helper to:
@@ -795,14 +816,23 @@ def filter_lfp_with_bad_annotations(
         Summary including percent removed and concat boundary info.
     """
     # Validate args
-    if overlap_policy not in ("split", "drop"):
-        raise ValueError(f"overlap_policy must be 'split' or 'drop', got: {overlap_policy}")
+    if overlap_policy not in ("split", "drop", "compress"):
+        raise ValueError(
+            "overlap_policy must be 'split', 'drop', or 'compress', "
+            f"got: {overlap_policy}"
+        )
     if match_mode not in ("substring", "exact"):
-        raise ValueError(f"match_mode must be 'substring' or 'exact', got: {match_mode}")
+        raise ValueError(
+            f"match_mode must be 'substring' or 'exact', got: {match_mode}"
+        )
 
-    patterns: Tuple[str, ...] = (bad_descs,) if isinstance(bad_descs, str) else tuple(bad_descs)
+    patterns: Tuple[str, ...] = (
+        (bad_descs,) if isinstance(bad_descs, str) else tuple(bad_descs)
+    )
     if len(patterns) == 0:
-        raise ValueError("bad_descs cannot be empty; provide at least one BAD identifier.")
+        raise ValueError(
+            "bad_descs cannot be empty; provide at least one BAD identifier."
+        )
 
     def _norm(s: str) -> str:
         return s if case_sensitive else s.upper()
@@ -822,25 +852,47 @@ def filter_lfp_with_bad_annotations(
 
     # 0) Attach BAD annotations (optional)
     if bad_annotations is not None and len(bad_annotations) > 0:
-        # Normalize orig_time to avoid MNE errors when adding annotations
         target_orig_time = raw_labeled.annotations.orig_time
-        if bad_annotations.orig_time != target_orig_time:
+        filtered_bad_onsets: List[float] = []
+        filtered_bad_durs: List[float] = []
+        filtered_bad_descs: List[str] = []
+        for onset, duration, desc in zip(
+            bad_annotations.onset,
+            bad_annotations.duration,
+            bad_annotations.description,
+        ):
+            if not is_bad_desc(str(desc)):
+                continue
+            filtered_bad_onsets.append(float(onset))
+            filtered_bad_durs.append(float(duration))
+            filtered_bad_descs.append(str(desc))
+        if filtered_bad_descs:
             bad_annotations = mne.Annotations(
-                onset=list(bad_annotations.onset),
-                duration=list(bad_annotations.duration),
-                description=list(bad_annotations.description),
+                onset=filtered_bad_onsets,
+                duration=filtered_bad_durs,
+                description=filtered_bad_descs,
                 orig_time=target_orig_time,
             )
-        raw_labeled.set_annotations(bad_annotations + raw_labeled.annotations)
+            raw_labeled.set_annotations(bad_annotations + raw_labeled.annotations)
 
     sfreq = float(raw_labeled.info["sfreq"])
     n_times = int(raw_labeled.n_times)
 
     # Defaults mirroring your pipelines
     if pre_filter_kwargs is None:
-        pre_filter_kwargs = dict(l_trans_bandwidth="auto", h_trans_bandwidth=4, phase="zero", fir_design="firwin")
+        pre_filter_kwargs = dict(
+            l_trans_bandwidth="auto",
+            h_trans_bandwidth=4,
+            phase="zero",
+            fir_design="firwin",
+        )
     if post_filter_kwargs is None:
-        post_filter_kwargs = dict(l_trans_bandwidth="auto", h_trans_bandwidth=4, phase="zero", fir_design="firwin")
+        post_filter_kwargs = dict(
+            l_trans_bandwidth="auto",
+            h_trans_bandwidth=4,
+            phase="zero",
+            fir_design="firwin",
+        )
 
     # 1) Pre-filter on continuous signal (recommended to reduce edge artifacts after cutting)
     if do_pre_filter:
@@ -853,7 +905,9 @@ def filter_lfp_with_bad_annotations(
         resolved_notches = np.asarray(notches, dtype=float)
         if resolved_notches.size > 0:
             raw_labeled.notch_filter(freqs=resolved_notches, notch_widths=notch_widths)
-            _append_info_description(raw_labeled, f"pre_notch: {resolved_notches.tolist()} Hz")
+            _append_info_description(
+                raw_labeled, f"pre_notch: {resolved_notches.tolist()} Hz"
+            )
     ann = raw_labeled.annotations
     if ann is None:
         ann = mne.Annotations([], [], [], orig_time=None)
@@ -902,7 +956,7 @@ def filter_lfp_with_bad_annotations(
     for s, e in segments:
         seg_new_starts.append(cum)
         data_parts.append(raw_labeled.get_data(start=s, stop=e))
-        cum += (e - s)
+        cum += e - s
 
     new_data = np.concatenate(data_parts, axis=1)
 
@@ -951,15 +1005,28 @@ def filter_lfp_with_bad_annotations(
             if not kept:
                 pass  # overlaps BAD -> drop whole annotation
 
-        else:  # overlap_policy == "split"
+        else:
+            mapped_chunks: List[tuple[int, int]] = []
             for seg_i, (s, e) in enumerate(segments):
                 ov_s = max(s, a_start)
                 ov_e = min(e, a_end)
                 if ov_e <= ov_s:
                     continue
                 new_start_samp = seg_new_starts[seg_i] + (ov_s - s)
-                new_onsets.append(new_start_samp / sfreq)
-                new_durs.append((ov_e - ov_s) / sfreq)
+                mapped_chunks.append((new_start_samp, ov_e - ov_s))
+
+            if overlap_policy == "split":
+                for chunk_start, chunk_len in mapped_chunks:
+                    new_onsets.append(chunk_start / sfreq)
+                    new_durs.append(chunk_len / sfreq)
+                    new_descs.append(str(desc))
+            else:  # overlap_policy == "compress"
+                if not mapped_chunks:
+                    continue
+                merged_start = mapped_chunks[0][0]
+                merged_len = sum(chunk_len for _, chunk_len in mapped_chunks)
+                new_onsets.append(merged_start / sfreq)
+                new_durs.append(merged_len / sfreq)
                 new_descs.append(str(desc))
 
     # 6) Build RawArray (compressed timeline is not absolute time)
@@ -971,14 +1038,20 @@ def filter_lfp_with_bad_annotations(
 
     # Set re-mapped non-BAD annotations
     if len(new_onsets) > 0:
-        raw_good.set_annotations(mne.Annotations(new_onsets, new_durs, new_descs, orig_time=None))
+        raw_good.set_annotations(
+            mne.Annotations(new_onsets, new_durs, new_descs, orig_time=None)
+        )
     else:
         raw_good.set_annotations(mne.Annotations([], [], [], orig_time=None))
 
     # -------------------- ADDED: concat boundary annotations --------------------
-    concat_onsets_sec: List[float] = []  # boundary times (centers) in the compressed timeline
+    concat_onsets_sec: List[float] = (
+        []
+    )  # boundary times (centers) in the compressed timeline
     concat_ann_onsets_sec: List[float] = []  # actual annotation start times
-    concat_ann_durations_sec: List[float] = []  # actual annotation durations (may be clipped)
+    concat_ann_durations_sec: List[float] = (
+        []
+    )  # actual annotation durations (may be clipped)
     if add_concat_annotations and len(segments) > 1:
         if not np.isfinite(float(concat_duration)):
             raise ValueError(f"concat_duration must be finite, got: {concat_duration}")
@@ -1022,8 +1095,13 @@ def filter_lfp_with_bad_annotations(
     if do_post_notch and post_notches is not None:
         resolved_notches = np.asarray(post_notches, dtype=float)
         if resolved_notches.size > 0:
-            raw_good.notch_filter(freqs=resolved_notches, notch_widths=post_notch_widths)
-            _append_info_description(raw_good, f"post_notch: {resolved_notches.tolist()} Hz; width={post_notch_widths}")
+            raw_good.notch_filter(
+                freqs=resolved_notches, notch_widths=post_notch_widths
+            )
+            _append_info_description(
+                raw_good,
+                f"post_notch: {resolved_notches.tolist()} Hz; width={post_notch_widths}",
+            )
     if do_post_filter:
         raw_good.filter(l_freq=l_freq, h_freq=h_freq, **post_filter_kwargs)
         _append_info_description(raw_good, f"post_filter: {l_freq}-{h_freq} Hz")
@@ -1051,7 +1129,6 @@ def filter_lfp_with_bad_annotations(
         )
 
     return raw_good, report
-
 
 
 def add_head_tail_annotations(
@@ -1097,7 +1174,9 @@ def add_head_tail_annotations(
     raw_out = raw.copy() if copy else raw
 
     if not np.isfinite(float(head_duration_sec)) or float(head_duration_sec) < 0:
-        raise ValueError(f"head_duration_sec must be finite and >= 0, got: {head_duration_sec}")
+        raise ValueError(
+            f"head_duration_sec must be finite and >= 0, got: {head_duration_sec}"
+        )
 
     tail_val = head_duration_sec if tail_duration_sec is None else tail_duration_sec
     if not np.isfinite(float(tail_val)) or float(tail_val) < 0:
@@ -1165,8 +1244,14 @@ def add_head_tail_annotations(
     existing = ann.copy()
     if replace_existing_same_desc and len(existing) > 0:
         remove_set = {str(description), head_desc, tail_desc}
-        keep_mask = np.array([str(d) not in remove_set for d in existing.description], dtype=bool)
-        existing = existing[keep_mask] if np.any(keep_mask) else mne.Annotations([], [], [], orig_time=orig_time)
+        keep_mask = np.array(
+            [str(d) not in remove_set for d in existing.description], dtype=bool
+        )
+        existing = (
+            existing[keep_mask]
+            if np.any(keep_mask)
+            else mne.Annotations([], [], [], orig_time=orig_time)
+        )
 
     edge_ann = mne.Annotations(
         onset=new_onsets,

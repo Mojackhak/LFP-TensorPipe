@@ -19,7 +19,12 @@ import numpy as np
 import pandas as pd
 
 from ...tabular.nested_value import cell_is_empty_or_all_nan
-from ...utils.numeric import DEFAULT_REL_TOL, resolve_abs_tol, resolve_rel_tol, safe_divide
+from ...utils.numeric import (
+    DEFAULT_REL_TOL,
+    resolve_abs_tol,
+    resolve_rel_tol,
+    safe_divide,
+)
 from ...utils.transforms import TransformMode, apply_transform_array
 
 NestedTransformMode = TransformMode | Literal["log10", "zscore"]

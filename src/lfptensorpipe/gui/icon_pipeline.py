@@ -22,6 +22,7 @@ ICONSET_MAP = {
     "icon_512x512.png": 512,
     "icon_512x512@2x.png": 1024,
 }
+ROOT_ICON_MASTER = "app_icon.png"
 
 
 def default_icon_root() -> Path:
@@ -32,91 +33,101 @@ def default_icon_root() -> Path:
 def _resolve_source_asset(
     icon_root: Path,
     source_image: Path | None,
-    source_svg: Path | None,
 ) -> Path:
     if source_image is not None:
         candidate = source_image
         if not candidate.exists():
             raise FileNotFoundError(f"Source image not found: {candidate}")
-        return candidate
-    if source_svg is not None:
-        candidate = source_svg
-        if not candidate.exists():
-            raise FileNotFoundError(f"Source SVG not found: {candidate}")
+        if candidate.suffix.lower() != ".png":
+            raise ValueError(
+                "Only PNG icon sources are supported. " f"Received: {candidate}"
+            )
         return candidate
 
-    # Prefer raster source to preserve authored text rendering/styling.
-    candidates = (
-        icon_root / "png" / "app_icon.png",
-        icon_root / "app_icon.png",
-        icon_root / "app_icon.svg",
-        icon_root / "png" / "app_icon.svg",
-    )
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    raise FileNotFoundError(
-        "Icon source not found. Tried: " + ", ".join(str(path) for path in candidates)
-    )
+    candidate = icon_root / ROOT_ICON_MASTER
+    if candidate.exists():
+        return candidate
+    raise FileNotFoundError(f"Icon source master not found: {candidate}")
 
 
 def _canonicalize_source(icon_root: Path, source_asset: Path) -> Path:
-    suffix = source_asset.suffix.lower()
-    if suffix in {".png", ".jpg", ".jpeg"}:
-        canonical = icon_root / "png" / "app_icon.png"
-    else:
-        canonical = icon_root / "app_icon.svg"
+    if source_asset.suffix.lower() != ".png":
+        raise ValueError(
+            "Only PNG icon sources are supported. " f"Received: {source_asset}"
+        )
+    canonical = icon_root / ROOT_ICON_MASTER
     canonical.parent.mkdir(parents=True, exist_ok=True)
     if canonical != source_asset:
         shutil.copy2(source_asset, canonical)
     return canonical
 
 
-def _build_png_set(
+def _load_rgba_image(
+    source_asset: Path,
+    *,
+    raster_loader: Callable[[Path], Any] | None = None,
+) -> Any:
+    from PIL import Image
+
+    loader = raster_loader or Image.open
+    return loader(source_asset).convert("RGBA")
+
+
+def _contain_on_canvas(
+    image: Any,
+    *,
+    canvas_size: int,
+    canvas_rgba: tuple[int, int, int, int],
+) -> Any:
+    from PIL import Image, ImageOps
+
+    contained = ImageOps.contain(
+        image,
+        (canvas_size, canvas_size),
+        method=Image.Resampling.LANCZOS,
+    )
+    canvas = Image.new("RGBA", (canvas_size, canvas_size), canvas_rgba)
+    offset = (
+        (canvas_size - contained.width) // 2,
+        (canvas_size - contained.height) // 2,
+    )
+    canvas.paste(contained, offset, contained)
+    return canvas
+
+
+def _crop_to_visible_alpha(image: Any) -> Any:
+    alpha_bbox = image.getchannel("A").getbbox()
+    if alpha_bbox is None:
+        return image
+    return image.crop(alpha_bbox)
+
+
+def _build_png_set_windows_like(
     icon_root: Path,
     source_asset: Path,
     *,
-    svg_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
     raster_loader: Callable[[Path], Any] | None = None,
 ) -> dict[int, Path]:
     png_dir = icon_root / "png"
     png_dir.mkdir(parents=True, exist_ok=True)
 
-    outputs: dict[int, Path] = {}
-    is_raster_source = source_asset.suffix.lower() in {".png", ".jpg", ".jpeg"}
-    base_image = None
-    if is_raster_source:
-        from PIL import Image
+    if source_asset.suffix.lower() != ".png":
+        raise ValueError(
+            "PNG size generation requires a PNG source master. "
+            f"Received: {source_asset}"
+        )
 
-        loader = raster_loader or Image.open
-        base_image = loader(source_asset).convert("RGBA")
+    outputs: dict[int, Path] = {}
+    base_image = _load_rgba_image(source_asset, raster_loader=raster_loader)
 
     for size in PNG_SIZES:
         out_path = png_dir / f"icon_{size}.png"
-        if is_raster_source:
-            assert base_image is not None
-            from PIL import Image
-
-            resized = base_image.resize((size, size), Image.Resampling.LANCZOS)
-            resized.save(out_path, format="PNG")
-        else:
-            svg_runner(
-                [
-                    "sips",
-                    "-s",
-                    "format",
-                    "png",
-                    "-z",
-                    str(size),
-                    str(size),
-                    str(source_asset),
-                    "--out",
-                    str(out_path),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+        canvas = _contain_on_canvas(
+            base_image,
+            canvas_size=size,
+            canvas_rgba=(0, 0, 0, 0),
+        )
+        canvas.save(out_path, format="PNG")
         outputs[size] = out_path
     return outputs
 
@@ -176,22 +187,23 @@ def build_icon_assets(
     *,
     icon_root: Path | None = None,
     source_image: Path | None = None,
-    source_svg: Path | None = None,
     resolve_source_asset_fn: Callable[
-        [Path, Path | None, Path | None], Path
+        [Path, Path | None], Path
     ] = _resolve_source_asset,
     canonicalize_source_fn: Callable[[Path, Path], Path] = _canonicalize_source,
-    build_png_set_fn: Callable[..., dict[int, Path]] = _build_png_set,
+    build_png_set_windows_like_fn: Callable[..., dict[int, Path]] = (
+        _build_png_set_windows_like
+    ),
     build_windows_ico_fn: Callable[..., Path] = _build_windows_ico,
     build_macos_icns_fn: Callable[..., Path] = _build_macos_icns,
 ) -> dict[str, Path]:
     """Generate PNG/ICO/ICNS icon artifacts from source image asset."""
     root = icon_root or default_icon_root()
     root.mkdir(parents=True, exist_ok=True)
-    source_asset = resolve_source_asset_fn(root, source_image, source_svg)
+    source_asset = resolve_source_asset_fn(root, source_image)
     canonical_source = canonicalize_source_fn(root, source_asset)
 
-    png_outputs = build_png_set_fn(root, canonical_source)
+    png_outputs = build_png_set_windows_like_fn(root, canonical_source)
     ico_path = build_windows_ico_fn(root, png_outputs)
     icns_path = build_macos_icns_fn(root, png_outputs)
     return {
@@ -207,9 +219,7 @@ def preferred_runtime_icon_path(icon_root: Path | None = None) -> Path | None:
     root = icon_root or default_icon_root()
     candidates = (
         root / "png" / "icon_256.png",
-        root / "png" / "app_icon.png",
-        root / "app_icon.svg",
-        root / "png" / "app_icon.svg",
+        root / ROOT_ICON_MASTER,
     )
     for candidate in candidates:
         if candidate.exists():
@@ -221,7 +231,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="lfptensorpipe-icon-build")
     parser.add_argument("--icon-root", default=None)
     parser.add_argument("--source-image", default=None)
-    parser.add_argument("--source-svg", default=None)
     return parser.parse_args(argv)
 
 
@@ -235,13 +244,9 @@ def main(
     source_image = (
         Path(args.source_image).expanduser().resolve() if args.source_image else None
     )
-    source_svg = (
-        Path(args.source_svg).expanduser().resolve() if args.source_svg else None
-    )
     outputs = build_icon_assets_fn(
         icon_root=icon_root,
         source_image=source_image,
-        source_svg=source_svg,
     )
     for key, value in outputs.items():
         print(f"{key}: {value}")

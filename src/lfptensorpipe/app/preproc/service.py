@@ -127,15 +127,12 @@ def mark_preproc_step(
 
 
 def bootstrap_raw_step_from_rawdata(context: RecordContext) -> tuple[bool, str]:
-    ok, message = _bootstrap_raw_step_impl(
+    return _bootstrap_raw_step_impl(
         context,
         rawdata_input_fif_path_fn=rawdata_input_fif_path,
         preproc_step_raw_path_fn=preproc_step_raw_path,
         mark_preproc_step_fn=mark_preproc_step,
     )
-    if ok:
-        invalidate_after_preproc_result_change(context, changed_step="raw")
-    return ok, message
 
 
 def invalidate_downstream_preproc_steps(

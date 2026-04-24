@@ -81,7 +81,9 @@ def _unique_channel_frame(channel_frame: pd.DataFrame) -> pd.DataFrame:
     frame = frame.loc[frame["channel"] != ""]
     if frame.empty:
         return frame
-    return frame.drop_duplicates(subset=["channel"], keep="first").reset_index(drop=True)
+    return frame.drop_duplicates(subset=["channel"], keep="first").reset_index(
+        drop=True
+    )
 
 
 def _pair_coordinate_tuple(
@@ -258,9 +260,7 @@ def build_undirected_pair_representative_frame(
     if frame.shape[0] < 2:
         return _empty_pair_frame(region_columns)
 
-    row_by_channel = {
-        str(row["channel"]).strip(): row for _, row in frame.iterrows()
-    }
+    row_by_channel = {str(row["channel"]).strip(): row for _, row in frame.iterrows()}
     rows: list[dict[str, Any]] = []
     for left_idx, right_idx in combinations(range(frame.shape[0]), 2):
         raw_a = frame.iloc[left_idx]
@@ -281,14 +281,18 @@ def build_undirected_pair_representative_frame(
             "channel_b": channel_right,
             "pair_key": make_undirected_pair_key(channel_left, channel_right),
             "pair_key_ordered": make_ordered_pair_key(channel_left, channel_right),
-            "pair_key_undirected": make_undirected_pair_key(channel_left, channel_right),
+            "pair_key_undirected": make_undirected_pair_key(
+                channel_left, channel_right
+            ),
             "mni_x": _pair_coordinate_tuple(row_a, row_b, "mni_x"),
             "mni_y": _pair_coordinate_tuple(row_a, row_b, "mni_y"),
             "mni_z": _pair_coordinate_tuple(row_a, row_b, "mni_z"),
         }
         for idx, region_a in enumerate(ordered_region_names):
             for region_b in ordered_region_names[idx:]:
-                region_left, region_right = normalize_region_pair_name(region_a, region_b)
+                region_left, region_right = normalize_region_pair_name(
+                    region_a, region_b
+                )
                 if region_left == region_right:
                     value = bool(row_a[f"{region_left}_in"]) and bool(
                         row_b[f"{region_right}_in"]

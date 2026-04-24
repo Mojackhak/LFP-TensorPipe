@@ -13,6 +13,12 @@ from .import_runner import (
     import_record as _import_record_impl,
     import_record_from_raw as _import_record_from_raw_impl,
 )
+from .import_sync import (
+    build_import_sync_seed as _build_import_sync_seed_impl,
+    build_import_synced_raw as _build_import_synced_raw_impl,
+    estimate_import_sync as _estimate_import_sync_impl,
+    persist_import_sync_artifacts as _persist_import_sync_artifacts_impl,
+)
 from .source_parser import (
     _apply_bipolar_reference as _apply_bipolar_reference_impl,
     _is_fif_like_path as _is_fif_like_path_impl,
@@ -21,6 +27,10 @@ from .source_parser import (
     apply_reset_reference as _apply_reset_reference_impl,
     load_import_channel_names as _load_import_channel_names_impl,
     parse_record_source as _parse_record_source_impl,
+)
+from .rename_runner import (
+    RecordRenameResult,
+    rename_record as _rename_record_impl,
 )
 from .validation import (
     create_subject as _create_subject_impl,
@@ -159,6 +169,7 @@ def import_record_from_raw(
     raw: Any,
     source_path: Path,
     is_fif_input: bool,
+    sync_state: Any | None = None,
     read_only_project_root: Path | None = None,
 ) -> RecordImportResult:
     return _import_record_from_raw_impl(
@@ -168,6 +179,7 @@ def import_record_from_raw(
         raw=raw,
         source_path=source_path,
         is_fif_input=is_fif_input,
+        sync_state=sync_state,
         result_cls=RecordImportResult,
         validate_subject_name_fn=validate_subject_name,
         validate_record_name_fn=validate_record_name,
@@ -176,6 +188,7 @@ def import_record_from_raw(
         rawdata_record_fif_path_fn=rawdata_record_fif_path,
         derivatives_record_root_fn=derivatives_record_root,
         sourcedata_record_raw_dir_fn=sourcedata_record_raw_dir,
+        persist_import_sync_artifacts_fn=_persist_import_sync_artifacts_impl,
         read_only_project_root=read_only_project_root,
     )
 
@@ -218,6 +231,48 @@ def import_record(
     )
 
 
+def build_import_sync_seed(raw: Any) -> list[Any]:
+    return _build_import_sync_seed_impl(raw)
+
+
+def estimate_import_sync(
+    *,
+    lfp_markers: Any,
+    external_markers: Any,
+    pairs: Any,
+    sfreq_before_hz: float,
+    correct_sfreq: bool,
+) -> Any:
+    return _estimate_import_sync_impl(
+        lfp_markers=lfp_markers,
+        external_markers=external_markers,
+        pairs=pairs,
+        sfreq_before_hz=sfreq_before_hz,
+        correct_sfreq=correct_sfreq,
+    )
+
+
+def build_import_synced_raw(raw: Any, estimate: Any) -> Any:
+    return _build_import_synced_raw_impl(raw, estimate)
+
+
+def persist_import_sync_artifacts(
+    *,
+    project_root: Path,
+    subject: str,
+    record: str,
+    raw_fif_path: Path,
+    sync_state: Any,
+) -> Any:
+    return _persist_import_sync_artifacts_impl(
+        project_root=project_root,
+        subject=subject,
+        record=record,
+        raw_fif_path=raw_fif_path,
+        sync_state=sync_state,
+    )
+
+
 def delete_record(
     *,
     project_root: Path,
@@ -236,5 +291,29 @@ def delete_record(
         validate_record_name_fn=validate_record_name,
         record_artifact_roots_fn=record_artifact_roots_fn or record_artifact_roots,
         rmtree_fn=rmtree_fn or shutil.rmtree,
+        read_only_project_root=read_only_project_root,
+    )
+
+
+def rename_record(
+    *,
+    project_root: Path,
+    subject: str,
+    record: str,
+    new_record: str,
+    read_only_project_root: Path | None = None,
+    record_artifact_roots_fn: Any | None = None,
+    move_path_fn: Any | None = None,
+) -> RecordRenameResult:
+    return _rename_record_impl(
+        project_root=project_root,
+        subject=subject,
+        record=record,
+        new_record=new_record,
+        result_cls=RecordRenameResult,
+        validate_subject_name_fn=validate_subject_name,
+        validate_record_name_fn=validate_record_name,
+        record_artifact_roots_fn=record_artifact_roots_fn or record_artifact_roots,
+        move_path_fn=move_path_fn or Path.rename,
         read_only_project_root=read_only_project_root,
     )

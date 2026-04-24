@@ -2,7 +2,7 @@
   "schema": "lfptensorpipe.localize-config",
   "version": 1,
   "localize": {
-    "atlas": "Custom_Ewert_Zhang_Middlebrooks0.05",
+    "atlas": "Custom_Ewert_Zhang_Middlebrooks",
     "selected_regions": [
       "SNr",
       "STN"

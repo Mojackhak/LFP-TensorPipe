@@ -26,13 +26,26 @@ from .periodic_aperiodic_prepare import (
 )
 
 
+def _rmtree_ignore_missing_entries(path: Path) -> None:
+    def _onerror(_func: Any, _target: str, exc_info: Any) -> None:
+        exc = exc_info[1]
+        if isinstance(exc, FileNotFoundError):
+            return
+        raise exc
+
+    try:
+        shutil.rmtree(path, onerror=_onerror)
+    except FileNotFoundError:
+        return
+
+
 def _remove_path(path: Path) -> None:
     if not path.exists():
         return
     if path.is_dir():
-        shutil.rmtree(path)
+        _rmtree_ignore_missing_entries(path)
         return
-    path.unlink()
+    path.unlink(missing_ok=True)
 
 
 @contextmanager

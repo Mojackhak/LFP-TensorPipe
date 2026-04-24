@@ -45,6 +45,10 @@ class PathResolver:
         return self.lfp_root / "preproc"
 
     @property
+    def import_root(self) -> Path:
+        return self.lfp_root / "import"
+
+    @property
     def tensor_root(self) -> Path:
         return self.lfp_root / "tensor"
 
@@ -81,6 +85,13 @@ class PathResolver:
         if not sanitized:
             raise ValueError("Metric key cannot be empty.")
         out = self.tensor_root / sanitized
+        if create:
+            out.mkdir(parents=True, exist_ok=True)
+        return out
+
+    def import_sync_dir(self, create: bool = False) -> Path:
+        """Resolve record-scoped import sync artifact directory."""
+        out = self.import_root / "sync"
         if create:
             out.mkdir(parents=True, exist_ok=True)
         return out

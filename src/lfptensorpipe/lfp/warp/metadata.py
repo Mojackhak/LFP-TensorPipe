@@ -34,7 +34,7 @@ def _epoch_label(ep: Any, fallback: str) -> str:
     return fallback
 
 
-def _infer_epoch_duration_s(ep: Any) -> Tuple[str, float]:
+def _infer_epoch_duration_s(ep: Any) -> tuple[str, float]:
     """Infer the *warped* epoch duration in seconds from an epoch meta object.
 
     Returns:
@@ -80,7 +80,7 @@ def _infer_epoch_duration_s(ep: Any) -> Tuple[str, float]:
     return "unknown", float(np.nan)
 
 
-def _robust_duration_s(meta_epochs: Sequence[Any]) -> Tuple[str, float, np.ndarray]:
+def _robust_duration_s(meta_epochs: Sequence[Any]) -> tuple[str, float, np.ndarray]:
     """Compute a robust representative duration for the warped time axis."""
     kinds = []
     durs = []
@@ -141,8 +141,16 @@ def build_warped_tensor_metadata(
     axes_base = base_axes or {}
 
     # Explicit args override base metadata if provided.
-    freq_axis = freqs if freqs is not None else axes_base.get("freqs", axes_base.get("freq", None))
-    chan_axis = ch_names if ch_names is not None else axes_base.get("channels", axes_base.get("channel", None))
+    freq_axis = (
+        freqs
+        if freqs is not None
+        else axes_base.get("freqs", axes_base.get("freq", None))
+    )
+    chan_axis = (
+        ch_names
+        if ch_names is not None
+        else axes_base.get("channels", axes_base.get("channel", None))
+    )
 
     # Infer shape from inputs.
     n_epochs = len(meta_epochs)
@@ -159,13 +167,18 @@ def build_warped_tensor_metadata(
         time_axis = np.array([0.0], dtype=float)
     elif np.isfinite(duration_s) and duration_s > 0:
         # "Warped time" axis in seconds (0..duration_s).
-        time_axis = np.linspace(0.0, duration_s, int(n_times), endpoint=True, dtype=float)
+        time_axis = np.linspace(
+            0.0, duration_s, int(n_times), endpoint=True, dtype=float
+        )
     else:
         # Fallback: preserve a unit interval so downstream code always has a `time` axis.
         time_axis = np.linspace(0.0, 1.0, int(n_times), endpoint=True, dtype=float)
 
     epoch_labels = np.array(
-        [_epoch_label(ep, fallback=f"epoch_{i:04d}") for i, ep in enumerate(meta_epochs)],
+        [
+            _epoch_label(ep, fallback=f"epoch_{i:04d}")
+            for i, ep in enumerate(meta_epochs)
+        ],
         dtype=object,
     )
 
@@ -192,16 +205,27 @@ def build_warped_tensor_metadata(
     metadata: Dict[str, Any] = dict(
         axes=dict(
             epoch=epoch_labels,
-            channel=np.fromiter(chan_axis, dtype=object, count=len(chan_axis)) if chan_axis is not None else None,
+            channel=(
+                np.fromiter(chan_axis, dtype=object, count=len(chan_axis))
+                if chan_axis is not None
+                else None
+            ),
             freq=(
                 list(freq_axis)
                 if isinstance(freq_axis, list)
                 else (
                     np.asarray(freq_axis, dtype=float)
-                    if (freq_axis is not None and np.issubdtype(np.asarray(freq_axis).dtype, np.number))
-                    else (np.asarray(freq_axis, dtype=object) if freq_axis is not None else None)
+                    if (
+                        freq_axis is not None
+                        and np.issubdtype(np.asarray(freq_axis).dtype, np.number)
+                    )
+                    else (
+                        np.asarray(freq_axis, dtype=object)
+                        if freq_axis is not None
+                        else None
+                    )
                 )
-            ),            
+            ),
             time=time_axis,
             percent=np.array(percent_axis, dtype=float),
             shape=shape,

@@ -16,7 +16,7 @@ from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QDialog
 
 from lfptensorpipe.app.alignment_service import (
@@ -47,6 +47,7 @@ from lfptensorpipe.app.tensor_service import (
 )
 from lfptensorpipe.gui.dialogs.dataset_types import ParsedImportPreview
 from lfptensorpipe.gui.main_window import MainWindow
+from lfptensorpipe.gui.shell.preproc_plot_worker import run_preproc_plot_worker
 from lfptensorpipe.io.pkl_io import load_pkl, save_pkl
 
 
@@ -1344,23 +1345,11 @@ def _seed_alignment_trial_green(
 def run_smoke_raw_plot(raw_fif_path: str, *, close_ms: int = 1500) -> int:
     """Open one raw FIF browser and auto-close it for frozen-app validation."""
     raw_path = Path(raw_fif_path).expanduser().resolve()
-    if not raw_path.exists():
-        raise FileNotFoundError(raw_path)
-
-    import mne
-
-    app = _ensure_app()
-    raw = mne.io.read_raw_fif(raw_path, preload=True, verbose="ERROR")
-    browser = raw.plot(block=False, title=f"Smoke Raw Plot: {raw_path.name}")
-
-    def _close_plot() -> None:
-        close = getattr(browser, "close", None)
-        if callable(close):
-            close()
-        app.quit()
-
-    QTimer.singleShot(max(int(close_ms), 1), _close_plot)
-    return app.exec()
+    return run_preproc_plot_worker(
+        str(raw_path),
+        title=f"Smoke Raw Plot: {raw_path.name}",
+        auto_close_ms=max(int(close_ms), 1),
+    )
 
 
 def run_smoke_demo_record_parsers(records_root: str) -> int:

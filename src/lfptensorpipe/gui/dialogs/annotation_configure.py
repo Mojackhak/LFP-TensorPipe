@@ -58,9 +58,7 @@ class AnnotationConfigureDialog(QDialog):
         self._rows_table.setSelectionMode(QAbstractItemView.NoSelection)
         self._rows_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._rows_table.cellClicked.connect(self._on_rows_table_clicked)
-        self._rows_table.setToolTip(
-            "Current annotation rows. Use Del to remove a row."
-        )
+        self._rows_table.setToolTip("Current annotation rows. Use Del to remove a row.")
         header = self._rows_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.Fixed)

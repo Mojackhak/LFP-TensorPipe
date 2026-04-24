@@ -58,9 +58,7 @@ class MainWindowAlignmentParamsMixin:
         self._update_alignment_method_description()
         context = self._record_context()
         labels = (
-            self._load_alignment_annotation_labels_runtime(
-                context
-            )
+            self._load_alignment_annotation_labels_runtime(context)
             if context is not None
             else []
         )
@@ -72,10 +70,10 @@ class MainWindowAlignmentParamsMixin:
             params = self._default_alignment_method_params_runtime(method_key)
         ok_norm, normalized_params, message_norm = (
             self._validate_alignment_method_params_runtime(
-            method_key,
-            params,
-            annotation_labels=labels,
-        )
+                method_key,
+                params,
+                annotation_labels=labels,
+            )
         )
         if not ok_norm:
             self._show_warning("Align Epochs", message_norm)
@@ -104,9 +102,7 @@ class MainWindowAlignmentParamsMixin:
             return
         context = self._record_context()
         labels = (
-            self._load_alignment_annotation_labels_runtime(
-                context
-            )
+            self._load_alignment_annotation_labels_runtime(context)
             if context is not None
             else []
         )

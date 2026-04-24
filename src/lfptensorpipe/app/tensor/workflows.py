@@ -46,7 +46,7 @@ from .frequency import (
     default_tensor_metric_notch_params,
     load_tensor_filter_inheritance,
     load_tensor_filter_metric_notch_params,
-    )
+)
 from .orchestration import run_build_tensor
 from .logging import (
     write_metric_config as _write_metric_config,

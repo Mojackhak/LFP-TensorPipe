@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.gui.shell.preproc_plotting_backend import (
+    active_mne_browser_tracking_tokens,
+    active_mne_browser_widget_tokens,
+)
 from lfptensorpipe.gui.shell.common import Any, QApplication, QWidget
 
 
 def close_auxiliary_windows(window: Any) -> None:
     """Best-effort close for auxiliary Qt/Matplotlib windows owned by the app."""
+    excluded_tokens = active_mne_browser_tracking_tokens(window) | set(
+        getattr(window, "_mne_browser_shutdown_excluded_tokens", set())
+    )
     _close_tracked_plot_handles(window)
-    _close_qt_top_level_widgets(window)
-    _close_matplotlib_figures()
+    _close_qt_top_level_widgets(window, excluded_tokens=excluded_tokens)
+    _close_matplotlib_figures(excluded_tokens=excluded_tokens)
     app = QApplication.instance()
     if app is not None:
         app.processEvents()
@@ -25,12 +32,18 @@ def _close_tracked_plot_handles(window: Any) -> None:
         plot_close_hooks.clear()
 
 
-def _close_qt_top_level_widgets(window: Any) -> None:
+def _close_qt_top_level_widgets(window: Any, *, excluded_tokens: set[int]) -> None:
     app = QApplication.instance()
     if app is None:
         return
+    excluded_widget_tokens = active_mne_browser_widget_tokens(window) | excluded_tokens
     for widget in list(app.topLevelWidgets()):
-        if widget is window or not isinstance(widget, QWidget):
+        if (
+            widget is window
+            or not isinstance(widget, QWidget)
+            or not widget.isVisible()
+            or id(widget) in excluded_widget_tokens
+        ):
             continue
         try:
             widget.close()
@@ -38,11 +51,15 @@ def _close_qt_top_level_widgets(window: Any) -> None:
             continue
 
 
-def _close_matplotlib_figures() -> None:
+def _close_matplotlib_figures(*, excluded_tokens: set[int]) -> None:
     try:
         import matplotlib.pyplot as plt
 
-        plt.close("all")
+        for figure_number in list(plt.get_fignums()):
+            figure = plt.figure(figure_number)
+            if id(figure) in excluded_tokens:
+                continue
+            plt.close(figure)
     except Exception:
         return
 

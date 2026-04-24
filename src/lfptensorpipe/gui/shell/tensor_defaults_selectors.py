@@ -14,21 +14,31 @@ def _tensor_default_selected_channels_for_metric(
     *,
     available_channels: tuple[str, ...],
 ) -> tuple[str, ...]:
+    def _selector_default_channels() -> tuple[str, ...]:
+        selector_defaults = self._tensor_load_default_channels()
+        if selector_defaults is None:
+            return tuple(available_channels)
+        return self._coerce_tensor_channels(selector_defaults)
+
+    def _filter_available(channels: tuple[str, ...]) -> tuple[str, ...]:
+        if not available_channels:
+            return channels
+        allowed = set(available_channels)
+        return tuple(channel for channel in channels if channel in allowed)
+
     if not self._tensor_metric_requires_channel_selector(metric_key):
         return ()
     metric_node = self._tensor_metric_default_override_node(metric_key)
     if "selected_channels" in metric_node:
         selected = self._coerce_tensor_channels(metric_node.get("selected_channels"))
+        if not selected:
+            selected = _selector_default_channels()
     else:
-        selector_defaults = self._tensor_load_default_channels()
-        if selector_defaults is None:
-            selected = tuple(available_channels)
-        else:
-            selected = self._coerce_tensor_channels(selector_defaults)
-    if not available_channels:
-        return selected
-    allowed = set(available_channels)
-    return tuple(channel for channel in selected if channel in allowed)
+        selected = _selector_default_channels()
+    filtered = _filter_available(selected)
+    if filtered or not available_channels:
+        return filtered
+    return _filter_available(_selector_default_channels())
 
 
 def _tensor_default_selected_pairs_for_metric(

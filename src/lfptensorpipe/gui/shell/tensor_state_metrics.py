@@ -320,7 +320,10 @@ class MainWindowTensorStateMetricsMixin:
             method = self._tensor_method_combo.currentData()
             if isinstance(method, str):
                 params["method"] = method
-        if metric_key == "periodic_aperiodic" and self._tensor_freq_range_edit is not None:
+        if (
+            metric_key == "periodic_aperiodic"
+            and self._tensor_freq_range_edit is not None
+        ):
             freq_range_text = self._tensor_freq_range_edit.text().strip()
             if not freq_range_text:
                 params["freq_range_hz"] = ""

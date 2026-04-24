@@ -1,10 +1,11 @@
 # LFP-TensorPipe App
 
-![LFP-TensorPipe app overview](docs/assets/app-tutorial/page-preprocess-overview.png)
+![LFP-TensorPipe app overview](docs/assets/app-control-reference/controlref-basic-main-window-overview.png)
 
 LFP-TensorPipe is a desktop GUI for DBS LFP workflows that works alongside
-Lead-DBS projects. It supports record import, localization setup, signal
-preprocessing, tensor building, epoch alignment, and feature extraction.
+Lead-DBS projects. It supports record import, synchronization, reset-reference
+montage setup, localization, signal preprocessing, tensor building, epoch
+alignment, and feature extraction.
 
 ## What This App Covers
 
@@ -18,19 +19,14 @@ preprocessing, tensor building, epoch alignment, and feature extraction.
 ## Documentation Map
 
 - Installation guide: [docs/INSTALL.md](docs/INSTALL.md)
-- Full tutorial: [docs/APP_TUTORIAL.md](docs/APP_TUTORIAL.md)
+- Demo tutorial: [docs/APP_TUTORIAL.md](docs/APP_TUTORIAL.md)
+- Control reference: [docs/APP_CONTROL_REFERENCE.md](docs/APP_CONTROL_REFERENCE.md)
 
-Start with the installation guide, then follow the full tutorial for the
-example workflow, dialog settings, and config examples.
-
-## Repository Contents
-
-- `src/lfptensorpipe/`: desktop application and package source
-- `paper/pd/`: Parkinson's disease paper analysis utilities and export scripts
-
-Public snapshots in this repository exclude `test` and `tests` directories.
-This public release tree also excludes private export manifests and other
-private-repository metadata.
+Start with the installation guide. The public repository provides source
+snapshots and release downloads; desktop packaging is maintained only in the
+private source repository. Then follow the demo tutorial for the validated
+single-record workflow. Use the control reference when you need a page-by-page
+or dialog-by-dialog explanation.
 
 ## Installation
 
@@ -49,6 +45,11 @@ LFP-TensorPipe supports two installation methods:
 4. Open `Settings -> Configs` and enter valid machine-local paths if you plan to
    use `Localize`.
 
+Desktop app rebuilds are private-repository-only. The public repository is not
+a desktop packaging source. Private-repo maintainers should use
+`docs/PYINSTALLER_PACKAGING.md` and `docs/RELEASE_RUNBOOK.md` from the
+`lfptensorpipe` source repository.
+
 ### Developer Setup
 
 ```bash
@@ -61,6 +62,12 @@ After launch, use `Settings -> Configs` for `Lead-DBS Directory` and
 `MATLAB Installation Path`. The GUI no longer expects a manual MATLAB Engine
 package path.
 
+The supported install naming is:
+
+- distribution: `lfp-tensorpipe`
+- import: `lfptensorpipe`
+- product/UI: `LFP-TensorPipe`
+
 ## Practice Setup
 
 Use the following setup while reading
@@ -69,10 +76,9 @@ Use the following setup while reading
 - `Project`: `<demo-project-root>`
 - `Lead-DBS Directory`: `<lead-dbs-root>`
 - `MATLAB Installation Path`: `<matlab-root>`
-- `Preprocess` example: `sub-001 / ecg`
-- `Localize`, `Build Tensor`, `Align Epochs`, and `Extract Features` example:
-  `sub-001 / gait`
-- `Extract Features` walkthrough trial: `cycle_l`
+- `Subject`: `sub-001`
+- `Record`: `gait`
+- `Trial`: `cycle_l`
 
 Replace `<demo-project-root>`, `<lead-dbs-root>`, and `<matlab-root>` with the
 matching local paths on your machine.
@@ -83,12 +89,14 @@ means the root of your local demo project copy.
 
 ## Workflow At a Glance
 
-1. Select `Project`, `Subject`, and `Record`.
-2. Configure `Localize` if representative coordinates and brain region mapping are required.
-3. Run `Preprocess Signal`.
-4. Run `Build Tensor`.
-5. Run `Align Epochs`.
-6. Run `Extract Features`.
+1. Select `Project` and `Subject`.
+2. Import `sub-001 / gait` with `Sync` and `Reset Reference`.
+3. Configure `Localize` if representative coordinates and brain region mapping are required.
+4. Run `Preprocess Signal`.
+5. Run `Build Tensor`.
+6. Run `Align Epochs`.
+7. Run `Extract Features`.
+8. Plot one result from `Available Features`.
 
 Each downstream stage is gated by the upstream stage: `Build Tensor` by
 `Preprocess Signal`, `Align Epochs` by `Build Tensor`, and `Extract Features`
@@ -101,6 +109,8 @@ by the selected trial in `Align Epochs`. `Localize` is separate.
   against the latest successful run or apply.
 - `Import Configs...` and `Export Configs...` move record-scoped or trial-scoped
   JSON payloads, not whole projects.
+- In `Import Record`, `Confirm Import` stays disabled until required `Sync` and
+  `Reset Reference` settings are saved.
 - In `Preprocess`, `Filter -> Plot` is where you review and edit `bad` spans,
   while `Annotations` is where you manage named event annotations.
 - `Localize` atlas choices are discovered from the configured Lead-DBS
@@ -109,4 +119,6 @@ by the selected trial in `Align Epochs`. `Localize` is separate.
   Localize representative-coordinate columns into the finished raw tables.
 
 Continue with [docs/APP_TUTORIAL.md](docs/APP_TUTORIAL.md) for the complete
-step-by-step workflow.
+single-record walkthrough, or open
+[docs/APP_CONTROL_REFERENCE.md](docs/APP_CONTROL_REFERENCE.md) for detailed
+control descriptions.

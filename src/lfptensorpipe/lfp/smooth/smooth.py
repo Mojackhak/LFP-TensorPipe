@@ -30,7 +30,6 @@ from ...utils.transforms import (
     apply_transform_array,
 )
 
-
 SmoothMethod = Literal["median", "mean", "gaussian"]
 NanPolicy = Literal["omit", "propagate"]
 PadMode = Literal["nearest", "reflect", "mirror", "constant", "wrap"]

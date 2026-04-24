@@ -63,6 +63,7 @@ class ECGRemovalError(ValueError):
 @dataclass(frozen=True, slots=True)
 class TemplateFitConfig:
     """Configuration for the template fitting ECG remover."""
+
     window_ms: float = 200.0
     peak_height_range: tuple[float, float] = (2.5, float("inf"))
     min_interpeak_ms: float = 300.0
@@ -77,6 +78,7 @@ class TemplateFitConfig:
 @dataclass(frozen=True, slots=True)
 class PerceiveConfig:
     """Configuration for the correlation + mirror replacement ECG remover."""
+
     epoch_length_ms: float = 1000.0
     window_ms: float = 200.0
     threshold_v: float = 200e-6
@@ -95,6 +97,7 @@ class PerceiveConfig:
 @dataclass(frozen=True, slots=True)
 class SvdConfig:
     """Configuration for the SVD-based ECG remover."""
+
     components: int = 2
     window_ms: float = 200.0
     peak_height_range: tuple[float, float] = (2.5, float("inf"))
@@ -110,6 +113,7 @@ class SvdConfig:
 @dataclass(slots=True)
 class ECGRemovalDiagnostics:
     """Diagnostics returned by ECG removal methods."""
+
     method: str
     fs: float
     r_peaks: NDArray[np.int_] | None = None
@@ -172,7 +176,9 @@ def _robust_scale_1d(
 # -----------------------------------------------------------------------------
 # Baseline / feature extraction
 # -----------------------------------------------------------------------------
-def lfp_baseline(lfp_signal: np.ndarray, fs: float, window_ms: float = 200.0) -> NDArray[np.float64]:
+def lfp_baseline(
+    lfp_signal: np.ndarray, fs: float, window_ms: float = 200.0
+) -> NDArray[np.float64]:
     """
     Estimate a slow baseline using a median filter.
 
@@ -196,7 +202,9 @@ def lfp_baseline(lfp_signal: np.ndarray, fs: float, window_ms: float = 200.0) ->
     return median_filter(x, size=size)
 
 
-def lfp_feature(lfp_signal: np.ndarray, fs: float, window_ms: float = 200.0) -> NDArray[np.float64]:
+def lfp_feature(
+    lfp_signal: np.ndarray, fs: float, window_ms: float = 200.0
+) -> NDArray[np.float64]:
     """
     Compute a feature signal by subtracting a median-filter baseline.
 
@@ -244,12 +252,20 @@ def detect_qrs_peaks(
 
     min_distance_samples = _ms_to_samples(min_interpeak_ms, fs_f)
 
-    pos_peaks, _ = find_peaks(z_signal, height=peak_height_range, distance=min_distance_samples)
-    pos_peak_heights = z_signal[pos_peaks] if len(pos_peaks) else np.array([], dtype=float)
+    pos_peaks, _ = find_peaks(
+        z_signal, height=peak_height_range, distance=min_distance_samples
+    )
+    pos_peak_heights = (
+        z_signal[pos_peaks] if len(pos_peaks) else np.array([], dtype=float)
+    )
 
     neg_signal = -z_signal
-    neg_peaks, _ = find_peaks(neg_signal, height=peak_height_range, distance=min_distance_samples)
-    neg_peak_heights = neg_signal[neg_peaks] if len(neg_peaks) else np.array([], dtype=float)
+    neg_peaks, _ = find_peaks(
+        neg_signal, height=peak_height_range, distance=min_distance_samples
+    )
+    neg_peak_heights = (
+        neg_signal[neg_peaks] if len(neg_peaks) else np.array([], dtype=float)
+    )
 
     if len(pos_peaks) == 0 and len(neg_peaks) == 0:
         logger.info("No QRS-like peaks detected.")
@@ -277,7 +293,9 @@ def detect_qrs_peaks(
         else:
             raise ECGRemovalError(f"Invalid force_orientation={force_orientation!r}")
 
-    logger.info("Detected %d QRS-like peaks (orientation=%s).", len(chosen_peaks), orientation)
+    logger.info(
+        "Detected %d QRS-like peaks (orientation=%s).", len(chosen_peaks), orientation
+    )
     return np.asarray(chosen_peaks, dtype=int), orientation
 
 
@@ -336,7 +354,9 @@ def generate_qrs_template(
             epochs.append(epoch)
 
     if not epochs:
-        warnings.warn("No valid epochs extracted; cannot generate template.", RuntimeWarning)
+        warnings.warn(
+            "No valid epochs extracted; cannot generate template.", RuntimeWarning
+        )
         return None, None, None, None
 
     template_raw = np.mean(np.stack(epochs, axis=0), axis=0)
@@ -345,7 +365,9 @@ def generate_qrs_template(
     t_mean = float(np.mean(template_raw))
     t_std = float(np.std(template_raw))
     if t_std < 1e-12:
-        warnings.warn("Template variance too small; cannot determine orientation.", RuntimeWarning)
+        warnings.warn(
+            "Template variance too small; cannot determine orientation.", RuntimeWarning
+        )
         return None, None, None, None
     z_template = (template_raw - t_mean) / t_std
 
@@ -430,7 +452,10 @@ def generate_qrs_template(
 
     template_final = template_raw[start_template_idx:end_template_idx]
     if template_final.size < 2:
-        warnings.warn("Cropped template is too short; using the full epoch template.", RuntimeWarning)
+        warnings.warn(
+            "Cropped template is too short; using the full epoch template.",
+            RuntimeWarning,
+        )
         template_final = template_raw.copy()
         start_template_idx = 0
         end_template_idx = template_raw.size
@@ -449,7 +474,9 @@ def generate_qrs_template(
     return template_final.astype(float), final_orientation, epoch_start, epoch_end
 
 
-def optimize_template(template: np.ndarray, lfp_epoch: np.ndarray) -> tuple[NDArray[np.float64], float, float, float]:
+def optimize_template(
+    template: np.ndarray, lfp_epoch: np.ndarray
+) -> tuple[NDArray[np.float64], float, float, float]:
     """
     Fit (scale, offset) so that scale * template + offset best matches lfp_epoch.
 
@@ -458,7 +485,9 @@ def optimize_template(template: np.ndarray, lfp_epoch: np.ndarray) -> tuple[NDAr
     t = _as_1d_float(template)
     y = _as_1d_float(lfp_epoch)
     if t.size != y.size:
-        raise ECGRemovalError(f"template and lfp_epoch must have same length, got {t.size} vs {y.size}")
+        raise ECGRemovalError(
+            f"template and lfp_epoch must have same length, got {t.size} vs {y.size}"
+        )
 
     A = np.vstack([t, np.ones_like(t)]).T  # shape (N, 2)
     params, *_ = np.linalg.lstsq(A, y, rcond=None)
@@ -553,7 +582,9 @@ def template_ecg_remover(
     return cleaned
 
 
-def segment_signal(signal: np.ndarray, fs: float, epoch_length_ms: float = 1000.0) -> NDArray[np.float64]:
+def segment_signal(
+    signal: np.ndarray, fs: float, epoch_length_ms: float = 1000.0
+) -> NDArray[np.float64]:
     """
     Break a 1D signal into non-overlapping epochs of fixed length.
 
@@ -574,7 +605,9 @@ def segment_signal(signal: np.ndarray, fs: float, epoch_length_ms: float = 1000.
     return trimmed.reshape(n_full_epochs, samples_per_epoch)
 
 
-def cross_correlation_align(epochs: NDArray[np.float64], fs: float, window_ms: float = 200.0) -> NDArray[np.float64]:
+def cross_correlation_align(
+    epochs: NDArray[np.float64], fs: float, window_ms: float = 200.0
+) -> NDArray[np.float64]:
     """
     Align epochs via cross-correlation (on feature signal) and average to form a template.
     """
@@ -613,7 +646,9 @@ def cross_correlation_align(epochs: NDArray[np.float64], fs: float, window_ms: f
     return np.mean(np.stack(aligned_epochs, axis=0), axis=0)
 
 
-def find_ecg_template1(template: np.ndarray, fs: float, threshold_v: float = 200e-6, pad_ms: float = 15.0) -> NDArray[np.float64]:
+def find_ecg_template1(
+    template: np.ndarray, fs: float, threshold_v: float = 200e-6, pad_ms: float = 15.0
+) -> NDArray[np.float64]:
     """
     Crop a template to the putative QRS region based on local extrema.
 
@@ -634,26 +669,37 @@ def find_ecg_template1(template: np.ndarray, fs: float, threshold_v: float = 200
     if primary_extreme == "max":
         minima, _ = find_peaks(-t)
         valid_minima = minima[np.abs(minima - max_idx).argsort()]
-        flank_extrema = [int(i) for i in valid_minima if (max_value - float(t[i])) >= threshold_v]
+        flank_extrema = [
+            int(i) for i in valid_minima if (max_value - float(t[i])) >= threshold_v
+        ]
     else:
         maxima, _ = find_peaks(t)
         valid_maxima = maxima[np.abs(maxima - max_idx).argsort()]
-        flank_extrema = [int(i) for i in valid_maxima if (float(t[i]) - max_value) >= threshold_v]
+        flank_extrema = [
+            int(i) for i in valid_maxima if (float(t[i]) - max_value) >= threshold_v
+        ]
 
     if len(flank_extrema) < 2:
-        warnings.warn("Unable to find flank extrema satisfying threshold; returning original template.", RuntimeWarning)
+        warnings.warn(
+            "Unable to find flank extrema satisfying threshold; returning original template.",
+            RuntimeWarning,
+        )
         return t
 
     left_candidates = [i for i in flank_extrema if i < max_idx]
     right_candidates = [i for i in flank_extrema if i > max_idx]
     if not left_candidates or not right_candidates:
-        warnings.warn("Unable to bracket QRS region; returning original template.", RuntimeWarning)
+        warnings.warn(
+            "Unable to bracket QRS region; returning original template.", RuntimeWarning
+        )
         return t
 
     left_extreme = left_candidates[0]
     right_extreme = right_candidates[0]
 
-    def find_turning_point(signal_1d: NDArray[np.float64], peak_idx: int, direction: int) -> int:
+    def find_turning_point(
+        signal_1d: NDArray[np.float64], peak_idx: int, direction: int
+    ) -> int:
         idx = int(peak_idx)
         while 1 <= idx < (signal_1d.size - 1):
             if direction == -1 and signal_1d[idx] < signal_1d[idx - 1]:
@@ -700,7 +746,9 @@ def adaptive_threshold_peak_detection(
     fs_f = _validate_fs(fs)
 
     if min_bpm <= 0 or max_bpm <= 0 or min_bpm >= max_bpm:
-        raise ECGRemovalError("min_bpm and max_bpm must be positive with min_bpm < max_bpm.")
+        raise ECGRemovalError(
+            "min_bpm and max_bpm must be positive with min_bpm < max_bpm."
+        )
     if max_threshold_tries < 1:
         raise ECGRemovalError("max_threshold_tries must be >= 1.")
     if not (0.0 < pass_rate <= 1.0):
@@ -710,7 +758,9 @@ def adaptive_threshold_peak_detection(
 
     # Heuristic robust scaling: use very low/high quantiles derived from expected beat rate.
     q_low = float(np.clip((min_bpm / 60.0) / fs_f, 1e-6, 0.1))
-    corr_values_norm = _robust_scale_1d(correlation_values, q_low=q_low, q_high=1.0 - q_low)
+    corr_values_norm = _robust_scale_1d(
+        correlation_values, q_low=q_low, q_high=1.0 - q_low
+    )
 
     # Inter-peak constraints in samples
     min_peak_distance = int(fs_f / (max_bpm / 60.0))
@@ -734,7 +784,9 @@ def adaptive_threshold_peak_detection(
         if peaks.size > 1:
             peak_distances = np.diff(peaks)
             if enforce_max_interval:
-                valid = (peak_distances >= min_peak_distance) & (peak_distances <= max_peak_distance)
+                valid = (peak_distances >= min_peak_distance) & (
+                    peak_distances <= max_peak_distance
+                )
             else:
                 valid = peak_distances >= min_peak_distance
 
@@ -744,14 +796,20 @@ def adaptive_threshold_peak_detection(
                 break
 
         threshold += float(threshold_step)
-        if (threshold_step >= 0 and threshold >= threshold_end) or (threshold_step < 0 and threshold <= threshold_end):
+        if (threshold_step >= 0 and threshold >= threshold_end) or (
+            threshold_step < 0 and threshold <= threshold_end
+        ):
             break
 
     if best_peaks is None or best_threshold is None:
         logger.warning("No suitable peaks found after adaptive thresholding.")
         return None, None, None
 
-    logger.info("Adaptive threshold success: threshold=%.4f, n_peaks=%d", best_threshold, best_peaks.size)
+    logger.info(
+        "Adaptive threshold success: threshold=%.4f, n_peaks=%d",
+        best_threshold,
+        best_peaks.size,
+    )
     return best_peaks, best_threshold, corr_values_norm
 
 
@@ -874,8 +932,13 @@ def perceive_ecg_remover(
         return cleaned
 
     peak_template_mean1_idx = int(np.argmax(np.abs(template_mean1)))
-    peaks_mean = peaks_mean_corr - int(template_mean1.size) + 1 + peak_template_mean1_idx
-    peaks_mean = peaks_mean[(peaks_mean >= -int(template_mean1.size)) & (peaks_mean < x.size + int(template_mean1.size))]
+    peaks_mean = (
+        peaks_mean_corr - int(template_mean1.size) + 1 + peak_template_mean1_idx
+    )
+    peaks_mean = peaks_mean[
+        (peaks_mean >= -int(template_mean1.size))
+        & (peaks_mean < x.size + int(template_mean1.size))
+    ]
 
     template_len = int(template_mean1.size)
     before_samples = peak_template_mean1_idx
@@ -1040,7 +1103,9 @@ def svd_ecg_remover(
         diff = np.abs(ecg_left[:, None] - ecg_right[None, :])
         i_min, j_min = np.unravel_index(int(np.argmin(diff)), diff.shape)
         start_idx_local = int(i_min)
-        end_idx_local = int(epoch_len - tail_samples + j_min)  # index of last sample in right block
+        end_idx_local = int(
+            epoch_len - tail_samples + j_min
+        )  # index of last sample in right block
         end_idx_local = max(end_idx_local, start_idx_local + 1)
 
         # Convert to Python slice end (exclusive)
@@ -1263,7 +1328,9 @@ def raw_call_ecgremover(
 
     if isinstance(method, str):
         if method not in method_map:
-            raise ECGRemovalError(f"Unknown method '{method}'. Available: {list(method_map.keys())}")
+            raise ECGRemovalError(
+                f"Unknown method '{method}'. Available: {list(method_map.keys())}"
+            )
         method_func = method_map[method]
         method_name = method
     elif callable(method):
@@ -1272,7 +1339,9 @@ def raw_call_ecgremover(
     else:
         raise ECGRemovalError("method must be a string or a callable.")
 
-    def _safe_method(lfp: np.ndarray, fs_local: float, **kw: Any) -> tuple[NDArray[np.float64], Any]:
+    def _safe_method(
+        lfp: np.ndarray, fs_local: float, **kw: Any
+    ) -> tuple[NDArray[np.float64], Any]:
         out = method_func(lfp, fs_local, **kw)
         if isinstance(out, tuple) and len(out) >= 2:
             return np.asarray(out[0], dtype=float), out[1]
@@ -1298,12 +1367,19 @@ def raw_call_ecgremover(
     cleaned_block = df_clean[picks_list].to_numpy(dtype=float).T
 
     idxs = mne.pick_channels(raw_out.ch_names, include=picks_list)
-    if cleaned_block.shape != raw_out._data[idxs, :].shape:  # noqa: SLF001 (MNE uses _data internally)
+    if (
+        cleaned_block.shape != raw_out._data[idxs, :].shape
+    ):  # noqa: SLF001 (MNE uses _data internally)
         raise RuntimeError("Shape mismatch when writing back cleaned data.")
     raw_out._data[idxs, :] = cleaned_block
 
     if verbose:
-        logger.info("ECG removal done for %d channel(s) with '%s'. inplace=%s", len(picks_list), method_name, inplace)
+        logger.info(
+            "ECG removal done for %d channel(s) with '%s'. inplace=%s",
+            len(picks_list),
+            method_name,
+            inplace,
+        )
 
     return raw_out, figs
 

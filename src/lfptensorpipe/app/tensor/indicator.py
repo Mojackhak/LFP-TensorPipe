@@ -37,7 +37,11 @@ from .runners.connectivity_psi import (
     _build_runtime_bands as _build_psi_runtime_bands,
     _serialize_runtime_bands as _serialize_psi_runtime_bands,
 )
-from .selectors import normalize_metric_bands, normalize_metric_channels, normalize_metric_pairs
+from .selectors import (
+    normalize_metric_bands,
+    normalize_metric_channels,
+    normalize_metric_pairs,
+)
 from .validators import validate_bands as _validate_bands
 
 
@@ -73,7 +77,9 @@ class _IndicatorValidationSvc:
         return _validate_bands(value)
 
     @staticmethod
-    def load_tensor_frequency_defaults(context: RecordContext) -> tuple[float, float, float]:
+    def load_tensor_frequency_defaults(
+        context: RecordContext,
+    ) -> tuple[float, float, float]:
         return load_tensor_frequency_defaults(context)
 
     @staticmethod
@@ -139,14 +145,18 @@ def _normalize_pairs(value: Any, *, directed: bool) -> list[list[str]] | None:
     return normalized
 
 
-def _normalize_runtime_bands_signature(value: Any) -> dict[str, list[float] | list[list[float]]] | None:
+def _normalize_runtime_bands_signature(
+    value: Any,
+) -> dict[str, list[float] | list[list[float]]] | None:
     if not isinstance(value, dict):
         return None
     normalized: dict[str, list[float] | list[list[float]]] = {}
     for name in sorted(str(key).strip() for key in value.keys() if str(key).strip()):
         item = value.get(name)
-        if isinstance(item, (list, tuple)) and len(item) == 2 and all(
-            isinstance(part, (int, float)) for part in item
+        if (
+            isinstance(item, (list, tuple))
+            and len(item) == 2
+            and all(isinstance(part, (int, float)) for part in item)
         ):
             normalized[name] = [float(item[0]), float(item[1])]
             continue
@@ -182,7 +192,9 @@ def _periodic_freq_range(params: dict[str, Any]) -> list[float] | None:
     return [float(spec_low), float(spec_high)]
 
 
-def _metric_log_signature(metric_key: str, params: dict[str, Any]) -> dict[str, Any] | None:
+def _metric_log_signature(
+    metric_key: str, params: dict[str, Any]
+) -> dict[str, Any] | None:
     notch_payload = _notch_payload(params)
     if notch_payload is None:
         return None
@@ -212,7 +224,10 @@ def _metric_log_signature(metric_key: str, params: dict[str, Any]) -> dict[str, 
         if channels is None or freq_range is None:
             return None
         peak_width_limits = params.get("peak_width_limits_hz", [2.0, 12.0])
-        if not isinstance(peak_width_limits, (list, tuple)) or len(peak_width_limits) != 2:
+        if (
+            not isinstance(peak_width_limits, (list, tuple))
+            or len(peak_width_limits) != 2
+        ):
             return None
         return {
             "low_freq": float(params.get("low_freq")),
@@ -226,11 +241,18 @@ def _metric_log_signature(metric_key: str, params: dict[str, Any]) -> dict[str, 
             "time_bandwidth": _as_float(params.get("time_bandwidth"), 1.0),
             "freq_range_hz": freq_range,
             "freq_smooth_enabled": bool(params.get("freq_smooth_enabled", True)),
-            "freq_smooth_sigma": _as_optional_float(params.get("freq_smooth_sigma"), 1.5),
+            "freq_smooth_sigma": _as_optional_float(
+                params.get("freq_smooth_sigma"), 1.5
+            ),
             "time_smooth_enabled": bool(params.get("time_smooth_enabled", True)),
-            "time_smooth_kernel_size": _as_optional_int(params.get("time_smooth_kernel_size")),
+            "time_smooth_kernel_size": _as_optional_int(
+                params.get("time_smooth_kernel_size")
+            ),
             "aperiodic_mode": str(params.get("aperiodic_mode", "fixed")),
-            "peak_width_limits_hz": [float(peak_width_limits[0]), float(peak_width_limits[1])],
+            "peak_width_limits_hz": [
+                float(peak_width_limits[0]),
+                float(peak_width_limits[1]),
+            ],
             "max_n_peaks": _max_n_peaks_signature(params.get("max_n_peaks", "inf")),
             "min_peak_height": _as_float(params.get("min_peak_height"), 0.0),
             "peak_threshold": _as_float(params.get("peak_threshold"), 2.0),
@@ -440,14 +462,26 @@ def _current_metric_signature(
             "min_cycles": _as_optional_float(metric_params.get("min_cycles"), 3.0),
             "max_cycles": _as_optional_float(metric_params.get("max_cycles")),
             "time_bandwidth": _as_float(metric_params.get("time_bandwidth"), 1.0),
-            "freq_range_hz": [float(prepared.parsed_freq_range[0]), float(prepared.parsed_freq_range[1])],
+            "freq_range_hz": [
+                float(prepared.parsed_freq_range[0]),
+                float(prepared.parsed_freq_range[1]),
+            ],
             "freq_smooth_enabled": bool(metric_params.get("freq_smooth_enabled", True)),
-            "freq_smooth_sigma": _as_optional_float(metric_params.get("freq_smooth_sigma"), 1.5),
+            "freq_smooth_sigma": _as_optional_float(
+                metric_params.get("freq_smooth_sigma"), 1.5
+            ),
             "time_smooth_enabled": bool(metric_params.get("time_smooth_enabled", True)),
-            "time_smooth_kernel_size": _as_optional_int(metric_params.get("time_smooth_kernel_size")),
+            "time_smooth_kernel_size": _as_optional_int(
+                metric_params.get("time_smooth_kernel_size")
+            ),
             "aperiodic_mode": str(metric_params.get("aperiodic_mode", "fixed")),
-            "peak_width_limits_hz": [float(peak_width_limits[0]), float(peak_width_limits[1])],
-            "max_n_peaks": _max_n_peaks_signature(metric_params.get("max_n_peaks", float(np.inf))),
+            "peak_width_limits_hz": [
+                float(peak_width_limits[0]),
+                float(peak_width_limits[1]),
+            ],
+            "max_n_peaks": _max_n_peaks_signature(
+                metric_params.get("max_n_peaks", float(np.inf))
+            ),
             "min_peak_height": _as_float(metric_params.get("min_peak_height"), 0.0),
             "peak_threshold": _as_float(metric_params.get("peak_threshold"), 2.0),
             "fit_qc_threshold": _as_float(metric_params.get("fit_qc_threshold"), 0.6),
@@ -552,13 +586,16 @@ def _current_metric_signature(
             hop_s=_as_optional_float(metric_params.get("hop_s")),
             decim=_as_optional_int(metric_params.get("decim")),
         )
-        baseline_keep = sorted(
-            {
-                str(item).strip()
-                for item in (metric_params.get("baseline_keep") or [])
-                if str(item).strip()
-            }
-        ) or None
+        baseline_keep = (
+            sorted(
+                {
+                    str(item).strip()
+                    for item in (metric_params.get("baseline_keep") or [])
+                    if str(item).strip()
+                }
+            )
+            or None
+        )
         thresholds_path = (
             str(metric_params.get("thresholds_path")).strip()
             if str(metric_params.get("thresholds_path", "")).strip()

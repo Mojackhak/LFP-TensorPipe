@@ -98,7 +98,9 @@ def _aggregate_states(log_paths: list[Path]) -> str:
     return "gray"
 
 
-def _aggregate_tensor_stage_state(tensor_stage_log: Path, tensor_logs: list[Path]) -> str:
+def _aggregate_tensor_stage_state(
+    tensor_stage_log: Path, tensor_logs: list[Path]
+) -> str:
     """Build Tensor stage is green once any metric log is green.
 
     This avoids stale yellow stage logs blocking downstream pages when at least one

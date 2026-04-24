@@ -284,9 +284,7 @@ def _build_features_plot_block(self) -> QGroupBox:
     row_layout.setContentsMargins(0, 0, 0, 0)
     row_layout.setSpacing(_grid_spacing(self))
     self._features_plot_advance_button = QPushButton("Advance")
-    self._features_plot_advance_button.setToolTip(
-        "Open advanced plot settings."
-    )
+    self._features_plot_advance_button.setToolTip("Open advanced plot settings.")
     self._features_plot_advance_button.clicked.connect(self._on_features_plot_advance)
     row_layout.addWidget(self._features_plot_advance_button)
     self._features_plot_button = QPushButton("Plot")

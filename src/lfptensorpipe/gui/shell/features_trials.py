@@ -102,9 +102,7 @@ class MainWindowFeaturesTrialsMixin:
         filters = source.get("filters")
         plot_labels = source.get("plot_labels")
         plot_advance = source.get("plot_advance")
-        selected_relative_stem = str(
-            source.get("selected_relative_stem", "")
-        ).strip()
+        selected_relative_stem = str(source.get("selected_relative_stem", "")).strip()
         return {
             "active_metric": active_metric,
             "axes_by_metric": normalized_axes,
@@ -143,7 +141,9 @@ class MainWindowFeaturesTrialsMixin:
             ),
         }
 
-    def _normalize_features_trial_params_map(self, node: Any) -> dict[str, dict[str, Any]]:
+    def _normalize_features_trial_params_map(
+        self, node: Any
+    ) -> dict[str, dict[str, Any]]:
         if not isinstance(node, dict):
             return {}
         normalized: dict[str, dict[str, Any]] = {}
@@ -200,15 +200,15 @@ class MainWindowFeaturesTrialsMixin:
                 metric_key: {
                     "bands": [
                         dict(item)
-                        for item in self._normalized_features_axes_for_metric(metric_key)[
-                            "bands"
-                        ]
+                        for item in self._normalized_features_axes_for_metric(
+                            metric_key
+                        )["bands"]
                     ],
                     "times": [
                         dict(item)
-                        for item in self._normalized_features_axes_for_metric(metric_key)[
-                            "times"
-                        ]
+                        for item in self._normalized_features_axes_for_metric(
+                            metric_key
+                        )["times"]
                     ],
                 }
                 for metric_key in metric_keys
@@ -263,7 +263,9 @@ class MainWindowFeaturesTrialsMixin:
         if context is None or not isinstance(trial_slug, str) or not trial_slug.strip():
             return None
         params = self._read_completed_log_params(
-            PathResolver(context).features_root / trial_slug.strip() / "lfptensorpipe_log.json"
+            PathResolver(context).features_root
+            / trial_slug.strip()
+            / "lfptensorpipe_log.json"
         )
         if not params:
             return None
@@ -282,10 +284,10 @@ class MainWindowFeaturesTrialsMixin:
         respect_dirty_keys: bool,
     ) -> int:
         skipped = 0
-        selected_relative_stem = str(
-            params.get("selected_relative_stem", "")
-        ).strip()
-        if not (respect_dirty_keys and "features.axes" in self._record_param_dirty_keys):
+        selected_relative_stem = str(params.get("selected_relative_stem", "")).strip()
+        if not (
+            respect_dirty_keys and "features.axes" in self._record_param_dirty_keys
+        ):
             self._features_axes_by_metric = {
                 str(metric_key): {
                     "bands": [dict(item) for item in axis_node.get("bands", [])],
@@ -296,10 +298,7 @@ class MainWindowFeaturesTrialsMixin:
             }
             self._refresh_features_axis_metric_combo()
             active_metric = str(params.get("active_metric", "")).strip()
-            if (
-                active_metric
-                and self._features_axis_metric_combo is not None
-            ):
+            if active_metric and self._features_axis_metric_combo is not None:
                 idx = self._features_axis_metric_combo.findData(active_metric)
                 if idx >= 0:
                     self._features_axis_metric_combo.setCurrentIndex(idx)
@@ -319,7 +318,8 @@ class MainWindowFeaturesTrialsMixin:
 
         plot_labels = params.get("plot_labels", {})
         if not (
-            respect_dirty_keys and "features.plot_labels" in self._record_param_dirty_keys
+            respect_dirty_keys
+            and "features.plot_labels" in self._record_param_dirty_keys
         ):
             if self._features_x_label_edit is not None:
                 self._features_x_label_edit.setText(str(plot_labels.get("x", "")))
@@ -453,7 +453,14 @@ class MainWindowFeaturesTrialsMixin:
 
     def _current_features_paradigm_slug(self) -> str | None:
         shared_slug = self._shared_stage_trial_slug()
-        if isinstance(shared_slug, str) and shared_slug:
+        if (
+            isinstance(shared_slug, str)
+            and shared_slug
+            and (
+                not hasattr(self, "_alignment_trial_stage_state_runtime")
+                or self._features_trial_is_selectable(shared_slug)
+            )
+        ):
             return shared_slug
         if self._features_paradigm_list is None:
             return None
@@ -510,8 +517,10 @@ class MainWindowFeaturesTrialsMixin:
                 selected_row = idx
         self._features_paradigm_list.blockSignals(False)
         self._refresh_features_trial_list_states()
-        if paradigms and selected_row >= 0 and self._features_trial_is_selectable(
-            paradigms[selected_row].get("slug")
+        if (
+            paradigms
+            and selected_row >= 0
+            and self._features_trial_is_selectable(paradigms[selected_row].get("slug"))
         ):
             self._sync_features_paradigm_selection(
                 str(paradigms[selected_row].get("slug", ""))

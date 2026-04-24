@@ -75,6 +75,7 @@ def _build_tensor_page(self) -> QWidget:
     layout.addWidget(columns, stretch=1)
     return page
 
+
 def _build_tensor_metrics_block(self) -> QGroupBox:
     block = QGroupBox("Metrics Selection")
     layout = QVBoxLayout(block)
@@ -110,9 +111,7 @@ def _build_tensor_metrics_block(self) -> QGroupBox:
             name_button = QPushButton(spec.display_name)
             name_button.setCursor(Qt.PointingHandCursor)
             name_button.setFlat(True)
-            name_button.setStyleSheet(
-                "text-align: left; padding: 0px; border: none;"
-            )
+            name_button.setStyleSheet("text-align: left; padding: 0px; border: none;")
             name_button.setToolTip(
                 "Click to edit this metric's parameters. This does not change run selection."
             )
@@ -137,6 +136,7 @@ def _build_tensor_metrics_block(self) -> QGroupBox:
     layout.addStretch(1)
     return block
 
+
 def _build_tensor_bands_block(self) -> QGroupBox:
     block = QGroupBox("Bands")
     layout = QVBoxLayout(block)
@@ -160,11 +160,10 @@ def _build_tensor_bands_block(self) -> QGroupBox:
         self._tensor_bands_table.setItem(
             row_idx, 1, QTableWidgetItem(str(band["start"]))
         )
-        self._tensor_bands_table.setItem(
-            row_idx, 2, QTableWidgetItem(str(band["end"]))
-        )
+        self._tensor_bands_table.setItem(row_idx, 2, QTableWidgetItem(str(band["end"])))
     layout.addWidget(self._tensor_bands_table)
     return block
+
 
 def _build_tensor_metric_params_block(self) -> QGroupBox:
     block = QGroupBox("Metric Parameter Panel")
@@ -212,9 +211,7 @@ def _build_tensor_metric_params_block(self) -> QGroupBox:
     self._tensor_bands_configure_button.setToolTip(
         "Edit named bands for the active metric."
     )
-    self._tensor_bands_configure_button.clicked.connect(
-        self._on_tensor_bands_configure
-    )
+    self._tensor_bands_configure_button.clicked.connect(self._on_tensor_bands_configure)
 
     layout.addRow("Low freq (Hz)", self._tensor_low_freq_edit)
     layout.addRow("High freq (Hz)", self._tensor_high_freq_edit)
@@ -228,9 +225,7 @@ def _build_tensor_metric_params_block(self) -> QGroupBox:
     layout.addRow("Min cycles", self._tensor_min_cycles_basic_edit)
 
     self._tensor_channels_button = QPushButton("Select Channels (0/0)")
-    self._tensor_channels_button.setToolTip(
-        "Choose channels for the active metric."
-    )
+    self._tensor_channels_button.setToolTip("Choose channels for the active metric.")
     self._tensor_channels_button.clicked.connect(self._on_tensor_channels_select)
     layout.addRow("Channels", self._tensor_channels_button)
     self._tensor_pairs_button = QPushButton("Select Pairs (0/0)")
@@ -268,6 +263,7 @@ def _build_tensor_metric_params_block(self) -> QGroupBox:
     self._set_active_tensor_metric(self._tensor_active_metric_key)
     return block
 
+
 def _build_tensor_actions_block(self) -> QGroupBox:
     block = QGroupBox("Run Build Tensor")
     layout = QVBoxLayout(block)
@@ -285,9 +281,7 @@ def _build_tensor_actions_block(self) -> QGroupBox:
     self._tensor_export_button.setToolTip("Save tensor configuration.")
     self._tensor_export_button.clicked.connect(self._on_tensor_export_config)
     self._tensor_run_button = QPushButton("Build Tensor")
-    self._tensor_run_button.setToolTip(
-        "Run tensor building for the selected metrics."
-    )
+    self._tensor_run_button.setToolTip("Run tensor building for the selected metrics.")
     self._tensor_run_button.clicked.connect(self._on_tensor_run)
     self._tensor_run_button.setEnabled(False)
 

@@ -64,9 +64,7 @@ class MainWindowAlignmentEpochsMixin:
                 row_idx,
                 4,
                 QTableWidgetItem(
-                    self._format_alignment_epoch_numeric_cell(
-                        row.get("end_t", np.nan)
-                    )
+                    self._format_alignment_epoch_numeric_cell(row.get("end_t", np.nan))
                 ),
             )
         self._alignment_epoch_table.blockSignals(False)

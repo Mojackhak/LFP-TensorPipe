@@ -21,7 +21,9 @@ def _normalize_metric_selectors(
             f"{metric_label} no longer supports 'spectral_mode'. "
             "Use 'method' with values 'morlet' or 'multitaper'."
         )
-    metric_channels = svc._normalize_metric_channels(metric_params.get("selected_channels"))
+    metric_channels = svc._normalize_metric_channels(
+        metric_params.get("selected_channels")
+    )
     if metric_key in svc.TENSOR_CHANNEL_SELECTOR_KEYS and metric_channels == []:
         raise ValueError(f"{metric_label} requires at least one selected channel.")
     metric_pairs = svc._normalize_metric_pairs(metric_params.get("selected_pairs"))
@@ -42,7 +44,9 @@ def _resolve_metric_frequency_params(
     metric_params: dict[str, Any],
 ) -> tuple[float, float, float]:
     if metric_key not in svc.TENSOR_COMMON_BASIC_KEYS:
-        metric_low, metric_high, metric_step = svc.load_tensor_frequency_defaults(context)
+        metric_low, metric_high, metric_step = svc.load_tensor_frequency_defaults(
+            context
+        )
         return float(metric_low), float(metric_high), float(metric_step)
 
     metric_low = svc._as_optional_float(metric_params.get("low_freq_hz"))

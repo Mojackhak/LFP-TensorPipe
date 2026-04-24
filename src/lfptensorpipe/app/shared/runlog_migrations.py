@@ -60,9 +60,17 @@ def register_run_log_migration(
     migrate: RunLogMigrationFn,
 ) -> None:
     """Register one deterministic migration for a step or all steps."""
-    if isinstance(from_version, bool) or not isinstance(from_version, int) or from_version < 1:
+    if (
+        isinstance(from_version, bool)
+        or not isinstance(from_version, int)
+        or from_version < 1
+    ):
         raise ValueError("from_version must be an integer >= 1.")
-    if isinstance(to_version, bool) or not isinstance(to_version, int) or to_version <= from_version:
+    if (
+        isinstance(to_version, bool)
+        or not isinstance(to_version, int)
+        or to_version <= from_version
+    ):
         raise ValueError("to_version must be greater than from_version.")
     if not callable(migrate):
         raise ValueError("migrate must be callable.")
@@ -80,7 +88,9 @@ def register_run_log_migration(
         to_version=to_version,
         migrate=migrate,
     )
-    register_run_log_version(step_key, max(current_run_log_version(step_key), to_version))
+    register_run_log_version(
+        step_key, max(current_run_log_version(step_key), to_version)
+    )
 
 
 def infer_run_log_version(payload: dict[str, Any]) -> int:
@@ -94,12 +104,18 @@ def infer_run_log_version(payload: dict[str, Any]) -> int:
         raise ValueError(
             f"Unsupported run-log schema {raw_schema!r}; expected {RUNLOG_SCHEMA_NAME!r}."
         )
-    if isinstance(raw_version, bool) or not isinstance(raw_version, int) or raw_version < 1:
+    if (
+        isinstance(raw_version, bool)
+        or not isinstance(raw_version, int)
+        or raw_version < 1
+    ):
         raise ValueError("Run-log version must be an integer >= 1.")
     return raw_version
 
 
-def stamp_run_log_metadata(payload: dict[str, Any], *, step: str | None = None) -> dict[str, Any]:
+def stamp_run_log_metadata(
+    payload: dict[str, Any], *, step: str | None = None
+) -> dict[str, Any]:
     """Attach the latest supported schema metadata for a payload's step."""
     out = deepcopy(payload)
     target_step = step if step is not None else str(out.get("step", "")).strip()

@@ -47,7 +47,9 @@ def resolve_pairs(
         raise ValueError("Provide only one of `pairs` or `groups`, not both.")
 
     if pairs is not None:
-        seeds_idx, targets_idx, pair_names = build_explicit_pairs(pairs, ch_names=ch_names)
+        seeds_idx, targets_idx, pair_names = build_explicit_pairs(
+            pairs, ch_names=ch_names
+        )
         meta = {"pair_mode": "explicit", "pairs": list(pair_names)}
         return seeds_idx, targets_idx, pair_names, meta
 
@@ -55,9 +57,14 @@ def resolve_pairs(
         seeds_idx, targets_idx, pair_names = build_within_group_pairs(
             groups, ch_names=ch_names, ordered=bool(ordered_pairs)
         )
-        meta = {"pair_mode": "groups", "groups": {k: list(v) for k, v in groups.items()}}
+        meta = {
+            "pair_mode": "groups",
+            "groups": {k: list(v) for k, v in groups.items()},
+        }
         return seeds_idx, targets_idx, pair_names, meta
 
-    seeds_idx, targets_idx, pair_names = build_all_pairs(ch_names, ordered=bool(ordered_pairs))
+    seeds_idx, targets_idx, pair_names = build_all_pairs(
+        ch_names, ordered=bool(ordered_pairs)
+    )
     meta = {"pair_mode": "all", "pairs": list(pair_names)}
     return seeds_idx, targets_idx, pair_names, meta

@@ -26,13 +26,13 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 
-
 NestedKind = Literal["scalar", "series", "dataframe"]
 
 
 @dataclass(frozen=True)
 class NestedTemplate:
     """Template describing the nested value structure to preserve in outputs."""
+
     kind: NestedKind
     index: pd.Index | None = None
     columns: pd.Index | None = None
@@ -149,7 +149,9 @@ def infer_nested_template(
     if isinstance(first, pd.Series):
         return NestedTemplate(kind="series", index=first.index)
     if isinstance(first, pd.DataFrame):
-        return NestedTemplate(kind="dataframe", index=first.index, columns=first.columns)
+        return NestedTemplate(
+            kind="dataframe", index=first.index, columns=first.columns
+        )
 
     return NestedTemplate(kind="scalar")
 
@@ -217,13 +219,19 @@ def coerce_cell_to_array(
         if template.index is None or template.columns is None:
             raise ValueError("DataFrame template requires `index` and `columns`.")
         if cell_is_empty_or_all_nan(cell, drop_empty=drop_empty):
-            return np.full((len(template.index), len(template.columns)), np.nan, dtype=float)
+            return np.full(
+                (len(template.index), len(template.columns)), np.nan, dtype=float
+            )
         if not isinstance(cell, pd.DataFrame):
             raise TypeError(f"Expected pandas.DataFrame, got {type(cell)}")
 
         if align == "strict":
-            if not cell.index.equals(template.index) or not cell.columns.equals(template.columns):
-                raise ValueError("DataFrame index/columns mismatch under align='strict'.")
+            if not cell.index.equals(template.index) or not cell.columns.equals(
+                template.columns
+            ):
+                raise ValueError(
+                    "DataFrame index/columns mismatch under align='strict'."
+                )
             return cell.to_numpy(dtype=float)
 
         if align == "force":
@@ -247,7 +255,6 @@ def coerce_cell_to_array(
     raise ValueError(f"Unsupported template.kind={template.kind!r}")
 
 
-
 def rebuild_cell_from_array(arr: np.ndarray, template: NestedTemplate) -> Any:
     """Rebuild a nested cell from a numpy array according to `template`."""
     if template.kind == "scalar":
@@ -264,6 +271,8 @@ def rebuild_cell_from_array(arr: np.ndarray, template: NestedTemplate) -> Any:
     if template.kind == "dataframe":
         if template.index is None or template.columns is None:
             raise ValueError("DataFrame template requires `index` and `columns`.")
-        return pd.DataFrame(np.asarray(arr, dtype=float), index=template.index, columns=template.columns)
+        return pd.DataFrame(
+            np.asarray(arr, dtype=float), index=template.index, columns=template.columns
+        )
 
     raise ValueError(f"Unsupported template.kind={template.kind!r}")

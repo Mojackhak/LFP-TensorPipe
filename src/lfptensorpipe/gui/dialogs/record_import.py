@@ -24,6 +24,7 @@ from .common import (
     RECORD_RESET_REFERENCE_DEFAULTS_KEY,
 )
 from .dataset_types import ParsedImportPreview, ResetReferenceRow
+from .import_sync import ImportSyncDialog
 from .record_import_actions import (
     _browse_sidecar as _browse_sidecar_impl,
     _collect_parse_request as _collect_parse_request_impl,
@@ -35,6 +36,7 @@ from .record_import_actions import (
     _on_confirm as _on_confirm_impl,
     _on_parse as _on_parse_impl,
     _on_reset_configure as _on_reset_configure_impl,
+    _on_sync_configure as _on_sync_configure_impl,
     _show_parse_error as _show_parse_error_impl,
 )
 from .record_import_state import (
@@ -43,8 +45,10 @@ from .record_import_state import (
     _set_result_placeholder as _set_result_placeholder_impl,
     _update_confirm_button_state as _update_confirm_button_state_impl,
     _update_parse_button_state as _update_parse_button_state_impl,
+    _update_sync_configure_button_state as _update_sync_configure_button_state_impl,
     _update_type_visibility as _update_type_visibility_impl,
 )
+
 
 class RecordImportDialog(QDialog):
     """Record import modal with Parse -> Confirm flow."""
@@ -80,6 +84,7 @@ class RecordImportDialog(QDialog):
         self._project_root = project_root
         self._existing_records = set(existing_records)
         self._parsed: ParsedImportPreview | None = None
+        self._sync_state = None
         self._reset_rows: tuple[ResetReferenceRow, ...] = ()
         self._parsed_channel_signature: tuple[str, ...] = ()
         self._record_name_edited = False
@@ -200,20 +205,45 @@ class RecordImportDialog(QDialog):
         left_layout.addWidget(self._csv_unit_combo, row, 1)
         row += 1
 
-        montage_header_row = QWidget()
-        montage_header_layout = QHBoxLayout(montage_header_row)
-        montage_header_layout.setContentsMargins(0, 0, 0, 0)
-        montage_header_layout.setSpacing(4)
-        self._montage_label = QLabel("Montage")
+        self._parse_action_row = QWidget()
+        parse_action_layout = QHBoxLayout(self._parse_action_row)
+        parse_action_layout.setContentsMargins(0, 0, 0, 0)
+        parse_action_layout.setSpacing(4)
         self._parse_button = QPushButton("Parse")
         self._parse_button.clicked.connect(self._on_parse)
         self._parse_button.setToolTip(
             "Parse the selected source and preview import metadata."
         )
-        montage_header_layout.addWidget(self._montage_label)
-        montage_header_layout.addStretch(1)
-        montage_header_layout.addWidget(self._parse_button)
-        left_layout.addWidget(montage_header_row, row, 0, 1, 2)
+        parse_action_layout.addStretch(1)
+        parse_action_layout.addWidget(self._parse_button)
+        left_layout.addWidget(self._parse_action_row, row, 0, 1, 2)
+        row += 1
+
+        self._sync_panel = QFrame()
+        self._sync_panel.setFrameStyle(QFrame.StyledPanel | QFrame.Plain)
+        sync_panel_layout = QVBoxLayout(self._sync_panel)
+        sync_panel_layout.setContentsMargins(6, 6, 6, 6)
+        sync_panel_layout.setSpacing(4)
+        sync_row = QWidget()
+        sync_row_layout = QHBoxLayout(sync_row)
+        sync_row_layout.setContentsMargins(0, 0, 0, 0)
+        sync_row_layout.setSpacing(4)
+        self._sync_check = QCheckBox("Sync")
+        self._sync_check.setToolTip(
+            "Apply marker-based import synchronization before import."
+        )
+        self._sync_configure_button = QPushButton("Configure...")
+        self._sync_configure_button.clicked.connect(self._on_sync_configure)
+        self._sync_configure_button.setToolTip(
+            "Configure synchronization markers, pairing, and preview."
+        )
+        sync_row_layout.addWidget(self._sync_check)
+        sync_row_layout.addStretch(1)
+        sync_row_layout.addWidget(self._sync_configure_button)
+        self._sync_summary_label = QLabel("Sync: Off")
+        sync_panel_layout.addWidget(sync_row)
+        sync_panel_layout.addWidget(self._sync_summary_label)
+        left_layout.addWidget(self._sync_panel, row, 0, 1, 2)
         row += 1
 
         self._reset_panel = QFrame()
@@ -292,6 +322,7 @@ class RecordImportDialog(QDialog):
         ):
             edit.textChanged.connect(self._on_parse_inputs_changed)
         self._csv_unit_combo.currentTextChanged.connect(self._on_parse_inputs_changed)
+        self._sync_check.toggled.connect(self._on_sync_toggled)
         self._reset_check.toggled.connect(self._on_reset_toggled)
 
         self._update_type_visibility()
@@ -312,6 +343,14 @@ class RecordImportDialog(QDialog):
     @property
     def reset_rows(self) -> tuple[ResetReferenceRow, ...]:
         return self._reset_rows
+
+    @property
+    def sync_state(self):
+        return self._sync_state
+
+    @property
+    def use_sync(self) -> bool:
+        return self._sync_check.isChecked()
 
     @property
     def use_reset_reference(self) -> bool:
@@ -373,6 +412,18 @@ class RecordImportDialog(QDialog):
             return
         self._reset_summary_label.setText("Pairs: No pairs configured")
 
+    def _set_sync_summary(self) -> None:
+        if not self._sync_check.isChecked():
+            self._sync_summary_label.setText("Sync: Off")
+            return
+        if self._sync_state is None:
+            self._sync_summary_label.setText("Sync: Needs config")
+            return
+        estimate = self._sync_state.estimate
+        self._sync_summary_label.setText(
+            f"Sync: Ready ({estimate.pair_count} pairs, lag={estimate.lag_s:.6f} s)"
+        )
+
     @staticmethod
     def _is_type_with_advanced(import_type: str) -> bool:
         return import_type in {"PINS", "Sceneray"}
@@ -395,6 +446,13 @@ class RecordImportDialog(QDialog):
     def _on_parse_inputs_changed(self, _text: str) -> None:
         self._invalidate_parse_state()
 
+    def _on_sync_toggled(self, _checked: bool) -> None:
+        self._update_sync_configure_button_state()
+        self._set_sync_summary()
+        if self._parsed is not None:
+            self._result_label.setText(self._format_parse_result(self._parsed))
+        self._update_confirm_button_state()
+
     def _on_reset_toggled(self, _checked: bool) -> None:
         self._reset_configure_button.setEnabled(
             self._parsed is not None and self._reset_check.isChecked()
@@ -413,6 +471,9 @@ class RecordImportDialog(QDialog):
     def _update_confirm_button_state(self) -> None:
         _update_confirm_button_state_impl(self)
 
+    def _update_sync_configure_button_state(self) -> None:
+        _update_sync_configure_button_state_impl(self)
+
     def _invalidate_parse_state(self) -> None:
         _invalidate_parse_state_impl(self)
 
@@ -424,6 +485,14 @@ class RecordImportDialog(QDialog):
 
     def _browse_sidecar(self, *, title: str) -> str:
         return _browse_sidecar_impl(self, title=title)
+
+    def _create_import_sync_dialog(self, *, raw: Any, current_state: Any) -> QDialog:
+        return ImportSyncDialog(raw=raw, current_state=current_state, parent=self)
+
+    def _build_import_synced_raw(self, raw: Any, estimate: Any) -> Any:
+        from lfptensorpipe.app import build_import_synced_raw
+
+        return build_import_synced_raw(raw, estimate)
 
     def _on_browse_metadata(self) -> None:
         _on_browse_metadata_impl(self)
@@ -447,6 +516,9 @@ class RecordImportDialog(QDialog):
 
     def _on_reset_configure(self) -> None:
         _on_reset_configure_impl(self)
+
+    def _on_sync_configure(self) -> None:
+        _on_sync_configure_impl(self)
 
     def _on_confirm(self) -> None:
         _on_confirm_impl(self)

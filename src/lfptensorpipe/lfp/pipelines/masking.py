@@ -33,7 +33,7 @@ according to the same keep/drop logic. The Raw signal data are never modified.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 import numpy as np
 
@@ -45,6 +45,9 @@ from ..mask.annotations import (
     time_mask_by_annotations,
 )
 from ..mask.mask import apply_time_mask_nan
+
+if TYPE_CHECKING:
+    import mne
 
 
 def _validate_tensor(tensor: Mapping[str, Any]) -> None:
@@ -105,7 +108,9 @@ def _apply_keep_mask_freq_time(
     n_freqs, n_times = int(m.shape[0]), int(m.shape[1])
 
     if x.ndim < 2:
-        raise ValueError("`tensor` must be at least 2D to apply a frequency-aware mask.")
+        raise ValueError(
+            "`tensor` must be at least 2D to apply a frequency-aware mask."
+        )
     if x.shape[-1] != n_times:
         raise ValueError(
             "Tensor time axis length does not match keep_mask_ft. "
@@ -177,8 +182,6 @@ def _freq_items_equal(a: Any, b: Any) -> bool:
     if fa is not None and fb is not None:
         return bool(np.isclose(fa, fb, rtol=1e-8, atol=1e-12))
     return str(a).strip().lower() == str(b).strip().lower()
-
-
 
 
 def mask_tensor_keep(
@@ -433,10 +436,16 @@ def mask_tensor_dynamic(
     # Collect base matched intervals (without padding) for provenance.
     drop_lower = [str(x).strip().lower() for x in drop if str(x).strip()]
     matched_base: list[dict[str, Any]] = []
-    for onset, dur, desc in zip(raw.annotations.onset, raw.annotations.duration, raw.annotations.description):
+    for onset, dur, desc in zip(
+        raw.annotations.onset, raw.annotations.duration, raw.annotations.description
+    ):
         d = str(desc)
         d_l = d.lower()
-        is_match = (d_l in drop_lower) if mode == "exact" else any(x in d_l for x in drop_lower)
+        is_match = (
+            (d_l in drop_lower)
+            if mode == "exact"
+            else any(x in d_l for x in drop_lower)
+        )
         if not is_match:
             continue
         matched_base.append(
@@ -507,7 +516,9 @@ def mask_tensor_dynamic(
             return raw_masked, tensor_out
 
         # Per-frequency radii in this tensor's freq-axis order.
-        radii = np.asarray([float(time_radius[int(i)]) for i in idx_map if i is not None], dtype=float)
+        radii = np.asarray(
+            [float(time_radius[int(i)]) for i in idx_map if i is not None], dtype=float
+        )
 
         keep_mask_ft = np.ones((int(len(freq_axis_items)), int(times.size)), dtype=bool)
         keep_mask_ft &= finite[None, :]
@@ -530,7 +541,11 @@ def mask_tensor_dynamic(
                 keep_mask_ft[fi, :] &= ~(finite & (times >= start) & (times <= end))
 
         arr = tensor["tensor"]
-        tensor_masked = None if arr is None else _apply_keep_mask_freq_time(np.asarray(arr), keep_mask_ft)
+        tensor_masked = (
+            None
+            if arr is None
+            else _apply_keep_mask_freq_time(np.asarray(arr), keep_mask_ft)
+        )
 
         mask_info2: dict[str, Any] = dict(
             kind="drop_dynamic",
@@ -541,7 +556,11 @@ def mask_tensor_dynamic(
             n_times=int(times.size),
             n_freqs=int(len(freq_axis_items)),
             freqs_lookup=[
-                float(_coerce_float_or_none(x)) if _coerce_float_or_none(x) is not None else str(x)
+                (
+                    float(_coerce_float_or_none(x))
+                    if _coerce_float_or_none(x) is not None
+                    else str(x)
+                )
                 for x in freq_items
             ],
             time_radius_s=time_radius.astype(float).tolist(),

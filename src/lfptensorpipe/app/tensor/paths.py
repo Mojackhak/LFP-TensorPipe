@@ -23,7 +23,10 @@ def tensor_metric_log_path(
 ) -> Path:
     """Return metric log path under tensor root."""
     storage_key = TENSOR_LOG_STORAGE_KEY_ALIASES.get(metric_key, metric_key)
-    return resolver.tensor_metric_dir(storage_key, create=create) / "lfptensorpipe_log.json"
+    return (
+        resolver.tensor_metric_dir(storage_key, create=create)
+        / "lfptensorpipe_log.json"
+    )
 
 
 def tensor_metric_tensor_path(

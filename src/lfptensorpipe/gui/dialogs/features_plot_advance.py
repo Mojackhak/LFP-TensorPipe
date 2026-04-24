@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from .common import *  # noqa: F403
 from .baseline_range import BaselineRangeConfigureDialog
+
+
 class FeaturesPlotAdvanceDialog(QDialog):
     """Advance parameters for plot-time transform/normalization."""
 
@@ -42,9 +44,7 @@ class FeaturesPlotAdvanceDialog(QDialog):
         self._transform_combo = QComboBox()
         for label, value in FEATURE_PLOT_TRANSFORM_OPTIONS:
             self._transform_combo.addItem(label, value)
-        self._transform_combo.setToolTip(
-            "Value transform applied before plotting."
-        )
+        self._transform_combo.setToolTip("Value transform applied before plotting.")
         form.addRow("Transform", self._transform_combo)
 
         self._normalize_combo = QComboBox()
@@ -105,9 +105,7 @@ class FeaturesPlotAdvanceDialog(QDialog):
         default_button = QPushButton("Set as Default")
         restore_button = QPushButton("Restore Defaults")
         cancel_button = QPushButton("Cancel")
-        save_button.setToolTip(
-            "Apply these plot settings to the current session."
-        )
+        save_button.setToolTip("Apply these plot settings to the current session.")
         default_button.setToolTip("Save these plot settings as defaults.")
         restore_button.setToolTip("Restore saved default plot settings.")
         cancel_button.setToolTip("Close without changing plot settings.")

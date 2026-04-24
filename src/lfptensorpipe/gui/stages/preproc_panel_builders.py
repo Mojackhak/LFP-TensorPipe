@@ -69,9 +69,7 @@ def build_preproc_raw_block(self, *, grid_spacing: int) -> QGroupBox:
     self._preproc_raw_plot_button = QPushButton("Plot")
     self._preproc_raw_plot_button.clicked.connect(self._on_preproc_raw_plot)
     self._preproc_raw_plot_button.setEnabled(False)
-    self._preproc_raw_plot_button.setToolTip(
-        "Plot raw input for the current record."
-    )
+    self._preproc_raw_plot_button.setToolTip("Plot raw input for the current record.")
     layout.addWidget(self._preproc_raw_plot_button)
     layout.addStretch(1)
     return block
@@ -91,9 +89,7 @@ def build_preproc_filter_block(self, *, grid_spacing: int) -> QGroupBox:
     notches_layout.addWidget(QLabel("Notches"))
     self._preproc_filter_notches_edit = QLineEdit("50,100")
     self._preproc_filter_notches_edit.setPlaceholderText("e.g. 50,100")
-    self._preproc_filter_notches_edit.setToolTip(
-        "Comma-separated notch centers in Hz."
-    )
+    self._preproc_filter_notches_edit.setToolTip("Comma-separated notch centers in Hz.")
     self._preproc_filter_notches_edit.setMinimumWidth(150)
     self._preproc_filter_notches_edit.setSizePolicy(
         QSizePolicy.Expanding, QSizePolicy.Fixed
@@ -129,12 +125,8 @@ def build_preproc_filter_block(self, *, grid_spacing: int) -> QGroupBox:
     self._preproc_filter_advance_button = QPushButton("Advance")
     self._preproc_filter_apply_button = QPushButton("Apply")
     self._preproc_filter_plot_button = QPushButton("Plot")
-    self._preproc_filter_advance_button.setToolTip(
-        "Open advanced filter parameters."
-    )
-    self._preproc_filter_apply_button.setToolTip(
-        "Run filter with current parameters."
-    )
+    self._preproc_filter_advance_button.setToolTip("Open advanced filter parameters.")
+    self._preproc_filter_apply_button.setToolTip("Run filter with current parameters.")
     self._preproc_filter_plot_button.setToolTip("Plot filtered output.")
     self._preproc_filter_advance_button.clicked.connect(self._on_preproc_filter_advance)
     self._preproc_filter_apply_button.clicked.connect(self._on_preproc_filter_apply)
@@ -182,12 +174,8 @@ def build_preproc_bad_segment_block(self, *, grid_spacing: int) -> QGroupBox:
     layout.setSpacing(grid_spacing)
     self._preproc_bad_segment_apply_button = QPushButton("Apply")
     self._preproc_bad_segment_plot_button = QPushButton("Plot")
-    self._preproc_bad_segment_apply_button.setToolTip(
-        "Run bad-segment removal."
-    )
-    self._preproc_bad_segment_plot_button.setToolTip(
-        "Plot bad-segment-removal output."
-    )
+    self._preproc_bad_segment_apply_button.setToolTip("Run bad-segment removal.")
+    self._preproc_bad_segment_plot_button.setToolTip("Plot bad-segment-removal output.")
     self._preproc_bad_segment_apply_button.clicked.connect(
         self._on_preproc_bad_segment_apply
     )
@@ -224,9 +212,7 @@ def build_preproc_ecg_block(
     self._preproc_ecg_method_combo = QComboBox()
     for method in ecg_methods:
         self._preproc_ecg_method_combo.addItem(method, method)
-    self._preproc_ecg_method_combo.setToolTip(
-        "Method used for ECG artifact removal."
-    )
+    self._preproc_ecg_method_combo.setToolTip("Method used for ECG artifact removal.")
     default_index = self._preproc_ecg_method_combo.findData("svd")
     if default_index >= 0:
         self._preproc_ecg_method_combo.setCurrentIndex(default_index)
@@ -296,9 +282,7 @@ def build_preproc_visualization_block(self, *, grid_spacing: int) -> QGroupBox:
     psd_row_layout.addWidget(QLabel("PSD"))
     self._preproc_viz_psd_advance_button = QPushButton("Advance")
     self._preproc_viz_psd_plot_button = QPushButton("Plot")
-    self._preproc_viz_psd_advance_button.setToolTip(
-        "Open PSD plotting parameters."
-    )
+    self._preproc_viz_psd_advance_button.setToolTip("Open PSD plotting parameters.")
     self._preproc_viz_psd_plot_button.setToolTip(
         "Plot PSD for the selected step and channels."
     )
@@ -318,9 +302,7 @@ def build_preproc_visualization_block(self, *, grid_spacing: int) -> QGroupBox:
     tfr_row_layout.addWidget(QLabel("TFR"))
     self._preproc_viz_tfr_advance_button = QPushButton("Advance")
     self._preproc_viz_tfr_plot_button = QPushButton("Plot")
-    self._preproc_viz_tfr_advance_button.setToolTip(
-        "Open TFR plotting parameters."
-    )
+    self._preproc_viz_tfr_advance_button.setToolTip("Open TFR plotting parameters.")
     self._preproc_viz_tfr_plot_button.setToolTip(
         "Plot TFR for the selected step and channels."
     )

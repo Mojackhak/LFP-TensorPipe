@@ -10,7 +10,6 @@ from lfptensorpipe.app.runlog_store import indicator_from_log, read_run_log
 
 from .derive_axes import _normalize_axis_rows
 
-
 _AUTO_BAND_METRICS = {"psi", "burst"}
 
 
@@ -44,7 +43,9 @@ def _read_payload(path: Path) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def _normalize_axes_node(metric_key: str, value: Any) -> dict[str, list[dict[str, float | str]]] | None:
+def _normalize_axes_node(
+    metric_key: str, value: Any
+) -> dict[str, list[dict[str, float | str]]] | None:
     if not isinstance(value, dict):
         return None
     bands = (

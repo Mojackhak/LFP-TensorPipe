@@ -35,13 +35,9 @@ def plan_raw_power(
                 metric_params.get("time_resolution_s"), 0.5
             ),
             "hop_s": svc._as_float(metric_params.get("hop_s"), 0.025),
-            "min_cycles": svc._as_optional_float(
-                metric_params.get("min_cycles"), 3.0
-            ),
+            "min_cycles": svc._as_optional_float(metric_params.get("min_cycles"), 3.0),
             "max_cycles": svc._as_optional_float(metric_params.get("max_cycles")),
-            "time_bandwidth": svc._as_float(
-                metric_params.get("time_bandwidth"), 1.0
-            ),
+            "time_bandwidth": svc._as_float(metric_params.get("time_bandwidth"), 1.0),
             "notches": metric_params.get("notches"),
             "notch_widths": metric_params.get(
                 "notch_widths",
@@ -82,33 +78,23 @@ def plan_periodic_aperiodic(
                 metric_params.get("time_resolution_s"), 0.5
             ),
             "hop_s": svc._as_float(metric_params.get("hop_s"), 0.025),
-            "min_cycles": svc._as_optional_float(
-                metric_params.get("min_cycles"), 3.0
-            ),
+            "min_cycles": svc._as_optional_float(metric_params.get("min_cycles"), 3.0),
             "max_cycles": svc._as_optional_float(metric_params.get("max_cycles")),
-            "time_bandwidth": svc._as_float(
-                metric_params.get("time_bandwidth"), 1.0
-            ),
+            "time_bandwidth": svc._as_float(metric_params.get("time_bandwidth"), 1.0),
             "freq_range_hz": parsed_freq_range,
-            "freq_smooth_enabled": bool(
-                metric_params.get("freq_smooth_enabled", True)
-            ),
+            "freq_smooth_enabled": bool(metric_params.get("freq_smooth_enabled", True)),
             "freq_smooth_sigma": svc._as_optional_float(
                 metric_params.get("freq_smooth_sigma"),
                 1.5,
             ),
-            "time_smooth_enabled": bool(
-                metric_params.get("time_smooth_enabled", True)
-            ),
+            "time_smooth_enabled": bool(metric_params.get("time_smooth_enabled", True)),
             "time_smooth_kernel_size": svc._as_optional_int(
                 metric_params.get("time_smooth_kernel_size")
             ),
             "aperiodic_mode": str(metric_params.get("aperiodic_mode", "fixed")),
             "peak_width_limits_hz": parsed_peak_width_limits,
             "max_n_peaks": max_n_peaks,
-            "min_peak_height": svc._as_float(
-                metric_params.get("min_peak_height"), 0.0
-            ),
+            "min_peak_height": svc._as_float(metric_params.get("min_peak_height"), 0.0),
             "peak_threshold": svc._as_float(metric_params.get("peak_threshold"), 2.0),
             "fit_qc_threshold": svc._as_float(
                 metric_params.get("fit_qc_threshold"), 0.6

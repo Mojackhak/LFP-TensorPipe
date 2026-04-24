@@ -50,7 +50,9 @@ def _build_preproc_filter_block(self) -> QGroupBox:
 
 
 def _build_preproc_annotations_block(self) -> QGroupBox:
-    return _annotations.build_preproc_annotations_block(self, grid_spacing=_grid_spacing(self))
+    return _annotations.build_preproc_annotations_block(
+        self, grid_spacing=_grid_spacing(self)
+    )
 
 
 def _set_annotations_editable(self, editable: bool) -> None:
@@ -78,7 +80,9 @@ def _build_preproc_finish_block(self) -> QGroupBox:
 
 
 def _build_preproc_bad_segment_block(self) -> QGroupBox:
-    return _builders.build_preproc_bad_segment_block(self, grid_spacing=_grid_spacing(self))
+    return _builders.build_preproc_bad_segment_block(
+        self, grid_spacing=_grid_spacing(self)
+    )
 
 
 def _build_preproc_ecg_block(self) -> QGroupBox:
@@ -90,7 +94,9 @@ def _build_preproc_ecg_block(self) -> QGroupBox:
 
 
 def _build_preproc_visualization_block(self) -> QGroupBox:
-    return _builders.build_preproc_visualization_block(self, grid_spacing=_grid_spacing(self))
+    return _builders.build_preproc_visualization_block(
+        self, grid_spacing=_grid_spacing(self)
+    )
 
 
 def _register_preproc_indicator(
@@ -105,4 +111,6 @@ def _register_preproc_indicator(
 
 
 def _build_preproc_status_row(self, step: str) -> QWidget:
-    return _builders.build_preproc_status_row(self, step, grid_spacing=_grid_spacing(self))
+    return _builders.build_preproc_status_row(
+        self, step, grid_spacing=_grid_spacing(self)
+    )

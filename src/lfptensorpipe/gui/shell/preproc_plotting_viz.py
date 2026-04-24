@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.lfp.common import decimated_times_from_raw
 from lfptensorpipe.gui.shell.common import (
     Any,
     QDialog,
@@ -19,9 +20,7 @@ def _on_preproc_viz_psd_advance(self) -> None:
 
     def _save_psd_defaults(params: dict[str, Any]) -> None:
         self._save_preproc_viz_psd_defaults(params)
-        self.statusBar().showMessage(
-            "Visualization PSD defaults saved to app storage."
-        )
+        self.statusBar().showMessage("Visualization PSD defaults saved to app storage.")
         self._persist_record_params_snapshot(reason="preproc_viz_psd_default")
 
     dialog = self._create_qc_advance_dialog(
@@ -49,9 +48,7 @@ def _on_preproc_viz_tfr_advance(self) -> None:
 
     def _save_tfr_defaults(params: dict[str, Any]) -> None:
         self._save_preproc_viz_tfr_defaults(params)
-        self.statusBar().showMessage(
-            "Visualization TFR defaults saved to app storage."
-        )
+        self.statusBar().showMessage("Visualization TFR defaults saved to app storage.")
         self._persist_record_params_snapshot(reason="preproc_viz_tfr_default")
 
     dialog = self._create_qc_advance_dialog(
@@ -121,8 +118,7 @@ def _on_preproc_viz_tfr_plot(self) -> None:
 
         raw = self._read_raw_fif(raw_path, preload=True, verbose="ERROR")
         sfreq = float(raw.info["sfreq"])
-        stop = min(raw.n_times, int(max(1.0, 20.0) * sfreq))
-        data = raw.get_data(picks=picks, start=0, stop=stop)
+        data = raw.get_data(picks=picks, start=0, stop=raw.n_times)
         if data.shape[0] == 0 or data.shape[1] == 0:
             raise ValueError("No samples available for selected channels.")
         fmin = float(self._preproc_viz_tfr_params["fmin"])
@@ -140,7 +136,11 @@ def _on_preproc_viz_tfr_plot(self) -> None:
             decim=decim,
         )
         mean_power = power.mean(axis=1).squeeze(0)
-        time_axis = np.arange(mean_power.shape[1], dtype=float) * (decim / sfreq)
+        time_axis = decimated_times_from_raw(
+            raw,
+            decim=decim,
+            target_n_times=mean_power.shape[1],
+        )
         positive_power = mean_power[np.isfinite(mean_power) & (mean_power > 0.0)]
         if positive_power.size == 0:
             raise ValueError(

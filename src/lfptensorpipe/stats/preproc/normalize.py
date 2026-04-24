@@ -11,7 +11,17 @@ This module contains:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Union, overload
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Mapping,
+    Optional,
+    Sequence,
+    Union,
+    overload,
+)
 
 import numpy as np
 import pandas as pd
@@ -22,7 +32,12 @@ from ...tabular.nested_value import (
     infer_nested_template,
     rebuild_cell_from_array,
 )
-from ...utils.numeric import DEFAULT_REL_TOL, resolve_abs_tol, resolve_rel_tol, safe_divide
+from ...utils.numeric import (
+    DEFAULT_REL_TOL,
+    resolve_abs_tol,
+    resolve_rel_tol,
+    safe_divide,
+)
 
 BaselineStat = Literal["mean", "median", "max", "min"]
 NormMode = Literal["mean", "ratio", "percent", "zscore"]
@@ -67,13 +82,19 @@ def normalize_df(
 
     valid_modes: set[str] = {"mean", "ratio", "percent", "zscore"}
     if mode not in valid_modes:
-        raise ValueError(f"Unsupported normalization mode: {mode}. Valid: {sorted(valid_modes)}")
+        raise ValueError(
+            f"Unsupported normalization mode: {mode}. Valid: {sorted(valid_modes)}"
+        )
 
     valid_baseline: set[str] = {"mean", "median", "max", "min"}
     if mode_baseline not in valid_baseline:
-        raise ValueError(f"Unsupported mode_baseline: {mode_baseline}. Valid: {sorted(valid_baseline)}")
+        raise ValueError(
+            f"Unsupported mode_baseline: {mode_baseline}. Valid: {sorted(valid_baseline)}"
+        )
 
-    template = infer_nested_template(df[value_col], value_col=value_col, drop_empty=drop_empty)
+    template = infer_nested_template(
+        df[value_col], value_col=value_col, drop_empty=drop_empty
+    )
 
     def _aggregate(arr_stack: np.ndarray, how: BaselineStat) -> np.ndarray:
         if how == "mean":
@@ -93,20 +114,31 @@ def normalize_df(
         mask = np.ones(len(gdf), dtype=bool)
         for k, v in baseline.items():
             if k not in gdf.columns:
-                raise KeyError(f"Baseline key '{k}' not found in DataFrame columns for group {gkey}.")
-            mask &= (gdf[k].to_numpy() == v)
+                raise KeyError(
+                    f"Baseline key '{k}' not found in DataFrame columns for group {gkey}."
+                )
+            mask &= gdf[k].to_numpy() == v
 
         base_df = gdf.loc[mask]
 
-        base_cells = [c for c in base_df[value_col] if not cell_is_empty_or_all_nan(c, drop_empty=drop_empty)]
+        base_cells = [
+            c
+            for c in base_df[value_col]
+            if not cell_is_empty_or_all_nan(c, drop_empty=drop_empty)
+        ]
         if len(base_cells) == 0:
             if on_missing_baseline == "drop":
                 drop_indices.extend(gdf.index.tolist())
                 continue
-            raise ValueError(f"Baseline is missing for group {gkey} with baseline {dict(baseline)}.")
+            raise ValueError(
+                f"Baseline is missing for group {gkey} with baseline {dict(baseline)}."
+            )
 
         base_stack = np.stack(
-            [coerce_cell_to_array(c, template, align=align, drop_empty=drop_empty) for c in base_cells],
+            [
+                coerce_cell_to_array(c, template, align=align, drop_empty=drop_empty)
+                for c in base_cells
+            ],
             axis=0,
         )
 
@@ -119,16 +151,22 @@ def normalize_df(
                 normalized[idx] = np.nan
                 continue
 
-            arr = coerce_cell_to_array(cell, template, align=align, drop_empty=drop_empty)
+            arr = coerce_cell_to_array(
+                cell, template, align=align, drop_empty=drop_empty
+            )
 
             if mode == "mean":
                 nrm = arr - base_rep
             elif mode == "ratio":
                 nrm = safe_divide(arr, base_rep, abs_tol=abs_tol_i, rel_tol=rel_tol_i)
             elif mode == "percent":
-                nrm = safe_divide(arr - base_rep, base_rep, abs_tol=abs_tol_i, rel_tol=rel_tol_i)
+                nrm = safe_divide(
+                    arr - base_rep, base_rep, abs_tol=abs_tol_i, rel_tol=rel_tol_i
+                )
             elif mode == "zscore":
-                nrm = safe_divide(arr - base_rep, base_sd, abs_tol=abs_tol_i, rel_tol=rel_tol_i)
+                nrm = safe_divide(
+                    arr - base_rep, base_sd, abs_tol=abs_tol_i, rel_tol=rel_tol_i
+                )
             else:
                 raise RuntimeError("Unexpected mode branch")
 
@@ -162,13 +200,17 @@ def _normalize_indices(
 
     idx = np.asarray(baseline)
     if idx.ndim > 1:
-        raise TypeError("baseline indices must be 1D (slice / 1D integer indices / 1D boolean mask)")
+        raise TypeError(
+            "baseline indices must be 1D (slice / 1D integer indices / 1D boolean mask)"
+        )
     if idx.ndim == 0:
         idx = idx.reshape(1)
 
     if idx.dtype == bool:
         if idx.size != n_samples:
-            raise ValueError(f"Boolean baseline mask must have length {n_samples}, got {idx.size}")
+            raise ValueError(
+                f"Boolean baseline mask must have length {n_samples}, got {idx.size}"
+            )
         out = np.flatnonzero(idx)
         if out.size == 0:
             raise ValueError("baseline boolean mask selects no elements")
@@ -181,7 +223,9 @@ def _normalize_indices(
         try:
             idx = idx.astype(int)
         except Exception as e:
-            raise TypeError("baseline must be int indices / slice / boolean mask") from e
+            raise TypeError(
+                "baseline must be int indices / slice / boolean mask"
+            ) from e
 
     mn, mx = int(idx.min()), int(idx.max())
     if mn < -n_samples or mx >= n_samples:
@@ -257,9 +301,13 @@ def _normalize_percent_ranges(
         if not (np.isfinite(start_pct) and np.isfinite(stop_pct)):
             raise ValueError("percent baseline contains non-finite values (NaN/inf)")
         if start_pct < 0 or stop_pct > 100:
-            raise ValueError(f"percent baseline must be within [0, 100], got [{start_pct}, {stop_pct}]")
+            raise ValueError(
+                f"percent baseline must be within [0, 100], got [{start_pct}, {stop_pct}]"
+            )
         if stop_pct <= start_pct:
-            raise ValueError(f"percent baseline requires stop > start, got [{start_pct}, {stop_pct}]")
+            raise ValueError(
+                f"percent baseline requires stop > start, got [{start_pct}, {stop_pct}]"
+            )
 
         start_i = int(np.floor(start_pct / 100.0 * n_samples))
         stop_i = int(np.ceil(stop_pct / 100.0 * n_samples))
@@ -279,7 +327,6 @@ def _normalize_percent_ranges(
     if out.size == 0:
         raise ValueError("percent baseline selects no elements")
     return out.tolist()
-
 
 
 def _reduce(obj: Union[pd.Series, pd.DataFrame], how: BaselineStat, axis=None):
@@ -365,7 +412,9 @@ def baseline_normalize(
 
 def baseline_normalize(
     x: Union[pd.Series, pd.DataFrame],
-    baseline: Union[slice, Sequence[int], Sequence[Sequence[float]], Sequence[float], np.ndarray],
+    baseline: Union[
+        slice, Sequence[int], Sequence[Sequence[float]], Sequence[float], np.ndarray
+    ],
     mode_baseline: BaselineStat = "mean",
     mode: NormMode = "mean",
     abs_tol: float | None = None,
@@ -414,7 +463,9 @@ def baseline_normalize(
     rel_tol_i = resolve_rel_tol(rel_tol)
 
     if slice_mode not in {"absolute", "percent"}:
-        raise ValueError(f"slice_mode must be 'absolute' or 'percent', got {slice_mode!r}")
+        raise ValueError(
+            f"slice_mode must be 'absolute' or 'percent', got {slice_mode!r}"
+        )
 
     def _get_baseline_idx(n_samples: int) -> list[int]:
         if slice_mode == "absolute":
@@ -500,13 +551,15 @@ def baseline_normalize(
 
 def normalize_df_by_baseline(
     df: pd.DataFrame,
-    baseline: Union[slice, Sequence[int], Sequence[Sequence[float]], Sequence[float], np.ndarray],
+    baseline: Union[
+        slice, Sequence[int], Sequence[Sequence[float]], Sequence[float], np.ndarray
+    ],
     value_col: str = "Value",
     mode_baseline: BaselineStat = "mean",
     mode: NormMode = "mean",
     abs_tol: float | None = None,
     rel_tol: float = DEFAULT_REL_TOL,
-    slice_mode: SliceMode = "absolute",   
+    slice_mode: SliceMode = "absolute",
 ) -> pd.DataFrame:
     """
     Normalize `value_col`  using baseline_normalize.

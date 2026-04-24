@@ -35,6 +35,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,9 +43,11 @@ logger = logging.getLogger(__name__)
 # Metadata parsing
 # -----------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class ScenerayTxtMetadata:
     """Metadata parsed from the Sceneray *.txt sidecar file."""
+
     sfreq_hz: float
     start_time_bjs: dt.datetime
     end_time_bjs: dt.datetime
@@ -55,13 +58,16 @@ class ScenerayTxtMetadata:
 @dataclass(frozen=True)
 class ScenerayCsvLayout:
     """Row layout needed to parse a specific Sceneray CSV format."""
+
     header_rows_to_skip: tuple[int, ...]
     channel_name_row: int
 
 
 _CSV_LAYOUTS: dict[str, ScenerayCsvLayout] = {
     "1012P": ScenerayCsvLayout(header_rows_to_skip=tuple(range(6)), channel_name_row=2),
-    "1030L": ScenerayCsvLayout(header_rows_to_skip=(0, 1, 2, 3, 4, 5, 7), channel_name_row=2),
+    "1030L": ScenerayCsvLayout(
+        header_rows_to_skip=(0, 1, 2, 3, 4, 5, 7), channel_name_row=2
+    ),
 }
 
 
@@ -100,13 +106,19 @@ def read_sceneray_txt_metadata(txt_path: str) -> ScenerayTxtMetadata:
             try:
                 sample_freq = float(line.split()[-1])
             except Exception as exc:
-                raise ValueError(f"Failed to parse Sample Frequency from line: {line!r}") from exc
+                raise ValueError(
+                    f"Failed to parse Sample Frequency from line: {line!r}"
+                ) from exc
 
         if "Start Time" in line and i + 1 < len(lines):
-            start_time = dt.datetime.strptime(lines[i + 1].strip(), "%Y-%m-%d %H:%M:%S.%f")
+            start_time = dt.datetime.strptime(
+                lines[i + 1].strip(), "%Y-%m-%d %H:%M:%S.%f"
+            )
 
         if "End Time" in line and i + 1 < len(lines):
-            end_time = dt.datetime.strptime(lines[i + 1].strip(), "%Y-%m-%d %H:%M:%S.%f")
+            end_time = dt.datetime.strptime(
+                lines[i + 1].strip(), "%Y-%m-%d %H:%M:%S.%f"
+            )
 
     if sample_freq is None:
         raise ValueError(f"Missing Sample Frequency in txt file: {txt_path}")
@@ -135,6 +147,7 @@ def read_txt_file(file_path: str) -> tuple[float, dt.datetime, dt.datetime, str]
 # CSV reorganization (packet/block -> time series)
 # -----------------------------------------------------------------------------
 
+
 def _default_txt_path_from_csv(csv_path: str) -> str:
     p = Path(csv_path)
     if p.name.endswith("_uv.csv"):
@@ -149,16 +162,22 @@ def _default_reorg_path_from_csv(csv_path: str) -> str:
 
 def _get_layout(ipg_type: str) -> ScenerayCsvLayout:
     if ipg_type not in _CSV_LAYOUTS:
-        raise ValueError(f"Unknown ipg_type={ipg_type!r}. Known types: {sorted(_CSV_LAYOUTS)}")
+        raise ValueError(
+            f"Unknown ipg_type={ipg_type!r}. Known types: {sorted(_CSV_LAYOUTS)}"
+        )
     return _CSV_LAYOUTS[ipg_type]
 
 
-def _read_sceneray_csv_data(csv_path: str, layout: ScenerayCsvLayout) -> tuple[pd.DataFrame, list[str]]:
+def _read_sceneray_csv_data(
+    csv_path: str, layout: ScenerayCsvLayout
+) -> tuple[pd.DataFrame, list[str]]:
     df = pd.read_csv(csv_path, skiprows=list(layout.header_rows_to_skip))
     df.columns = [str(c).strip() for c in df.columns]
 
     # Read only header line that contains channel labels.
-    header_cols = pd.read_csv(csv_path, skiprows=list(range(layout.channel_name_row)), nrows=0).columns
+    header_cols = pd.read_csv(
+        csv_path, skiprows=list(range(layout.channel_name_row)), nrows=0
+    ).columns
     header_cols = [str(c).strip() for c in header_cols]
     return df, header_cols
 
@@ -203,17 +222,24 @@ def _normalize_channel_names(names: list[str], n_channels: int) -> list[str]:
 def _drop_and_fill_packet_index(df: pd.DataFrame) -> pd.DataFrame:
     packet_col = "Packet Index"
     if packet_col not in df.columns:
-        raise ValueError(f"Missing required column: {packet_col!r}. Available columns: {list(df.columns)[:20]}...")
+        raise ValueError(
+            f"Missing required column: {packet_col!r}. Available columns: {list(df.columns)[:20]}..."
+        )
 
     # Ensure integer packet indices
     df[packet_col] = pd.to_numeric(df[packet_col], errors="coerce").astype("Int64")
     if df[packet_col].isna().any():
-        raise ValueError("Packet Index contains NaNs after coercion. The CSV may be malformed.")
+        raise ValueError(
+            "Packet Index contains NaNs after coercion. The CSV may be malformed."
+        )
 
     # Drop all duplicated packet indices (matches legacy behavior)
     dup_mask = df.duplicated(subset=packet_col, keep=False)
     if dup_mask.any():
-        logger.warning("Dropping %d rows due to duplicated Packet Index (drop_all).", int(dup_mask.sum()))
+        logger.warning(
+            "Dropping %d rows due to duplicated Packet Index (drop_all).",
+            int(dup_mask.sum()),
+        )
         df = df.loc[~dup_mask].copy()
 
     min_idx = int(df[packet_col].min())
@@ -273,7 +299,9 @@ def _block_sort_key(col_name: str) -> tuple[int, str]:
     return (int(m.group(1)) if m else 0, s)
 
 
-def _collect_channel_block_columns(df: pd.DataFrame, n_channels: int) -> list[list[str]]:
+def _collect_channel_block_columns(
+    df: pd.DataFrame, n_channels: int
+) -> list[list[str]]:
     cols_by_ch: list[list[str]] = []
     for ch_i in range(1, n_channels + 1):
         # Avoid matching CH1 to CH10 by requiring the next char NOT to be a digit.
@@ -408,11 +436,18 @@ def uvcsv2vt(
         duration = (meta.end_time_bjs - meta.start_time_bjs).total_seconds()
         if duration > 0:
             sfreq = df_out.shape[0] / duration
-            logger.info("Corrected sfreq from %.6f to %.6f Hz using txt duration.", meta.sfreq_hz, sfreq)
+            logger.info(
+                "Corrected sfreq from %.6f to %.6f Hz using txt duration.",
+                meta.sfreq_hz,
+                sfreq,
+            )
 
     time_s = np.arange(df_out.shape[0], dtype=float) / sfreq
     # Match legacy (converter good.py) formatting/rounding by generating python datetimes per-sample.
-    time_bjs = [meta.start_time_bjs + pd.Timedelta(seconds=float(i) / sfreq) for i in range(df_out.shape[0])]
+    time_bjs = [
+        meta.start_time_bjs + pd.Timedelta(seconds=float(i) / sfreq)
+        for i in range(df_out.shape[0])
+    ]
 
     df_out.insert(0, "Time", time_s)
     df_out.insert(1, "Time_BJS", time_bjs)
@@ -465,6 +500,7 @@ def uvcsv2vt(
 # CSV <-> MNE conversion
 # -----------------------------------------------------------------------------
 
+
 def _infer_sfreq_from_time(time_s: np.ndarray) -> float:
     if time_s.size < 2:
         raise ValueError("Time column must contain at least 2 samples.")
@@ -507,7 +543,9 @@ def csv2mne(csv_path: str, save_path: str | None = None) -> str:
     data = df[ch_cols].to_numpy(dtype=float).T  # (n_ch, n_times)
     data_v = data * 1e-6  # uV -> V
 
-    info = mne.create_info(ch_names=list(ch_cols), sfreq=sfreq, ch_types=["dbs"] * len(ch_cols))
+    info = mne.create_info(
+        ch_names=list(ch_cols), sfreq=sfreq, ch_types=["dbs"] * len(ch_cols)
+    )
     raw = mne.io.RawArray(data_v, info)
 
     # Convert TagCode to annotations if present
@@ -518,14 +556,23 @@ def csv2mne(csv_path: str, save_path: str | None = None) -> str:
             onsets = idx.astype(float) / sfreq
             durations = np.zeros_like(onsets)
             descriptions = [f"tag:0x{int(tagcodes[i]):X}" for i in idx]
-            raw.set_annotations(mne.Annotations(onset=onsets, duration=durations, description=descriptions))
+            raw.set_annotations(
+                mne.Annotations(
+                    onset=onsets, duration=durations, description=descriptions
+                )
+            )
 
     if save_path is None:
         p = Path(csv_path)
         save_path = str(p.with_suffix("").as_posix() + "_raw.fif")
 
     raw.save(save_path, overwrite=True)
-    logger.info("Saved MNE Raw to %s (sfreq=%.3f Hz, channels=%d)", save_path, sfreq, len(ch_cols))
+    logger.info(
+        "Saved MNE Raw to %s (sfreq=%.3f Hz, channels=%d)",
+        save_path,
+        sfreq,
+        len(ch_cols),
+    )
     return str(save_path)
 
 
@@ -561,7 +608,9 @@ def matrix2mne(
         raise ValueError(f"matrix must be 2D, got shape={mat.shape}")
 
     if mat.shape[0] > mat.shape[1]:
-        logger.warning("Matrix shape suggests (n_times, n_channels). Transposing to (n_channels, n_times).")
+        logger.warning(
+            "Matrix shape suggests (n_times, n_channels). Transposing to (n_channels, n_times)."
+        )
         mat = mat.T
 
     n_ch = mat.shape[0]
@@ -653,7 +702,12 @@ def df2mne(
         logger.warning("Ignoring non-numeric columns in df2mne: %s", ignored_cols)
 
     ch_names = [str(c).strip() for c in numeric_cols]
-    data = df.loc[:, numeric_cols].apply(pd.to_numeric, errors="raise").to_numpy(dtype=float).T
+    data = (
+        df.loc[:, numeric_cols]
+        .apply(pd.to_numeric, errors="raise")
+        .to_numpy(dtype=float)
+        .T
+    )
 
     data_v = data * _voltage_unit_to_volt_scale(unit)
     import mne

@@ -206,7 +206,9 @@ def invalidate_after_alignment_run(
     slug = str(paradigm_slug).strip()
     if not slug:
         return []
-    message = f"Invalidated by upstream result change: alignment/{slug}/run_align_epochs."
+    message = (
+        f"Invalidated by upstream result change: alignment/{slug}/run_align_epochs."
+    )
     rewritten: list[Path] = []
 
     for path in _alignment_log_paths(resolver, paradigm_slug=slug):
@@ -243,7 +245,9 @@ def invalidate_after_alignment_finish(
     slug = str(paradigm_slug).strip()
     if not slug:
         return []
-    message = f"Invalidated by upstream result change: alignment/{slug}/build_raw_table."
+    message = (
+        f"Invalidated by upstream result change: alignment/{slug}/build_raw_table."
+    )
     rewritten: list[Path] = []
 
     for path in _features_log_paths(resolver, paradigm_slug=slug):

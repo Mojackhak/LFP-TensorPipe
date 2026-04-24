@@ -96,9 +96,7 @@ def build_preproc_annotations_block(self, *, grid_spacing: int) -> QGroupBox:
     )
     self._preproc_annotations_save_button.setEnabled(False)
     self._preproc_annotations_plot_button.setEnabled(False)
-    self._preproc_annotations_edit_button.setToolTip(
-        "Open the annotation editor."
-    )
+    self._preproc_annotations_edit_button.setToolTip("Open the annotation editor.")
     self._preproc_annotations_save_button.setToolTip(
         "Write current annotations to the pipeline."
     )

@@ -11,11 +11,14 @@ RUNTIME_PLAN_WORKER_MODULE = "lfptensorpipe.app.tensor.runtime_plan_worker"
 RUNTIME_PLAN_WORKER_FLAG = "--run-runtime-plan-worker"
 LOCALIZE_VIEWER_WORKER_MODULE = "lfptensorpipe.app.localize_viewer_worker"
 LOCALIZE_VIEWER_WORKER_FLAG = "--run-localize-viewer-worker"
+PREPROC_PLOT_WORKER_MODULE = "lfptensorpipe.gui.shell.preproc_plot_worker"
+PREPROC_PLOT_WORKER_FLAG = "--run-preproc-plot-worker"
 
 EMBEDDED_WORKER_FLAGS = (
     TENSOR_WORKER_FLAG,
     RUNTIME_PLAN_WORKER_FLAG,
     LOCALIZE_VIEWER_WORKER_FLAG,
+    PREPROC_PLOT_WORKER_FLAG,
 )
 
 

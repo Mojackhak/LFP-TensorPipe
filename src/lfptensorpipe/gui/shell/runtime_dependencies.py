@@ -47,6 +47,7 @@ from lfptensorpipe.app import (
     preproc_annotations_panel_state,
     preproc_ecg_panel_state,
     preproc_filter_panel_state,
+    rename_record,
     upgrade_record_run_logs,
     run_align_epochs,
     run_extract_features,
@@ -130,8 +131,10 @@ class MainWindowRuntimeDependenciesMixin:
         self,
         title: str,
         label: str,
+        *,
+        text: str = "",
     ) -> tuple[str, bool]:
-        return QInputDialog.getText(self, title, label)
+        return QInputDialog.getText(self, title, label, text=text)
 
     def _create_record_import_dialog(self, **kwargs: Any) -> RecordImportDialog:
         return RecordImportDialog(**kwargs)
@@ -236,6 +239,9 @@ class MainWindowRuntimeDependenciesMixin:
 
     def _delete_record_runtime(self, **kwargs: Any) -> Any:
         return delete_record(**kwargs)
+
+    def _rename_record_runtime(self, **kwargs: Any) -> Any:
+        return rename_record(**kwargs)
 
     def _load_localize_paths_runtime(self, config_store: Any) -> dict[str, str]:
         return load_localize_paths(config_store)

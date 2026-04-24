@@ -25,7 +25,6 @@ import numpy as np
 import mne
 from scipy.signal import hilbert
 
-
 Band = Tuple[float, float]
 BandValueOrSegments = Band | list[Band]
 BandSpec = Mapping[str, BandValueOrSegments]
@@ -56,23 +55,31 @@ def _normalize_bands(bands: BandSpec) -> tuple[list[str], list[list[Band]], np.n
 
     for name, spec in bands.items():
         bname = str(name)
-        if isinstance(spec, (tuple, list)) and len(spec) == 2 and not isinstance(spec[0], (tuple, list)):
+        if (
+            isinstance(spec, (tuple, list))
+            and len(spec) == 2
+            and not isinstance(spec[0], (tuple, list))
+        ):
             segs: list[Band] = [(float(spec[0]), float(spec[1]))]  # type: ignore[arg-type]
         elif isinstance(spec, list):
             segs = [(float(a), float(b)) for (a, b) in spec]
         else:
-            raise ValueError(f"Band '{bname}' must be (fmin,fmax) or list[(fmin,fmax)].")
+            raise ValueError(
+                f"Band '{bname}' must be (fmin,fmax) or list[(fmin,fmax)]."
+            )
 
         if len(segs) == 0:
             raise ValueError(f"Band '{bname}' has no segments.")
 
-        for (a, b) in segs:
+        for a, b in segs:
             if not (np.isfinite(a) and np.isfinite(b)):
                 raise ValueError(f"Band '{bname}' has non-finite bounds: {(a, b)}")
             if a <= 0 or b <= 0:
                 raise ValueError(f"Band '{bname}' bounds must be > 0 Hz, got {(a, b)}")
             if b <= a:
-                raise ValueError(f"Band '{bname}' must satisfy fmax > fmin, got {(a, b)}")
+                raise ValueError(
+                    f"Band '{bname}' must satisfy fmax > fmin, got {(a, b)}"
+                )
 
         lo = min(a for a, _ in segs)
         hi = max(b for _, b in segs)
@@ -89,7 +96,9 @@ def _compute_decim(sfreq_hz: float, hop_s: float | None, decim: int | None) -> i
             raise ValueError("decim must be a positive integer.")
         return int(decim)
     if hop_s is None or float(hop_s) <= 0:
-        raise ValueError("Provide hop_s>0 or an explicit decim to define the time grid.")
+        raise ValueError(
+            "Provide hop_s>0 or an explicit decim to define the time grid."
+        )
     return max(1, int(round(float(sfreq_hz) * float(hop_s))))
 
 
@@ -115,7 +124,9 @@ def _annotation_intervals(
 
     keep_l = [k.lower() for k in keep]
     out: List[Tuple[float, float]] = []
-    for onset, dur, desc in zip(raw.annotations.onset, raw.annotations.duration, raw.annotations.description):
+    for onset, dur, desc in zip(
+        raw.annotations.onset, raw.annotations.duration, raw.annotations.description
+    ):
         d = str(desc).strip().lower()
         if match == "substring":
             hit = any(k in d for k in keep_l)
@@ -169,7 +180,9 @@ def _intervals_to_sample_mask(
     return mask
 
 
-def _merge_intervals(intervals_s: Sequence[Tuple[float, float]]) -> List[Tuple[float, float]]:
+def _merge_intervals(
+    intervals_s: Sequence[Tuple[float, float]],
+) -> List[Tuple[float, float]]:
     """Merge overlapping or touching intervals.
 
     Parameters
@@ -281,7 +294,12 @@ def _compute_iir_guard_samples(
     system: Any | None
     if "sos" in iir_params and iir_params["sos"] is not None:
         system = iir_params["sos"]
-    elif "b" in iir_params and "a" in iir_params and iir_params["b"] is not None and iir_params["a"] is not None:
+    elif (
+        "b" in iir_params
+        and "a" in iir_params
+        and iir_params["b"] is not None
+        and iir_params["a"] is not None
+    ):
         system = (iir_params["b"], iir_params["a"])
     else:
         system = None
@@ -424,7 +442,11 @@ def grid(
 
     # Pull data
     data = raw.get_data(picks=picks)  # (n_channels, n_times)
-    ch_names = list(np.asarray(raw.ch_names, dtype=object) if picks is None else np.asarray(picks, dtype=object))
+    ch_names = list(
+        np.asarray(raw.ch_names, dtype=object)
+        if picks is None
+        else np.asarray(picks, dtype=object)
+    )
     n_channels, n_times = data.shape
     raw_times = np.asarray(raw.times, dtype=float)
 
@@ -442,7 +464,9 @@ def grid(
     baseline_intervals: List[Tuple[float, float]] = []
     baseline_keep_eff = baseline_keep if thresholds is None else None
     if baseline_keep_eff is not None:
-        baseline_intervals = _annotation_intervals(raw, baseline_keep_eff, match=baseline_match)
+        baseline_intervals = _annotation_intervals(
+            raw, baseline_keep_eff, match=baseline_match
+        )
         baseline_mask_base = _intervals_to_sample_mask(
             baseline_intervals,
             raw_times_s=raw_times,
@@ -513,7 +537,9 @@ def grid(
     # we compute each segment envelope and combine them via RSS:
     #   env = sqrt(sum(env_segment**2)).
     iir_params = dict(order=int(filter_order), ftype="butter", output="sos")
-    for bi, (band_name, segs, f_center) in enumerate(zip(band_names, band_segments, band_centers)):
+    for bi, (band_name, segs, f_center) in enumerate(
+        zip(band_names, band_segments, band_centers)
+    ):
         # Compute a per-band edge mask in the sample domain. This mask is derived
         # from raw.annotations using edge_anno/mode, and dilated by edge_guard_s
         # to account for boundary transients from band-pass filtering + Hilbert.
@@ -522,12 +548,16 @@ def grid(
         edge_intervals_dilated: List[Tuple[float, float]] = []
         edge_mask = np.zeros(n_times, dtype=bool)
 
-        if len(edge_intervals) > 0 and edge_anno_eff is not None and len(edge_anno_eff) > 0:
+        if (
+            len(edge_intervals) > 0
+            and edge_anno_eff is not None
+            and len(edge_anno_eff) > 0
+        ):
             if edge_guard_s == "auto":
                 # If a band has multiple segments, take the maximum guard across
                 # segments (conservative).
                 edge_guard_samples = 0
-                for (l_freq, h_freq) in segs:
+                for l_freq, h_freq in segs:
                     edge_guard_samples = max(
                         edge_guard_samples,
                         _compute_iir_guard_samples(
@@ -543,7 +573,9 @@ def grid(
             else:
                 guard_s = float(edge_guard_s)
                 if not np.isfinite(guard_s) or guard_s < 0:
-                    raise ValueError("edge_guard_s must be 'auto' or a non-negative finite float.")
+                    raise ValueError(
+                        "edge_guard_s must be 'auto' or a non-negative finite float."
+                    )
                 edge_guard_samples = int(np.ceil(guard_s * float(sfreq)))
 
             edge_intervals_dilated = _expand_intervals(
@@ -582,7 +614,7 @@ def grid(
         edge_intervals_dilated_by_band.append(list(edge_intervals_dilated))
 
         env_sum_sq: np.ndarray | None = None
-        for (l_freq, h_freq) in segs:
+        for l_freq, h_freq in segs:
             filt = mne.filter.filter_data(
                 data,
                 sfreq=sfreq,
@@ -609,7 +641,9 @@ def grid(
             thr = thresholds_by_band[bi]
         else:
             env_base = env[:, baseline_mask_band]
-            thr = np.nanpercentile(env_base, float(percentile), axis=1).astype(np.float64, copy=False)
+            thr = np.nanpercentile(env_base, float(percentile), axis=1).astype(
+                np.float64, copy=False
+            )
         thresholds_used.append(thr)
 
         above = env > thr[:, None]
@@ -636,7 +670,11 @@ def grid(
             if env_dec.shape[-1] > target_n_times_i:
                 env_dec = env_dec[..., :target_n_times_i]
             elif env_dec.shape[-1] < target_n_times_i:
-                pad = np.full((n_channels, target_n_times_i - env_dec.shape[-1]), np.nan, dtype=np.float64)
+                pad = np.full(
+                    (n_channels, target_n_times_i - env_dec.shape[-1]),
+                    np.nan,
+                    dtype=np.float64,
+                )
                 env_dec = np.concatenate([env_dec, pad], axis=-1)
 
         out_bands.append(env_dec)
@@ -652,7 +690,10 @@ def grid(
         if times_out.shape[0] > target_n_times_i:
             times_out = times_out[:target_n_times_i]
         elif times_out.shape[0] < target_n_times_i:
-            times_out = np.concatenate([times_out, np.full(target_n_times_i - times_out.shape[0], np.nan)], axis=0)
+            times_out = np.concatenate(
+                [times_out, np.full(target_n_times_i - times_out.shape[0], np.nan)],
+                axis=0,
+            )
 
     thresholds_arr = np.stack(thresholds_used, axis=0)  # (n_bands, n_channels)
 
@@ -670,7 +711,10 @@ def grid(
                 for name, segs in zip(band_names, band_segments)
             },
             bands_union_hz={
-                str(name): [float(band_union_edges[i, 0]), float(band_union_edges[i, 1])]
+                str(name): [
+                    float(band_union_edges[i, 0]),
+                    float(band_union_edges[i, 1]),
+                ]
                 for i, name in enumerate(band_names)
             },
             band_names=list(band_names),
@@ -680,7 +724,9 @@ def grid(
             min_cycles=float(min_cycles),
             hop_s=(float(hop_s) if hop_s is not None else None),
             decim_eff=int(decim_eff),
-            target_n_times=(int(target_n_times) if target_n_times is not None else None),
+            target_n_times=(
+                int(target_n_times) if target_n_times is not None else None
+            ),
             baseline_keep=(list(baseline_keep) if baseline_keep is not None else None),
             baseline_match=str(baseline_match),
             baseline_fallback=str(baseline_fallback),
@@ -690,14 +736,19 @@ def grid(
             edge_guard_s=("auto" if edge_guard_s == "auto" else float(edge_guard_s)),
             edge_intervals=[[float(a0), float(a1)] for (a0, a1) in edge_intervals],
             edge_intervals_dilated_by_band=[
-                [[float(a0), float(a1)] for (a0, a1) in ints] for ints in edge_intervals_dilated_by_band
+                [[float(a0), float(a1)] for (a0, a1) in ints]
+                for ints in edge_intervals_dilated_by_band
             ],
             edge_guard_samples_by_band=[int(x) for x in edge_guard_samples_by_band],
             edge_guard_seconds_by_band=[float(x) for x in edge_guard_seconds_by_band],
         ),
         qc=dict(
             thresholds=thresholds_arr.astype(np.float64),
-            baseline_coverage=float(np.mean(baseline_mask_base)) if baseline_keep_eff is not None else None,
+            baseline_coverage=(
+                float(np.mean(baseline_mask_base))
+                if baseline_keep_eff is not None
+                else None
+            ),
             baseline_coverage_by_band=[float(x) for x in baseline_coverage_by_band],
             edge_coverage_by_band=[float(x) for x in edge_coverage_by_band],
         ),

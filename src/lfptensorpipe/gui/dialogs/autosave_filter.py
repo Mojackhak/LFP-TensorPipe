@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from .common import *  # noqa: F403
+
+
 class _CloseAutosaveFilter(QObject):
     """Event filter that triggers one autosave callback on Qt close."""
 
@@ -17,5 +19,3 @@ class _CloseAutosaveFilter(QObject):
         if event is not None and event.type() == QEvent.Close:
             self._on_close(event)
         return False
-
-
