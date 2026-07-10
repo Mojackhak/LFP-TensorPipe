@@ -12,7 +12,8 @@ def segment_lengths_from_anchors_percent(
 ) -> list[int]:
     """Compute integer sample counts per segment given anchor percentages.
 
-    The last segment is adjusted to ensure the total sums exactly to `n_samples`.
+    Rounding residuals are redistributed across segments so the total sums
+    exactly to `n_samples`, and every segment holds at least one sample.
 
     Args:
         anchors_percent: Anchor positions as percentages, e.g. [0, 12, 50, 62, 100].
@@ -34,17 +35,30 @@ def segment_lengths_from_anchors_percent(
         raise ValueError("`n_samples` must be an integer >= 2.")
 
     diffs = np.diff(anchors)  # segments in percent
+    n_seg = int(diffs.size)
+    if n_samples < n_seg:
+        raise ValueError(
+            f"`n_samples` ({n_samples}) must be >= the number of segments "
+            f"({n_seg}) so each segment can contain at least one sample."
+        )
+
     raw = diffs / 100.0 * float(n_samples)
     seg = np.rint(raw).astype(int)
+    seg[seg <= 0] = 1  # every segment must contain at least one sample
 
-    # Fix rounding to ensure exact total.
-    delta = int(n_samples - int(seg.sum()))
-    seg[-1] += delta
-
-    # Guard against <=0 due to extreme rounding.
-    seg[seg <= 0] = 1
-    if int(seg.sum()) != int(n_samples):
-        seg[-1] += int(n_samples - int(seg.sum()))
+    # Correct the running total to exactly n_samples while keeping seg >= 1.
+    delta = int(n_samples) - int(seg.sum())
+    if delta > 0:
+        # Adding only grows a segment, so the largest stays the argmax every
+        # step; assigning the whole surplus at once is identical to a loop.
+        seg[int(np.argmax(seg))] += delta
+    elif delta < 0:
+        # Removal must run one sample at a time: taking from the current max can
+        # change which segment is largest, and restricting to segments > 1
+        # guarantees no segment is ever driven below 1.
+        for _ in range(-delta):
+            spare = np.where(seg > 1)[0]
+            seg[int(spare[np.argmax(seg[spare])])] -= 1
 
     return seg.tolist()
 

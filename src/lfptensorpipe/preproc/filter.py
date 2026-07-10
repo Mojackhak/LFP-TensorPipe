@@ -799,7 +799,7 @@ def filter_lfp_with_bad_annotations(
     concat_desc: str = "EDGE",
     concat_duration: float = 0.0,
     # ----------------------------------------------------------
-) -> Tuple[mne.io.RawArray, mne.io.RawArray, Dict[str, Any]]:
+) -> Tuple[mne.io.RawArray, Dict[str, Any]]:
     """
     End-to-end helper to:
       1) attach BAD annotations onto raw (optional)
