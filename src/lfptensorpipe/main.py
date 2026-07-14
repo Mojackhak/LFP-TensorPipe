@@ -274,7 +274,15 @@ def main(
     app_font.setFamily("Arial")
     app.setFont(QFont(app_font))
     app.setApplicationName("LFP-TensorPipe")
-    runtime_icon = None if sys.platform == "darwin" else preferred_runtime_icon_path()
+    # Inside a frozen macOS .app bundle the Dock icon comes from the bundle's
+    # .icns (Info.plist CFBundleIconFile); setting a runtime PNG there would
+    # override macOS's masked app-icon presentation. When running from source
+    # (e.g. conda env), set the runtime icon so the logo shows instead of the
+    # default Python icon.
+    is_frozen_macos_bundle = sys.platform == "darwin" and getattr(
+        sys, "frozen", False
+    )
+    runtime_icon = None if is_frozen_macos_bundle else preferred_runtime_icon_path()
     if runtime_icon is not None:
         app_icon = QIcon(str(runtime_icon))
         if not app_icon.isNull():
