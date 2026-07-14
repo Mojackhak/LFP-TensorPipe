@@ -47,6 +47,15 @@ def _default_move_path(src: Path, dst: Path) -> None:
     src.rename(dst)
 
 
+def _is_metadata_sidecar(path: Path) -> bool:
+    """Return True for macOS AppleDouble sidecar files (``._*``).
+
+    Non-APFS volumes (exFAT/NTFS/SMB) grow binary ``._<name>`` companions for
+    every file; contract globs must not treat them as JSON/YAML payloads.
+    """
+    return path.name.startswith("._")
+
+
 def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     with tempfile.NamedTemporaryFile(
         "w",
@@ -140,8 +149,11 @@ def _rewrite_json_contract_file(
     new_record: str,
     path_replacements: tuple[tuple[str, str], ...],
 ) -> bool:
-    with path.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Failed to parse JSON contract {path}: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError(f"JSON contract must be an object: {path}")
     updated, changed = _rewrite_serialized_value(
@@ -162,8 +174,11 @@ def _rewrite_yaml_contract_file(
     new_record: str,
     path_replacements: tuple[tuple[str, str], ...],
 ) -> bool:
-    with path.open("r", encoding="utf-8") as handle:
-        payload = yaml.safe_load(handle)
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = yaml.safe_load(handle)
+    except (UnicodeDecodeError, yaml.YAMLError) as exc:
+        raise ValueError(f"Failed to parse YAML contract {path}: {exc}") from exc
     if payload is None:
         return False
     updated, changed = _rewrite_serialized_value(
@@ -291,7 +306,7 @@ def _rewrite_derivatives_contracts(
     seen_json: set[Path] = set()
     for pattern in _JSON_CONTRACT_PATTERNS:
         for path in sorted(derivatives_root.glob(pattern)):
-            if path in seen_json:
+            if path in seen_json or _is_metadata_sidecar(path):
                 continue
             seen_json.add(path)
             if _rewrite_json_contract_file(
@@ -305,7 +320,7 @@ def _rewrite_derivatives_contracts(
     seen_yaml: set[Path] = set()
     for pattern in _YAML_CONTRACT_PATTERNS:
         for path in sorted(derivatives_root.glob(pattern)):
-            if path in seen_yaml:
+            if path in seen_yaml or _is_metadata_sidecar(path):
                 continue
             seen_yaml.add(path)
             if _rewrite_yaml_contract_file(
