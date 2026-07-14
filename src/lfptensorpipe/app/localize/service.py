@@ -193,12 +193,16 @@ def _drop_matlab_engine() -> None:
 
 
 def _local_matlab_functions_dir() -> Path:
+    """Resolve the bundled or source `lfptensorpipe/anat/leaddbs` directory."""
     module_file = Path(__file__).resolve()
+    package_relative = module_file.parents[2] / "anat" / "leaddbs"
+    if package_relative.is_dir():
+        return package_relative
     for parent in module_file.parents:
         candidate = parent / "src" / "lfptensorpipe" / "anat" / "leaddbs"
         if candidate.is_dir():
             return candidate
-    return module_file.parents[0] / "anat" / "leaddbs"
+    return package_relative
 
 
 def _ensure_matlab_engine_ready(
