@@ -38,6 +38,7 @@ from lfptensorpipe.app.tensor.orchestration import run_build_tensor
 from lfptensorpipe.app.runlog_store import (
     RunLogRecord,
     append_run_log_event,
+    read_run_log,
     write_run_log,
 )
 from lfptensorpipe.app.shared.config_store import CONFIG_FILE_BASENAMES
@@ -417,16 +418,24 @@ def _run_reference_preproc_pipeline(
         if isinstance(preproc_snapshot.get("ecg"), dict)
         else {}
     )
+    ecg_method = str(ecg_snapshot.get("method", "svd"))
+    params_by_method = ecg_snapshot.get("params_by_method", {})
+    ecg_method_kwargs = (
+        params_by_method.get(ecg_method) if isinstance(params_by_method, dict) else None
+    )
     ok_ecg, message_ecg = window._run_with_busy(
         "ECG Apply",
         lambda: window._apply_ecg_step_runtime(
             context,
-            method=str(ecg_snapshot.get("method", "svd")),
+            method=ecg_method,
             picks=[
                 str(item)
                 for item in ecg_snapshot.get("selected_channels", [])
                 if str(item).strip()
             ],
+            method_kwargs=(
+                dict(ecg_method_kwargs) if isinstance(ecg_method_kwargs, dict) else None
+            ),
         ),
     )
     window._refresh_stage_states_from_context()
@@ -1744,6 +1753,7 @@ def run_smoke_preproc_ui(project_root: str, subject: str, record: str) -> int:
     os.environ.setdefault("LFPTP_DISABLE_MATLAB_WARMUP", "1")
     project = Path(project_root).expanduser().resolve()
     context = RecordContext(project_root=project, subject=subject, record=record)
+    resolver = PathResolver(context)
     app, window, _store, temp_handle = _build_smoke_window(
         project_root=project,
         enable_plots=True,
@@ -1772,6 +1782,24 @@ def run_smoke_preproc_ui(project_root: str, subject: str, record: str) -> int:
         def exec(self) -> int:
             return QDialog.Accepted
 
+    class _AcceptedECGAdvanceDialog:
+        def __init__(
+            self,
+            *,
+            method: str,
+            session_params: dict[str, Any],
+            **_kwargs: Any,
+        ) -> None:
+            self.selected_action = "save"
+            self.selected_params = dict(session_params)
+            if method == "svd":
+                self.selected_params["components"] = (
+                    int(self.selected_params["components"]) + 1
+                )
+
+        def exec(self) -> int:
+            return QDialog.Accepted
+
     class _AcceptedAnnotationDialog:
         def __init__(
             self, *, session_rows: list[dict[str, Any]], **_kwargs: Any
@@ -1794,6 +1822,9 @@ def run_smoke_preproc_ui(project_root: str, subject: str, record: str) -> int:
         )
         window._create_qc_advance_dialog = (  # type: ignore[method-assign]
             lambda **kwargs: _AcceptedQcAdvanceDialog(**kwargs)
+        )
+        window._create_ecg_advance_dialog = (  # type: ignore[method-assign]
+            lambda **kwargs: _AcceptedECGAdvanceDialog(**kwargs)
         )
         window._create_annotation_configure_dialog = (  # type: ignore[method-assign]
             lambda **kwargs: _AcceptedAnnotationDialog(**kwargs)
@@ -1854,6 +1885,23 @@ def run_smoke_preproc_ui(project_root: str, subject: str, record: str) -> int:
             )
         _run_raw_plot_subprocess(bad_segment_path)
 
+        window._on_preproc_ecg_advance()
+        if "updated" not in window.statusBar().currentMessage().lower():
+            raise RuntimeError(
+                "ECG Advance did not update record parameters: "
+                f"{window.statusBar().currentMessage()}"
+            )
+        ecg_record_params = window._collect_preproc_record_params_snapshot()
+        ecg_node = ecg_record_params.get("ecg", {})
+        mirrored_ecg_node = ecg_record_params.get("step_params", {}).get(
+            "ecg",
+            {},
+        )
+        if ecg_node.get("params_by_method") != mirrored_ecg_node.get(
+            "params_by_method"
+        ):
+            raise RuntimeError("ECG Advance parameters were not mirrored.")
+
         window._refresh_preproc_ecg_channel_state(context)
         if window._preproc_ecg_available_channels:
             window._on_preproc_ecg_channels_select()
@@ -1870,6 +1918,14 @@ def run_smoke_preproc_ui(project_root: str, subject: str, record: str) -> int:
                 raise RuntimeError(
                     f"ECG Apply failed: {window.statusBar().currentMessage()}"
                 )
+            ecg_log = read_run_log(
+                preproc_step_log_path(resolver, "ecg_artifact_removal")
+            )
+            if not isinstance(ecg_log, dict) or not isinstance(
+                ecg_log.get("params", {}).get("method_kwargs"),
+                dict,
+            ):
+                raise RuntimeError("ECG log is missing method_kwargs.")
         else:
             warnings_before = len(warnings)
             window._on_preproc_ecg_channels_select()

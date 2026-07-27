@@ -412,6 +412,11 @@ This step is an optional cleanup pass for residual cardiac contamination. It is 
 If real data still show ECG bleed-through after the earlier preprocess steps,
 apply ECG cleanup here before finalizing the record.
 
+Choose `template`, `perceive`, or `svd` under `Method`, select the channels to
+clean, and use `Advance` when the method defaults need adjustment. The Advance
+dialog shows only the selected method's parameters and retains independent
+values for all three methods.
+
 ### 5.6 Step 5: Finish
 
 This step exports the finalized preprocess result that downstream modules read.

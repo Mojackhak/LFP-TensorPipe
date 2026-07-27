@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from lfptensorpipe.gui.shell.common import (
     Any,
     np,
@@ -87,6 +89,7 @@ class MainWindowRecordParamsSnapshotCollectMixin:
             "l_freq": float(low_freq),
             "h_freq": float(high_freq),
         }
+        ecg_params_by_method = deepcopy(self._preproc_ecg_params_by_method)
         return {
             "filter": {
                 "basic": dict(basic),
@@ -102,6 +105,7 @@ class MainWindowRecordParamsSnapshotCollectMixin:
                     else "svd"
                 ),
                 "selected_channels": list(self._preproc_ecg_selected_channels),
+                "params_by_method": deepcopy(ecg_params_by_method),
             },
             "viz": {
                 "psd_params": dict(self._preproc_viz_psd_params),
@@ -121,6 +125,7 @@ class MainWindowRecordParamsSnapshotCollectMixin:
                         else "svd"
                     ),
                     "selected_channels": list(self._preproc_ecg_selected_channels),
+                    "params_by_method": deepcopy(ecg_params_by_method),
                 },
                 "viz": {
                     "psd_params": dict(self._preproc_viz_psd_params),

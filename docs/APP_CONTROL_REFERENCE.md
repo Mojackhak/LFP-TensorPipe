@@ -285,6 +285,7 @@ The Preprocess page manages record-level signal cleanup and QC views.
 | `Plot` (Bad Segment Removal) | Plots bad-segment-removal output. | QC only. | Requires successful bad-segment output. |
 | `Method` (ECG) | Chooses the ECG artifact-removal strategy. | ECG step parameters. | Always available. |
 | `Channels` (ECG) | Opens the ECG channel selector. | ECG channel subset. | Requires a current record/channel inventory. |
+| `Advance` (ECG) | Opens method-specific ECG parameters. | Current-record and global ECG defaults. | Requires successful bad-segment removal. |
 | `Apply` (ECG) | Runs ECG artifact removal. | ECG-cleaned signal. | Requires valid ECG settings. |
 | `Plot` (ECG) | Plots ECG-cleaned output. | QC only. | Requires successful ECG output. |
 | `Finish` indicator | Reports readiness of the finalized preprocess output. | Downstream stage freshness. | Read-only. |
@@ -331,15 +332,22 @@ The Preprocess page manages record-level signal cleanup and QC views.
 | `Save` | Saves the current annotation list back to Preprocess. | Annotation payload. | Blocks on invalid rows. |
 | `Cancel` | Closes the dialog without saving. | No annotation update. | Always available. |
 
-### 6.6 ECG Method Selector
+### 6.6 ECG Method and Advance Parameters
 
-The screenshot below shows the method dropdown used by the ECG block.
+The screenshot below shows the method dropdown used by the ECG block. The ECG
+action row also provides `Advance`, `Apply`, and `Plot`; the screenshot is kept
+as the method-selector reference and does not illustrate the Advance dialog.
 
 ![ECG method selector.](assets/app-control-reference/controlref-advance-ecg-method-selector.png)
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
-| `Method` | Chooses the ECG artifact-removal algorithm. | ECG step execution parameters and the method-specific runtime defaults written into the ECG step config. | Always available. |
+| `Method` | Chooses the ECG artifact-removal algorithm. Each method retains independent parameters. | ECG method used by Apply. | Requires successful bad-segment removal. |
+| `Advance` | Opens parameters for the selected method. | Current-record ECG parameters. | Requires successful bad-segment removal. |
+| `Save` | Saves the displayed parameters for the current record and method without running ECG removal. | Current-record ECG parameters and freshness state. | Blocks on invalid values. |
+| `Set as Default` | Saves the displayed values as global defaults for the selected method. | Future records without saved ECG parameters. | Blocks on invalid values. |
+| `Restore Defaults` | Loads the selected method's global defaults into the dialog. | Dialog fields only until Save is selected. | Always available. |
+| `Cancel` | Closes the dialog without changing record parameters. | No record update. | Always available. |
 
 The current GUI exposes three ECG-suppression methods:
 
@@ -354,6 +362,46 @@ The current GUI exposes three ECG-suppression methods:
   isolate dominant ECG components before reconstructing a cleaned signal. It is
   usually more flexible than the other two approaches, but its performance
   depends more strongly on the chosen parameters.
+
+`template` exposes the following Advance parameters:
+
+| Control | Default | What it changes |
+| --- | ---: | --- |
+| `Baseline window (ms)` | 200 | Median-filter window used to estimate and subtract the local baseline before QRS peak detection. |
+| `Peak height minimum (z-score)` | 2.5 | Minimum standardized QRS peak height. |
+| `Limit maximum peak height` / `Peak height maximum (z-score)` | Disabled | Optional standardized peak-height upper limit. |
+| `Minimum interpeak interval (ms)` | 300 | Minimum distance between detected QRS peaks. |
+| `Peak orientation` | Dominant | Dominant, positive, or negative peak detection. |
+| `Pre-peak duration (ms)` | 150 | Epoch duration before each detected R peak. |
+| `Post-peak duration (ms)` | 150 | Epoch duration after each detected R peak. |
+| `Boundary tail (ms)` | 60 | Search width used for template cropping. |
+| `QRS duration (ms)` | 120 | Expected QRS duration used during template cropping. |
+| `Use full PQRST` | Disabled | Uses the full PQRST epoch instead of the QRS crop. |
+
+`svd` exposes every `template` parameter plus:
+
+| Control | Default | What it changes |
+| --- | ---: | --- |
+| `SVD components` | 2 | Number of leading components used to reconstruct the ECG artifact. |
+
+`perceive` exposes:
+
+| Control | Default | What it changes |
+| --- | ---: | --- |
+| `Epoch length (ms)` | 1000 | Initial non-overlapping template epochs. |
+| `Baseline window (ms)` | 200 | Median-filter window used to estimate and subtract the local baseline before cross-correlation alignment of the initial template epochs. |
+| `Amplitude threshold (µV)` | 200 | Amplitude threshold used to identify QRS template boundaries. |
+| `Crop padding (ms)` | 15 | Padding around the detected QRS template. |
+| `Minimum heart rate (BPM)` | 40 | Minimum plausible heart rate. |
+| `Maximum heart rate (BPM)` | 180 | Maximum plausible heart rate. |
+| `Threshold mode` | Data-driven | Data-driven or manual correlation-threshold search. |
+| `Threshold start` | Data-driven | Manual correlation-threshold starting value. |
+| `Threshold step` | Data-driven | Manual correlation-threshold increment. |
+| `Maximum attempts` | 100 | Maximum threshold-search attempts. |
+| `Pass rate (%)` | 95 | Required fraction of valid inter-beat intervals. |
+| `Before peak (ms)` | 50 | Duration before each peak in the refined template. |
+| `After peak (ms)` | 100 | Duration after each peak in the refined template. |
+| `Enforce maximum interval` | Enabled | Enforces both minimum and maximum inter-beat intervals. |
 
 The current GUI default is `svd`, which matches the code path in the ECG step.
 That default is a software default only, not a universal recommendation for all

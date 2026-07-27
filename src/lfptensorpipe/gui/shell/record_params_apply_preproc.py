@@ -6,6 +6,7 @@ from lfptensorpipe.gui.shell.common import (
     Any,
     QTableWidgetItem,
     _nested_get,
+    normalize_ecg_params_by_method,
     normalize_filter_advance_params,
     normalize_preproc_viz_psd_params,
     normalize_preproc_viz_tfr_params,
@@ -61,9 +62,29 @@ class MainWindowRecordParamsApplyPreprocMixin:
             skipped += 1
 
         if "preproc.ecg" not in self._record_param_dirty_keys:
+            global_ecg_params = self._load_ecg_advance_defaults()
+            params_by_method = _nested_get(
+                snapshot,
+                ("preproc", "ecg", "params_by_method"),
+            )
+            ok_ecg, normalized_ecg, ecg_message = normalize_ecg_params_by_method(
+                params_by_method,
+                base_by_method=global_ecg_params,
+            )
+            self._preproc_ecg_params_by_method = normalized_ecg
+            if not ok_ecg:
+                self._show_ecg_params_warning_once(
+                    "Invalid record ECG Advance parameters were replaced in "
+                    f"memory: {ecg_message}"
+                )
             method = _nested_get(snapshot, ("preproc", "ecg", "method"))
             if isinstance(method, str) and self._preproc_ecg_method_combo is not None:
                 idx = self._preproc_ecg_method_combo.findData(method)
+                if idx < 0:
+                    idx = self._preproc_ecg_method_combo.findData("svd")
+                    self._show_ecg_params_warning_once(
+                        "Unknown record ECG method was replaced in memory: " f"{method}"
+                    )
                 if idx < 0:
                     idx = 0
                 self._preproc_ecg_method_combo.setCurrentIndex(idx)

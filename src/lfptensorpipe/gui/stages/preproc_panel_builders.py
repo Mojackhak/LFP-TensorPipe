@@ -208,11 +208,14 @@ def build_preproc_ecg_block(
     method_row_layout = QHBoxLayout(method_row)
     method_row_layout.setContentsMargins(0, 0, 0, 0)
     method_row_layout.setSpacing(grid_spacing)
-    method_row_layout.addWidget(QLabel("Method"))
+    method_label = QLabel("Method")
+    method_tooltip = "Method used for ECG artifact removal."
+    method_label.setToolTip(method_tooltip)
+    method_row_layout.addWidget(method_label)
     self._preproc_ecg_method_combo = QComboBox()
     for method in ecg_methods:
         self._preproc_ecg_method_combo.addItem(method, method)
-    self._preproc_ecg_method_combo.setToolTip("Method used for ECG artifact removal.")
+    self._preproc_ecg_method_combo.setToolTip(method_tooltip)
     default_index = self._preproc_ecg_method_combo.findData("svd")
     if default_index >= 0:
         self._preproc_ecg_method_combo.setCurrentIndex(default_index)
@@ -223,11 +226,12 @@ def build_preproc_ecg_block(
     channels_row_layout = QHBoxLayout(channels_row)
     channels_row_layout.setContentsMargins(0, 0, 0, 0)
     channels_row_layout.setSpacing(grid_spacing)
-    channels_row_layout.addWidget(QLabel("Channels"))
+    channels_label = QLabel("Channels")
+    channels_tooltip = "Choose channels used for ECG artifact removal."
+    channels_label.setToolTip(channels_tooltip)
+    channels_row_layout.addWidget(channels_label)
     self._preproc_ecg_channels_button = QPushButton("Select Channels")
-    self._preproc_ecg_channels_button.setToolTip(
-        "Choose channels used for ECG artifact removal."
-    )
+    self._preproc_ecg_channels_button.setToolTip(channels_tooltip)
     self._preproc_ecg_channels_button.clicked.connect(
         self._on_preproc_ecg_channels_select
     )
@@ -238,14 +242,23 @@ def build_preproc_ecg_block(
     action_row_layout = QHBoxLayout(action_row)
     action_row_layout.setContentsMargins(0, 0, 0, 0)
     action_row_layout.setSpacing(grid_spacing)
+    self._preproc_ecg_advance_button = QPushButton("Advance")
     self._preproc_ecg_apply_button = QPushButton("Apply")
     self._preproc_ecg_plot_button = QPushButton("Plot")
+    self._preproc_ecg_advance_button.setToolTip(
+        "Open advanced ECG parameters for the selected method."
+    )
     self._preproc_ecg_apply_button.setToolTip("Run ECG artifact removal.")
-    self._preproc_ecg_plot_button.setToolTip("Plot ECG-cleaned output.")
+    self._preproc_ecg_plot_button.setToolTip(
+        "Plot the last successful ECG-cleaned output."
+    )
+    self._preproc_ecg_advance_button.clicked.connect(self._on_preproc_ecg_advance)
     self._preproc_ecg_apply_button.clicked.connect(self._on_preproc_ecg_apply)
     self._preproc_ecg_plot_button.clicked.connect(self._on_preproc_ecg_plot)
+    self._preproc_ecg_advance_button.setEnabled(False)
     self._preproc_ecg_apply_button.setEnabled(False)
     self._preproc_ecg_plot_button.setEnabled(False)
+    action_row_layout.addWidget(self._preproc_ecg_advance_button)
     action_row_layout.addWidget(self._preproc_ecg_apply_button)
     action_row_layout.addWidget(self._preproc_ecg_plot_button)
     action_row_layout.addStretch(1)

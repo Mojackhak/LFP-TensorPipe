@@ -215,6 +215,39 @@ class MainWindowPreprocActionsMixin:
         self.statusBar().showMessage(f"{prefix}: {message}")
         self._post_step_action_sync(reason="preproc_bad_segment_apply")
 
+    def _on_preproc_ecg_advance(self) -> None:
+        context = self._record_context()
+        if context is None:
+            self.statusBar().showMessage(
+                "ECG Advance unavailable: select project/subject/record."
+            )
+            return
+        method = "svd"
+        if self._preproc_ecg_method_combo is not None:
+            method = str(self._preproc_ecg_method_combo.currentData() or "svd")
+        defaults_by_method = self._load_ecg_advance_defaults()
+
+        def _save_ecg_defaults(params: dict[str, Any]) -> None:
+            self._save_ecg_method_defaults(method, params)
+            self.statusBar().showMessage(f"ECG Advance defaults saved for {method}.")
+
+        dialog = self._create_ecg_advance_dialog(
+            method=method,
+            session_params=self._preproc_ecg_params_by_method[method],
+            default_params=defaults_by_method[method],
+            set_default_callback=_save_ecg_defaults,
+            parent=self,
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+        if dialog.selected_params is None:
+            return
+        self._preproc_ecg_params_by_method[method] = dict(dialog.selected_params)
+        self._mark_record_param_dirty("preproc.ecg")
+        self._refresh_preproc_controls()
+        self._persist_record_params_snapshot(reason="preproc_ecg_advance_save")
+        self.statusBar().showMessage(f"ECG Advance parameters updated for {method}.")
+
     def _on_preproc_ecg_apply(self) -> None:
         context = self._record_context()
         if context is None:
@@ -232,6 +265,7 @@ class MainWindowPreprocActionsMixin:
                 context,
                 method=method,
                 picks=picks,
+                method_kwargs=self._preproc_ecg_params_by_method[method],
             ),
         )
         self._refresh_stage_states_from_context()

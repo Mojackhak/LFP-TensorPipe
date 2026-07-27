@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from lfptensorpipe.gui.shell.common import (
     Any,
+    PREPROC_ECG_DEFAULTS_KEY,
     PREPROC_FILTER_BASIC_DEFAULTS_KEY,
     PREPROC_FILTER_DEFAULTS_KEY,
     PREPROC_VIZ_PSD_DEFAULTS_KEY,
@@ -13,6 +14,8 @@ from lfptensorpipe.gui.shell.common import (
     default_preproc_viz_psd_params,
     default_preproc_viz_tfr_params,
     normalize_filter_advance_params,
+    normalize_ecg_method_params,
+    normalize_ecg_params_by_method,
     normalize_preproc_filter_basic_params,
     normalize_preproc_viz_psd_params,
     normalize_preproc_viz_tfr_params,
@@ -20,6 +23,46 @@ from lfptensorpipe.gui.shell.common import (
 
 
 class MainWindowPreprocDefaultsMixin:
+    def _show_ecg_params_warning_once(self, message: str) -> None:
+        shown = getattr(self, "_preproc_ecg_params_warnings_shown", set())
+        if message in shown:
+            return
+        shown.add(message)
+        self._preproc_ecg_params_warnings_shown = shown
+        self.statusBar().showMessage(message)
+
+    def _load_ecg_advance_defaults(self) -> dict[str, dict[str, Any]]:
+        payload = self._config_store.read_yaml("preproc.yml", default={})
+        raw_params: Any = None
+        if isinstance(payload, dict) and PREPROC_ECG_DEFAULTS_KEY in payload:
+            raw_params = payload.get(PREPROC_ECG_DEFAULTS_KEY)
+        ok, normalized, message = normalize_ecg_params_by_method(raw_params)
+        if not ok:
+            self._show_ecg_params_warning_once(
+                f"Invalid ECG Advance defaults were replaced in memory: {message}"
+            )
+        return normalized
+
+    def _save_ecg_method_defaults(
+        self,
+        method: str,
+        params: dict[str, Any],
+    ) -> None:
+        normalized_method = str(method).strip().lower()
+        ok, normalized, message = normalize_ecg_method_params(
+            normalized_method,
+            params,
+        )
+        if not ok:
+            raise ValueError(message)
+        defaults = self._load_ecg_advance_defaults()
+        defaults[normalized_method] = normalized
+        payload = self._config_store.read_yaml("preproc.yml", default={})
+        if not isinstance(payload, dict):
+            payload = {}
+        payload[PREPROC_ECG_DEFAULTS_KEY] = defaults
+        self._config_store.write_yaml("preproc.yml", payload)
+
     def _load_filter_advance_defaults(self) -> dict[str, Any]:
         payload = self._config_store.read_yaml("preproc.yml", default={})
         raw_params: dict[str, Any] | None = None

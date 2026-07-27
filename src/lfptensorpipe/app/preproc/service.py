@@ -24,7 +24,14 @@ from .steps.annotations import (
     load_annotations_csv_rows as _load_annotations_csv_rows_impl,
 )
 from .steps.bad_segment import apply_bad_segment_step as _apply_bad_segment_step_impl
-from .steps.ecg import apply_ecg_step as _apply_ecg_step_impl
+from .steps.ecg import (
+    apply_ecg_step as _apply_ecg_step_impl,
+    default_ecg_method_params as _default_ecg_method_params_impl,
+    default_ecg_params_by_method as _default_ecg_params_by_method_impl,
+    ecg_method_runtime_kwargs as _ecg_method_runtime_kwargs_impl,
+    normalize_ecg_method_params as _normalize_ecg_method_params_impl,
+    normalize_ecg_params_by_method as _normalize_ecg_params_by_method_impl,
+)
 from .steps.finish import (
     apply_finish_step as _apply_finish_step_impl,
     resolve_finish_source as _resolve_finish_source_impl,
@@ -74,6 +81,45 @@ def normalize_filter_advance_params(
     params: dict[str, Any] | None,
 ) -> tuple[bool, dict[str, Any], str]:
     return _normalize_filter_advance_params_impl(params)
+
+
+def default_ecg_method_params(method: str) -> dict[str, Any]:
+    return _default_ecg_method_params_impl(method)
+
+
+def default_ecg_params_by_method() -> dict[str, dict[str, Any]]:
+    return _default_ecg_params_by_method_impl()
+
+
+def normalize_ecg_method_params(
+    method: str,
+    params: dict[str, Any] | None,
+    *,
+    base_params: dict[str, Any] | None = None,
+) -> tuple[bool, dict[str, Any], str]:
+    return _normalize_ecg_method_params_impl(
+        method,
+        params,
+        base_params=base_params,
+    )
+
+
+def normalize_ecg_params_by_method(
+    params_by_method: Any,
+    *,
+    base_by_method: dict[str, dict[str, Any]] | None = None,
+) -> tuple[bool, dict[str, dict[str, Any]], str]:
+    return _normalize_ecg_params_by_method_impl(
+        params_by_method,
+        base_by_method=base_by_method,
+    )
+
+
+def ecg_method_runtime_kwargs(
+    method: str,
+    params: dict[str, Any] | None,
+) -> tuple[bool, dict[str, Any], dict[str, Any], str]:
+    return _ecg_method_runtime_kwargs_impl(method, params)
 
 
 def rawdata_input_fif_path(context: RecordContext) -> Path:
@@ -238,6 +284,7 @@ def apply_ecg_step(
     *,
     method: str = "svd",
     picks: list[str] | tuple[str, ...] | None = None,
+    method_kwargs: dict[str, Any] | None = None,
     read_raw_fif_fn: Any | None = None,
     raw_call_ecgremover_fn: Any | None = None,
 ) -> tuple[bool, str]:
@@ -245,6 +292,7 @@ def apply_ecg_step(
         context,
         method=method,
         picks=picks,
+        method_kwargs=method_kwargs,
         ecg_methods=ECG_METHODS,
         mark_preproc_step_fn=mark_preproc_step,
         invalidate_downstream_fn=invalidate_downstream_preproc_steps,
@@ -318,5 +366,11 @@ def preproc_ecg_panel_state(
     *,
     method: Any,
     picks: Any,
+    method_kwargs: dict[str, Any] | None = None,
 ) -> str:
-    return _preproc_ecg_panel_state_impl(resolver, method=method, picks=picks)
+    return _preproc_ecg_panel_state_impl(
+        resolver,
+        method=method,
+        picks=picks,
+        method_kwargs=method_kwargs,
+    )

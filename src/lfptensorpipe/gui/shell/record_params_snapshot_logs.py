@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
+import yaml
+
 from lfptensorpipe.app import load_alignment_epoch_picks
 from lfptensorpipe.gui.shell.common import (
     Any,
@@ -12,8 +16,10 @@ from lfptensorpipe.gui.shell.common import (
     _deep_merge_dict,
     _nested_get,
     alignment_paradigm_log_path,
+    default_ecg_method_params,
     load_annotations_csv_rows,
     read_run_log,
+    normalize_ecg_method_params,
     tensor_metric_log_path,
 )
 
@@ -33,6 +39,7 @@ class MainWindowRecordParamsSnapshotLogsMixin:
     def _build_master_record_params_snapshot(
         self, context: RecordContext
     ) -> dict[str, Any]:
+        ecg_defaults = self._load_ecg_advance_defaults()
         return {
             "preproc": {
                 "filter": {
@@ -43,12 +50,20 @@ class MainWindowRecordParamsSnapshotLogsMixin:
                 "ecg": {
                     "method": "svd",
                     "selected_channels": [],
+                    "params_by_method": deepcopy(ecg_defaults),
                 },
                 "viz": {
                     "psd_params": dict(self._load_preproc_viz_psd_defaults()),
                     "tfr_params": dict(self._load_preproc_viz_tfr_defaults()),
                     "selected_channels": [],
                     "selected_step": None,
+                },
+                "step_params": {
+                    "ecg": {
+                        "method": "svd",
+                        "selected_channels": [],
+                        "params_by_method": deepcopy(ecg_defaults),
+                    },
                 },
             },
             "tensor": {
@@ -131,10 +146,45 @@ class MainWindowRecordParamsSnapshotLogsMixin:
             picks = ecg_params.get("picks")
             if isinstance(method, str):
                 snapshot["preproc"]["ecg"]["method"] = method
+                snapshot["preproc"]["step_params"]["ecg"]["method"] = method
             if isinstance(picks, list):
-                snapshot["preproc"]["ecg"]["selected_channels"] = [
-                    str(item) for item in picks if str(item).strip()
-                ]
+                selected_channels = [str(item) for item in picks if str(item).strip()]
+                snapshot["preproc"]["ecg"]["selected_channels"] = selected_channels
+                snapshot["preproc"]["step_params"]["ecg"]["selected_channels"] = list(
+                    selected_channels
+                )
+            if isinstance(method, str):
+                method_kwargs = ecg_params.get("method_kwargs")
+                if not isinstance(method_kwargs, dict):
+                    config_path = (
+                        resolver.preproc_root / "ecg_artifact_removal" / "config.yml"
+                    )
+                    try:
+                        config_payload = yaml.safe_load(
+                            config_path.read_text(encoding="utf-8")
+                        )
+                    except Exception:
+                        config_payload = None
+                    if isinstance(config_payload, dict) and isinstance(
+                        config_payload.get("method_kwargs"), dict
+                    ):
+                        method_kwargs = config_payload["method_kwargs"]
+                if not isinstance(method_kwargs, dict):
+                    try:
+                        method_kwargs = default_ecg_method_params(method)
+                    except ValueError:
+                        method_kwargs = None
+                if isinstance(method_kwargs, dict):
+                    ok_params, normalized_params, _ = normalize_ecg_method_params(
+                        method, method_kwargs
+                    )
+                    if ok_params:
+                        snapshot["preproc"]["ecg"]["params_by_method"][
+                            method
+                        ] = normalized_params
+                        snapshot["preproc"]["step_params"]["ecg"]["params_by_method"][
+                            method
+                        ] = deepcopy(normalized_params)
 
     def _merge_tensor_logs_into_snapshot(
         self, snapshot: dict[str, Any], resolver: PathResolver

@@ -130,6 +130,8 @@ class MainWindowPreprocStageMixin:
                 self._preproc_bad_segment_apply_button.setEnabled(False)
             if self._preproc_bad_segment_plot_button is not None:
                 self._preproc_bad_segment_plot_button.setEnabled(False)
+            if self._preproc_ecg_advance_button is not None:
+                self._preproc_ecg_advance_button.setEnabled(False)
             if self._preproc_ecg_apply_button is not None:
                 self._preproc_ecg_apply_button.setEnabled(False)
             if self._preproc_ecg_plot_button is not None:
@@ -195,6 +197,9 @@ class MainWindowPreprocStageMixin:
             resolver,
             method=ecg_method,
             picks=list(self._preproc_ecg_selected_channels),
+            method_kwargs=self._preproc_ecg_params_by_method.get(
+                str(ecg_method),
+            ),
         )
         self._set_preproc_step_indicator("filter", filter_panel_state)
         self._set_preproc_step_indicator("annotations", annotations_panel_state)
@@ -255,6 +260,10 @@ class MainWindowPreprocStageMixin:
         if self._preproc_bad_segment_plot_button is not None:
             self._preproc_bad_segment_plot_button.setEnabled(
                 bad_segment_log_state == "green" and bad_segment_raw_exists
+            )
+        if self._preproc_ecg_advance_button is not None:
+            self._preproc_ecg_advance_button.setEnabled(
+                bad_segment_log_state == "green"
             )
         if self._preproc_ecg_apply_button is not None:
             self._preproc_ecg_apply_button.setEnabled(bad_segment_log_state == "green")

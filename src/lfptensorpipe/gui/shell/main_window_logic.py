@@ -193,8 +193,10 @@ class MainWindow(
         self._preproc_ecg_channels_button: QPushButton | None = None
         self._preproc_ecg_available_channels: tuple[str, ...] = ()
         self._preproc_ecg_selected_channels: tuple[str, ...] = ()
+        self._preproc_ecg_advance_button: QPushButton | None = None
         self._preproc_ecg_apply_button: QPushButton | None = None
         self._preproc_ecg_plot_button: QPushButton | None = None
+        self._preproc_ecg_params_warnings_shown: set[str] = set()
         self._preproc_finish_apply_button: QPushButton | None = None
         self._preproc_finish_plot_button: QPushButton | None = None
         self._preproc_step_indicators: dict[str, QLabel] = {}
@@ -327,6 +329,7 @@ class MainWindow(
         self._localize_matlab_timer.timeout.connect(self._poll_localize_matlab_status)
         self._left_column_widget: QWidget | None = None
         self._preproc_filter_advance_params = self._load_filter_advance_defaults()
+        self._preproc_ecg_params_by_method = self._load_ecg_advance_defaults()
         self._preproc_viz_psd_params = self._load_preproc_viz_psd_defaults()
         self._preproc_viz_tfr_params = self._load_preproc_viz_tfr_defaults()
         self._preproc_viz_last_step: str | None = None

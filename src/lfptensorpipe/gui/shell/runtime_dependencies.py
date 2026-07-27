@@ -63,6 +63,7 @@ from lfptensorpipe.gui.dialogs.alignment_method_params import (
 from lfptensorpipe.gui.dialogs.annotation_configure import AnnotationConfigureDialog
 from lfptensorpipe.gui.dialogs.autosave_filter import _CloseAutosaveFilter
 from lfptensorpipe.gui.dialogs.channel_select import ChannelSelectDialog
+from lfptensorpipe.gui.dialogs.ecg_advance import ECGAdvanceDialog
 from lfptensorpipe.gui.dialogs.feature_axis import FeatureAxisConfigureDialog
 from lfptensorpipe.gui.dialogs.features_plot_advance import FeaturesPlotAdvanceDialog
 from lfptensorpipe.gui.dialogs.filter_advance import FilterAdvanceDialog
@@ -153,6 +154,9 @@ class MainWindowRuntimeDependenciesMixin:
 
     def _create_filter_advance_dialog(self, **kwargs: Any) -> FilterAdvanceDialog:
         return FilterAdvanceDialog(**kwargs)
+
+    def _create_ecg_advance_dialog(self, **kwargs: Any) -> ECGAdvanceDialog:
+        return ECGAdvanceDialog(**kwargs)
 
     def _create_annotation_configure_dialog(
         self,

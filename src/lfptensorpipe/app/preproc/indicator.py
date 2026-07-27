@@ -5,11 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import read_run_log
 
-from .paths import preproc_step_log_path
+from .paths import preproc_step_config_path, preproc_step_log_path
 from .steps.annotations import _normalize_annotation_rows
+from .steps.ecg import normalize_ecg_method_params
 from .steps.filter import normalize_filter_advance_params
 
 
@@ -184,6 +187,7 @@ def _normalize_ecg_signature(
     *,
     method: Any,
     picks: Any,
+    method_kwargs: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
     method_name = str(method).strip().lower()
     if not method_name:
@@ -196,19 +200,49 @@ def _normalize_ecg_signature(
         )
     else:
         return None
+    ok_params, normalized_params, _ = normalize_ecg_method_params(
+        method_name,
+        method_kwargs,
+    )
+    if not ok_params:
+        return None
     return {
         "method": method_name,
         "picks": normalized_picks,
+        "method_kwargs": normalized_params,
     }
 
 
-def _ecg_signature_from_log(payload: dict[str, Any]) -> dict[str, Any] | None:
+def _read_ecg_config_method_kwargs(
+    resolver: PathResolver,
+) -> dict[str, Any] | None:
+    path = preproc_step_config_path(resolver, "ecg_artifact_removal")
+    if not path.exists():
+        return None
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    method_kwargs = payload.get("method_kwargs")
+    return method_kwargs if isinstance(method_kwargs, dict) else None
+
+
+def _ecg_signature_from_log(
+    resolver: PathResolver,
+    payload: dict[str, Any],
+) -> dict[str, Any] | None:
     params = payload.get("params")
     if not isinstance(params, dict):
         return None
+    method_kwargs = params.get("method_kwargs")
+    if not isinstance(method_kwargs, dict):
+        method_kwargs = _read_ecg_config_method_kwargs(resolver)
     return _normalize_ecg_signature(
         method=params.get("method"),
         picks=params.get("picks"),
+        method_kwargs=method_kwargs,
     )
 
 
@@ -217,6 +251,7 @@ def preproc_ecg_panel_state(
     *,
     method: Any,
     picks: Any,
+    method_kwargs: dict[str, Any] | None = None,
 ) -> str:
     """Return `gray|yellow|green` for the editable ECG panel."""
     payload = _read_payload(preproc_step_log_path(resolver, "ecg_artifact_removal"))
@@ -226,8 +261,12 @@ def preproc_ecg_panel_state(
     if state == "yellow":
         return "yellow"
     assert payload is not None
-    completed_signature = _ecg_signature_from_log(payload)
-    current_signature = _normalize_ecg_signature(method=method, picks=picks)
+    completed_signature = _ecg_signature_from_log(resolver, payload)
+    current_signature = _normalize_ecg_signature(
+        method=method,
+        picks=picks,
+        method_kwargs=method_kwargs,
+    )
     if completed_signature is None:
         return "green"
     if current_signature is None:
