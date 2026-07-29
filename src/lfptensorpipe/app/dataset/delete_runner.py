@@ -73,11 +73,17 @@ def delete_record(
     if not deleted:
         return result_cls(
             ok=False,
-            message=f"No record artifacts found for {normalized_subject}/{normalized_record}.",
+            message=(
+                "No selected record artifacts found for "
+                f"{normalized_subject}/{normalized_record}."
+            ),
             deleted_paths=(),
         )
     return result_cls(
         ok=True,
-        message=f"Deleted record artifacts for {normalized_subject}/{normalized_record}.",
+        message=(
+            "Deleted selected record artifacts for "
+            f"{normalized_subject}/{normalized_record}."
+        ),
         deleted_paths=tuple(deleted),
     )

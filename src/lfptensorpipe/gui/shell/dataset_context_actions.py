@@ -5,7 +5,6 @@ from __future__ import annotations
 from lfptensorpipe.gui.shell.common import (
     Path,
     QDialog,
-    QMessageBox,
     validate_record_name,
 )
 
@@ -154,32 +153,45 @@ class MainWindowDatasetContextActionsMixin:
             )
             return
 
-        confirm = self._ask_question(
-            "Record -",
-            f"Delete all artifacts for record '{self._current_record}'?",
+        selected_record = str(self._current_record)
+        dialog = self._create_record_delete_dialog(
+            project_root=self._current_project,
+            subject=self._current_subject,
+            record=selected_record,
+            parent=self,
         )
-        if confirm != QMessageBox.Yes:
+        if dialog.exec() != QDialog.Accepted:
             return
+        scopes = dialog.selected_scopes
 
         result = self._run_with_busy(
             "Record Delete",
             lambda: self._delete_record_runtime(
                 project_root=self._current_project,
                 subject=self._current_subject,
-                record=self._current_record,
+                record=selected_record,
+                scopes=scopes,
                 read_only_project_root=self._demo_data_source_readonly,
             ),
         )
+
+        if result.ok or result.deleted_paths:
+            records = self._discover_records_runtime(
+                self._current_project,
+                self._current_subject,
+            )
+            self._set_record_values(records)
+            if not self._select_record_item(selected_record):
+                self._set_empty_record_context()
+
         if not result.ok:
-            self._show_warning("Record -", result.message)
+            message = result.message
+            if result.deleted_paths:
+                deleted_text = "\n".join(str(path) for path in result.deleted_paths)
+                message = f"{message}\n\nDeleted before failure:\n{deleted_text}"
+            self._show_warning("Record -", message)
             return
 
-        records = self._discover_records_runtime(
-            self._current_project,
-            self._current_subject,
-        )
-        self._set_record_values(records)
-        self._set_empty_record_context()
         self.statusBar().showMessage(result.message)
 
     def _on_record_rename(self) -> None:

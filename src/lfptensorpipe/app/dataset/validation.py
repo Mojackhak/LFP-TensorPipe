@@ -9,6 +9,7 @@ from lfptensorpipe.app.dataset_index import discover_subjects
 
 SUBJECT_PATTERN = re.compile(r"^sub-[A-Za-z0-9]+$")
 RECORD_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+RECORD_DELETE_SCOPES = ("derivatives", "rawdata", "sourcedata")
 
 
 def validate_subject_name(subject: str) -> tuple[bool, str]:
@@ -51,7 +52,7 @@ def create_subject(project_root: Path, subject: str) -> tuple[bool, str]:
 def record_artifact_roots(
     project_root: Path, subject: str, record: str
 ) -> tuple[Path, ...]:
-    """Return all known record roots for deletion scan."""
+    """Return all known record roots for legacy-aware record operations."""
     return (
         project_root / "derivatives" / "lfptensorpipe" / subject / record,
         project_root / "sourcedata" / subject / record,
@@ -59,6 +60,19 @@ def record_artifact_roots(
         project_root / "rawdata" / subject / record,
         project_root / "rawdata" / subject / "ses-postop" / "lfp" / record,
     )
+
+
+def record_delete_scope_paths(
+    project_root: Path, subject: str, record: str
+) -> dict[str, Path]:
+    """Return standard record roots keyed by delete scope."""
+    return {
+        "derivatives": (
+            project_root / "derivatives" / "lfptensorpipe" / subject / record
+        ),
+        "rawdata": (project_root / "rawdata" / subject / "ses-postop" / "lfp" / record),
+        "sourcedata": project_root / "sourcedata" / subject / "lfp" / record,
+    }
 
 
 def rawdata_record_fif_path(project_root: Path, subject: str, record: str) -> Path:

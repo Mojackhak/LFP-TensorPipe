@@ -46,7 +46,16 @@ on the selected project, subject, and record.
 | `Record` | Selects the active record under the current subject. | Localize and all stage pages. | Requires a selected subject. |
 | `Record +` | Opens the record import dialog. | Creates a new record when the import completes successfully. | Requires a selected subject. |
 | `Record R` | Renames the selected record while preserving compatible downstream artifacts. | Record name and artifact paths that track that name. | Requires exactly one selected record. |
-| `Record -` | Deletes the selected record and its derived artifacts. | Record inventory and downstream files for that record. | Requires exactly one selected record. |
+| `Record -` | Opens a permanent-delete dialog for the selected record. | The selected standard `Derivatives`, `Rawdata`, and/or `Sourcedata` record roots. | Requires exactly one selected record; `Derivatives` is selected by default. |
+
+`Record -` deletes only the selected standard record roots:
+
+- `Derivatives`: `<project>/derivatives/lfptensorpipe/<subject>/<record>`
+- `Rawdata`: `<project>/rawdata/<subject>/ses-postop/lfp/<record>`
+- `Sourcedata`: `<project>/sourcedata/<subject>/lfp/<record>`
+
+The dialog defaults to `Derivatives` only and disables `Delete` when no scope is
+selected. Deletion is permanent and does not move files to Trash.
 
 ### 2.2 Localize Summary Row
 

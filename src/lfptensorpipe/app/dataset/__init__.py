@@ -7,6 +7,7 @@ IO/compute to backend modules.
 from __future__ import annotations
 
 from .service import (
+    RECORD_DELETE_SCOPES,
     RecordDeleteResult,
     RecordImportResult,
     RecordRenameResult,
@@ -21,12 +22,14 @@ from .service import (
     load_import_channel_names,
     parse_record_source,
     persist_import_sync_artifacts,
+    record_delete_scope_paths,
     rename_record,
     validate_record_name,
     validate_subject_name,
 )
 
 __all__ = [
+    "RECORD_DELETE_SCOPES",
     "RecordDeleteResult",
     "RecordImportResult",
     "RecordRenameResult",
@@ -41,6 +44,7 @@ __all__ = [
     "load_import_channel_names",
     "parse_record_source",
     "persist_import_sync_artifacts",
+    "record_delete_scope_paths",
     "rename_record",
     "validate_record_name",
     "validate_subject_name",

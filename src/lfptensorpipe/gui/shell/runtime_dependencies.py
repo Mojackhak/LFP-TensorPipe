@@ -71,6 +71,7 @@ from lfptensorpipe.gui.dialogs.localize_atlas import LocalizeAtlasDialog
 from lfptensorpipe.gui.dialogs.localize_match import LocalizeMatchDialog
 from lfptensorpipe.gui.dialogs.paths_config import PathsConfigDialog
 from lfptensorpipe.gui.dialogs.qc_advance import QcAdvanceDialog
+from lfptensorpipe.gui.dialogs.record_delete import RecordDeleteDialog
 from lfptensorpipe.gui.dialogs.record_import import RecordImportDialog
 from lfptensorpipe.gui.dialogs.tensor_channel_select import TensorChannelSelectDialog
 from lfptensorpipe.gui.dialogs.tensor_metric_advance import TensorMetricAdvanceDialog
@@ -139,6 +140,9 @@ class MainWindowRuntimeDependenciesMixin:
 
     def _create_record_import_dialog(self, **kwargs: Any) -> RecordImportDialog:
         return RecordImportDialog(**kwargs)
+
+    def _create_record_delete_dialog(self, **kwargs: Any) -> RecordDeleteDialog:
+        return RecordDeleteDialog(**kwargs)
 
     def _create_paths_config_dialog(self, **kwargs: Any) -> PathsConfigDialog:
         return PathsConfigDialog(**kwargs)

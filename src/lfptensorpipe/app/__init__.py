@@ -11,6 +11,7 @@ from importlib import import_module
 from typing import Any
 
 _DATASET_EXPORTS = (
+    "RECORD_DELETE_SCOPES",
     "RecordDeleteResult",
     "RecordImportResult",
     "RecordRenameResult",
@@ -25,6 +26,7 @@ _DATASET_EXPORTS = (
     "load_import_channel_names",
     "parse_record_source",
     "persist_import_sync_artifacts",
+    "record_delete_scope_paths",
     "rename_record",
     "validate_record_name",
     "validate_subject_name",

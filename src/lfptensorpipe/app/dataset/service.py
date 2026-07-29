@@ -33,14 +33,18 @@ from .rename_runner import (
     rename_record as _rename_record_impl,
 )
 from .validation import (
+    RECORD_DELETE_SCOPES as _RECORD_DELETE_SCOPES,
     create_subject as _create_subject_impl,
     derivatives_record_root as _derivatives_record_root_impl,
     rawdata_record_fif_path as _rawdata_record_fif_path_impl,
     record_artifact_roots as _record_artifact_roots_impl,
+    record_delete_scope_paths as _record_delete_scope_paths_impl,
     sourcedata_record_raw_dir as _sourcedata_record_raw_dir_impl,
     validate_record_name as _validate_record_name_impl,
     validate_subject_name as _validate_subject_name_impl,
 )
+
+RECORD_DELETE_SCOPES = _RECORD_DELETE_SCOPES
 
 
 @dataclass(frozen=True)
@@ -82,6 +86,12 @@ def record_artifact_roots(
     project_root: Path, subject: str, record: str
 ) -> tuple[Path, ...]:
     return _record_artifact_roots_impl(project_root, subject, record)
+
+
+def record_delete_scope_paths(
+    project_root: Path, subject: str, record: str
+) -> dict[str, Path]:
+    return _record_delete_scope_paths_impl(project_root, subject, record)
 
 
 def rawdata_record_fif_path(project_root: Path, subject: str, record: str) -> Path:
@@ -278,10 +288,45 @@ def delete_record(
     project_root: Path,
     subject: str,
     record: str,
+    scopes: tuple[str, ...] | None = None,
     read_only_project_root: Path | None = None,
     record_artifact_roots_fn: Any | None = None,
     rmtree_fn: Any | None = None,
 ) -> RecordDeleteResult:
+    requested_scopes = RECORD_DELETE_SCOPES if scopes is None else tuple(scopes)
+    unknown_scopes = sorted(set(requested_scopes) - set(RECORD_DELETE_SCOPES))
+    if unknown_scopes:
+        return RecordDeleteResult(
+            ok=False,
+            message=f"Unknown record delete scope(s): {', '.join(unknown_scopes)}.",
+        )
+    normalized_scopes = tuple(
+        scope for scope in RECORD_DELETE_SCOPES if scope in requested_scopes
+    )
+    if not normalized_scopes:
+        return RecordDeleteResult(
+            ok=False,
+            message="Select at least one record delete scope.",
+        )
+
+    if record_artifact_roots_fn is None:
+
+        def selected_roots_fn(
+            root: Path,
+            normalized_subject: str,
+            normalized_record: str,
+        ) -> tuple[Path, ...]:
+            paths = record_delete_scope_paths(
+                root,
+                normalized_subject,
+                normalized_record,
+            )
+            return tuple(paths[scope] for scope in normalized_scopes)
+
+        roots_fn = selected_roots_fn
+    else:
+        roots_fn = record_artifact_roots_fn
+
     return _delete_record_impl(
         project_root=project_root,
         subject=subject,
@@ -289,7 +334,7 @@ def delete_record(
         result_cls=RecordDeleteResult,
         validate_subject_name_fn=validate_subject_name,
         validate_record_name_fn=validate_record_name,
-        record_artifact_roots_fn=record_artifact_roots_fn or record_artifact_roots,
+        record_artifact_roots_fn=roots_fn,
         rmtree_fn=rmtree_fn or shutil.rmtree,
         read_only_project_root=read_only_project_root,
     )
