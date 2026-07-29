@@ -6,7 +6,7 @@ from typing import Any
 
 from PySide6.QtCore import Qt
 from lfptensorpipe.app import (
-    default_alignment_method_params,
+    load_alignment_method_default_params,
     save_alignment_method_default_params,
     validate_alignment_method_params,
 )
@@ -78,6 +78,49 @@ def _collect_candidate_params(dialog) -> dict[str, Any]:
     return candidate
 
 
+def _filter_restored_params_for_labels(
+    method_key: str,
+    params: dict[str, Any],
+    *,
+    annotation_labels: list[str],
+) -> dict[str, Any]:
+    restored = dict(params)
+    available = {str(item).strip() for item in annotation_labels if str(item).strip()}
+    if method_key in {"pad_warper", "stack_warper", "concat_warper"}:
+        annotations = restored.get("annotations", [])
+        restored["annotations"] = (
+            [
+                str(item).strip()
+                for item in annotations
+                if str(item).strip() in available
+            ]
+            if isinstance(annotations, list)
+            else []
+        )
+        return restored
+
+    if method_key != "linear_warper":
+        return restored
+    raw_anchors = restored.get("anchors_percent", {})
+    anchors = (
+        {
+            percent: str(label).strip()
+            for percent, label in raw_anchors.items()
+            if str(label).strip() in available
+        }
+        if isinstance(raw_anchors, dict)
+        else {}
+    )
+    if anchors:
+        candidate = dict(restored)
+        candidate["anchors_percent"] = anchors
+        ok, _, _ = validate_alignment_method_params(method_key, candidate)
+        if not ok:
+            anchors = {}
+    restored["anchors_percent"] = anchors
+    return restored
+
+
 def _on_save(dialog) -> None:
     _validate_all_table_cells(dialog)
     if dialog._table_validation_error:
@@ -131,6 +174,14 @@ def _on_set_as_default(dialog) -> None:
 
 
 def _on_restore_default(dialog) -> None:
-    restored = default_alignment_method_params(dialog._method_key)
+    restored = load_alignment_method_default_params(
+        dialog._config_store,
+        method_key=dialog._method_key,
+    )
+    restored = _filter_restored_params_for_labels(
+        dialog._method_key,
+        restored,
+        annotation_labels=dialog._annotation_labels,
+    )
     dialog._apply_common(restored)
     dialog._build_method_ui(restored)

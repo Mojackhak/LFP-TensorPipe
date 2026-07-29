@@ -784,6 +784,24 @@ inspection, and the final finished epoch selection.
 | `Import Configs...` | Loads an alignment configuration for the current trial. | Trial configuration payload. | Requires a selected trial. |
 | `Export Configs...` | Saves the current trial configuration. | External alignment config file. | Requires a selected trial. |
 
+**Method default behavior**
+
+The four method-parameter dialogs store app defaults independently for
+`linear_warper`, `pad_warper`, `stack_warper`, and `concat_warper`.
+`Set as Default` replaces the complete default parameter set for the active
+method without changing the other method defaults or the current trial.
+`Restore Default` loads the saved default for the active method into the dialog
+draft; it uses the built-in method default only when no saved entry exists.
+The current trial changes only after `Save` is selected.
+
+During restore, annotations that are unavailable in the current trial remain
+unselected. For `linear_warper`, anchors that reference unavailable annotations
+are removed. If the remaining anchors do not form a valid mapping, the anchor
+table is left empty so the existing automatic-anchor behavior remains
+available. Missing references do not produce warnings, error highlighting,
+fuzzy matching, or automatic replacements. This filtering changes only the
+dialog draft and does not modify the saved app default.
+
 ### 8.2 Epoch Inspector
 
 | Control | What it does | What it affects | Availability / blocking rule |
@@ -813,9 +831,9 @@ inspection, and the final finished epoch selection.
 | `epoch duration max` | Sets an optional upper bound on accepted epoch duration in seconds. | Epoch eligibility before alignment. | Optional. |
 | `linear warp` | Enables piecewise linear warping between anchors. | Anchor-to-anchor interpolation behavior. | Line-up-by-key-events methods only. |
 | `percent tolerance` | Sets how far an observed anchor can deviate from its requested target position before the epoch is treated as a poor fit. Larger values are more permissive; smaller values enforce stricter geometric consistency. | Anchor-warp validation. | Anchor methods only. |
-| `Set as Default` | Saves the current method parameters as defaults for this alignment method. | Future method defaults. | Always available. |
-| `Restore Default` | Restores saved defaults for this alignment method. | Current dialog values. | Always available. |
-| `Save` | Saves the dialog values back to the Align page. | Method configuration payload. | Blocks on invalid values. |
+| `Set as Default` | Saves the complete displayed parameter set as the app default for this alignment method. | Active method app default; the current trial is unchanged. | Blocks on invalid values. |
+| `Restore Default` | Loads the saved default for this alignment method into the dialog draft. | Current dialog values; the current trial is unchanged until `Save` is selected. | Always available. |
+| `Save` | Applies the displayed dialog values to the current trial. | Method configuration payload. | Blocks on invalid values. |
 | `Cancel` | Closes the dialog without saving. | No parameter update. | Always available. |
 
 **Notes**
@@ -839,9 +857,9 @@ inspection, and the final finished epoch selection.
 | `pad right` | Adds extra time after annotation end. Use it to capture post-event context. | Event-anchored clip window. | Clip-style methods only. |
 | `duration min` | Sets a minimum annotation duration in seconds for an event to be eligible. | Epoch eligibility before clipping. | Clip-style methods only. |
 | `duration max` | Sets a maximum annotation duration in seconds for an event to be eligible. | Epoch eligibility before clipping. | Clip-style methods only. |
-| `Set as Default` | Saves the current method parameters as defaults for this alignment method. | Future method defaults. | Always available. |
-| `Restore Default` | Restores saved defaults for this alignment method. | Current dialog values. | Always available. |
-| `Save` | Saves the dialog values back to the Align page. | Method configuration payload. | Blocks on invalid values. |
+| `Set as Default` | Saves the complete displayed parameter set as the app default for this alignment method. | Active method app default; the current trial is unchanged. | Blocks on invalid values. |
+| `Restore Default` | Loads the saved default for this alignment method into the dialog draft. | Current dialog values; the current trial is unchanged until `Save` is selected. | Always available. |
+| `Save` | Applies the displayed dialog values to the current trial. | Method configuration payload. | Blocks on invalid values. |
 | `Cancel` | Closes the dialog without saving. | No parameter update. | Always available. |
 
 **Notes**
@@ -861,9 +879,9 @@ inspection, and the final finished epoch selection.
 | `Select All` / `Clear` | Select or clear all labels in the checklist. | Annotation checklist. | Visible for annotation-list methods. |
 | `duration min` | Sets a minimum annotation duration in seconds. | Epoch eligibility before stacking. | Stack-style methods only. |
 | `duration max` | Sets a maximum annotation duration in seconds. | Epoch eligibility before stacking. | Stack-style methods only. |
-| `Set as Default` | Saves the current method parameters as defaults for this alignment method. | Future method defaults. | Always available. |
-| `Restore Default` | Restores saved defaults for this alignment method. | Current dialog values. | Always available. |
-| `Save` | Saves the dialog values back to the Align page. | Method configuration payload. | Blocks on invalid values. |
+| `Set as Default` | Saves the complete displayed parameter set as the app default for this alignment method. | Active method app default; the current trial is unchanged. | Blocks on invalid values. |
+| `Restore Default` | Loads the saved default for this alignment method into the dialog draft. | Current dialog values; the current trial is unchanged until `Save` is selected. | Always available. |
+| `Save` | Applies the displayed dialog values to the current trial. | Method configuration payload. | Blocks on invalid values. |
 | `Cancel` | Closes the dialog without saving. | No parameter update. | Always available. |
 
 **Notes**
@@ -881,9 +899,9 @@ inspection, and the final finished epoch selection.
 | `drop bad/edge` | Drops epochs overlapping annotations containing `bad` or `edge`. | Which epochs remain eligible for alignment. | Always available. |
 | `annotations` checklist | Chooses which labels are kept when stitching selected event windows together. | Alignment input event set. | Visible for annotation-list methods. |
 | `Select All` / `Clear` | Select or clear all labels in the checklist. | Annotation checklist. | Visible for annotation-list methods. |
-| `Set as Default` | Saves the current method parameters as defaults for this alignment method. | Future method defaults. | Always available. |
-| `Restore Default` | Restores saved defaults for this alignment method. | Current dialog values. | Always available. |
-| `Save` | Saves the dialog values back to the Align page. | Method configuration payload. | Blocks on invalid values. |
+| `Set as Default` | Saves the complete displayed parameter set as the app default for this alignment method. | Active method app default; the current trial is unchanged. | Blocks on invalid values. |
+| `Restore Default` | Loads the saved default for this alignment method into the dialog draft. | Current dialog values; the current trial is unchanged until `Save` is selected. | Always available. |
+| `Save` | Applies the displayed dialog values to the current trial. | Method configuration payload. | Blocks on invalid values. |
 | `Cancel` | Closes the dialog without saving. | No parameter update. | Always available. |
 
 **Notes**
