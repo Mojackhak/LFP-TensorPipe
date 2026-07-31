@@ -515,7 +515,7 @@ and the execution of tensor generation.
 | `Status` | Reports the active metric state within the current slice. | User feedback only. | Read-only. |
 | `Import Configs...` | Loads a tensor configuration payload. | Current page configuration. | Requires a selected record. |
 | `Export Configs...` | Saves the current tensor configuration payload. | External tensor config file. | Requires a selected record. |
-| `Mask Edge Effects` | Masks samples near the temporal edges where the analysis window or wavelet does not have full support. It protects downstream plots and summaries from edge artifacts, but it does not change the valid central region or the requested frequency range. | Runtime build behavior. | Always available. |
+| `Mask Edge Effects` | Treats samples within annotations whose labels contain `bad` or `edge` as edge-affected. When checked, these samples are masked for non-burst metrics. Burst always excludes the same annotated intervals internally because they must be removed before threshold estimation and event detection. | Non-burst runtime build behavior. | Always available; does not affect Burst. |
 | `Build Tensor` | Runs tensor generation for all checked metrics. | Tensor outputs for the current record. | Requires preprocess finish outputs and valid metric settings. |
 
 **Parameter meaning**
