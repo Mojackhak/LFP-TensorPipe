@@ -180,6 +180,10 @@ class MainWindowAlignmentParadigmsMixin:
             context=context,
         )
         if not ok:
+            self._reload_alignment_paradigms(preferred_slug=slug)
+            self._reload_features_paradigms(
+                preferred_slug=self._shared_stage_trial_slug()
+            )
             self._show_warning("Trial -", message)
             return
         self._set_shared_stage_trial_slug(None)

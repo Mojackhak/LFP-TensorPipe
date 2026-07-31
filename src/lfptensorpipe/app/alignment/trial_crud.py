@@ -139,11 +139,17 @@ def _remove_trial_artifacts(
     resolver: PathResolver,
     slug: str,
 ) -> bool:
+    def raise_unless_missing(_function: Any, _path: str, exc_info: Any) -> None:
+        error = exc_info[1]
+        if isinstance(error, FileNotFoundError):
+            return
+        raise error
+
     removed_any = False
     for path in _trial_artifact_dirs(resolver=resolver, slug=slug):
         if not path.exists():
             continue
-        shutil.rmtree(path, ignore_errors=False)
+        shutil.rmtree(path, ignore_errors=False, onerror=raise_unless_missing)
         removed_any = True
     return removed_any
 
