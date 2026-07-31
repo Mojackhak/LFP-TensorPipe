@@ -11,6 +11,10 @@ from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.shared.downstream_invalidation import (
     invalidate_after_alignment_run,
 )
+from lfptensorpipe.utils.transforms import (
+    convert_transform_domain_array,
+    transform_policy_from_metadata,
+)
 
 from . import service as svc
 from .epoch_view import _epoch_duration_s
@@ -179,12 +183,24 @@ def run_align_epochs(
                     f"Tensor metadata missing time axis for metric: {metric_key}"
                 )
             sr = infer_sfreq_from_times(axes.get("time"), default=40.0)
-            warped, percent_axis, meta_epochs = warp_fn(
+            transform_policy = transform_policy_from_metadata(meta_in)
+            interpolation_input = convert_transform_domain_array(
                 tensor_3d,
+                mode=transform_policy.mode,
+                source_domain=transform_policy.tensor_storage_domain,
+                target_domain=transform_policy.interpolation_domain,
+            )
+            warped, percent_axis, meta_epochs = warp_fn(
+                interpolation_input,
                 sr=float(sr),
                 n_samples=n_samples,
             )
-            warped_arr = np.asarray(warped, dtype=float)
+            warped_arr = convert_transform_domain_array(
+                np.asarray(warped, dtype=float),
+                mode=transform_policy.mode,
+                source_domain=transform_policy.interpolation_domain,
+                target_domain=transform_policy.tensor_storage_domain,
+            )
             if warped_arr.ndim != 4:
                 raise ValueError(
                     f"Warped tensor has invalid shape for {metric_key}: {warped_arr.shape}"

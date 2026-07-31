@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from lfptensorpipe.utils.transforms import TransformMode
+
 
 @dataclass(frozen=True)
 class TensorMetricSpec:
@@ -13,15 +15,23 @@ class TensorMetricSpec:
     display_name: str
     group_name: str
     supported: bool = False
+    value_transform_mode: TransformMode = "none"
 
 
 TENSOR_METRICS: tuple[TensorMetricSpec, ...] = (
-    TensorMetricSpec("raw_power", "Raw power", "Power", supported=True),
+    TensorMetricSpec(
+        "raw_power",
+        "Raw power",
+        "Power",
+        supported=True,
+        value_transform_mode="dB",
+    ),
     TensorMetricSpec(
         "periodic_aperiodic",
         "Periodic/APeriodic (SpecParam)",
         "Power",
         supported=True,
+        value_transform_mode="dB",
     ),
     TensorMetricSpec(
         "coherence", "Coherence", "Undirected Connectivity", supported=True

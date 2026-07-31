@@ -18,7 +18,14 @@ from lfptensorpipe.app.runlog_store import (
     write_run_log,
 )
 from lfptensorpipe.io.pkl_io import load_pkl, save_pkl
+from lfptensorpipe.stats.preproc.transform import transform_df
 from lfptensorpipe.tabular.grid import grid_nested_values, split_nested_values
+from lfptensorpipe.utils.transforms import (
+    VALUE_TRANSFORM_POLICY_KEY,
+    TransformPolicy,
+    transform_policy_metadata,
+    transform_policy_from_metadata,
+)
 
 
 @dataclass(frozen=True)
@@ -40,6 +47,55 @@ def _remove_stale_xlsx(path: Path) -> None:
 
 def _should_export_xlsx(derived_type: str) -> bool:
     return derived_type == "scalar"
+
+
+def _attach_policy_attrs(
+    frame: pd.DataFrame,
+    policy: TransformPolicy,
+) -> pd.DataFrame:
+    frame.attrs[VALUE_TRANSFORM_POLICY_KEY] = transform_policy_metadata(policy)
+    return frame
+
+
+def _raw_feature_payload(
+    payload: pd.DataFrame,
+    policy: TransformPolicy,
+) -> pd.DataFrame:
+    if policy.feature_storage_domain == "native":
+        return _attach_policy_attrs(payload.copy(), policy)
+    return _attach_policy_attrs(
+        transform_df(payload, mode=policy.mode),
+        policy,
+    )
+
+
+def _reduction_payload(
+    payload: pd.DataFrame,
+    policy: TransformPolicy,
+) -> pd.DataFrame:
+    if policy.reduction_domain == "native":
+        return payload
+    return transform_df(payload, mode=policy.mode)
+
+
+def _finalize_reduced_payload(
+    derived: pd.DataFrame,
+    policy: TransformPolicy,
+) -> pd.DataFrame:
+    if policy.reduction_domain == policy.feature_storage_domain:
+        return _attach_policy_attrs(derived, policy)
+    if (
+        policy.reduction_domain == "native"
+        and policy.feature_storage_domain == "transformed"
+    ):
+        return _attach_policy_attrs(
+            transform_df(derived, mode=policy.mode),
+            policy,
+        )
+    raise ValueError(
+        "Transform policy cannot store native features after transformed-domain "
+        "reduction."
+    )
 
 
 def _extract_metric_outputs(
@@ -72,6 +128,8 @@ def _extract_metric_outputs(
             errors=(f"{metric_key}: load failed ({exc})",),
             xlsx_warnings=(),
         )
+    transform_policy = transform_policy_from_metadata(payload.attrs)
+    reduction_payload = _reduction_payload(payload, transform_policy)
 
     outputs = svc._resolve_enabled_outputs(derive_param_cfg, metric_key)
     reducer_list = svc._resolve_reducers(reducer_cfg, metric_key)
@@ -123,7 +181,7 @@ def _extract_metric_outputs(
         out_xlsx = metric_out_dir / "na-raw.xlsx"
         try:
             _remove_stale_xlsx(out_xlsx)
-            save_pkl(payload, out_pkl)
+            save_pkl(_raw_feature_payload(payload, transform_policy), out_pkl)
             saved += 1
         except Exception as exc:  # noqa: BLE001
             errors.append(f"{metric_key}/na-raw: {exc}")
@@ -143,7 +201,7 @@ def _extract_metric_outputs(
                     if not time_axis:
                         raise ValueError("times axis is required for spectral.")
                     derived = split_nested_values(
-                        payload,
+                        reduction_payload,
                         bands=None,
                         times=time_axis,
                         axis="time",
@@ -154,7 +212,7 @@ def _extract_metric_outputs(
                     if not freqs_axis:
                         raise ValueError("bands axis is required for trace.")
                     derived = split_nested_values(
-                        payload,
+                        reduction_payload,
                         bands=freqs_axis,
                         times=None,
                         axis="freq",
@@ -167,13 +225,14 @@ def _extract_metric_outputs(
                     if not time_axis:
                         raise ValueError("times axis is required for scalar.")
                     derived = grid_nested_values(
-                        payload,
+                        reduction_payload,
                         bands=freqs_axis,
                         times=time_axis,
                         reducer=reducer,
                         **collapse_base_cfg,
                     )
 
+                derived = _finalize_reduced_payload(derived, transform_policy)
                 save_pkl(derived, out_pkl)
                 if _should_export_xlsx(enabled_output):
                     xlsx_ok, xlsx_message = svc._save_table_xlsx(derived, out_xlsx)

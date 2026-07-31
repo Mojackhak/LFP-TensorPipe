@@ -607,6 +607,85 @@ computes feature values for the combinations of those configured bands and time
 windows for each selected metric. The next two figures show the tutorial's
 saved band and phase definitions.
 
+### Feature value transformations
+
+Feature processing distinguishes between two numerical domains:
+
+- The **native domain** contains the original metric values, such as linear
+  power, connectivity estimates, or event measurements.
+- The **transformed domain** contains values after applying the transform
+  assigned to the metric.
+
+The selected transform determines the order of frequency interpolation,
+time-axis alignment, feature reduction, tensor storage, and feature storage.
+
+#### Processing order by transform
+
+| Transform | Definition | Frequency and time interpolation | Feature reduction | Tensor storage | Feature storage |
+|---|---|---|---|---|---|
+| `dB` | `10 * log10(x)` | Transformed domain | Transformed domain | Native domain | Transformed domain |
+| `log` | `ln(x)` | Transformed domain | Transformed domain | Native domain | Transformed domain |
+| `fisherz` | `atanh(x)` | Native domain | Native domain | Native domain | Transformed domain |
+| `fisherz_sqrt` | `atanh(sqrt(x))` | Native domain | Native domain | Native domain | Transformed domain |
+| `logit` | `ln(x / (1 - x))` | Native domain | Native domain | Native domain | Transformed domain |
+| `asinh` | `asinh(x)` | Native domain | Native domain | Native domain | Transformed domain |
+| `none` | No transformation | Native domain | Native domain | Native domain | Native domain |
+
+For metrics using `dB` or `log`, values are transformed before frequency
+interpolation, time-axis alignment, and feature reduction. Interpolated tensor
+values are converted back to the native domain before the tensor artifact is
+saved. During feature extraction, values are transformed again before raw,
+spectral, trace, and scalar features are generated. The resulting feature files
+are stored in the transformed domain.
+
+Periodic/Aperiodic decomposition fits SpecParam once to the prepared power
+tensor. It reconstructs the periodic component from the fitted peaks on the
+complete model frequency grid, without a separate notch-aware refit,
+notch-based peak exclusion, or post-decomposition interpolation.
+
+For a mean power feature using the `dB` transform, the calculation is:
+
+`mean(10 * log10(power))`
+
+rather than:
+
+`10 * log10(mean(power))`
+
+For metrics using `fisherz`, `fisherz_sqrt`, `logit`, or `asinh`, frequency
+interpolation, time-axis alignment, and feature reduction are performed in the
+native domain. The transform is applied only after reduction, and the resulting
+feature values are stored in the transformed domain. This order preserves the
+original aggregation meaning of bounded or signed estimators.
+
+When the transform is `none`, interpolation, reduction, tensor storage, and
+feature storage all remain in the native domain.
+
+#### Transform assignments by metric
+
+The following table lists the transform currently assigned to each tensor
+metric and output type.
+
+| Metric or output | Transform | Interpolation domain | Reduction domain | Tensor storage domain | Feature storage domain |
+|---|---|---|---|---|---|
+| Raw power | `dB` | Transformed | Transformed | Native linear power | dB |
+| Periodic power from Periodic/Aperiodic decomposition | `dB` | Transformed | Transformed | Native linear power | dB |
+| Aperiodic offset | `none` | Native | Native | Native | Native |
+| Aperiodic exponent | `none` | Native | Native | Native | Native |
+| Aperiodic knee | `none` | Native | Native | Native | Native |
+| Periodic/Aperiodic fit error | `none` | Native | Native | Native | Native |
+| Periodic/Aperiodic goodness of fit | `none` | Native | Native | Native | Native |
+| Coherence | `none` | Native | Native | Native | Native |
+| PLV | `none` | Native | Native | Native | Native |
+| ciPLV | `none` | Native | Native | Native | Native |
+| PLI | `none` | Native | Native | Native | Native |
+| wPLI | `none` | Native | Native | Native | Native |
+| TRGC | `none` | Native | Native | Native | Native |
+| PSI | `none` | Native | Native | Native | Native |
+| Burst duration | `none` | Native | Native | Native | Native |
+| Burst rate | `none` | Native | Native | Native | Native |
+| Burst occupation | `none` | Native | Native | Native | Native |
+| Other burst event measurements | `none` | Native | Native | Native | Native |
+
 ![Example imported band definitions.](assets/app-tutorial/figure-29-periodic-bands-dialog.png)
 
 ![Example imported phase definitions.](assets/app-tutorial/figure-30-pli-phases-dialog.png)

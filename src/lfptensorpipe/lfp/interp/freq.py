@@ -22,7 +22,13 @@ from typing import Any, Dict, Literal
 
 import numpy as np
 from scipy.signal import savgol_filter
-from lfptensorpipe.utils.transforms import TransformMode, get_transform_pair
+from lfptensorpipe.utils.transforms import (
+    TransformMode,
+    TransformPolicy,
+    apply_transform_array,
+    attach_transform_policy,
+    get_transform_pair,
+)
 
 InterpMethod = Literal["linear", "savgol"]
 OnMismatch = Literal["raise", "interpolate"]
@@ -490,3 +496,38 @@ def interpolate_tensor_with_metadata_transformed(
         meta_i["params"]["savgol_polyorder"] = int(savgol_polyorder)
 
     return tensor_i, meta_i
+
+
+def interpolate_tensor_with_metadata_policy(
+    tensor: np.ndarray,
+    metadata: Dict[str, Any],
+    *,
+    freqs_out: np.ndarray,
+    axis: int,
+    policy: TransformPolicy,
+    method: InterpMethod = "linear",
+    savgol_window: int = 11,
+    savgol_polyorder: int = 2,
+    freq_match_tol_hz: float | None = None,
+    on_mismatch: OnMismatch = "raise",
+) -> tuple[np.ndarray, Dict[str, Any]]:
+    """Interpolate in the domain declared by a value-transform policy."""
+
+    interpolation_mode: TransformMode = (
+        policy.mode if policy.interpolation_domain == "transformed" else "none"
+    )
+    tensor_i, meta_i = interpolate_tensor_with_metadata_transformed(
+        tensor,
+        metadata,
+        freqs_out=freqs_out,
+        axis=axis,
+        method=method,
+        transform_mode=interpolation_mode,
+        savgol_window=savgol_window,
+        savgol_polyorder=savgol_polyorder,
+        freq_match_tol_hz=freq_match_tol_hz,
+        on_mismatch=on_mismatch,
+    )
+    if policy.tensor_storage_domain == "transformed":
+        tensor_i = apply_transform_array(tensor_i, mode=policy.mode)
+    return tensor_i, attach_transform_policy(meta_i, policy)

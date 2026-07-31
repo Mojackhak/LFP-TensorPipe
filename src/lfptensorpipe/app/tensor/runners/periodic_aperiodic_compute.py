@@ -7,6 +7,11 @@ from typing import Any
 
 import numpy as np
 
+from lfptensorpipe.utils.transforms import (
+    attach_transform_policy,
+    get_transform_policy,
+)
+
 from .. import service as svc
 from .periodic_aperiodic_models import (
     PeriodicAperiodicOptions,
@@ -60,7 +65,7 @@ def _run_tfr_grid(
 ) -> tuple[np.ndarray, dict[str, Any]]:
     if interpolate_freq_tensor_fn is None:
         from lfptensorpipe.lfp.interp.freq import (
-            interpolate_tensor_with_metadata_transformed as interpolate_freq_tensor,
+            interpolate_tensor_with_metadata_policy as interpolate_freq_tensor,
         )
     else:
         interpolate_freq_tensor = interpolate_freq_tensor_fn
@@ -86,6 +91,7 @@ def _run_tfr_grid(
         n_jobs=int(options.n_jobs),
     )
     power_tensor = _normalize_power_tensor(power)
+    transform_policy = get_transform_policy(options.value_transform_mode)
 
     if prepared.interpolation_applied:
         positive_floor = _minimum_positive_finite_value(power_tensor)
@@ -95,7 +101,7 @@ def _run_tfr_grid(
             freqs_out=prepared.freqs_model,
             axis=-2,
             method="linear",
-            transform_mode="dB",
+            policy=transform_policy,
         )
         power_tensor = np.asarray(power_tensor, dtype=float)
         power_tensor = np.clip(power_tensor, a_min=positive_floor, a_max=None)
@@ -111,7 +117,7 @@ def _run_tfr_grid(
                     if options.freq_smooth_sigma is not None
                     else 1.5
                 ),
-                transform_mode="dB",
+                transform_mode=transform_policy.mode,
                 nan_policy="omit",
             ),
             dtype=float,
@@ -132,13 +138,13 @@ def _run_tfr_grid(
                 kernel_size=max(1, kernel),
                 method="median",
                 axis=-1,
-                transform_mode="dB",
+                transform_mode=transform_policy.mode,
                 nan_policy="omit",
             ),
             dtype=float,
         )
 
-    return power_tensor, dict(metadata)
+    return power_tensor, attach_transform_policy(metadata, transform_policy)
 
 
 def _run_decomposition(
@@ -221,6 +227,13 @@ def _run_decomposition(
         axes_out["freq"] = np.asarray(prepared.freqs_final, dtype=float)
         axes_out["shape"] = tuple(tensor.shape)
         metadata["axes"] = axes_out
+
+    transform_policy = get_transform_policy(options.value_transform_mode)
+    metadata = attach_transform_policy(metadata, transform_policy)
+    params_meta_dict = attach_transform_policy(
+        params_meta_dict,
+        get_transform_policy("none"),
+    )
 
     if options.mask_edge_effects:
         tensor, metadata, params_tensor_arr, params_meta_dict = _apply_edge_masks(

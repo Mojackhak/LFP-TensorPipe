@@ -135,6 +135,9 @@ def run_periodic_aperiodic_metric(
         notch_widths=notch_widths,
         n_jobs=n_jobs,
         outer_n_jobs=outer_n_jobs,
+        value_transform_mode=svc.TENSOR_METRICS_BY_KEY[
+            METRIC_KEY
+        ].value_transform_mode,
     )
     paths = build_periodic_aperiodic_paths(options)
     input_failure = validate_preproc_input(paths)

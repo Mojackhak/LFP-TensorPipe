@@ -7,6 +7,10 @@ from typing import Any
 import numpy as np
 
 from lfptensorpipe.app.path_resolver import RecordContext
+from lfptensorpipe.utils.transforms import (
+    attach_transform_policy,
+    get_transform_policy,
+)
 
 from .. import service as svc
 
@@ -41,7 +45,7 @@ def run_raw_power_metric(
         tfr_grid = tfr_grid_fn
     if interpolate_freq_tensor_fn is None:
         from lfptensorpipe.lfp.interp.freq import (
-            interpolate_tensor_with_metadata_transformed as interpolate_freq_tensor,
+            interpolate_tensor_with_metadata_policy as interpolate_freq_tensor,
         )
     else:
         interpolate_freq_tensor = interpolate_freq_tensor_fn
@@ -72,6 +76,9 @@ def run_raw_power_metric(
 
     resolver = PathResolver(context)
     metric_key = "raw_power"
+    transform_policy = get_transform_policy(
+        TENSOR_METRICS_BY_KEY[metric_key].value_transform_mode
+    )
     input_path = preproc_step_raw_path(resolver, "finish")
     output_path = tensor_metric_tensor_path(resolver, metric_key, create=True)
     config_path = tensor_metric_config_path(resolver, metric_key, create=True)
@@ -177,9 +184,10 @@ def run_raw_power_metric(
                 freqs_out=freqs_full,
                 axis=-2,
                 method="linear",
-                transform_mode="dB",
+                policy=transform_policy,
             )
             tensor = np.asarray(tensor, dtype=float)
+        metadata = attach_transform_policy(metadata, transform_policy)
         if mask_edge_effects:
             freq_axis = np.asarray(
                 (metadata.get("axes", {}) or {}).get("freq", []), dtype=float

@@ -16,7 +16,8 @@ They do not do any alignment / broadcasting based on metadata.
 
 from __future__ import annotations
 
-from typing import Callable, Literal
+from dataclasses import asdict, dataclass
+from typing import Any, Callable, Literal, Mapping, cast
 
 import numpy as np
 
@@ -30,6 +31,154 @@ TransformMode = Literal[
     "none",
     None,
 ]
+
+TransformDomain = Literal["native", "transformed"]
+VALUE_TRANSFORM_POLICY_KEY = "value_transform_policy"
+
+
+@dataclass(frozen=True)
+class TransformPolicy:
+    """Declare the numerical domains used by interpolation and reduction."""
+
+    mode: TransformMode
+    interpolation_domain: TransformDomain
+    reduction_domain: TransformDomain
+    tensor_storage_domain: TransformDomain
+    feature_storage_domain: TransformDomain
+
+
+_TRANSFORM_POLICIES: dict[TransformMode, TransformPolicy] = {
+    "dB": TransformPolicy(
+        mode="dB",
+        interpolation_domain="transformed",
+        reduction_domain="transformed",
+        tensor_storage_domain="native",
+        feature_storage_domain="transformed",
+    ),
+    "log": TransformPolicy(
+        mode="log",
+        interpolation_domain="transformed",
+        reduction_domain="transformed",
+        tensor_storage_domain="native",
+        feature_storage_domain="transformed",
+    ),
+    "fisherz": TransformPolicy(
+        mode="fisherz",
+        interpolation_domain="native",
+        reduction_domain="native",
+        tensor_storage_domain="native",
+        feature_storage_domain="transformed",
+    ),
+    "fisherz_sqrt": TransformPolicy(
+        mode="fisherz_sqrt",
+        interpolation_domain="native",
+        reduction_domain="native",
+        tensor_storage_domain="native",
+        feature_storage_domain="transformed",
+    ),
+    "logit": TransformPolicy(
+        mode="logit",
+        interpolation_domain="native",
+        reduction_domain="native",
+        tensor_storage_domain="native",
+        feature_storage_domain="transformed",
+    ),
+    "asinh": TransformPolicy(
+        mode="asinh",
+        interpolation_domain="native",
+        reduction_domain="native",
+        tensor_storage_domain="native",
+        feature_storage_domain="transformed",
+    ),
+    "none": TransformPolicy(
+        mode="none",
+        interpolation_domain="native",
+        reduction_domain="native",
+        tensor_storage_domain="native",
+        feature_storage_domain="native",
+    ),
+    None: TransformPolicy(
+        mode=None,
+        interpolation_domain="native",
+        reduction_domain="native",
+        tensor_storage_domain="native",
+        feature_storage_domain="native",
+    ),
+}
+
+
+def get_transform_policy(mode: TransformMode) -> TransformPolicy:
+    """Return the execution policy declared for one transform mode."""
+
+    try:
+        return _TRANSFORM_POLICIES[mode]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported transform mode: {mode}") from exc
+
+
+def transform_policy_metadata(policy: TransformPolicy) -> dict[str, str | None]:
+    """Serialize a transform policy into plain metadata values."""
+
+    return dict(asdict(policy))
+
+
+def attach_transform_policy(
+    metadata: Mapping[str, Any] | None,
+    policy: TransformPolicy,
+) -> dict[str, Any]:
+    """Return metadata carrying a serialized value-transform policy."""
+
+    output = dict(metadata or {})
+    output[VALUE_TRANSFORM_POLICY_KEY] = transform_policy_metadata(policy)
+    return output
+
+
+def _parse_transform_domain(value: Any, *, field: str) -> TransformDomain:
+    """Validate one serialized transform-domain field."""
+
+    if value not in {"native", "transformed"}:
+        raise ValueError(
+            f"Invalid transform policy {field}: expected 'native' or "
+            f"'transformed', got {value!r}."
+        )
+    return cast(TransformDomain, value)
+
+
+def transform_policy_from_metadata(
+    metadata: Mapping[str, Any] | None,
+) -> TransformPolicy:
+    """Read a transform policy, defaulting legacy metadata to native identity."""
+
+    payload = (
+        metadata.get(VALUE_TRANSFORM_POLICY_KEY)
+        if isinstance(metadata, Mapping)
+        else None
+    )
+    if not isinstance(payload, Mapping):
+        return get_transform_policy("none")
+    mode = payload.get("mode", "none")
+    if mode not in _TRANSFORM_POLICIES:
+        raise ValueError(f"Unsupported transform mode in metadata: {mode!r}")
+    policy = get_transform_policy(cast(TransformMode, mode))
+    return TransformPolicy(
+        mode=policy.mode,
+        interpolation_domain=_parse_transform_domain(
+            payload.get("interpolation_domain", policy.interpolation_domain),
+            field="interpolation_domain",
+        ),
+        reduction_domain=_parse_transform_domain(
+            payload.get("reduction_domain", policy.reduction_domain),
+            field="reduction_domain",
+        ),
+        tensor_storage_domain=_parse_transform_domain(
+            payload.get("tensor_storage_domain", policy.tensor_storage_domain),
+            field="tensor_storage_domain",
+        ),
+        feature_storage_domain=_parse_transform_domain(
+            payload.get("feature_storage_domain", policy.feature_storage_domain),
+            field="feature_storage_domain",
+        ),
+    )
 
 
 def get_transform_pair(
@@ -169,3 +318,20 @@ def apply_inverse_transform_array(
     _, inverse = get_transform_pair(mode)
     y = np.asarray(arr, dtype=float)
     return inverse(y)
+
+
+def convert_transform_domain_array(
+    arr: np.ndarray,
+    *,
+    mode: TransformMode,
+    source_domain: TransformDomain,
+    target_domain: TransformDomain,
+) -> np.ndarray:
+    """Convert values between a transform's native and transformed domains."""
+
+    values = np.asarray(arr, dtype=float)
+    if source_domain == target_domain:
+        return values
+    if source_domain == "native":
+        return apply_transform_array(values, mode=mode)
+    return apply_inverse_transform_array(values, mode=mode)

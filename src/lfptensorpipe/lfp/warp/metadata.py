@@ -24,6 +24,8 @@ from typing import Any, Dict, Optional, Sequence
 
 import numpy as np
 
+from lfptensorpipe.utils.transforms import VALUE_TRANSFORM_POLICY_KEY
+
 
 def _epoch_label(ep: Any, fallback: str) -> str:
     """Extract a label for an epoch from warp metadata."""
@@ -236,4 +238,8 @@ def build_warped_tensor_metadata(
         source=source_meta,
         warp_epochs=warp_events,
     )
+    if isinstance(source_meta, dict):
+        policy = source_meta.get(VALUE_TRANSFORM_POLICY_KEY)
+        if isinstance(policy, dict):
+            metadata[VALUE_TRANSFORM_POLICY_KEY] = dict(policy)
     return metadata

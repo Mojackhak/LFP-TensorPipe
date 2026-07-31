@@ -9,6 +9,7 @@ from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.shared.downstream_invalidation import (
     invalidate_after_alignment_finish,
 )
+from lfptensorpipe.utils.transforms import VALUE_TRANSFORM_POLICY_KEY
 
 from . import service as svc
 
@@ -142,6 +143,13 @@ def finish_alignment_epochs(
             )
             if merge_warning:
                 repcoord_warnings.append(f"{metric_key}:{merge_warning}")
+        transform_policy = (
+            meta.get(VALUE_TRANSFORM_POLICY_KEY)
+            if isinstance(meta, dict)
+            else None
+        )
+        if isinstance(transform_policy, dict):
+            frame.attrs[VALUE_TRANSFORM_POLICY_KEY] = dict(transform_policy)
 
         out_path = alignment_trial_raw_table_path(
             resolver,

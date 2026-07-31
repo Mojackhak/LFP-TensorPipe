@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 
 from lfptensorpipe.app.path_resolver import RecordContext
+from lfptensorpipe.utils.transforms import TransformMode
 
 from ..frequency import TensorFilterInheritance
 
@@ -43,6 +44,7 @@ class PeriodicAperiodicOptions:
     notch_widths: Any
     n_jobs: int
     outer_n_jobs: int
+    value_transform_mode: TransformMode
 
 
 @dataclass(frozen=True)
