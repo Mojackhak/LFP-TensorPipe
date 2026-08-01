@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import blake2b
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,17 @@ from lfptensorpipe.app.path_resolver import RecordContext
 from lfptensorpipe.utils.transforms import TransformMode
 
 from ..frequency import TensorFilterInheritance
+
+NOTCH_INTERPOLATION_METHOD = "empirical_residual.local_stratified"
+NOTCH_INTERPOLATION_SEED = 42
+
+
+def derive_notch_interpolation_seed(context: RecordContext) -> int:
+    """Derive a stable seed from the configured base seed and record identity."""
+    payload = (
+        f"{NOTCH_INTERPOLATION_SEED}\0{context.subject}\0{context.record}"
+    ).encode("utf-8")
+    return int.from_bytes(blake2b(payload, digest_size=8).digest(), "big")
 
 
 @dataclass(frozen=True)

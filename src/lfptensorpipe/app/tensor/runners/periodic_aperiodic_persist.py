@@ -6,10 +6,12 @@ import numpy as np
 
 from .. import service as svc
 from .periodic_aperiodic_models import (
+    NOTCH_INTERPOLATION_METHOD,
     PeriodicAperiodicOptions,
     PeriodicAperiodicOutputs,
     PeriodicAperiodicPaths,
     PeriodicAperiodicPreparedInput,
+    derive_notch_interpolation_seed,
 )
 from .periodic_aperiodic_prepare import METRIC_KEY
 
@@ -116,6 +118,7 @@ def write_periodic_aperiodic_success(
     prepared: PeriodicAperiodicPreparedInput,
     outputs: PeriodicAperiodicOutputs,
 ) -> tuple[bool, str]:
+    interpolation_seed = derive_notch_interpolation_seed(options.context)
     config_payload = {
         "metric_key": METRIC_KEY,
         "metric_label": svc.TENSOR_METRICS_BY_KEY[METRIC_KEY].display_name,
@@ -179,6 +182,17 @@ def write_periodic_aperiodic_success(
             [float(lo), float(hi)] for lo, hi in prepared.notch_intervals
         ],
         "interpolation_applied": bool(prepared.interpolation_applied),
+        "notch_interpolation_method": (
+            NOTCH_INTERPOLATION_METHOD if prepared.interpolation_applied else "none"
+        ),
+        "notch_interpolation_seed": (
+            interpolation_seed if prepared.interpolation_applied else None
+        ),
+        "notch_interpolation_assignment": (
+            "balanced_within_epoch_channel_over_time"
+            if prepared.interpolation_applied
+            else None
+        ),
         "tensor_shape": [int(item) for item in outputs.tensor.shape],
         "params_tensor_shape": [int(item) for item in outputs.params_tensor.shape],
         **svc._effective_n_jobs_payload(
@@ -269,6 +283,21 @@ def write_periodic_aperiodic_success(
                             float(item) for item in prepared.inheritance.notch_widths
                         ],
                         "interpolation_applied": bool(prepared.interpolation_applied),
+                        "notch_interpolation_method": (
+                            NOTCH_INTERPOLATION_METHOD
+                            if prepared.interpolation_applied
+                            else "none"
+                        ),
+                        "notch_interpolation_seed": (
+                            interpolation_seed
+                            if prepared.interpolation_applied
+                            else None
+                        ),
+                        "notch_interpolation_assignment": (
+                            "balanced_within_epoch_channel_over_time"
+                            if prepared.interpolation_applied
+                            else None
+                        ),
                         "n_channels": len(prepared.picks),
                         "selected_channels": prepared.picks,
                         "n_freqs": int(outputs.tensor.shape[2]),
@@ -285,7 +314,7 @@ def write_periodic_aperiodic_success(
                     input_path=str(paths.input_path),
                     output_path=str(paths.output_path),
                     message=(
-                        "Periodic/APeriodic tensor computed (with notch interpolation)."
+                        "Periodic/APeriodic tensor computed with reproducible local residual notch imputation."
                         if prepared.interpolation_applied
                         else "Periodic/APeriodic tensor computed."
                     ),
@@ -294,7 +323,7 @@ def write_periodic_aperiodic_success(
         ]
     )
     success_message = (
-        "Periodic/APeriodic tensor computed with notch interpolation."
+        "Periodic/APeriodic tensor computed with reproducible local residual notch imputation."
         if prepared.interpolation_applied
         else "Periodic/APeriodic tensor computed."
     )

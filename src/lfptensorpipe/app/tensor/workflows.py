@@ -32,6 +32,8 @@ from .frequency import (
     TensorFrequencyBounds,
     _apply_dynamic_edge_mask_strict,
     _build_frequency_grid,
+    _canonicalize_notch_intervals_on_grid,
+    _clean_equal_width_notch_donor_bounds,
     _compute_mask_radii_seconds,
     _compute_notch_intervals,
     _cut_frequency_grid_by_intervals,
@@ -46,6 +48,7 @@ from .frequency import (
     default_tensor_metric_notch_params,
     load_tensor_filter_inheritance,
     load_tensor_filter_metric_notch_params,
+    validate_periodic_aperiodic_notch_bounds,
 )
 from .orchestration import run_build_tensor
 from .logging import (

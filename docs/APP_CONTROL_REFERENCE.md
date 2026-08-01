@@ -615,10 +615,10 @@ tensor frequency and time grid.
 | `Min peak height` | Sets the minimum peak height required for a component to be kept as a peak. Raising it makes peak detection more conservative. | Peak acceptance threshold. | Periodic/aperiodic dialog only. |
 | `Peak threshold` | Sets the peak-detection threshold used during fitting. Lower thresholds admit smaller peaks, while higher thresholds suppress weak candidates. | Peak-detection sensitivity. | Periodic/aperiodic dialog only. |
 | `Fit QC threshold` | Sets the minimum quality score required to keep a decomposition result. Higher thresholds discard more uncertain fits and therefore trade coverage for reliability. | Output retention after fitting. | Periodic/aperiodic dialog only. |
-| `Notches` | Adds metric-local notch exclusions before fitting. Use this when you need to suppress narrow contamination for this metric without changing preprocess globally. | Metric-local runtime filtering. | Supported tensor metrics only. |
-| `Notch widths` | Sets the bandwidth for each metric-local notch. Wider widths remove more surrounding energy but can also trim nearby neural signal. | Metric-local runtime filtering. | Supported tensor metrics only. |
-| `Save` | Saves the dialog values to the current session. | Current periodic/aperiodic advanced settings. | Blocks on invalid values. |
-| `Set as Default` | Saves the current advanced settings as defaults. | Future periodic/aperiodic defaults. | Blocks on invalid values. |
+| `Notches` | Defines the center frequencies of metric-local Periodic/Aperiodic exclusion intervals. Frequencies inside each interval are omitted from spectral estimation and refilled before SpecParam fitting. | Metric-local spectral preparation. | Supported tensor metrics only. |
+| `Notch widths` | Defines the plus/minus extent of each Periodic/Aperiodic exclusion interval. For example, center `50 Hz` and width `2 Hz` refills grid bins from `48` through `52 Hz`, inclusive. | Metric-local spectral preparation. | Supported tensor metrics only. |
+| `Save` | Saves the dialog values to the current session. | Current periodic/aperiodic advanced settings. | Blocks if an effective notch interval touches or crosses a SpecParam fitting boundary or has no clean equal-width donor segment. |
+| `Set as Default` | Saves the current advanced settings as defaults. | Future periodic/aperiodic defaults. | Uses the same notch-boundary and donor-availability validation as `Save`. |
 | `Restore Defaults` | Restores saved defaults. | Current dialog values. | Always available. |
 | `Cancel` | Closes the dialog without saving. | No advanced update. | Always available. |
 
@@ -627,6 +627,26 @@ tensor frequency and time grid.
 - `Method`, cycle settings, and `Time bandwidth` shape the spectrum before any SpecParam fitting begins.
 - `Freq smooth sigma` and `Time smooth kernel size` only matter if their corresponding smoothing checkbox is enabled.
 - `Fit QC threshold` is a retention rule after fitting, not a way to improve the fit itself.
+- Periodic/Aperiodic notch intervals are reconstructed in
+  log-frequency/log-power space. Neighboring valid bins define the local
+  baseline, while clean, equal-width segments from the same spectrum supply
+  the residual shape. Donor sides and orientations are balanced across time
+  windows with a reproducible record-specific assignment, preserving local
+  variance, frequency covariance, and extrema.
+- Effective intervals are sorted on the SpecParam frequency grid. Overlapping
+  intervals, and intervals with no valid model bin between them, are merged so
+  their baseline anchors cannot fall inside another notch.
+- Each merged interval requires at least one continuous donor segment whose
+  interior contains the same number of bins as the target interval. The donor
+  and both of its measured boundary bins must remain on the model grid and
+  outside every effective notch interval.
+- A notch wholly outside the SpecParam fitting range is ignored. An interval
+  that intersects the fitting range must remain strictly inside both fitting
+  boundaries. Advance saving, Tensor config import/export, and Build Tensor
+  validation reject intervals that touch or cross a boundary or have no clean,
+  equal-width donor segment.
+- The reconstructed tensor follows the configured smoothing steps before
+  SpecParam decomposition.
 
 ### 7.9 PLV Advance
 

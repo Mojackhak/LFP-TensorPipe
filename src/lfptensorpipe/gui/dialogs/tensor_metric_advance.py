@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.tensor.frequency import (
+    validate_periodic_aperiodic_notch_bounds,
+)
+
 from .common import *  # noqa: F403
 
 
@@ -600,6 +604,14 @@ class TensorMetricAdvanceDialog(QDialog):
             return
         payload = dict(self._working_base_params)
         payload.update(field_payload)
+        if self._metric_key == "periodic_aperiodic":
+            try:
+                validate_periodic_aperiodic_notch_bounds(payload)
+            except ValueError as exc:
+                QMessageBox.warning(
+                    self, "Tensor Advance", f"Invalid advanced params:\n{exc}"
+                )
+                return
         if action == "set_default":
             if self._set_default_callback is not None:
                 try:

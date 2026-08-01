@@ -14,9 +14,12 @@ from lfptensorpipe.utils.transforms import (
 
 from .. import service as svc
 from .periodic_aperiodic_models import (
+    NOTCH_INTERPOLATION_METHOD,
+    NOTCH_INTERPOLATION_SEED,
     PeriodicAperiodicOptions,
     PeriodicAperiodicOutputs,
     PeriodicAperiodicPreparedInput,
+    derive_notch_interpolation_seed,
 )
 
 
@@ -53,6 +56,116 @@ def _minimum_positive_finite_value(power_tensor: np.ndarray) -> float:
             "Periodic/APeriodic interpolation clip requires at least one positive finite TFR value."
         )
     return float(np.min(positive_values))
+
+
+def _impute_notch_intervals_local_residual(
+    power_tensor: np.ndarray,
+    freqs: np.ndarray,
+    intervals: list[tuple[float, float]],
+    *,
+    seed: int = NOTCH_INTERPOLATION_SEED,
+) -> np.ndarray:
+    """Impute notch bins with reproducibly sampled local spectral residuals."""
+    if not intervals:
+        return np.asarray(power_tensor, dtype=float)
+
+    frequency_axis = np.asarray(freqs, dtype=float).ravel()
+    values = np.asarray(power_tensor, dtype=float)
+    if values.shape[-2] != frequency_axis.size:
+        raise ValueError(
+            "Periodic/APeriodic tensor frequency axis does not match the model grid."
+        )
+
+    moved = np.moveaxis(values, -2, -1)
+    original_shape = moved.shape
+    rows = moved.reshape(-1, frequency_axis.size)
+    if not np.all(np.isfinite(rows) & (rows > 0.0)):
+        raise ValueError(
+            "Notch imputation requires positive finite power values on the model grid."
+        )
+    source_log_power = np.log10(rows)
+    filled = np.array(rows, copy=True, dtype=float)
+    log_frequency = np.log10(frequency_axis)
+    rng = np.random.default_rng(int(seed))
+
+    def _endpoint_chord(
+        left_index: int,
+        right_index: int,
+        target_indices: np.ndarray,
+    ) -> np.ndarray:
+        weights = (log_frequency[target_indices] - log_frequency[left_index]) / (
+            log_frequency[right_index] - log_frequency[left_index]
+        )
+        return (
+            source_log_power[:, left_index, None]
+            + (
+                source_log_power[:, right_index, None]
+                - source_log_power[:, left_index, None]
+            )
+            * weights[None, :]
+        )
+
+    for low, high in intervals:
+        interval_mask = (frequency_axis >= float(low)) & (frequency_axis <= float(high))
+        interval_indices = np.flatnonzero(interval_mask)
+        if interval_indices.size == 0:
+            continue
+        first_index = int(interval_indices[0])
+        last_index = int(interval_indices[-1])
+        target_left = first_index - 1
+        target_right = last_index + 1
+        if target_left < 0 or target_right >= frequency_axis.size:
+            raise ValueError(
+                "Notch imputation requires one model bin outside each interval."
+            )
+
+        donor_bounds = svc._clean_equal_width_notch_donor_bounds(
+            frequency_axis,
+            intervals,
+            (low, high),
+        )
+        donor_residuals: list[np.ndarray] = []
+        for donor_left, donor_right in donor_bounds:
+            donor_indices = np.arange(donor_left + 1, donor_right, dtype=int)
+            donor_residuals.append(
+                source_log_power[:, donor_indices]
+                - _endpoint_chord(donor_left, donor_right, donor_indices)
+            )
+
+        if not donor_residuals:
+            raise ValueError(
+                "Notch imputation requires a nearest equal-width non-notch donor "
+                "segment on at least one side of the interval."
+            )
+
+        residual_stack = np.stack(donor_residuals, axis=1)
+        time_count = int(original_shape[-2])
+        series_count = int(rows.shape[0] // time_count)
+        combination_count = 2 * len(donor_residuals)
+        assignments = np.empty(rows.shape[0], dtype=int)
+        for series_index in range(series_count):
+            series_assignments = np.arange(time_count) % combination_count
+            rng.shuffle(series_assignments)
+            start = series_index * time_count
+            assignments[start : start + time_count] = series_assignments
+        donor_choice = assignments // 2
+        selected_residual = residual_stack[
+            np.arange(rows.shape[0]), donor_choice
+        ].copy()
+        reflect_rows = assignments % 2 == 1
+        selected_residual[reflect_rows] = selected_residual[reflect_rows, ::-1]
+
+        target_chord = _endpoint_chord(
+            target_left,
+            target_right,
+            interval_indices,
+        )
+        filled[:, interval_indices] = np.power(
+            10.0,
+            target_chord + selected_residual,
+        )
+    restored = filled.reshape(original_shape)
+    return np.moveaxis(restored, -1, -2)
 
 
 def _run_tfr_grid(
@@ -94,6 +207,7 @@ def _run_tfr_grid(
     transform_policy = get_transform_policy(options.value_transform_mode)
 
     if prepared.interpolation_applied:
+        interpolation_seed = derive_notch_interpolation_seed(options.context)
         positive_floor = _minimum_positive_finite_value(power_tensor)
         power_tensor, metadata = interpolate_freq_tensor(
             power_tensor,
@@ -105,6 +219,24 @@ def _run_tfr_grid(
         )
         power_tensor = np.asarray(power_tensor, dtype=float)
         power_tensor = np.clip(power_tensor, a_min=positive_floor, a_max=None)
+        power_tensor = _impute_notch_intervals_local_residual(
+            power_tensor,
+            prepared.freqs_model,
+            prepared.notch_intervals,
+            seed=interpolation_seed,
+        )
+        metadata = dict(metadata or {})
+        metadata["notch_interpolation"] = {
+            "method": NOTCH_INTERPOLATION_METHOD,
+            "domain": "log_frequency_log_power",
+            "seed": interpolation_seed,
+            "donor_scope": "same_spectrum_nearest_equal_width_non_notch",
+            "assignment": "balanced_within_epoch_channel_over_time",
+            "orientations": ["native", "reflected"],
+            "intervals_hz": [
+                [float(low), float(high)] for low, high in prepared.notch_intervals
+            ],
+        }
 
     if bool(options.freq_smooth_enabled):
         power_tensor = np.asarray(
@@ -234,6 +366,8 @@ def _run_decomposition(
         params_meta_dict,
         get_transform_policy("none"),
     )
+    if "notch_interpolation" in metadata:
+        params_meta_dict["notch_interpolation"] = dict(metadata["notch_interpolation"])
 
     if options.mask_edge_effects:
         tensor, metadata, params_tensor_arr, params_meta_dict = _apply_edge_masks(

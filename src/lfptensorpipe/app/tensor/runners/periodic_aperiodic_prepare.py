@@ -97,6 +97,16 @@ def prepare_periodic_aperiodic_runtime(
         runtime_notch_payload["notch_widths"],
         len(runtime_notches),
     )
+    svc.validate_periodic_aperiodic_notch_bounds(
+        {
+            "low_freq_hz": float(options.low_freq),
+            "high_freq_hz": float(options.high_freq),
+            "freq_step_hz": float(options.step_hz),
+            "freq_range_hz": options.freq_range_hz,
+            "notches": runtime_notches,
+            "notch_widths": runtime_notch_widths,
+        }
+    )
     freqs_model = svc._build_frequency_grid(spec_low, spec_high, options.step_hz)
     freqs_final = svc._build_frequency_grid(
         options.low_freq,
@@ -108,6 +118,10 @@ def prepare_periodic_aperiodic_runtime(
         high_freq=spec_high,
         notches=runtime_notches,
         notch_widths=runtime_notch_widths,
+    )
+    notch_intervals = svc._canonicalize_notch_intervals_on_grid(
+        freqs_model,
+        list(notch_intervals),
     )
     freqs_compute = freqs_model
     interpolation_applied = False

@@ -143,6 +143,154 @@ def build_tensor_metric_notch_payload(
     }
 
 
+def _canonicalize_notch_intervals_on_grid(
+    freqs: np.ndarray,
+    intervals: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """Sort and merge effective notch intervals on one frequency grid."""
+    frequency_axis = np.asarray(freqs, dtype=float).ravel()
+    effective: list[tuple[int, int, float, float]] = []
+    for low, high in intervals:
+        indices = np.flatnonzero(
+            (frequency_axis >= float(low)) & (frequency_axis <= float(high))
+        )
+        if indices.size == 0:
+            continue
+        effective.append((int(indices[0]), int(indices[-1]), float(low), float(high)))
+
+    effective.sort(key=lambda item: (item[0], item[1], item[2], item[3]))
+    merged: list[tuple[int, int, float, float]] = []
+    for first_index, last_index, low, high in effective:
+        if merged and first_index <= merged[-1][1] + 1:
+            previous_first, previous_last, previous_low, previous_high = merged[-1]
+            merged[-1] = (
+                previous_first,
+                max(previous_last, last_index),
+                min(previous_low, low),
+                max(previous_high, high),
+            )
+            continue
+        merged.append((first_index, last_index, low, high))
+    return [(low, high) for _, _, low, high in merged]
+
+
+def _clean_equal_width_notch_donor_bounds(
+    freqs: np.ndarray,
+    intervals: list[tuple[float, float]],
+    target_interval: tuple[float, float],
+) -> tuple[tuple[int, int], ...]:
+    """Return clean in-grid donor bounds for one effective notch interval."""
+    frequency_axis = np.asarray(freqs, dtype=float).ravel()
+    low, high = target_interval
+    target_indices = np.flatnonzero(
+        (frequency_axis >= float(low)) & (frequency_axis <= float(high))
+    )
+    if target_indices.size == 0:
+        return ()
+
+    all_notch_mask = np.zeros(frequency_axis.size, dtype=bool)
+    for interval_low, interval_high in intervals:
+        all_notch_mask |= (frequency_axis >= float(interval_low)) & (
+            frequency_axis <= float(interval_high)
+        )
+
+    first_index = int(target_indices[0])
+    last_index = int(target_indices[-1])
+    target_left = first_index - 1
+    target_right = last_index + 1
+    interval_size = int(target_indices.size)
+    donor_stride = interval_size + 1
+    candidates = (
+        (target_left - donor_stride, target_left),
+        (target_right, target_right + donor_stride),
+    )
+    donors: list[tuple[int, int]] = []
+    for donor_left, donor_right in candidates:
+        if donor_left < 0 or donor_right >= frequency_axis.size:
+            continue
+        donor_segment = np.arange(donor_left, donor_right + 1, dtype=int)
+        if np.any(all_notch_mask[donor_segment]):
+            continue
+        donors.append((donor_left, donor_right))
+    return tuple(donors)
+
+
+def validate_periodic_aperiodic_notch_bounds(params: dict[str, Any]) -> None:
+    """Require reconstructable SpecParam notch intervals on the model grid."""
+    notches, notch_widths = normalize_tensor_metric_notch_params(
+        params.get("notches"),
+        params.get("notch_widths"),
+    )
+    if not notches:
+        return
+
+    freq_range = params.get("freq_range_hz")
+    if freq_range is None:
+        freq_range = (params.get("low_freq_hz"), params.get("high_freq_hz"))
+    if not isinstance(freq_range, (list, tuple)) or len(freq_range) != 2:
+        raise ValueError(
+            "Periodic/Aperiodic requires SpecParam freq range as two numeric values."
+        )
+    try:
+        spec_low = float(freq_range[0])
+        spec_high = float(freq_range[1])
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "Periodic/Aperiodic requires SpecParam freq range as two numeric values."
+        ) from exc
+    if not np.isfinite(spec_low) or not np.isfinite(spec_high) or spec_high <= spec_low:
+        raise ValueError(
+            "Periodic/Aperiodic SpecParam freq range must be finite with high > low."
+        )
+
+    try:
+        step_hz = float(params.get("freq_step_hz"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "Periodic/Aperiodic requires a positive frequency step to validate notch intervals."
+        ) from exc
+    if not np.isfinite(step_hz) or step_hz <= 0.0:
+        raise ValueError(
+            "Periodic/Aperiodic requires a positive frequency step to validate notch intervals."
+        )
+    model_grid = _build_frequency_grid_runtime(spec_low, spec_high, step_hz)
+
+    intervals = _compute_notch_intervals_runtime(
+        low_freq=spec_low,
+        high_freq=spec_high,
+        notches=notches,
+        notch_widths=notch_widths,
+    )
+    intervals = _canonicalize_notch_intervals_on_grid(model_grid, intervals)
+    for interval_low, interval_high in intervals:
+        interval_indices = np.flatnonzero(
+            (model_grid >= interval_low) & (model_grid <= interval_high)
+        )
+        if (
+            int(interval_indices[0]) == 0
+            or int(interval_indices[-1]) == model_grid.size - 1
+        ):
+            raise ValueError(
+                "Periodic/Aperiodic notch interval "
+                f"[{interval_low:g}, {interval_high:g}] Hz touches or crosses "
+                "the SpecParam model-grid boundary "
+                f"[{model_grid[0]:g}, {model_grid[-1]:g}] Hz. "
+                "Each intersecting interval must stay strictly inside the fitting range."
+            )
+        if not _clean_equal_width_notch_donor_bounds(
+            model_grid,
+            intervals,
+            (interval_low, interval_high),
+        ):
+            raise ValueError(
+                "Periodic/Aperiodic notch interval "
+                f"[{interval_low:g}, {interval_high:g}] Hz has no clean "
+                "equal-width donor segment on either side of the SpecParam "
+                "model grid. Reduce the notch width, move the notch, or widen "
+                "the fitting range."
+            )
+
+
 def load_tensor_filter_metric_notch_params(context: RecordContext) -> dict[str, Any]:
     inheritance = load_tensor_filter_inheritance(context)
     return build_tensor_metric_notch_payload(

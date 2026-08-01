@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 
+from lfptensorpipe.app.tensor.frequency import (
+    validate_periodic_aperiodic_notch_bounds,
+)
 from lfptensorpipe.gui.shell.common import (
     Any,
     Path,
@@ -268,6 +271,10 @@ class MainWindowTensorConfigMixin:
         self._commit_active_tensor_panel_to_params()
         self._sync_tensor_selector_maps_into_metric_params()
 
+        validate_periodic_aperiodic_notch_bounds(
+            dict(self._tensor_metric_params.get("periodic_aperiodic", {}))
+        )
+
         supported_metric_keys = self._tensor_config_supported_metric_keys()
         active_metric = (
             self._tensor_active_metric_key
@@ -525,6 +532,10 @@ class MainWindowTensorConfigMixin:
             )
             normalized_metric_params[metric_key] = normalized_params
             warnings.extend(metric_warnings)
+
+        validate_periodic_aperiodic_notch_bounds(
+            normalized_metric_params["periodic_aperiodic"]
+        )
 
         return (
             {

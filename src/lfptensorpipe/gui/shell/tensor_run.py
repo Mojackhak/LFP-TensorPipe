@@ -20,6 +20,9 @@ from lfptensorpipe.app.tensor.cancellation import (
     BUILD_TENSOR_CANCELLED_MESSAGE,
     backfill_cancelled_build_tensor_run,
 )
+from lfptensorpipe.app.tensor.frequency import (
+    validate_periodic_aperiodic_notch_bounds,
+)
 from lfptensorpipe.gui.shell.common import (
     QAction,
     Any,
@@ -120,6 +123,7 @@ class MainWindowTensorRunMixin:
                 bands = self._collect_tensor_bands(params.get("bands"))
                 params["bands"] = bands
             if metric_key == "periodic_aperiodic":
+                validate_periodic_aperiodic_notch_bounds(params)
                 freq_range = params.get("freq_range_hz")
                 if not isinstance(freq_range, (list, tuple)) or len(freq_range) != 2:
                     raise ValueError("Periodic/APeriodic freq range must be provided.")

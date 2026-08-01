@@ -509,6 +509,40 @@ For this walkthrough:
    boundaries stay masked during downstream analysis
 4. click `Build Tensor`
 
+### 6.1 Reconstructing Periodic/Aperiodic Notch Intervals
+
+Periodic/Aperiodic notch intervals are reconstructed in
+log-frequency/log-power space before SpecParam decomposition. The neighboring
+valid bins define the local baseline, while a clean, equal-width segment from
+the same spectrum supplies the residual shape.
+
+Effective intervals are sorted on the actual SpecParam frequency grid.
+Intervals that overlap, or that leave no valid model bin between them, are
+merged before reconstruction. This guarantees that both baseline anchors lie
+outside every effective notch interval.
+
+For each merged interval, at least one side must provide a continuous donor
+segment whose interior contains the same number of bins as the interval. The
+entire donor segment, including its two measured boundary bins, must stay on
+the model grid and outside every effective notch interval.
+
+Donor sides and orientations are balanced across time windows with a
+reproducible record-specific assignment. This preserves local variance,
+frequency covariance, and extrema without imposing a deterministic straight
+bridge.
+
+A notch interval wholly outside the SpecParam fitting range is ignored. Any
+interval that intersects the fitting range must remain strictly inside both
+boundaries and must have at least one valid donor side. Periodic/Aperiodic
+Advance saving, Tensor config import/export, and Build Tensor validation reject
+an interval that touches or crosses either fitting boundary or has no clean,
+equal-width donor segment.
+
+After reconstruction and the configured smoothing steps, SpecParam estimates
+the aperiodic and periodic components. Periodic power is evaluated over the
+complete frequency grid from the fitted Gaussian center frequency, height, and
+sigma.
+
 ## 7. Align Epochs
 
 This stage aligns epochs. In this gait demo, it cuts the continuous tensor into event-locked gait epochs and warps them onto a common percentage timeline, turning multiple gait cycles into a comparable cycle-level analysis set.
