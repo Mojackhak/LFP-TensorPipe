@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from lfptensorpipe.app.path_resolver import RecordContext
+from lfptensorpipe.utils.transforms import attach_transform_policy, get_transform_policy
 
 from .. import service as svc
 
@@ -81,6 +82,9 @@ def run_undirected_connectivity_metric(
     resolver = PathResolver(context)
     metric_spec = TENSOR_METRICS_BY_KEY.get(metric_key)
     metric_label = metric_spec.display_name if metric_spec is not None else metric_key
+    transform_policy = get_transform_policy(
+        metric_spec.value_transform_mode if metric_spec is not None else "none"
+    )
     input_path = preproc_step_raw_path(resolver, "finish")
     output_path = tensor_metric_tensor_path(resolver, metric_key, create=True)
     config_path = tensor_metric_config_path(resolver, metric_key, create=True)
@@ -212,9 +216,14 @@ def run_undirected_connectivity_metric(
                 freqs_out=freqs_full,
                 axis=-2,
                 method="linear",
-                transform_mode=None,
+                transform_mode=(
+                    transform_policy.mode
+                    if transform_policy.interpolation_domain == "transformed"
+                    else "none"
+                ),
             )
             tensor4d = np.asarray(tensor4d, dtype=float)
+        metadata = attach_transform_policy(metadata, transform_policy)
         if mask_edge_effects:
             freq_axis = np.asarray(
                 (metadata.get("axes", {}) or {}).get("freq", []), dtype=float

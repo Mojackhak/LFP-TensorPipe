@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -19,10 +19,16 @@ from lfptensorpipe.app.runlog_store import (
 )
 from lfptensorpipe.io.pkl_io import load_pkl, save_pkl
 from lfptensorpipe.stats.preproc.transform import transform_df
-from lfptensorpipe.tabular.grid import grid_nested_values, split_nested_values
+from lfptensorpipe.tabular.grid import (
+    ReducerKind,
+    grid_nested_values,
+    split_nested_values,
+)
 from lfptensorpipe.utils.transforms import (
     VALUE_TRANSFORM_POLICY_KEY,
+    TransformDomain,
     TransformPolicy,
+    get_transform_policy,
     transform_policy_metadata,
     transform_policy_from_metadata,
 )
@@ -38,6 +44,9 @@ class _MetricExtractResult:
     total_targets: int
     errors: tuple[str, ...]
     xlsx_warnings: tuple[str, ...]
+
+
+_METRIC_VALUE_REDUCERS = frozenset({ReducerKind.MEAN, ReducerKind.MEDIAN})
 
 
 def _remove_stale_xlsx(path: Path) -> None:
@@ -57,44 +66,79 @@ def _attach_policy_attrs(
     return frame
 
 
+def _convert_payload_domain(
+    payload: pd.DataFrame,
+    policy: TransformPolicy,
+    *,
+    source_domain: TransformDomain,
+    target_domain: TransformDomain,
+) -> pd.DataFrame:
+    """Convert nested Feature values between declared transform domains."""
+
+    if source_domain == target_domain:
+        return payload.copy()
+    return transform_df(
+        payload,
+        mode=policy.mode,
+        inverse=source_domain == "transformed",
+    )
+
+
 def _raw_feature_payload(
     payload: pd.DataFrame,
     policy: TransformPolicy,
 ) -> pd.DataFrame:
-    if policy.feature_storage_domain == "native":
-        return _attach_policy_attrs(payload.copy(), policy)
-    return _attach_policy_attrs(
-        transform_df(payload, mode=policy.mode),
+    converted = _convert_payload_domain(
+        payload,
         policy,
+        source_domain=policy.tensor_storage_domain,
+        target_domain=policy.feature_storage_domain,
     )
+    return _attach_policy_attrs(converted, policy)
 
 
 def _reduction_payload(
     payload: pd.DataFrame,
     policy: TransformPolicy,
 ) -> pd.DataFrame:
-    if policy.reduction_domain == "native":
-        return payload
-    return transform_df(payload, mode=policy.mode)
+    return _convert_payload_domain(
+        payload,
+        policy,
+        source_domain=policy.tensor_storage_domain,
+        target_domain=policy.reduction_domain,
+    )
 
 
 def _finalize_reduced_payload(
     derived: pd.DataFrame,
     policy: TransformPolicy,
+    *,
+    reducer: ReducerKind | str,
 ) -> pd.DataFrame:
-    if policy.reduction_domain == policy.feature_storage_domain:
-        return _attach_policy_attrs(derived, policy)
-    if (
-        policy.reduction_domain == "native"
-        and policy.feature_storage_domain == "transformed"
-    ):
-        return _attach_policy_attrs(
-            transform_df(derived, mode=policy.mode),
-            policy,
-        )
-    raise ValueError(
-        "Transform policy cannot store native features after transformed-domain "
-        "reduction."
+    reducer_kind = (
+        reducer
+        if isinstance(reducer, ReducerKind)
+        else ReducerKind(str(reducer).strip().lower())
+    )
+    if reducer_kind not in _METRIC_VALUE_REDUCERS:
+        return _attach_policy_attrs(derived.copy(), get_transform_policy("none"))
+    converted = _convert_payload_domain(
+        derived,
+        policy,
+        source_domain=policy.reduction_domain,
+        target_domain=policy.feature_storage_domain,
+    )
+    return _attach_policy_attrs(converted, policy)
+
+
+def _feature_storage_policy(metadata: Any) -> TransformPolicy:
+    """Use upstream computation domains with the current Feature storage target."""
+
+    source_policy = transform_policy_from_metadata(metadata)
+    default_policy = get_transform_policy(source_policy.mode)
+    return replace(
+        source_policy,
+        feature_storage_domain=default_policy.feature_storage_domain,
     )
 
 
@@ -128,7 +172,7 @@ def _extract_metric_outputs(
             errors=(f"{metric_key}: load failed ({exc})",),
             xlsx_warnings=(),
         )
-    transform_policy = transform_policy_from_metadata(payload.attrs)
+    transform_policy = _feature_storage_policy(payload.attrs)
     reduction_payload = _reduction_payload(payload, transform_policy)
 
     outputs = svc._resolve_enabled_outputs(derive_param_cfg, metric_key)
@@ -232,7 +276,11 @@ def _extract_metric_outputs(
                         **collapse_base_cfg,
                     )
 
-                derived = _finalize_reduced_payload(derived, transform_policy)
+                derived = _finalize_reduced_payload(
+                    derived,
+                    transform_policy,
+                    reducer=reducer,
+                )
                 save_pkl(derived, out_pkl)
                 if _should_export_xlsx(enabled_output):
                     xlsx_ok, xlsx_message = svc._save_table_xlsx(derived, out_xlsx)

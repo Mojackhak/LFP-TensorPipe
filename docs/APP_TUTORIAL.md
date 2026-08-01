@@ -657,25 +657,21 @@ time-axis alignment, feature reduction, tensor storage, and feature storage.
 
 | Transform | Definition | Frequency and time interpolation | Feature reduction | Tensor storage | Feature storage |
 |---|---|---|---|---|---|
-| `dB` | `10 * log10(x)` | Transformed domain | Transformed domain | Native domain | Transformed domain |
-| `log` | `ln(x)` | Transformed domain | Transformed domain | Native domain | Transformed domain |
-| `fisherz` | `atanh(x)` | Native domain | Native domain | Native domain | Transformed domain |
-| `fisherz_sqrt` | `atanh(sqrt(x))` | Native domain | Native domain | Native domain | Transformed domain |
-| `logit` | `ln(x / (1 - x))` | Native domain | Native domain | Native domain | Transformed domain |
-| `asinh` | `asinh(x)` | Native domain | Native domain | Native domain | Transformed domain |
+| `dB` | `10 * log10(x)` | Transformed domain | Transformed domain | Native domain | Native domain |
+| `log` | `ln(x)` | Transformed domain | Transformed domain | Native domain | Native domain |
+| `fisherz` | `atanh(x)` | Native domain | Native domain | Native domain | Native domain |
+| `fisherz_sqrt` | `atanh(sqrt(x))` | Native domain | Native domain | Native domain | Native domain |
+| `logit` | `ln(x / (1 - x))` | Native domain | Native domain | Native domain | Native domain |
+| `asinh` | `asinh(x)` | Native domain | Native domain | Native domain | Native domain |
 | `none` | No transformation | Native domain | Native domain | Native domain | Native domain |
 
 For metrics using `dB` or `log`, values are transformed before frequency
 interpolation, time-axis alignment, and feature reduction. Interpolated tensor
-values are converted back to the native domain before the tensor artifact is
-saved. During feature extraction, values are transformed again before raw,
-spectral, trace, and scalar features are generated. The resulting feature files
-are stored in the transformed domain.
-
-Periodic/Aperiodic decomposition fits SpecParam once to the prepared power
-tensor. It reconstructs the periodic component from the fitted peaks on the
-complete model frequency grid, without a separate notch-aware refit,
-notch-based peak exclusion, or post-decomposition interpolation.
+values are converted back to the native domain before the Tensor artifact is
+saved. During Feature extraction, reduced spectral, trace, and scalar outputs
+are calculated in the transformed domain and then inverse-transformed before
+native-domain storage. Raw Feature output bypasses reduction and is stored in
+the native domain directly.
 
 For a mean power feature using the `dB` transform, the calculation is:
 
@@ -685,11 +681,26 @@ rather than:
 
 `10 * log10(mean(power))`
 
+The corresponding native value stored in the Feature artifact is:
+
+`10 ** (mean(10 * log10(power)) / 10)`
+
+Applying the declared `dB` transform to that stored value recovers the
+transformed-domain reduction exactly, apart from floating-point roundoff.
+
+This domain conversion applies to `mean` and `median`, whose outputs remain
+values of the original metric. The `count`, `occupation`, `rate`, and
+`duration` reducers instead produce new native quantities. Their results are
+stored unchanged with an identity (`none`) transform policy; for example, an
+event count is never interpreted as a dB value and inverse-transformed.
+
 For metrics using `fisherz`, `fisherz_sqrt`, `logit`, or `asinh`, frequency
 interpolation, time-axis alignment, and feature reduction are performed in the
-native domain. The transform is applied only after reduction, and the resulting
-feature values are stored in the transformed domain. This order preserves the
-original aggregation meaning of bounded or signed estimators.
+native domain, and Feature values are stored in the native domain. The assigned
+transform remains in the artifact metadata so a downstream analysis or plotting
+step can apply it explicitly without implying that the stored values are
+already transformed. This order preserves the original aggregation meaning and
+boundary values of bounded or signed estimators.
 
 When the transform is `none`, interpolation, reduction, tensor storage, and
 feature storage all remain in the native domain.
@@ -701,18 +712,18 @@ metric and output type.
 
 | Metric or output | Transform | Interpolation domain | Reduction domain | Tensor storage domain | Feature storage domain |
 |---|---|---|---|---|---|
-| Raw power | `dB` | Transformed | Transformed | Native linear power | dB |
-| Periodic power from Periodic/Aperiodic decomposition | `dB` | Transformed | Transformed | Native linear power | dB |
+| Raw power | `dB` | Transformed | Transformed | Native linear power | Native linear power |
+| Periodic power from Periodic/Aperiodic decomposition | `dB` | Transformed | Transformed | Native linear power | Native linear power |
 | Aperiodic offset | `none` | Native | Native | Native | Native |
 | Aperiodic exponent | `none` | Native | Native | Native | Native |
 | Aperiodic knee | `none` | Native | Native | Native | Native |
 | Periodic/Aperiodic fit error | `none` | Native | Native | Native | Native |
 | Periodic/Aperiodic goodness of fit | `none` | Native | Native | Native | Native |
-| Coherence | `none` | Native | Native | Native | Native |
-| PLV | `none` | Native | Native | Native | Native |
-| ciPLV | `none` | Native | Native | Native | Native |
-| PLI | `none` | Native | Native | Native | Native |
-| wPLI | `none` | Native | Native | Native | Native |
+| Coherence | `fisherz_sqrt` | Native | Native | Native | Native |
+| PLV | `logit` | Native | Native | Native | Native |
+| ciPLV | `logit` | Native | Native | Native | Native |
+| PLI | `logit` | Native | Native | Native | Native |
+| wPLI | `logit` | Native | Native | Native | Native |
 | TRGC | `none` | Native | Native | Native | Native |
 | PSI | `none` | Native | Native | Native | Native |
 | Burst duration | `none` | Native | Native | Native | Native |

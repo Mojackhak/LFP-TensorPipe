@@ -951,6 +951,18 @@ feature outputs, and controls plotting/export behavior.
 | `Import Configs...` | Loads a feature configuration. | Current trial feature config. | Requires a selected trial. |
 | `Export Configs...` | Saves the current feature configuration. | External feature config file. | Requires a selected trial. |
 
+**Feature storage behavior**
+
+Extract Features follows the transform policy attached to each metric. Power
+metrics can be interpolated and reduced in a transformed domain such as `dB`,
+but every current Feature output is converted back to its native domain before
+it is saved. This conversion applies to `mean` and `median`. The `count`,
+`occupation`, `rate`, and `duration` reducers return native derived quantities,
+so they are saved unchanged with an identity transform policy. The assigned
+metric transform remains in mean/median Feature metadata. Plot-time transforms
+selected through `Advance` affect only plotting and export data; they do not
+rewrite the source Feature files.
+
 ### 9.2 Available Features, Subset Selection, and Plot Settings
 
 | Control | What it does | What it affects | Availability / blocking rule |

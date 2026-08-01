@@ -227,6 +227,7 @@ def _load_reducer_rule_by_method(
 
 def _load_collapse_base_cfg(config_store: AppConfigStore | None) -> dict[str, Any]:
     out = dict(DEFAULT_COLLAPSE_BASE_CFG)
+    out["out_cols"] = GridResultColumns(band="Band", phase="Phase", value="Value")
     payload = _read_derive_payload(config_store)
     candidate = payload.get("collapse_base_cfg", {})
     if not isinstance(candidate, dict):
@@ -242,7 +243,6 @@ def _load_collapse_base_cfg(config_store: AppConfigStore | None) -> dict[str, An
     ):
         if key in candidate:
             out[key] = candidate.get(key)
-    out["out_cols"] = GridResultColumns(band="Band", phase="Phase", value="Value")
     return out
 
 

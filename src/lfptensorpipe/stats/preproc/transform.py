@@ -13,7 +13,7 @@ transformed independently, preserving its own index/columns.
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, cast
 
 import numpy as np
 import pandas as pd
@@ -25,7 +25,11 @@ from ...utils.numeric import (
     resolve_rel_tol,
     safe_divide,
 )
-from ...utils.transforms import TransformMode, apply_transform_array
+from ...utils.transforms import (
+    TransformMode,
+    apply_inverse_transform_array,
+    apply_transform_array,
+)
 
 NestedTransformMode = TransformMode | Literal["log10", "zscore"]
 
@@ -39,6 +43,7 @@ def transform_df(
     abs_tol: float | None = None,
     rel_tol: float = DEFAULT_REL_TOL,
     drop_empty: bool = True,
+    inverse: bool = False,
 ) -> pd.DataFrame:
     """
     Apply an element-wise transform to `value_col` (scalar/Series/DataFrame).
@@ -58,6 +63,10 @@ def transform_df(
       - "zscore": z-score each Series over its full length, each DataFrame row
         over its columns, and leave scalars unchanged. Near-zero spreads return NaN.
       - "none": identity
+
+    Set ``inverse=True`` to apply the inverse registered for a core transform
+    mode. The derived-only ``log10`` and ``zscore`` modes do not define inverse
+    operations in this interface.
     """
     if value_col not in df.columns:
         raise KeyError(f"Column '{value_col}' not found.")
@@ -67,6 +76,8 @@ def transform_df(
 
     if mode is None:
         return df.copy()
+    if inverse and mode in {"log10", "zscore"}:
+        raise ValueError(f"Transform mode {mode!r} has no inverse operation.")
 
     def coerce_series_to_float_array(s: pd.Series) -> np.ndarray:
         # Coerce non-numeric entries to NaN, preserving length and order.
@@ -81,6 +92,11 @@ def transform_df(
         return flat_num.reshape(m.shape)
 
     def transform_array(arr: np.ndarray) -> np.ndarray:
+        if inverse:
+            return apply_inverse_transform_array(
+                arr,
+                mode=cast(TransformMode, mode),
+            )
         if mode == "log10":
             x = np.asarray(arr, dtype=float)
             out = np.full_like(x, np.nan, dtype=float)
