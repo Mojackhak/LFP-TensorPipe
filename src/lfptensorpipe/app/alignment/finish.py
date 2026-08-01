@@ -19,6 +19,7 @@ def finish_alignment_epochs(
     *,
     paradigm_slug: str,
     picked_epoch_indices: list[int],
+    selected_metrics: list[str] | tuple[str, ...] | None = None,
 ) -> tuple[bool, str]:
     """Build raw-table outputs for picked epochs."""
     _normalize_slug = svc._normalize_slug
@@ -73,6 +74,13 @@ def finish_alignment_epochs(
 
     paradigm_dir = alignment_paradigm_dir(resolver, slug)
     metric_paths = sorted(paradigm_dir.glob("*/tensor_warped.pkl"))
+    if selected_metrics is not None:
+        requested_metrics = {
+            str(metric).strip() for metric in selected_metrics if str(metric).strip()
+        }
+        metric_paths = [
+            path for path in metric_paths if path.parent.name in requested_metrics
+        ]
     if not metric_paths:
         return False, "No warped tensor outputs found for selected trial."
 

@@ -25,6 +25,7 @@ def run_align_epochs(
     *,
     config_store: AppConfigStore,
     paradigm_slug: str,
+    selected_metrics: list[str] | tuple[str, ...] | None = None,
     load_alignment_paradigms_fn: Any | None = None,
     load_raw_for_warp_fn: Any | None = None,
     validate_alignment_method_params_fn: Any | None = None,
@@ -89,6 +90,11 @@ def run_align_epochs(
         return False, "Preprocess finish must be green before Align Epochs.", []
 
     metrics = _completed_tensor_metrics(resolver)
+    if selected_metrics is not None:
+        requested_metrics = {
+            str(metric).strip() for metric in selected_metrics if str(metric).strip()
+        }
+        metrics = [metric for metric in metrics if metric in requested_metrics]
     if not metrics:
         return False, "No completed tensor metrics available.", []
 

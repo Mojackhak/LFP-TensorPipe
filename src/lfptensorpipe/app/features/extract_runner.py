@@ -308,6 +308,7 @@ def run_extract_features(
     axes_by_metric: dict[str, dict[str, Any]] | None = None,
     enabled_outputs_by_metric: dict[str, dict[str, bool]] | None = None,
     reducer_by_metric: dict[str, str] | None = None,
+    selected_metrics: list[str] | tuple[str, ...] | None = None,
 ) -> tuple[bool, str]:
     """Run Extract-Features over alignment raw-table inputs for one selected trial."""
     from . import service as svc
@@ -325,6 +326,11 @@ def run_extract_features(
         )
 
     raw_tables = svc._iter_alignment_raw_tables(resolver, trial_slug=slug)
+    if selected_metrics is not None:
+        requested_metrics = {
+            str(metric).strip() for metric in selected_metrics if str(metric).strip()
+        }
+        raw_tables = [item for item in raw_tables if item[0] in requested_metrics]
     if not raw_tables:
         return False, "No alignment raw-table inputs found for selected trial."
 

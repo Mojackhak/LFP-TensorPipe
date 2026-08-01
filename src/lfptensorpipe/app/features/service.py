@@ -313,6 +313,7 @@ def run_extract_features(
     axes_by_metric: dict[str, dict[str, Any]] | None = None,
     enabled_outputs_by_metric: dict[str, dict[str, bool]] | None = None,
     reducer_by_metric: dict[str, str] | None = None,
+    selected_metrics: list[str] | tuple[str, ...] | None = None,
 ) -> tuple[bool, str]:
     return _run_extract_features_impl(
         context,
@@ -321,6 +322,7 @@ def run_extract_features(
         axes_by_metric=axes_by_metric,
         enabled_outputs_by_metric=enabled_outputs_by_metric,
         reducer_by_metric=reducer_by_metric,
+        selected_metrics=selected_metrics,
     )
 
 
