@@ -78,21 +78,13 @@ def _fit_one_epoch_channel(
                 f"SpecParam report export failed for epoch {e_idx}, channel {ch_idx}: {report_path}"
             ) from exc
 
-    # Backward compatibility across specparam versions.
-    try:
-        ap_params = model.get_params("aperiodic")
-    except Exception:
-        ap_params = model.get_params("aperiodic_params")
-
-    try:
-        g_params = model.get_params("periodic")
-    except Exception:
-        g_params = model.get_params("gaussian_params")
-
-    if g_params is None or (isinstance(g_params, np.ndarray) and g_params.size == 0):
-        g_params = np.empty((0, 4), dtype=float)
-    else:
-        g_params = np.atleast_2d(g_params).astype(float)
+    # The specparam distribution uses the 2.x results API: SpectralTimeModel
+    # exposes one FitResults object per window through results.group_results.
+    fit_results = list(model.results.group_results)
+    if len(fit_results) != n_times:
+        raise RuntimeError(
+            "SpecParam fit-result count does not match the spectrogram time axis."
+        )
 
     try:
         major = int(str(getattr(specparam, "__version__", "0")).split(".")[0])
@@ -142,15 +134,16 @@ def _fit_one_epoch_channel(
     per_linear = np.zeros((n_freqs, n_times), dtype=float)
     full_linear = np.empty((n_freqs, n_times), dtype=float)
 
-    for t in range(n_times):
-        ap_t = ap_params[t, :]
+    for t, fit_result in enumerate(fit_results):
+        ap_t = np.asarray(fit_result.aperiodic_fit, dtype=float)
         ap_linear[:, t] = _simulate_component(ap_t, []).flatten()
 
-        if g_params.shape[0] > 0:
-            mask = g_params[:, -1].astype(int) == t
-            peaks_t = g_params[mask, :3].tolist()
-        else:
-            peaks_t = []
+        # SpecParam ``peak_fit`` contains Gaussian center, height, and sigma;
+        # ``peak_converted`` contains converted peak bandwidth instead.
+        peak_fit = np.asarray(fit_result.peak_fit, dtype=float)
+        peaks_t = (
+            np.atleast_2d(peak_fit).reshape(-1, 3).tolist() if peak_fit.size > 0 else []
+        )
 
         per_linear[:, t] = _simulate_component(
             np.array([0, 0, 0], dtype=float), peaks_t
