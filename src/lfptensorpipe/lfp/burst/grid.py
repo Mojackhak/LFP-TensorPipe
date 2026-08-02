@@ -8,8 +8,9 @@ Algorithm (per channel, per band):
    - If `baseline_keep` is provided, the threshold is computed ONLY from the samples
      covered by matching Raw annotations (e.g., baseline "sit"), and then applied
      to the full recording.
-4) Detect supra-threshold contiguous segments and prune segments shorter than
-   `min_cycles` periods of the band center frequency.
+4) Detect supra-threshold contiguous segments and keep segments whose duration
+   is at least `min_cycles` and, when provided, at most `max_cycles` periods of
+   the band center frequency. Segments above the maximum are excluded in full.
 5) Return a tensor on the decimated time grid (same decimation rule as `tfr.grid`):
    values are the envelope amplitude, and non-burst time bins are NaN.
 
@@ -314,11 +315,12 @@ def _compute_iir_guard_samples(
     return int(max(padlen, n_ring))
 
 
-def _prune_short_runs(mask_1d: np.ndarray, min_len: int) -> np.ndarray:
-    """Keep only True-runs with length >= min_len."""
-    if min_len <= 1:
-        return mask_1d.astype(bool, copy=True)
-
+def _filter_runs_by_length(
+    mask_1d: np.ndarray,
+    min_len: int,
+    max_len: int | None = None,
+) -> np.ndarray:
+    """Keep only True-runs within the inclusive sample-length bounds."""
     x = np.asarray(mask_1d, dtype=bool)
     if x.size == 0:
         return x.copy()
@@ -332,7 +334,7 @@ def _prune_short_runs(mask_1d: np.ndarray, min_len: int) -> np.ndarray:
     keep = np.zeros_like(x, dtype=bool)
     for s, e in zip(starts, ends):
         run_len = int(e - s)
-        if run_len >= int(min_len):
+        if run_len >= int(min_len) and (max_len is None or run_len <= int(max_len)):
             keep[s:e] = True
     return keep
 
@@ -344,6 +346,7 @@ def grid(
     thresholds: Sequence | None = None,
     percentile: float = 75.0,
     min_cycles: float = 2.0,
+    max_cycles: float | None = None,
     hop_s: float | None = None,
     decim: int | None = None,
     target_n_times: int | None = None,
@@ -380,6 +383,9 @@ def grid(
         Percentile used for envelope thresholding (per channel, per band).
     min_cycles:
         Minimum burst duration in cycles of the band center frequency.
+    max_cycles:
+        Optional maximum burst duration in cycles of the band center frequency.
+        Supra-threshold segments longer than this limit are excluded in full.
     hop_s, decim:
         Time grid definition. Use the same settings as `tfr.grid` for alignment.
     target_n_times:
@@ -434,6 +440,13 @@ def grid(
         raise ValueError("percentile must be in (0, 100).")
     if float(min_cycles) <= 0:
         raise ValueError("min_cycles must be > 0.")
+    max_cycles_eff: float | None = None
+    if max_cycles is not None:
+        max_cycles_eff = float(max_cycles)
+        if not np.isfinite(max_cycles_eff) or max_cycles_eff <= 0:
+            raise ValueError("max_cycles must be > 0 when provided.")
+        if max_cycles_eff < float(min_cycles):
+            raise ValueError("max_cycles must be >= min_cycles when provided.")
     if baseline_fallback not in {"full", "raise"}:
         raise ValueError("baseline_fallback must be 'full' or 'raise'.")
 
@@ -482,6 +495,18 @@ def grid(
 
     band_names, band_segments, band_union_edges = _normalize_bands(bands)
     band_centers = band_union_edges.mean(axis=1)
+    min_run_samples_by_band = [
+        int(np.ceil(float(min_cycles) * sfreq / float(f_center)))
+        for f_center in band_centers
+    ]
+    max_run_samples_by_band: list[int | None] = (
+        [
+            int(np.floor(max_cycles_eff * sfreq / float(f_center)))
+            for f_center in band_centers
+        ]
+        if max_cycles_eff is not None
+        else [None] * len(band_names)
+    )
 
     # Validate user-provided thresholds (if any) after we know n_channels.
     thresholds_by_band: list[np.ndarray] | None = None
@@ -652,13 +677,17 @@ def grid(
         if np.any(edge_mask):
             above[:, edge_mask] = False
 
-        # Minimum duration in samples based on band *union* center frequency.
-        min_len = int(np.ceil(float(min_cycles) * sfreq / float(f_center)))
-        min_len = max(1, min_len)
+        # Duration bounds in samples based on band *union* center frequency.
+        min_len = min_run_samples_by_band[bi]
+        max_len = max_run_samples_by_band[bi]
 
         burst_mask = np.zeros_like(above, dtype=bool)
         for ci in range(n_channels):
-            burst_mask[ci] = _prune_short_runs(above[ci], min_len=min_len)
+            burst_mask[ci] = _filter_runs_by_length(
+                above[ci],
+                min_len=min_len,
+                max_len=max_len,
+            )
 
         env_burst = env.astype(np.float64, copy=True)
         env_burst[~burst_mask] = np.nan
@@ -722,6 +751,11 @@ def grid(
             thresholds_provided=(thresholds is not None),
             percentile=float(percentile),
             min_cycles=float(min_cycles),
+            max_cycles=max_cycles_eff,
+            min_run_samples_by_band=[int(x) for x in min_run_samples_by_band],
+            max_run_samples_by_band=[
+                int(x) if x is not None else None for x in max_run_samples_by_band
+            ],
             hop_s=(float(hop_s) if hop_s is not None else None),
             decim_eff=int(decim_eff),
             target_n_times=(

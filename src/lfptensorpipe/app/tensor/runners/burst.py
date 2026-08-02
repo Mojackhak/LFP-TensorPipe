@@ -205,6 +205,7 @@ def run_burst_metric(
             baseline_keep=baseline_keep,
             baseline_match="exact",
             min_cycles=float(min_cycles),
+            max_cycles=(float(max_cycles) if max_cycles is not None else None),
             hop_s=hop_s_use,
             decim=decim_use,
             picks=picks,

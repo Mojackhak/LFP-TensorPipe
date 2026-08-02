@@ -361,7 +361,10 @@ class TensorMetricAdvanceDialog(QDialog):
             min_cycles = QLineEdit()
             min_cycles.setToolTip("Minimum cycles used for burst detection.")
             max_cycles = QLineEdit()
-            max_cycles.setToolTip("Optional maximum cycles used for burst detection.")
+            max_cycles.setToolTip(
+                "Maximum allowed burst duration in cycles. Longer bursts are "
+                "excluded; leave blank for no maximum."
+            )
             form.addRow("Thresholds", thresholds_row)
             form.addRow("Baseline annotations", baseline_combo)
             form.addRow("Min cycles", min_cycles)
