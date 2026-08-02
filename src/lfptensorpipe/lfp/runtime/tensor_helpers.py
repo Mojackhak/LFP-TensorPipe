@@ -138,6 +138,12 @@ def psi_band_radii_seconds(
     if not isinstance(union, dict):
         raise ValueError("PSI metadata missing bands_union_hz.")
 
+    if method == "multitaper":
+        window_span_s = float(params.get("multitaper_window_span_s", time_resolution_s))
+        if not np.isfinite(window_span_s) or window_span_s <= 0.0:
+            raise ValueError("PSI Multitaper metadata has invalid window span.")
+        return band_names, [window_span_s / 2.0] * len(band_names)
+
     if method == "morlet":
         cwt_freqs = params.get("cwt_freqs")
         cwt_cycles = params.get("cwt_n_cycles")

@@ -219,6 +219,8 @@ def run_psi_metric(
             max_cycles=max_cycles,
             picks=picks,
             n_jobs=int(n_jobs),
+            outer_n_jobs=int(outer_n_jobs),
+            verbose="ERROR",
         )
 
         tensor4d = np.asarray(tensor, dtype=float)
@@ -249,6 +251,11 @@ def run_psi_metric(
             "metric_label": metric_label,
             "connectivity_metric": "psi",
             "method": str(method_norm),
+            **(
+                {"time_axis_mode": "sliding_window"}
+                if method_norm == "multitaper"
+                else {}
+            ),
             "low_freq": float(low_freq),
             "high_freq": float(high_freq),
             "step_hz": float(step_hz),
@@ -286,6 +293,11 @@ def run_psi_metric(
             "high_freq": float(high_freq),
             "step_hz": float(step_hz),
             "method": str(method_norm),
+            **(
+                {"time_axis_mode": "sliding_window"}
+                if method_norm == "multitaper"
+                else {}
+            ),
             "time_resolution_s": float(time_resolution_s),
             "hop_s": float(hop_s),
             "mt_bandwidth": (float(mt_bandwidth) if mt_bandwidth is not None else None),

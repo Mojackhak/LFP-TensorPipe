@@ -318,11 +318,12 @@ def _metric_log_signature(
         bands_used = _normalize_runtime_bands_signature(params.get("bands_used"))
         if pairs is None or bands_used is None:
             return None
-        return {
+        method = str(params.get("method", "morlet"))
+        signature = {
             "low_freq": float(params.get("low_freq")),
             "high_freq": float(params.get("high_freq")),
             "step_hz": float(params.get("step_hz")),
-            "method": str(params.get("method", "morlet")),
+            "method": method,
             "time_resolution_s": float(params.get("time_resolution_s")),
             "hop_s": float(params.get("hop_s")),
             "mt_bandwidth": _as_optional_float(params.get("mt_bandwidth")),
@@ -334,6 +335,11 @@ def _metric_log_signature(
             "bands_used": bands_used,
             "selected_pairs": pairs,
         }
+        if method.strip().lower() == "multitaper":
+            signature["time_axis_mode"] = str(
+                params.get("time_axis_mode", "whole_record_repeat")
+            )
+        return signature
     if metric_key == "burst":
         channels = _normalize_channels(params.get("selected_channels"))
         bands_used = _normalize_runtime_bands_signature(params.get("bands_used"))
@@ -553,11 +559,12 @@ def _current_metric_signature(
         )
         if pairs is None or bands_used is None:
             return None
-        return {
+        method = str(metric_params.get("method", "morlet"))
+        signature = {
             "low_freq": prepared.metric_low,
             "high_freq": prepared.metric_high,
             "step_hz": prepared.metric_step,
-            "method": str(metric_params.get("method", "morlet")),
+            "method": method,
             "time_resolution_s": _as_float(metric_params.get("time_resolution_s"), 0.5),
             "hop_s": _as_float(metric_params.get("hop_s"), 0.025),
             "mt_bandwidth": _as_optional_float(metric_params.get("mt_bandwidth")),
@@ -569,6 +576,9 @@ def _current_metric_signature(
             "bands_used": bands_used,
             "selected_pairs": pairs,
         }
+        if method.strip().lower() == "multitaper":
+            signature["time_axis_mode"] = "sliding_window"
+        return signature
     if metric_key == "burst":
         channels = _normalize_channels(prepared.metric_channels)
         bands = normalize_metric_bands(metric_params.get("bands"))

@@ -6,13 +6,13 @@ This module provides :func:`grid`, which returns a PSI tensor with shape:
 
 The PSI is computed via :func:`mne_connectivity.phase_slope_index` using either:
   - ``method="morlet"`` -> ``mode="cwt_morlet"`` (native time-resolved PSI)
-  - ``method="multitaper"`` -> ``mode="multitaper"`` (spectral-only PSI)
+  - ``method="multitaper"`` -> one spectral PSI estimate per centered window
 
 To match the TFR/connectivity time axis (typically decimated via
 ``hop_s``/``decim``):
   - Morlet path: decimate PSI output time axis.
-  - Multitaper path: repeat spectral-only PSI across the decimated time axis
-    so the returned tensor shape stays consistent with morlet.
+  - Multitaper path: center one analysis window on each output time point and
+    leave positions without a complete window as NaN.
 
 Important: the input signal is **not** downsampled. This keeps the effective
 sampling rate (and Nyquist frequency) unchanged, so high-frequency bands (e.g.
@@ -31,6 +31,7 @@ from typing import Any, Dict, Mapping, Sequence, Tuple
 
 import numpy as np
 import mne
+from joblib import Parallel, delayed
 
 from ..common.timefreq import (
     channel_names_after_picks,
@@ -172,6 +173,112 @@ def _normalize_method(method: str) -> str:
     raise ValueError("`method` must be 'morlet' or 'multitaper'.")
 
 
+def _multitaper_window_geometry(
+    *,
+    sfreq_hz: float,
+    time_resolution_s: float,
+) -> tuple[int, int, float]:
+    half_window_samples = int(round(float(time_resolution_s) * float(sfreq_hz) / 2.0))
+    if half_window_samples < 1:
+        raise ValueError(
+            "Multitaper PSI time_resolution_s is shorter than two input sample intervals."
+        )
+    window_n_samples = 2 * half_window_samples + 1
+    window_span_s = (window_n_samples - 1) / float(sfreq_hz)
+    return half_window_samples, window_n_samples, float(window_span_s)
+
+
+def _validate_multitaper_band_resolution(
+    *,
+    seg_edges: np.ndarray,
+    sfreq_hz: float,
+    window_n_samples: int,
+) -> None:
+    fourier_freqs = np.fft.rfftfreq(
+        int(window_n_samples),
+        d=1.0 / float(sfreq_hz),
+    )
+    for low, high in np.asarray(seg_edges, dtype=float):
+        n_bins = int(
+            np.sum((fourier_freqs > float(low)) & (fourier_freqs < float(high)))
+        )
+        if n_bins < 2:
+            raise ValueError(
+                "Multitaper PSI requires at least two frequency bins strictly "
+                f"inside every runtime band segment; [{float(low):g}, "
+                f"{float(high):g}] Hz has {n_bins}. Increase time_resolution_s "
+                "or widen the band segment."
+            )
+
+
+def _run_multitaper_windows(
+    *,
+    data: np.ndarray,
+    center_samples: np.ndarray,
+    valid_time_indices: np.ndarray,
+    half_window_samples: int,
+    seeds_idx: np.ndarray,
+    targets_idx: np.ndarray,
+    seg_edges: np.ndarray,
+    sfreq_hz: float,
+    mt_bandwidth: float | None,
+    block_size: int,
+    outer_n_jobs: int,
+    verbose: Any | None,
+    phase_slope_index_fn: Any,
+) -> np.ndarray:
+    n_pairs = int(len(seeds_idx))
+    n_segments = int(seg_edges.shape[0])
+    out = np.full(
+        (n_pairs, n_segments, int(center_samples.size)),
+        np.nan,
+        dtype=float,
+    )
+    fmin_tuple = tuple(float(item) for item in seg_edges[:, 0])
+    fmax_tuple = tuple(float(item) for item in seg_edges[:, 1])
+
+    def _run_one(time_index: int) -> tuple[int, np.ndarray]:
+        center = int(center_samples[time_index])
+        start = center - int(half_window_samples)
+        stop = center + int(half_window_samples) + 1
+        window = np.asarray(data[:, start:stop], dtype=float)[np.newaxis, ...]
+        kwargs: dict[str, Any] = {
+            "data": window,
+            "indices": (seeds_idx, targets_idx),
+            "sfreq": float(sfreq_hz),
+            "mode": "multitaper",
+            "fmin": fmin_tuple,
+            "fmax": fmax_tuple,
+            "block_size": int(block_size),
+            "n_jobs": 1,
+            "verbose": verbose,
+        }
+        if mt_bandwidth is not None:
+            kwargs["mt_bandwidth"] = float(mt_bandwidth)
+        conn = phase_slope_index_fn(**kwargs)
+        values = np.asarray(conn.get_data(), dtype=float)
+        expected = (n_pairs, n_segments)
+        if tuple(values.shape) != expected:
+            raise RuntimeError(
+                "Multitaper PSI window shape mismatch: "
+                f"got {values.shape}, expected {expected}."
+            )
+        return int(time_index), values
+
+    indices = [int(item) for item in np.asarray(valid_time_indices, dtype=int)]
+    if int(outer_n_jobs) == 1:
+        results = [_run_one(time_index) for time_index in indices]
+    else:
+        results = Parallel(
+            n_jobs=int(outer_n_jobs),
+            backend="loky",
+            max_nbytes="100K",
+        )(delayed(_run_one)(time_index) for time_index in indices)
+    for time_index, values in results:
+        out[:, :, time_index] = values
+    return out
+
+
 def grid(
     raw: mne.io.BaseRaw,
     *,
@@ -191,6 +298,7 @@ def grid(
     mt_bandwidth: float | None = None,
     block_size: int = 1000,
     n_jobs: int = 1,
+    outer_n_jobs: int | None = None,
     verbose: Any | None = None,
 ) -> tuple[np.ndarray, Dict[str, Any]]:
     """Compute time-resolved PSI aligned to a TFR-like time grid.
@@ -198,12 +306,13 @@ def grid(
     Args:
         raw: Continuous MNE Raw.
         bands: Mapping band_name -> (fmin,fmax) in Hz.
-        time_resolution_s: Target time-domain Morlet FWHM (seconds). Used to set
-            `cwt_n_cycles` so wavelet temporal resolution is approximately constant.
+        time_resolution_s: Target Morlet time-domain FWHM, or centered
+            Multitaper analysis-window duration, in seconds.
         pairs: Optional explicit list of ordered pairs (seed, target).
         groups: Optional mapping group_name -> list[channel_name] to build pairs within groups.
         ordered_pairs: If True, build ordered pairs (A,B) and (B,A) where applicable.
-        hop_s: Hop size (seconds) used to derive a decimation factor (TFR-like).
+        hop_s: Hop size used to derive the output decimation factor and
+            Multitaper window-center spacing, in seconds.
         decim: Explicit decimation factor overriding `hop_s`.
         target_n_times: Optional fixed time-axis length (pad/trim with NaNs).
         picks: Optional list of channel names to include.
@@ -211,7 +320,10 @@ def grid(
         min_cycles: Lower bound for Morlet cycles when converting from time FWHM.
         max_cycles: Optional upper bound for Morlet cycles.
         block_size: Forwarded to :func:`mne_connectivity.phase_slope_index`.
-        n_jobs: Parallel jobs forwarded to PSI function.
+        n_jobs: Parallel jobs forwarded to Morlet PSI. For Multitaper, this is
+            the window-loop fallback when `outer_n_jobs` is None.
+        outer_n_jobs: Parallel jobs across Multitaper windows. None uses
+            `n_jobs`; each individual window keeps its inner PSI job count at 1.
         verbose: Verbosity forwarded to PSI function.
 
     Returns:
@@ -225,6 +337,7 @@ def grid(
         raise ValueError("`time_resolution_s` must be > 0.")
     method_use = _normalize_method(method)
     mode_use = "cwt_morlet" if method_use == "morlet" else "multitaper"
+    resolved_outer_n_jobs = int(n_jobs) if outer_n_jobs is None else int(outer_n_jobs)
     if mt_bandwidth is not None and float(mt_bandwidth) <= 0:
         raise ValueError("`mt_bandwidth` must be > 0 when provided.")
 
@@ -257,19 +370,7 @@ def grid(
         ordered_pairs=bool(ordered_pairs),
     )
 
-    # Optional: If the caller requests a shorter *time axis* than the raw would
-    # naturally yield, we can crop the input to avoid unnecessary computation.
-    #
-    # We still compute PSI at the *original* sampling rate. Only the output is
-    # time-decimated to align with TFR/connectivity grids.
     n_times_target = int(times.size)
-    if target_n_times is not None and target_n_times > 0:
-        # We need samples up to (target_n_times-1)*decim_eff.
-        max_sample = int((int(target_n_times) - 1) * int(decim_eff) + 1)
-        max_sample = min(max_sample, int(data.shape[-1]))
-        data = data[:, :max_sample]
-
-    data_3d = data[np.newaxis, :, :]
     sfreq_use = sfreq
 
     # Nyquist guard.
@@ -317,30 +418,39 @@ def grid(
             "Install with 'pip install mne-connectivity'."
         ) from e
 
-    fmin_tuple = tuple(float(x) for x in seg_edges[:, 0])
-    fmax_tuple = tuple(float(x) for x in seg_edges[:, 1])
-
-    conn_kwargs: dict[str, Any] = dict(
-        data=data_3d,
-        indices=(seeds_idx, targets_idx),
-        sfreq=float(sfreq_use),
-        mode=mode_use,
-        fmin=fmin_tuple,
-        fmax=fmax_tuple,
-        block_size=int(block_size),
-        n_jobs=int(n_jobs),
-        verbose=verbose,
-    )
+    multitaper_half_window_samples: int | None = None
+    multitaper_window_n_samples: int | None = None
+    multitaper_window_span_s: float | None = None
+    n_valid_windows: int | None = None
     if method_use == "morlet":
+        data_compute = data
+        if target_n_times is not None and target_n_times > 0:
+            max_sample = int((int(target_n_times) - 1) * int(decim_eff) + 1)
+            max_sample = min(max_sample, int(data.shape[-1]))
+            data_compute = data[:, :max_sample]
+
+        fmin_tuple = tuple(float(x) for x in seg_edges[:, 0])
+        fmax_tuple = tuple(float(x) for x in seg_edges[:, 1])
+        conn_kwargs: dict[str, Any] = dict(
+            data=data_compute[np.newaxis, :, :],
+            indices=(seeds_idx, targets_idx),
+            sfreq=float(sfreq_use),
+            mode=mode_use,
+            fmin=fmin_tuple,
+            fmax=fmax_tuple,
+            block_size=int(block_size),
+            n_jobs=int(n_jobs),
+            verbose=verbose,
+        )
         conn_kwargs["cwt_freqs"] = cwt_freqs_use
         conn_kwargs["cwt_n_cycles"] = cwt_n_cycles
-    elif mt_bandwidth is not None:
-        conn_kwargs["mt_bandwidth"] = float(mt_bandwidth)
-
-    conn = phase_slope_index(**conn_kwargs)
-    psi_raw = np.asarray(conn.get_data(), dtype=float)
-    if method_use == "morlet":
-        expected_full = (len(pair_names), int(seg_edges.shape[0]), int(data.shape[-1]))
+        conn = phase_slope_index(**conn_kwargs)
+        psi_raw = np.asarray(conn.get_data(), dtype=float)
+        expected_full = (
+            len(pair_names),
+            int(seg_edges.shape[0]),
+            int(data_compute.shape[-1]),
+        )
         if tuple(psi_raw.shape) != expected_full:
             raise RuntimeError(
                 f"PSI data shape mismatch: got {psi_raw.shape}, expected {expected_full}."
@@ -349,12 +459,63 @@ def grid(
         n_times_dec = int(psi_dec.shape[-1])
         n_times_compute = min(n_times_dec, n_times_target)
     else:
-        expected_full = (len(pair_names), int(seg_edges.shape[0]))
-        if tuple(psi_raw.shape) != expected_full:
-            raise RuntimeError(
-                f"PSI data shape mismatch: got {psi_raw.shape}, expected {expected_full}."
+        (
+            multitaper_half_window_samples,
+            multitaper_window_n_samples,
+            multitaper_window_span_s,
+        ) = _multitaper_window_geometry(
+            sfreq_hz=float(sfreq_use),
+            time_resolution_s=float(time_resolution_s),
+        )
+        if mt_bandwidth is not None:
+            normalized_half_bandwidth = (
+                float(mt_bandwidth)
+                * int(multitaper_window_n_samples)
+                / (2.0 * float(sfreq_use))
             )
-        psi_dec = np.repeat(psi_raw[:, :, np.newaxis], n_times_target, axis=-1)
+            if normalized_half_bandwidth < 0.5:
+                minimum_bandwidth = float(sfreq_use) / int(multitaper_window_n_samples)
+                raise ValueError(
+                    "Multitaper PSI mt_bandwidth is too small for the selected "
+                    "time_resolution_s. "
+                    f"Use mt_bandwidth >= {minimum_bandwidth:.3f} Hz."
+                )
+        _validate_multitaper_band_resolution(
+            seg_edges=seg_edges,
+            sfreq_hz=float(sfreq_use),
+            window_n_samples=int(multitaper_window_n_samples),
+        )
+        center_samples = np.arange(n_times_target, dtype=int) * int(decim_eff)
+        complete_windows = (
+            np.isfinite(times)
+            & (center_samples - int(multitaper_half_window_samples) >= 0)
+            & (
+                center_samples + int(multitaper_half_window_samples)
+                < int(data.shape[-1])
+            )
+        )
+        valid_time_indices = np.flatnonzero(complete_windows)
+        n_valid_windows = int(valid_time_indices.size)
+        if n_valid_windows == 0:
+            raise ValueError(
+                "Multitaper PSI has no complete centered analysis window. "
+                "Reduce time_resolution_s or use a longer recording."
+            )
+        psi_dec = _run_multitaper_windows(
+            data=data,
+            center_samples=center_samples,
+            valid_time_indices=valid_time_indices,
+            half_window_samples=int(multitaper_half_window_samples),
+            seeds_idx=seeds_idx,
+            targets_idx=targets_idx,
+            seg_edges=seg_edges,
+            sfreq_hz=float(sfreq_use),
+            mt_bandwidth=mt_bandwidth,
+            block_size=int(block_size),
+            outer_n_jobs=int(resolved_outer_n_jobs),
+            verbose=verbose,
+            phase_slope_index_fn=phase_slope_index,
+        )
         n_times_compute = int(n_times_target)
 
     n_pairs = len(pair_names)
@@ -414,6 +575,18 @@ def grid(
             method=str(method_use),
             spectral_mode=str(mode_use),
             mt_bandwidth=(float(mt_bandwidth) if mt_bandwidth is not None else None),
+            **(
+                {
+                    "time_axis_mode": "sliding_window",
+                    "multitaper_half_window_samples": multitaper_half_window_samples,
+                    "multitaper_window_n_samples": multitaper_window_n_samples,
+                    "multitaper_window_span_s": multitaper_window_span_s,
+                    "multitaper_n_valid_windows": n_valid_windows,
+                    "outer_n_jobs": int(resolved_outer_n_jobs),
+                }
+                if method_use == "multitaper"
+                else {}
+            ),
             cwt_freqs=(
                 np.asarray(cwt_freqs_use, dtype=float)
                 if cwt_freqs_use is not None
