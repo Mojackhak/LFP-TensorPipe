@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 import math
+from pathlib import Path
 import shutil
 from typing import Any, Callable
 
@@ -288,6 +289,7 @@ def ecg_method_runtime_kwargs(
 def apply_ecg_step(
     context: RecordContext,
     *,
+    source: tuple[str, Path] | None,
     method: str,
     picks: list[str] | tuple[str, ...] | None,
     method_kwargs: dict[str, Any] | None = None,
@@ -304,7 +306,6 @@ def apply_ecg_step(
     )
 
     resolver = PathResolver(context)
-    src = preproc_step_raw_path(resolver, "bad_segment_removal")
     dst = preproc_step_raw_path(resolver, "ecg_artifact_removal")
 
     if method not in ecg_methods:
@@ -312,22 +313,24 @@ def apply_ecg_step(
             resolver=resolver,
             step="ecg_artifact_removal",
             completed=False,
-            input_path=str(src),
+            input_path=str(source[1]) if source is not None else "",
             output_path=str(dst),
             message=f"Unknown ECG method: {method}",
         )
         return False, f"Unknown ECG method: {method}"
 
-    if not src.exists():
+    if source is None:
         mark_preproc_step_fn(
             resolver=resolver,
             step="ecg_artifact_removal",
             completed=False,
-            input_path=str(src),
+            input_path="",
             output_path=str(dst),
-            message="Missing bad-segment raw input for ECG step.",
+            message="No valid preprocess input for ECG step.",
         )
-        return False, "Missing bad-segment raw input for ECG step."
+        return False, "No valid preprocess input for ECG step."
+
+    source_step, src = source
 
     try:
         runtime_copy2 = copy2_fn or shutil.copy2
@@ -371,7 +374,7 @@ def apply_ecg_step(
                 output_path=str(dst),
                 message=(
                     "ECG step completed without channel picks; "
-                    "copied bad-segment output unchanged."
+                    f"copied {source_step} output unchanged."
                 ),
             )
             invalidate_downstream_fn(context, "ecg_artifact_removal")
@@ -418,7 +421,9 @@ def apply_ecg_step(
             },
             input_path=str(src),
             output_path=str(dst),
-            message=f"ECG step completed with method: {method}.",
+            message=(
+                f"ECG step completed with method {method} using source: {source_step}."
+            ),
         )
         invalidate_downstream_fn(context, "ecg_artifact_removal")
     except Exception as exc:

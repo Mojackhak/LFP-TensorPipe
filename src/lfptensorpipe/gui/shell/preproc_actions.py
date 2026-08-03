@@ -8,6 +8,7 @@ from lfptensorpipe.gui.shell.common import (
     PathResolver,
     QDialog,
     preproc_step_raw_path,
+    resolve_preproc_step_source,
 )
 
 
@@ -166,13 +167,14 @@ class MainWindowPreprocActionsMixin:
         if context is None:
             return
         resolver = PathResolver(context)
-        src = preproc_step_raw_path(resolver, "filter")
+        source = resolve_preproc_step_source(context, "annotations")
+        src = source[1] if source is not None else None
         dst = preproc_step_raw_path(resolver, "annotations")
         self._mark_preproc_step_runtime(
             resolver=resolver,
             step="annotations",
             completed=False,
-            input_path=str(src),
+            input_path=str(src) if src is not None else "",
             output_path=str(dst),
             message=f"Annotations {action} blocked: invalid rows {invalid_rows}.",
         )

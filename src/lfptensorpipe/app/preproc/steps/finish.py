@@ -1,4 +1,4 @@
-"""Finish-step source selection and apply helpers."""
+"""Preprocess source selection and finish-step apply helpers."""
 
 from __future__ import annotations
 
@@ -19,9 +19,12 @@ def resolve_finish_source(
     preproc_step_raw_path_fn: Callable[[PathResolver, str], Path],
     preproc_step_log_path_fn: Callable[[PathResolver, str], Path],
     read_run_log_fn: ReadRunLogFn,
+    required_step: str | None = None,
 ) -> tuple[str, Path] | None:
-    """Resolve highest-priority valid preprocess source for `finish`."""
+    """Resolve the highest-priority source when the required step is valid."""
     resolver = PathResolver(context)
+    selected: tuple[str, Path] | None = None
+    required_step_is_valid = required_step is None
     for step in source_priority:
         raw_path = preproc_step_raw_path_fn(resolver, step)
         log_path = preproc_step_log_path_fn(resolver, step)
@@ -31,8 +34,11 @@ def resolve_finish_source(
         if payload is None:
             continue
         if bool(payload.get("completed")):
-            return step, raw_path
-    return None
+            if selected is None:
+                selected = (step, raw_path)
+            if step == required_step:
+                required_step_is_valid = True
+    return selected if required_step_is_valid else None
 
 
 def apply_finish_step(

@@ -119,17 +119,29 @@ def _aggregate_tensor_stage_state(
 
 def scan_stage_states(project_root: Path, subject: str, record: str) -> dict[str, str]:
     """Scan record-scoped logs and derive stage indicator states."""
+    from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
+    from lfptensorpipe.app.preproc.indicator import preproc_step_indicator_state
+
     base = project_root / "derivatives" / "lfptensorpipe" / subject / record
 
-    preproc_log = base / "preproc" / "finish" / "lfptensorpipe_log.json"
     tensor_stage_log = base / "tensor" / "lfptensorpipe_log.json"
     tensor_logs = list((base / "tensor").glob("*/lfptensorpipe_log.json"))
     alignment_logs = list((base / "alignment").glob("*/lfptensorpipe_log.json"))
     features_logs = list((base / "features").glob("*/lfptensorpipe_log.json"))
     tensor_state = _aggregate_tensor_stage_state(tensor_stage_log, tensor_logs)
+    preproc_state = preproc_step_indicator_state(
+        PathResolver(
+            RecordContext(
+                project_root=project_root,
+                subject=subject,
+                record=record,
+            )
+        ),
+        "finish",
+    )
 
     return {
-        "preproc": indicator_from_log(preproc_log),
+        "preproc": preproc_state,
         "tensor": tensor_state,
         "alignment": _aggregate_states(alignment_logs),
         "features": _aggregate_states(features_logs),

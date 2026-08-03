@@ -31,12 +31,14 @@ from .service import (
     preproc_step_raw_path,
     rawdata_input_fif_path,
     resolve_finish_source,
+    resolve_preproc_step_source,
     write_preproc_step_config,
 )
 from .indicator import (
     preproc_annotations_panel_state,
     preproc_ecg_panel_state,
     preproc_filter_panel_state,
+    preproc_step_indicator_state,
 )
 
 __all__ = [
@@ -65,7 +67,9 @@ __all__ = [
     "preproc_annotations_panel_state",
     "preproc_ecg_panel_state",
     "preproc_filter_panel_state",
+    "preproc_step_indicator_state",
     "rawdata_input_fif_path",
     "resolve_finish_source",
+    "resolve_preproc_step_source",
     "write_preproc_step_config",
 ]

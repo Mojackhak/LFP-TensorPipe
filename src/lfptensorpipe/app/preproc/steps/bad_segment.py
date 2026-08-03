@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Callable
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
@@ -48,6 +49,7 @@ def _select_bad_segment_annotations(annotations: Any) -> Any:
 def apply_bad_segment_step(
     context: RecordContext,
     *,
+    source: tuple[str, Path] | None,
     mark_preproc_step_fn: MarkStepFn,
     invalidate_downstream_fn: InvalidateFn,
     read_raw_fif_fn: Callable[..., Any] | None = None,
@@ -61,19 +63,20 @@ def apply_bad_segment_step(
     )
 
     resolver = PathResolver(context)
-    src = preproc_step_raw_path(resolver, "annotations")
     dst = preproc_step_raw_path(resolver, "bad_segment_removal")
 
-    if not src.exists():
+    if source is None:
         mark_preproc_step_fn(
             resolver=resolver,
             step="bad_segment_removal",
             completed=False,
-            input_path=str(src),
+            input_path="",
             output_path=str(dst),
-            message="Missing annotations raw input for bad-segment step.",
+            message="No valid preprocess input for bad-segment step.",
         )
-        return False, "Missing annotations raw input for bad-segment step."
+        return False, "No valid preprocess input for bad-segment step."
+
+    source_step, src = source
 
     try:
         import mne
@@ -124,7 +127,7 @@ def apply_bad_segment_step(
             input_path=str(src),
             output_path=str(dst),
             message=(
-                "Bad Segment step completed with "
+                f"Bad Segment step completed using source {source_step} with "
                 "filter_lfp_with_bad_annotations + add_head_tail_annotations defaults."
             ),
         )

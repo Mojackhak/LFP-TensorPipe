@@ -15,6 +15,8 @@ from .steps.annotations import _normalize_annotation_rows
 from .steps.ecg import normalize_ecg_method_params
 from .steps.filter import normalize_filter_advance_params
 
+_UPSTREAM_INVALIDATION_PREFIX = "Invalidated by upstream step re-apply:"
+
 
 def _read_payload(path: Path) -> dict[str, Any] | None:
     try:
@@ -31,6 +33,31 @@ def _log_state(payload: dict[str, Any] | None) -> str | None:
     if isinstance(completed, bool):
         return "green" if completed else "yellow"
     return None
+
+
+def _preproc_log_state(
+    resolver: PathResolver,
+    step: str,
+    payload: dict[str, Any] | None,
+) -> str:
+    state = _log_state(payload)
+    if state is None:
+        return "gray"
+    raw_path = resolver.preproc_step_dir(step) / "raw.fif"
+    if state == "green" and not raw_path.exists():
+        return "yellow"
+    if state == "yellow" and isinstance(payload, dict):
+        message = str(payload.get("message", ""))
+        if message.startswith(_UPSTREAM_INVALIDATION_PREFIX) and not raw_path.exists():
+            return "gray"
+    return state
+
+
+def preproc_step_indicator_state(resolver: PathResolver, step: str) -> str:
+    """Return the effective `gray|yellow|green` state for one preproc step."""
+    log_path = resolver.preproc_step_dir(step) / "lfptensorpipe_log.json"
+    payload = _read_payload(log_path)
+    return _preproc_log_state(resolver, step, payload)
 
 
 def _normalize_notches(value: Any) -> list[float] | None:
@@ -110,8 +137,8 @@ def preproc_filter_panel_state(
 ) -> str:
     """Return `gray|yellow|green` for the editable Filter panel."""
     payload = _read_payload(preproc_step_log_path(resolver, "filter"))
-    state = _log_state(payload)
-    if state is None:
+    state = _preproc_log_state(resolver, "filter", payload)
+    if state == "gray":
         return "gray"
     if state == "yellow":
         return "yellow"
@@ -169,8 +196,8 @@ def preproc_annotations_panel_state(
 ) -> str:
     """Return `gray|yellow|green` for the editable Annotations panel."""
     payload = _read_payload(preproc_step_log_path(resolver, "annotations"))
-    state = _log_state(payload)
-    if state is None:
+    state = _preproc_log_state(resolver, "annotations", payload)
+    if state == "gray":
         return "gray"
     if state == "yellow":
         return "yellow"
@@ -255,8 +282,8 @@ def preproc_ecg_panel_state(
 ) -> str:
     """Return `gray|yellow|green` for the editable ECG panel."""
     payload = _read_payload(preproc_step_log_path(resolver, "ecg_artifact_removal"))
-    state = _log_state(payload)
-    if state is None:
+    state = _preproc_log_state(resolver, "ecg_artifact_removal", payload)
+    if state == "gray":
         return "gray"
     if state == "yellow":
         return "yellow"
@@ -278,4 +305,5 @@ __all__ = [
     "preproc_annotations_panel_state",
     "preproc_ecg_panel_state",
     "preproc_filter_panel_state",
+    "preproc_step_indicator_state",
 ]

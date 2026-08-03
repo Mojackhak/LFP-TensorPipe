@@ -10,6 +10,7 @@ from lfptensorpipe.gui.shell.common import (
     QDialog,
     RecordContext,
     preproc_step_raw_path,
+    resolve_preproc_step_source,
 )
 
 
@@ -100,15 +101,15 @@ class MainWindowPreprocChannelsMixin:
                 self._preproc_ecg_channels_button.setText("Select Channels (0/0)")
                 self._preproc_ecg_channels_button.setEnabled(False)
             return
-        resolver = PathResolver(context)
-        raw_path = preproc_step_raw_path(resolver, "bad_segment_removal")
-        if not raw_path.exists():
+        source = resolve_preproc_step_source(context, "ecg_artifact_removal")
+        if source is None:
             self._preproc_ecg_available_channels = ()
             self._preproc_ecg_selected_channels = ()
             if self._preproc_ecg_channels_button is not None:
                 self._preproc_ecg_channels_button.setText("Select Channels (0/0)")
                 self._preproc_ecg_channels_button.setEnabled(False)
             return
+        _, raw_path = source
         channels = tuple(self._read_channel_names_from_raw(raw_path))
         self._preproc_ecg_available_channels = channels
         self._preproc_ecg_selected_channels = self._intersect_channels(

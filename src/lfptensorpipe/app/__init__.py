@@ -88,11 +88,13 @@ _PREPROC_EXPORTS = (
     "preproc_annotations_panel_state",
     "preproc_ecg_panel_state",
     "preproc_filter_panel_state",
+    "preproc_step_indicator_state",
     "preproc_step_config_path",
     "preproc_step_log_path",
     "preproc_step_raw_path",
     "rawdata_input_fif_path",
     "resolve_finish_source",
+    "resolve_preproc_step_source",
     "write_preproc_step_config",
 )
 

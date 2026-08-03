@@ -82,28 +82,30 @@ def _normalize_annotation_rows(
 def apply_annotations_step(
     context: RecordContext,
     *,
+    source: tuple[str, Path] | None,
     rows: list[dict[str, Any]],
     mark_preproc_step_fn: MarkStepFn,
     invalidate_downstream_fn: InvalidateFn,
     read_raw_fif_fn: Callable[..., Any] | None = None,
     copy2_fn: Callable[..., Any] | None = None,
 ) -> tuple[bool, str]:
-    """Apply annotations step by writing annotations onto filtered raw."""
+    """Apply annotations onto the nearest valid preceding artifact."""
     resolver = PathResolver(context)
-    src = preproc_step_raw_path(resolver, "filter")
     dst = preproc_step_raw_path(resolver, "annotations")
     csv_path = resolver.preproc_step_dir("annotations", create=True) / "annotations.csv"
 
-    if not src.exists():
+    if source is None:
         mark_preproc_step_fn(
             resolver=resolver,
             step="annotations",
             completed=False,
-            input_path=str(src),
+            input_path="",
             output_path=str(dst),
-            message="Missing filter raw input for annotations step.",
+            message="No valid preprocess input for annotations step.",
         )
-        return False, "Missing filter raw input for annotations step."
+        return False, "No valid preprocess input for annotations step."
+
+    source_step, src = source
 
     normalized_rows, invalid_rows = _normalize_annotation_rows(rows)
     if invalid_rows:
@@ -125,7 +127,7 @@ def apply_annotations_step(
         runtime_copy2 = copy2_fn or shutil.copy2
 
         dst.parent.mkdir(parents=True, exist_ok=True)
-        # Explicitly inherit the latest filter artifact before mutating annotations.
+        # Inherit the nearest valid preceding artifact before adding annotations.
         runtime_copy2(src, dst)
         raw = read_raw_fif_fn(str(dst), preload=True, verbose="ERROR")
         annotations = mne.Annotations(
@@ -166,7 +168,7 @@ def apply_annotations_step(
             params={"row_count": len(normalized_rows)},
             input_path=str(src),
             output_path=str(dst),
-            message="Annotations step completed.",
+            message=f"Annotations step completed using source: {source_step}.",
         )
         invalidate_downstream_fn(context, "annotations")
     except Exception as exc:

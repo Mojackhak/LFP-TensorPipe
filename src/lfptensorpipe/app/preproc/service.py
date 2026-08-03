@@ -173,24 +173,30 @@ def mark_preproc_step(
 
 
 def bootstrap_raw_step_from_rawdata(context: RecordContext) -> tuple[bool, str]:
-    return _bootstrap_raw_step_impl(
+    ok, message = _bootstrap_raw_step_impl(
         context,
         rawdata_input_fif_path_fn=rawdata_input_fif_path,
         preproc_step_raw_path_fn=preproc_step_raw_path,
         mark_preproc_step_fn=mark_preproc_step,
     )
+    if ok:
+        invalidate_downstream_preproc_steps(context, "raw")
+    return ok, message
 
 
 def invalidate_downstream_preproc_steps(
     context: RecordContext, changed_step: str
 ) -> list[Path]:
-    """Rewrite downstream preprocess logs with `completed=false`."""
+    """Invalidate only previously successful downstream preprocess steps."""
     resolver = PathResolver(context)
     if changed_step not in PREPROC_STEPS:
         raise ValueError(f"Unknown preprocess step: {changed_step}")
     changed_index = PREPROC_STEPS.index(changed_step)
     rewritten: list[Path] = []
     for step in PREPROC_STEPS[changed_index + 1 :]:
+        existing = read_run_log(preproc_step_log_path(resolver, step))
+        if existing is None or not bool(existing.get("completed")):
+            continue
         log_path = mark_preproc_step(
             resolver=resolver,
             step=step,
@@ -208,12 +214,34 @@ def resolve_finish_source(
     *,
     read_run_log_fn: Any | None = None,
 ) -> tuple[str, Path] | None:
+    return resolve_preproc_step_source(
+        context,
+        "finish",
+        read_run_log_fn=read_run_log_fn,
+    )
+
+
+def resolve_preproc_step_source(
+    context: RecordContext,
+    target_step: str,
+    *,
+    read_run_log_fn: Any | None = None,
+) -> tuple[str, Path] | None:
+    """Resolve the nearest valid artifact before one preprocess target step."""
+    if target_step not in PREPROC_STEPS:
+        raise ValueError(f"Unknown preprocess step: {target_step}")
+    target_index = PREPROC_STEPS.index(target_step)
+    if target_index == 0:
+        raise ValueError("Raw does not have a preprocess source step.")
+
+    runtime_read_run_log = read_run_log_fn or read_run_log
     return _resolve_finish_source_impl(
         context,
-        source_priority=FINISH_SOURCE_PRIORITY,
+        source_priority=tuple(reversed(PREPROC_STEPS[:target_index])),
         preproc_step_raw_path_fn=preproc_step_raw_path,
         preproc_step_log_path_fn=preproc_step_log_path,
-        read_run_log_fn=read_run_log_fn or read_run_log,
+        read_run_log_fn=runtime_read_run_log,
+        required_step="raw",
     )
 
 
@@ -252,8 +280,6 @@ def apply_filter_step(
         read_raw_fif_fn=read_raw_fif_fn,
         mark_lfp_bad_segments_fn=mark_lfp_bad_segments_fn,
     )
-    if ok:
-        invalidate_after_preproc_result_change(context, changed_step="filter")
     return ok, message
 
 
@@ -266,16 +292,13 @@ def apply_bad_segment_step(
 ) -> tuple[bool, str]:
     ok, message = _apply_bad_segment_step_impl(
         context,
+        source=resolve_preproc_step_source(context, "bad_segment_removal"),
         mark_preproc_step_fn=mark_preproc_step,
         invalidate_downstream_fn=invalidate_downstream_preproc_steps,
         read_raw_fif_fn=read_raw_fif_fn,
         filter_lfp_with_bad_annotations_fn=filter_lfp_with_bad_annotations_fn,
         add_head_tail_annotations_fn=add_head_tail_annotations_fn,
     )
-    if ok:
-        invalidate_after_preproc_result_change(
-            context, changed_step="bad_segment_removal"
-        )
     return ok, message
 
 
@@ -290,6 +313,7 @@ def apply_ecg_step(
 ) -> tuple[bool, str]:
     ok, message = _apply_ecg_step_impl(
         context,
+        source=resolve_preproc_step_source(context, "ecg_artifact_removal"),
         method=method,
         picks=picks,
         method_kwargs=method_kwargs,
@@ -299,10 +323,6 @@ def apply_ecg_step(
         read_raw_fif_fn=read_raw_fif_fn,
         raw_call_ecgremover_fn=raw_call_ecgremover_fn,
     )
-    if ok:
-        invalidate_after_preproc_result_change(
-            context, changed_step="ecg_artifact_removal"
-        )
     return ok, message
 
 
@@ -325,14 +345,13 @@ def apply_annotations_step(
 ) -> tuple[bool, str]:
     ok, message = _apply_annotations_step_impl(
         context,
+        source=resolve_preproc_step_source(context, "annotations"),
         rows=rows,
         mark_preproc_step_fn=mark_preproc_step,
         invalidate_downstream_fn=invalidate_downstream_preproc_steps,
         read_raw_fif_fn=read_raw_fif_fn,
         copy2_fn=copy2_fn,
     )
-    if ok:
-        invalidate_after_preproc_result_change(context, changed_step="annotations")
     return ok, message
 
 

@@ -8,7 +8,6 @@ import os
 
 import numpy as np
 
-from lfptensorpipe.app import invalidate_after_preproc_result_change
 from lfptensorpipe.gui.shell.common import (
     Any,
     QApplication,
@@ -228,7 +227,6 @@ def _finalize_tracked_browser_close(self, token: int, event: Any | None = None) 
                 raw_path.parent.mkdir(parents=True, exist_ok=True)
                 raw.save(str(raw_path), overwrite=True)
                 invalidate_downstream_preproc_steps(context, step)
-                invalidate_after_preproc_result_change(context, changed_step=step)
                 self._refresh_stage_states_from_context()
                 self._refresh_preproc_controls()
                 self.statusBar().showMessage(

@@ -9,8 +9,7 @@ from lfptensorpipe.gui.shell.common import (
     QLabel,
     QWidget,
     _stage_preproc_panel,
-    indicator_from_log,
-    preproc_step_log_path,
+    preproc_step_indicator_state,
     preproc_step_raw_path,
     rawdata_input_fif_path,
     resolve_finish_source,
@@ -148,18 +147,11 @@ class MainWindowPreprocStageMixin:
 
         raw_input_exists = rawdata_input_fif_path(context).exists()
         resolver = PathResolver(context)
-        raw_log_state = indicator_from_log(preproc_step_log_path(resolver, "raw"))
-        filter_log_state = indicator_from_log(preproc_step_log_path(resolver, "filter"))
-        annotations_log_state = indicator_from_log(
-            preproc_step_log_path(resolver, "annotations")
+        raw_log_state = preproc_step_indicator_state(resolver, "raw")
+        bad_segment_log_state = preproc_step_indicator_state(
+            resolver, "bad_segment_removal"
         )
-        bad_segment_log_state = indicator_from_log(
-            preproc_step_log_path(resolver, "bad_segment_removal")
-        )
-        ecg_log_state = indicator_from_log(
-            preproc_step_log_path(resolver, "ecg_artifact_removal")
-        )
-        finish_log_state = indicator_from_log(preproc_step_log_path(resolver, "finish"))
+        finish_log_state = preproc_step_indicator_state(resolver, "finish")
         self._set_preproc_step_indicator("raw", raw_log_state)
         filter_notches = (
             self._preproc_filter_notches_edit.text()
@@ -218,64 +210,57 @@ class MainWindowPreprocStageMixin:
         finish_raw_path = resolver.preproc_root / "finish" / "raw.fif"
         finish_raw_exists = finish_raw_path.exists()
         raw_step_exists = preproc_step_raw_path(resolver, "raw").exists()
+        raw_ready = raw_log_state == "green" and raw_step_exists
 
         if self._preproc_raw_plot_button is not None:
             self._preproc_raw_plot_button.setEnabled(
                 raw_input_exists or raw_step_exists
             )
         if self._preproc_filter_advance_button is not None:
-            self._preproc_filter_advance_button.setEnabled(raw_log_state == "green")
+            self._preproc_filter_advance_button.setEnabled(raw_ready)
         if self._preproc_filter_apply_button is not None:
-            self._preproc_filter_apply_button.setEnabled(raw_log_state == "green")
+            self._preproc_filter_apply_button.setEnabled(raw_ready)
         if self._preproc_filter_plot_button is not None:
             self._preproc_filter_plot_button.setEnabled(
-                filter_log_state == "green" and filter_raw_exists
+                filter_panel_state == "green" and filter_raw_exists
             )
         if self._preproc_filter_notches_edit is not None:
-            self._preproc_filter_notches_edit.setEnabled(raw_log_state == "green")
+            self._preproc_filter_notches_edit.setEnabled(raw_ready)
         if self._preproc_filter_low_freq_edit is not None:
-            self._preproc_filter_low_freq_edit.setEnabled(raw_log_state == "green")
+            self._preproc_filter_low_freq_edit.setEnabled(raw_ready)
         if self._preproc_filter_high_freq_edit is not None:
-            self._preproc_filter_high_freq_edit.setEnabled(raw_log_state == "green")
+            self._preproc_filter_high_freq_edit.setEnabled(raw_ready)
         if self._preproc_annotations_edit_button is not None:
-            self._preproc_annotations_edit_button.setEnabled(
-                filter_log_state == "green"
-            )
+            self._preproc_annotations_edit_button.setEnabled(raw_ready)
         if self._preproc_annotations_save_button is not None:
-            self._preproc_annotations_save_button.setEnabled(
-                filter_log_state == "green"
-            )
+            self._preproc_annotations_save_button.setEnabled(raw_ready)
         if self._preproc_annotations_import_button is not None:
-            self._preproc_annotations_import_button.setEnabled(
-                filter_log_state == "green"
-            )
+            self._preproc_annotations_import_button.setEnabled(raw_ready)
         if self._preproc_annotations_plot_button is not None:
             self._preproc_annotations_plot_button.setEnabled(
-                annotations_log_state == "green" and annotations_raw_exists
+                annotations_panel_state == "green" and annotations_raw_exists
             )
         if self._preproc_bad_segment_apply_button is not None:
-            self._preproc_bad_segment_apply_button.setEnabled(
-                annotations_log_state == "green"
-            )
+            self._preproc_bad_segment_apply_button.setEnabled(raw_ready)
         if self._preproc_bad_segment_plot_button is not None:
             self._preproc_bad_segment_plot_button.setEnabled(
                 bad_segment_log_state == "green" and bad_segment_raw_exists
             )
         if self._preproc_ecg_advance_button is not None:
-            self._preproc_ecg_advance_button.setEnabled(
-                bad_segment_log_state == "green"
-            )
+            self._preproc_ecg_advance_button.setEnabled(raw_ready)
         if self._preproc_ecg_apply_button is not None:
-            self._preproc_ecg_apply_button.setEnabled(bad_segment_log_state == "green")
+            self._preproc_ecg_apply_button.setEnabled(raw_ready)
         if self._preproc_ecg_plot_button is not None:
             self._preproc_ecg_plot_button.setEnabled(
-                ecg_log_state == "green" and ecg_raw_exists
+                ecg_panel_state == "green" and ecg_raw_exists
             )
         if self._preproc_ecg_method_combo is not None:
-            self._preproc_ecg_method_combo.setEnabled(bad_segment_log_state == "green")
+            self._preproc_ecg_method_combo.setEnabled(raw_ready)
         if self._preproc_finish_apply_button is not None:
             self._preproc_finish_apply_button.setEnabled(finish_source_exists)
         if self._preproc_finish_plot_button is not None:
-            self._preproc_finish_plot_button.setEnabled(finish_raw_exists)
+            self._preproc_finish_plot_button.setEnabled(
+                finish_log_state == "green" and finish_raw_exists
+            )
         self._refresh_preproc_ecg_channel_state(context)
         self._refresh_preproc_visualization_controls(context)
