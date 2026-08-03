@@ -119,6 +119,19 @@ def write_periodic_aperiodic_success(
     outputs: PeriodicAperiodicOutputs,
 ) -> tuple[bool, str]:
     interpolation_seed = derive_notch_interpolation_seed(options.context)
+    runtime_params = (
+        outputs.metadata.get("params", {})
+        if isinstance(outputs.metadata, dict)
+        else {}
+    )
+    if not isinstance(runtime_params, dict):
+        runtime_params = {}
+    count_payload = {
+        "n_columns_total": int(runtime_params.get("n_columns_total", 0)),
+        "n_columns_skipped_masked": int(
+            runtime_params.get("n_columns_skipped_masked", 0)
+        ),
+    }
     config_payload = {
         "metric_key": METRIC_KEY,
         "metric_label": svc.TENSOR_METRICS_BY_KEY[METRIC_KEY].display_name,
@@ -195,6 +208,7 @@ def write_periodic_aperiodic_success(
         ),
         "tensor_shape": [int(item) for item in outputs.tensor.shape],
         "params_tensor_shape": [int(item) for item in outputs.params_tensor.shape],
+        **count_payload,
         **svc._effective_n_jobs_payload(
             n_jobs=int(options.n_jobs),
             outer_n_jobs=int(options.outer_n_jobs),
@@ -306,6 +320,7 @@ def write_periodic_aperiodic_success(
                         "aperiodic_tensor_path": str(paths.aperiodic_output_path),
                         "specparam_report_dir": str(paths.report_dir),
                         "n_params": int(outputs.params_tensor.shape[2]),
+                        **count_payload,
                         **svc._effective_n_jobs_payload(
                             n_jobs=int(options.n_jobs),
                             outer_n_jobs=int(options.outer_n_jobs),

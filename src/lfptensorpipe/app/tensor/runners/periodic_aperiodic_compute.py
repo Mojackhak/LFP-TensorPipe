@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 
+from lfptensorpipe.lfp.runtime.tensor_helpers import build_annotation_skip_time_mask
 from lfptensorpipe.utils.transforms import (
     attach_transform_policy,
     get_transform_policy,
@@ -303,6 +304,27 @@ def _run_decomposition(
             make_gof_rsquared_masker_fn = make_gof_rsquared_masker
 
     freqs_meta, times_meta, channel_meta = _axes_from_metadata(metadata, power_tensor)
+    if options.mask_edge_effects:
+        final_radii = svc._compute_mask_radii_seconds(
+            prepared.freqs_final,
+            method=prepared.method_norm,
+            time_resolution_s=float(options.time_resolution_s),
+            min_cycles=options.min_cycles,
+            max_cycles=options.max_cycles,
+        )
+        annotation_skip_radius_s = float(np.min(final_radii))
+        skip_time_mask = build_annotation_skip_time_mask(
+            prepared.raw,
+            times_s=times_meta,
+            radius_s=annotation_skip_radius_s,
+        )
+    else:
+        annotation_skip_radius_s = None
+        skip_time_mask = np.zeros(times_meta.shape, dtype=bool)
+    finite_times = np.isfinite(times_meta)
+    valid_time_mask = finite_times & ~skip_time_mask
+    n_columns_total = int(np.sum(finite_times))
+    n_columns_skipped_masked = int(np.sum(finite_times & skip_time_mask))
     _, tfr_periodic, _, params_tensor, params_meta = decompose_fn(
         power_tensor,
         freqs_meta,
@@ -317,6 +339,7 @@ def _run_decomposition(
         n_jobs=int(options.n_jobs),
         report_dir=report_dir,
         verbose=False,
+        valid_time_mask=valid_time_mask,
     )
     tensor = np.asarray(tfr_periodic, dtype=float)
     if tensor.ndim != 4:
@@ -368,6 +391,24 @@ def _run_decomposition(
     )
     if "notch_interpolation" in metadata:
         params_meta_dict["notch_interpolation"] = dict(metadata["notch_interpolation"])
+    metadata_params = dict(metadata.get("params", {}) or {})
+    metadata_params.update(
+        {
+            "annotation_skip_radius_s": annotation_skip_radius_s,
+            "n_columns_total": n_columns_total,
+            "n_columns_skipped_masked": n_columns_skipped_masked,
+        }
+    )
+    metadata["params"] = metadata_params
+    params_runtime = dict(params_meta_dict.get("params", {}) or {})
+    params_runtime.update(
+        {
+            "annotation_skip_radius_s": annotation_skip_radius_s,
+            "n_columns_total": n_columns_total,
+            "n_columns_skipped_masked": n_columns_skipped_masked,
+        }
+    )
+    params_meta_dict["params"] = params_runtime
 
     if options.mask_edge_effects:
         tensor, metadata, params_tensor_arr, params_meta_dict = _apply_edge_masks(

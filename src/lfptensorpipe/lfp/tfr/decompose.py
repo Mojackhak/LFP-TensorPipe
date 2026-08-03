@@ -12,6 +12,7 @@ The public entry point is :func:`decompose`.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -43,6 +44,8 @@ def _fit_one_epoch_channel(
     *,
     report_dir: Optional[str | Path] = None,
     save_prefix: Optional[str] = None,
+    original_time_indices: np.ndarray | None = None,
+    original_times_s: np.ndarray | None = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, pd.DataFrame]:
     """Fit SpecParam SpectralTimeModel for one (epoch, channel) and simulate components."""
     specparam, SpectralTimeModel, sim_spectrogram = _require_specparam()
@@ -77,6 +80,32 @@ def _fit_one_epoch_channel(
             raise RuntimeError(
                 f"SpecParam report export failed for epoch {e_idx}, channel {ch_idx}: {report_path}"
             ) from exc
+        if original_time_indices is not None:
+            original_idx = np.asarray(original_time_indices, dtype=int).ravel()
+            if original_idx.size != n_times:
+                raise ValueError(
+                    "SpecParam report time-index mapping must match fitted columns."
+                )
+            if original_times_s is None:
+                original_seconds = original_idx.astype(float)
+            else:
+                all_times = np.asarray(original_times_s, dtype=float).ravel()
+                original_seconds = all_times[original_idx]
+            sidecar_path = Path(report_path).with_suffix(".time-index.json")
+            with sidecar_path.open("w", encoding="utf-8") as stream:
+                json.dump(
+                    [
+                        {
+                            "compressed_time_index": int(compressed_idx),
+                            "original_time_index": int(source_idx),
+                            "original_time_seconds": float(original_seconds[compressed_idx]),
+                        }
+                        for compressed_idx, source_idx in enumerate(original_idx)
+                    ],
+                    stream,
+                    indent=2,
+                )
+                stream.write("\n")
 
     # The specparam distribution uses the 2.x results API: SpectralTimeModel
     # exposes one FitResults object per window through results.group_results.
@@ -173,6 +202,7 @@ def decompose(
     report_dir: Optional[str | Path] = None,
     save_prefix: str = "specparam",
     verbose: bool = False,
+    valid_time_mask: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
     """Decompose a TFR tensor using SpecParam and return components + aperiodic params tensor.
 
@@ -201,6 +231,9 @@ def decompose(
         Prefix for saved reports.
     verbose
         Verbosity passed to SpecParam.
+    valid_time_mask
+        Optional boolean mask selecting time columns to fit. Outputs retain the
+        original time axis and skipped columns remain NaN.
 
     Returns
     -------
@@ -242,10 +275,25 @@ def decompose(
                 "`ch_names` length must match the TFR channel axis length."
             )
 
-    # Preallocate outputs (linear-domain reconstructions)
-    tfr_aperiodic = np.empty_like(tfr, dtype=float)
-    tfr_periodic = np.empty_like(tfr, dtype=float)
-    tfr_full = np.empty_like(tfr, dtype=float)
+    if valid_time_mask is None:
+        valid_mask = np.ones(n_times, dtype=bool)
+    else:
+        valid_mask = np.asarray(valid_time_mask, dtype=bool)
+        if valid_mask.ndim != 1 or valid_mask.size != n_times:
+            raise ValueError(
+                "`valid_time_mask` must be 1D with length equal to tfr.shape[-1]."
+            )
+    fitted_time_indices = np.flatnonzero(valid_mask)
+    time_axis = (
+        np.arange(n_times, dtype=float)
+        if times is None
+        else np.asarray(times, dtype=float)
+    )
+
+    # Skipped columns remain NaN by construction.
+    tfr_aperiodic = np.full_like(tfr, np.nan, dtype=float)
+    tfr_periodic = np.full_like(tfr, np.nan, dtype=float)
+    tfr_full = np.full_like(tfr, np.nan, dtype=float)
 
     settings: Dict[str, Any] = dict(
         peak_width_limits=peak_width_limits,
@@ -257,7 +305,7 @@ def decompose(
         freq_range=freq_range,
     )
 
-    # Prepare tasks across (epoch, channel)
+    # Prepare tasks across (epoch, channel). Column compression occurs in _job.
     tasks: list[tuple[int, int, np.ndarray]] = []
     for e in range(n_epochs):
         for c in range(n_channels):
@@ -267,20 +315,19 @@ def decompose(
             tasks.append((e, c, psd_ft))
 
     def _job(e: int, c: int, psd_ft: np.ndarray):
+        psd_fit = np.ascontiguousarray(psd_ft[:, fitted_time_indices], dtype=float)
         ap, per, full, df = _fit_one_epoch_channel(
             e,
             c,
-            psd_ft,
+            psd_fit,
             freqs,
             settings,
             report_dir=report_dir,
             save_prefix=save_prefix,
+            original_time_indices=fitted_time_indices,
+            original_times_s=time_axis,
         )
         return e, c, ap, per, full, df
-
-    results = Parallel(n_jobs=int(n_jobs), backend="loky")(
-        delayed(_job)(e, c, psd) for e, c, psd in tasks
-    )
 
     # Infer parameter columns from the first result.
     def _infer_param_names(df: pd.DataFrame) -> list[str]:
@@ -302,12 +349,36 @@ def decompose(
             )
         return names
 
-    if len(results) == 0:
-        raise RuntimeError(
-            "No results returned from SpecParam decomposition (unexpected)."
+    schema_reference_fit = False
+    schema_reference_time_index: int | None = None
+    if fitted_time_indices.size > 0:
+        results = Parallel(n_jobs=int(n_jobs), backend="loky")(
+            delayed(_job)(e, c, psd) for e, c, psd in tasks
         )
+        if len(results) == 0:
+            raise RuntimeError(
+                "No results returned from SpecParam decomposition (unexpected)."
+            )
+        param_names = _infer_param_names(results[0][5])
+    else:
+        if n_epochs < 1 or n_channels < 1 or n_times < 1:
+            raise RuntimeError(
+                "SpecParam schema-reference fit requires a non-empty input tensor."
+            )
+        _, _, _, reference_df = _fit_one_epoch_channel(
+            0,
+            0,
+            np.ascontiguousarray(tfr[0, 0, :, 0:1], dtype=float),
+            freqs,
+            settings,
+            report_dir=None,
+            save_prefix=save_prefix,
+        )
+        param_names = _infer_param_names(reference_df)
+        results = []
+        schema_reference_fit = True
+        schema_reference_time_index = 0
 
-    param_names = _infer_param_names(results[0][5])
     n_params = len(param_names)
     params_tensor = np.full(
         (n_epochs, n_channels, n_params, n_times), np.nan, dtype=np.float64
@@ -315,9 +386,9 @@ def decompose(
 
     # Collect outputs.
     for e, c, ap, per, full, df in results:
-        tfr_aperiodic[e, c, :, :] = ap
-        tfr_periodic[e, c, :, :] = per
-        tfr_full[e, c, :, :] = full
+        tfr_aperiodic[e, c][:, fitted_time_indices] = ap
+        tfr_periodic[e, c][:, fitted_time_indices] = per
+        tfr_full[e, c][:, fitted_time_indices] = full
 
         if not isinstance(df, pd.DataFrame) or "time_idx" not in df.columns:
             raise RuntimeError(
@@ -332,33 +403,36 @@ def decompose(
                 f"Missing columns: {missing}"
             )
 
-        time_idx = df["time_idx"].astype(int).to_numpy()
-        if time_idx.size == 0:
+        compressed_time_idx = df["time_idx"].astype(int).to_numpy()
+        if compressed_time_idx.size == 0:
             continue
-        if np.any(time_idx < 0) or np.any(time_idx >= n_times):
-            raise RuntimeError("SpecParam returned time_idx outside the valid range.")
+        if np.any(compressed_time_idx < 0) or np.any(
+            compressed_time_idx >= fitted_time_indices.size
+        ):
+            raise RuntimeError(
+                "SpecParam returned time_idx outside the compressed time axis."
+            )
+        original_time_idx = fitted_time_indices[compressed_time_idx]
+        df = df.copy()
+        df["time_idx"] = original_time_idx
 
         vals = df[param_names].to_numpy(dtype=float)  # (n_rows, n_params)
-        if vals.shape[0] != time_idx.shape[0]:
+        if vals.shape[0] != original_time_idx.shape[0]:
             raise RuntimeError("SpecParam params rows do not match time_idx length.")
 
         # NOTE:
         # NumPy's advanced indexing reorders axes when integer indices appear before
         # an index array (time_idx). Assign via a 2D view so the intended layout is
         # explicit: (param, time).
-        params_tensor[e, c][:, time_idx] = vals.T.astype(np.float64, copy=False)
+        params_tensor[e, c][:, original_time_idx] = vals.T.astype(
+            np.float64, copy=False
+        )
 
     # --- metadata ---
     if ch_names is None:
         ch_axis = [str(i) for i in range(n_channels)]
     else:
         ch_axis = [str(c) for c in ch_names]
-
-    time_axis = (
-        np.arange(n_times, dtype=float)
-        if times is None
-        else np.asarray(times, dtype=float)
-    )
 
     params_meta: Dict[str, Any] = dict(
         axes=dict(
@@ -380,6 +454,9 @@ def decompose(
             min_peak_height=float(min_peak_height),
             peak_threshold=float(peak_threshold),
             n_jobs=int(n_jobs),
+            fitted_time_indices=[int(item) for item in fitted_time_indices.tolist()],
+            schema_reference_fit=bool(schema_reference_fit),
+            schema_reference_time_index=schema_reference_time_index,
         ),
     )
 

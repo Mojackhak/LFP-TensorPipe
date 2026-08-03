@@ -236,6 +236,7 @@ def _prepare_trgc_backend_inputs(
     low_freq: float,
     high_freq: float,
     step_hz: float,
+    mask_edge_effects: bool,
     bands: list[dict[str, Any]],
     selected_channels: list[str] | None,
     selected_pairs: list[tuple[str, str]] | None,
@@ -337,6 +338,16 @@ def _prepare_trgc_backend_inputs(
 
     method_norm = _normalize_metric_method(method, metric_label=metric_label)
     spectral_mode_use = "cwt_morlet" if method_norm == "morlet" else "multitaper"
+    final_mask_radii = _compute_mask_radii_seconds(
+        freqs_full,
+        method=method_norm,
+        time_resolution_s=float(time_resolution_s),
+        min_cycles=min_cycles,
+        max_cycles=max_cycles,
+    )
+    annotation_skip_radius_s = (
+        float(np.min(final_mask_radii)) if mask_edge_effects else None
+    )
     return {
         "resolver": resolver,
         "metric_label": metric_label,
@@ -356,6 +367,8 @@ def _prepare_trgc_backend_inputs(
         "runtime_notch_widths": runtime_notch_widths,
         "method_norm": str(method_norm),
         "spectral_mode_use": str(spectral_mode_use),
+        "mask_edge_effects": bool(mask_edge_effects),
+        "annotation_skip_radius_s": annotation_skip_radius_s,
         "time_resolution_s": float(time_resolution_s),
         "hop_s": float(hop_s),
         "mt_bandwidth": mt_bandwidth,
@@ -413,6 +426,7 @@ def _compute_trgc_backend_tensor(
             round_ms=float(prepared["round_ms"]),
             picks=prepared["picks"],
             outer_n_jobs=1,
+            annotation_skip_radius_s=prepared["annotation_skip_radius_s"],
         )
     backend_tensor4d = _normalize_backend_tensor(
         backend_tensor,
@@ -437,10 +451,14 @@ def _build_trgc_backend_state(
     *,
     backend_method: str,
     n_jobs: int,
+    metadata: dict[str, Any],
 ) -> dict[str, Any]:
     inheritance = prepared["inheritance"]
     runtime_notches = prepared["runtime_notches"]
     runtime_notch_widths = prepared["runtime_notch_widths"]
+    grid_params = metadata.get("params", {}) if isinstance(metadata, dict) else {}
+    if not isinstance(grid_params, dict):
+        grid_params = {}
     return {
         "metric_key": "trgc",
         "metric_label": prepared["metric_label"],
@@ -448,6 +466,8 @@ def _build_trgc_backend_state(
         "connectivity_metric": "trgc",
         "method": str(prepared["method_norm"]),
         "backend_methods": list(TRGC_BACKEND_METHODS),
+        "mask_edge_effects": bool(prepared["mask_edge_effects"]),
+        "annotation_skip_radius_s": prepared["annotation_skip_radius_s"],
         "low_freq": float(prepared["low_freq"]),
         "high_freq": float(prepared["applied_high"]),
         "step_hz": float(prepared["step_hz"]),
@@ -491,6 +511,11 @@ def _build_trgc_backend_state(
         "interpolation_applied": bool(prepared["interpolation_applied"]),
         "n_pairs": len(prepared["pairs_requested"]),
         "n_pairs_compute": len(prepared["pairs_compute"]),
+        "n_columns_total": int(grid_params.get("n_columns_total", 0)),
+        "n_columns_skipped_masked": int(
+            grid_params.get("n_columns_skipped_masked", 0)
+        ),
+        "window_group_counts": list(grid_params.get("window_group_counts", [])),
         "execution_model": "trgc_backend_plan",
         **_effective_n_jobs_payload(
             n_jobs=int(n_jobs),
@@ -554,6 +579,7 @@ def run_trgc_backend_metric(
     low_freq: float,
     high_freq: float,
     step_hz: float,
+    mask_edge_effects: bool,
     bands: list[dict[str, Any]],
     selected_channels: list[str] | None,
     selected_pairs: list[tuple[str, str]] | None,
@@ -600,6 +626,7 @@ def run_trgc_backend_metric(
             low_freq=low_freq,
             high_freq=high_freq,
             step_hz=step_hz,
+            mask_edge_effects=mask_edge_effects,
             bands=bands,
             selected_channels=selected_channels,
             selected_pairs=selected_pairs,
@@ -636,6 +663,7 @@ def run_trgc_backend_metric(
                 prepared,
                 backend_method=normalized_backend,
                 n_jobs=int(n_jobs),
+                metadata=metadata,
             ),
         }
         success_message = (
@@ -682,6 +710,7 @@ def run_trgc_backend_metric(
             params={
                 "backend_method": normalized_backend,
                 "connectivity_metric": "trgc",
+                "mask_edge_effects": bool(mask_edge_effects),
                 "group_by_samples": bool(group_by_samples),
                 "round_ms": float(round_ms),
                 "notches": list(runtime_notches),
@@ -829,6 +858,14 @@ def run_trgc_finalize_metric(
             "tensor_shape": [int(item) for item in tensor4d.shape],
             "n_pairs": int(gc_state.get("n_pairs", len(requested_pairs))),
             "n_pairs_compute": int(gc_state.get("n_pairs_compute", len(compute_pairs))),
+            "n_columns_total": int(gc_state.get("n_columns_total", 0)),
+            "n_columns_skipped_masked": int(
+                gc_state.get("n_columns_skipped_masked", 0)
+            ),
+            "window_group_counts": {
+                "gc": list(gc_state.get("window_group_counts", [])),
+                "gc_tr": list(gc_tr_state.get("window_group_counts", [])),
+            },
             "execution_model": "trgc_backend_finalize",
             "runtime_plans": [
                 TRGC_GC_BACKEND_PLAN_KEY,
@@ -872,6 +909,14 @@ def run_trgc_finalize_metric(
             "n_channels": len(gc_state.get("channels", [])),
             "n_pairs": int(gc_state.get("n_pairs", len(requested_pairs))),
             "n_pairs_compute": int(gc_state.get("n_pairs_compute", len(compute_pairs))),
+            "n_columns_total": int(gc_state.get("n_columns_total", 0)),
+            "n_columns_skipped_masked": int(
+                gc_state.get("n_columns_skipped_masked", 0)
+            ),
+            "window_group_counts": {
+                "gc": list(gc_state.get("window_group_counts", [])),
+                "gc_tr": list(gc_tr_state.get("window_group_counts", [])),
+            },
             "selected_channels": list(gc_state.get("selected_channels", [])),
             "selected_pairs": list(gc_state.get("selected_pairs", [])),
             "pairs_compute": list(gc_state.get("pairs_compute", [])),
@@ -988,6 +1033,7 @@ def run_trgc_metric(
         low_freq=low_freq,
         high_freq=high_freq,
         step_hz=step_hz,
+        mask_edge_effects=mask_edge_effects,
         bands=bands,
         selected_channels=selected_channels,
         selected_pairs=selected_pairs,
@@ -1028,6 +1074,7 @@ def run_trgc_metric(
         low_freq=low_freq,
         high_freq=high_freq,
         step_hz=step_hz,
+        mask_edge_effects=mask_edge_effects,
         bands=bands,
         selected_channels=selected_channels,
         selected_pairs=selected_pairs,

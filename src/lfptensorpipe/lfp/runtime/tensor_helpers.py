@@ -11,6 +11,27 @@ from typing import Any
 import numpy as np
 
 
+def build_annotation_skip_time_mask(
+    raw: Any,
+    *,
+    times_s: np.ndarray,
+    radius_s: float,
+) -> np.ndarray:
+    """Return the BAD/EDGE time mask used to skip fully masked columns."""
+    from lfptensorpipe.lfp.mask.annotations import time_mask_by_annotations
+
+    skip_mask, _ = time_mask_by_annotations(
+        raw,
+        times_s=np.asarray(times_s, dtype=float),
+        keep=("bad", "edge"),
+        mode="substring",
+        pad_s=float(radius_s),
+        clip_to_raw=True,
+        require_match=False,
+    )
+    return np.asarray(skip_mask, dtype=bool)
+
+
 def cycles_from_time_resolution(
     freqs_hz: np.ndarray,
     *,

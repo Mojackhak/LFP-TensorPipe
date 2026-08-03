@@ -194,9 +194,12 @@ def interpolate_freq_axis(
     """Interpolate a tensor from freqs_in to freqs_out along one axis.
 
     Semantics:
-      - method="linear": pure piecewise-linear interpolation onto freqs_out.
+      - method="linear": piecewise-linear interpolation onto freqs_out only
+        within each series' finite input-frequency interval. Outputs outside
+        that closed interval remain NaN.
       - method="savgol": linear interpolation first; then apply Savitzky-Golay
-        smoothing ONLY to bins that are missing in freqs_in (requires subset match).
+        smoothing ONLY to bins that are missing in freqs_in and lie within the
+        same finite input-frequency interval (requires subset match).
 
     If freqs_in is NOT a strict subset of freqs_out:
       - on_mismatch="raise": raise ValueError.
@@ -248,27 +251,41 @@ def interpolate_freq_axis(
         finite = np.isfinite(yi)
         if int(np.sum(finite)) < 2:
             continue
-        y_out[i] = np.interp(x_out, x_in[finite], yi[finite])
+        x_finite = x_in[finite]
+        bounded = (x_out >= x_finite[0]) & (x_out <= x_finite[-1])
+        y_out[i, bounded] = np.interp(
+            x_out[bounded],
+            x_finite,
+            yi[finite],
+        )
 
     if method_eff == "savgol":
         missing_idx = np.asarray(info["missing_out_idx"], dtype=int)
         if missing_idx.size > 0:
-            w, p = _normalize_savgol_params(
-                x_out.size, window_length=savgol_window, polyorder=savgol_polyorder
-            )
-            # Savgol cannot handle NaNs; only smooth fully-finite rows.
-            finite_rows = np.all(np.isfinite(y_out), axis=1)
-            if np.any(finite_rows):
-                rows = np.flatnonzero(finite_rows)
+            missing_mask = np.zeros(x_out.size, dtype=bool)
+            missing_mask[missing_idx] = True
+            for i in range(n_series):
+                bounded_idx = np.flatnonzero(np.isfinite(y_out[i]))
+                if bounded_idx.size < 3:
+                    continue
+                replace_idx = bounded_idx[missing_mask[bounded_idx]]
+                if replace_idx.size == 0:
+                    continue
+                w, p = _normalize_savgol_params(
+                    int(bounded_idx.size),
+                    window_length=savgol_window,
+                    polyorder=savgol_polyorder,
+                )
                 y_sg = savgol_filter(
-                    y_out[rows],
+                    y_out[i, bounded_idx],
                     window_length=w,
                     polyorder=p,
                     axis=-1,
                     mode="interp",
                 )
                 # Replace ONLY missing bins with the smoothed estimate.
-                y_out[rows[:, None], missing_idx[None, :]] = y_sg[:, missing_idx]
+                replace_positions = np.searchsorted(bounded_idx, replace_idx)
+                y_out[i, replace_idx] = y_sg[replace_positions]
     elif method_eff != "linear":
         raise ValueError("method must be 'linear' or 'savgol'.")
 

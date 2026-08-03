@@ -183,6 +183,16 @@ def run_undirected_connectivity_metric(
 
         method_norm = _normalize_metric_method(method, metric_label=metric_label)
         spectral_mode_use = "cwt_morlet" if method_norm == "morlet" else "multitaper"
+        final_mask_radii = _compute_mask_radii_seconds(
+            freqs_full,
+            method=method_norm,
+            time_resolution_s=float(time_resolution_s),
+            min_cycles=min_cycles,
+            max_cycles=max_cycles,
+        )
+        annotation_skip_radius_s = (
+            float(np.min(final_mask_radii)) if mask_edge_effects else None
+        )
 
         tensor, metadata = conn_grid(
             raw,
@@ -199,6 +209,7 @@ def run_undirected_connectivity_metric(
             min_cycles=min_cycles,
             max_cycles=max_cycles,
             outer_n_jobs=int(outer_n_jobs),
+            annotation_skip_radius_s=annotation_skip_radius_s,
         )
 
         tensor4d = np.asarray(tensor, dtype=float)
@@ -232,21 +243,24 @@ def run_undirected_connectivity_metric(
                 raise ValueError(
                     f"{metric_label} edge mask failed: metadata frequency axis does not match tensor."
                 )
-            radii = _compute_mask_radii_seconds(
-                freq_axis,
-                method=method_norm,
-                time_resolution_s=float(time_resolution_s),
-                min_cycles=min_cycles,
-                max_cycles=max_cycles,
-            )
             tensor4d, metadata = _apply_dynamic_edge_mask_strict(
                 raw=raw,
                 tensor=tensor4d,
                 metadata=metadata,
                 metric_label=metric_label,
                 freqs_lookup=[float(item) for item in freq_axis.tolist()],
-                radii_s=[float(item) for item in radii.tolist()],
+                radii_s=[float(item) for item in final_mask_radii.tolist()],
             )
+        grid_params = metadata.get("params", {}) if isinstance(metadata, dict) else {}
+        if not isinstance(grid_params, dict):
+            grid_params = {}
+        count_payload = {
+            "n_columns_total": int(grid_params.get("n_columns_total", 0)),
+            "n_columns_skipped_masked": int(
+                grid_params.get("n_columns_skipped_masked", 0)
+            ),
+            "window_group_counts": list(grid_params.get("window_group_counts", [])),
+        }
         if hasattr(raw, "close"):
             raw.close()
 
@@ -282,6 +296,7 @@ def run_undirected_connectivity_metric(
             ],
             "interpolation_applied": bool(interpolation_applied),
             "tensor_shape": [int(item) for item in tensor4d.shape],
+            **count_payload,
             **_effective_n_jobs_payload(
                 n_jobs=int(n_jobs),
                 outer_n_jobs=int(outer_n_jobs),
@@ -317,6 +332,7 @@ def run_undirected_connectivity_metric(
             "selected_pairs": [[str(a), str(b)] for a, b in pairs],
             "n_freqs": int(tensor4d.shape[2]),
             "n_times": int(tensor4d.shape[3]),
+            **count_payload,
             **_effective_n_jobs_payload(
                 n_jobs=int(n_jobs),
                 outer_n_jobs=int(outer_n_jobs),

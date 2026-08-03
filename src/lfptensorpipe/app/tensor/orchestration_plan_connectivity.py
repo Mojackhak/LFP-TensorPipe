@@ -93,6 +93,7 @@ def plan_trgc(
                 "low_freq": float(metric_low),
                 "high_freq": float(metric_high),
                 "step_hz": float(metric_step),
+                "mask_edge_effects": mask_edge_effects,
                 "bands": metric_bands,
                 "selected_channels": metric_channels,
                 "selected_pairs": metric_pairs,

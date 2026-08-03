@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from .tensor_helpers import (
     apply_dynamic_edge_mask_strict,
+    build_annotation_skip_time_mask,
     build_frequency_grid,
     compute_mask_radii_seconds,
     compute_notch_intervals,
@@ -20,6 +21,7 @@ from .tensor_helpers import (
 
 __all__ = [
     "apply_dynamic_edge_mask_strict",
+    "build_annotation_skip_time_mask",
     "build_frequency_grid",
     "compute_mask_radii_seconds",
     "compute_notch_intervals",

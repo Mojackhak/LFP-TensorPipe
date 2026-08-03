@@ -38,8 +38,10 @@ from ..common.timefreq import (
     compute_decimation,
     decimated_times_from_raw,
     morlet_n_cycles_from_time_fwhm,
+    multitaper_window_geometry,
 )
 from ..connectivity.selection import resolve_pairs
+from ..runtime.tensor_helpers import build_annotation_skip_time_mask
 
 BandValue = Tuple[float, float]
 BandValueOrSegments = BandValue | list[BandValue]
@@ -173,21 +175,6 @@ def _normalize_method(method: str) -> str:
     raise ValueError("`method` must be 'morlet' or 'multitaper'.")
 
 
-def _multitaper_window_geometry(
-    *,
-    sfreq_hz: float,
-    time_resolution_s: float,
-) -> tuple[int, int, float]:
-    half_window_samples = int(round(float(time_resolution_s) * float(sfreq_hz) / 2.0))
-    if half_window_samples < 1:
-        raise ValueError(
-            "Multitaper PSI time_resolution_s is shorter than two input sample intervals."
-        )
-    window_n_samples = 2 * half_window_samples + 1
-    window_span_s = (window_n_samples - 1) / float(sfreq_hz)
-    return half_window_samples, window_n_samples, float(window_span_s)
-
-
 def _validate_multitaper_band_resolution(
     *,
     seg_edges: np.ndarray,
@@ -300,6 +287,7 @@ def grid(
     n_jobs: int = 1,
     outer_n_jobs: int | None = None,
     verbose: Any | None = None,
+    annotation_skip_radius_s: float | None = None,
 ) -> tuple[np.ndarray, Dict[str, Any]]:
     """Compute time-resolved PSI aligned to a TFR-like time grid.
 
@@ -422,6 +410,9 @@ def grid(
     multitaper_window_n_samples: int | None = None
     multitaper_window_span_s: float | None = None
     n_valid_windows: int | None = None
+    n_columns_total: int | None = None
+    n_columns_skipped_masked: int | None = None
+    n_columns_dropped_incomplete_window: int | None = None
     if method_use == "morlet":
         data_compute = data
         if target_n_times is not None and target_n_times > 0:
@@ -463,7 +454,7 @@ def grid(
             multitaper_half_window_samples,
             multitaper_window_n_samples,
             multitaper_window_span_s,
-        ) = _multitaper_window_geometry(
+        ) = multitaper_window_geometry(
             sfreq_hz=float(sfreq_use),
             time_resolution_s=float(time_resolution_s),
         )
@@ -486,21 +477,38 @@ def grid(
             window_n_samples=int(multitaper_window_n_samples),
         )
         center_samples = np.arange(n_times_target, dtype=int) * int(decim_eff)
+        finite_target_times = np.isfinite(times)
+        if annotation_skip_radius_s is None:
+            skip_time_mask = np.zeros(times.shape, dtype=bool)
+        else:
+            skip_time_mask = build_annotation_skip_time_mask(
+                raw,
+                times_s=times,
+                radius_s=float(annotation_skip_radius_s),
+            )
         complete_windows = (
-            np.isfinite(times)
+            finite_target_times
             & (center_samples - int(multitaper_half_window_samples) >= 0)
             & (
                 center_samples + int(multitaper_half_window_samples)
                 < int(data.shape[-1])
             )
         )
-        valid_time_indices = np.flatnonzero(complete_windows)
-        n_valid_windows = int(valid_time_indices.size)
-        if n_valid_windows == 0:
+        n_complete_windows = int(np.sum(complete_windows))
+        if n_complete_windows == 0:
             raise ValueError(
                 "Multitaper PSI has no complete centered analysis window. "
                 "Reduce time_resolution_s or use a longer recording."
             )
+        valid_time_indices = np.flatnonzero(complete_windows & ~skip_time_mask)
+        n_valid_windows = int(valid_time_indices.size)
+        n_columns_total = int(np.sum(finite_target_times))
+        n_columns_skipped_masked = int(
+            np.sum(finite_target_times & skip_time_mask)
+        )
+        n_columns_dropped_incomplete_window = int(
+            np.sum(finite_target_times & ~skip_time_mask & ~complete_windows)
+        )
         psi_dec = _run_multitaper_windows(
             data=data,
             center_samples=center_samples,
@@ -582,6 +590,16 @@ def grid(
                     "multitaper_window_n_samples": multitaper_window_n_samples,
                     "multitaper_window_span_s": multitaper_window_span_s,
                     "multitaper_n_valid_windows": n_valid_windows,
+                    "annotation_skip_radius_s": (
+                        float(annotation_skip_radius_s)
+                        if annotation_skip_radius_s is not None
+                        else None
+                    ),
+                    "n_columns_total": n_columns_total,
+                    "n_columns_skipped_masked": n_columns_skipped_masked,
+                    "n_columns_dropped_incomplete_window": (
+                        n_columns_dropped_incomplete_window
+                    ),
                     "outer_n_jobs": int(resolved_outer_n_jobs),
                 }
                 if method_use == "multitaper"

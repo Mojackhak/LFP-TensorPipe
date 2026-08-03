@@ -39,6 +39,7 @@ from ..common.timefreq import (
     decimated_times_from_raw,
     morlet_n_cycles_from_time_fwhm,
 )
+from ..runtime.tensor_helpers import build_annotation_skip_time_mask
 from .selection import resolve_pairs
 
 
@@ -300,6 +301,7 @@ def grid(
     outer_backend: str = "loky",
     return_connectivity_objects: bool = False,
     ordered_pairs: bool = False,
+    annotation_skip_radius_s: float | None = None,
 ) -> Any:
     """Compute time-frequency connectivity aligned to a TFR time grid.
 
@@ -437,6 +439,17 @@ def grid(
     t0, t1 = float(raw_times[0]), float(raw_times[-1])
 
     center_samps_full = (times_tfr - raw_times[0]) * sfreq  # float sample indices
+    finite_time_mask = np.isfinite(times_tfr)
+    if annotation_skip_radius_s is None:
+        skip_time_mask = np.zeros(times_tfr.shape, dtype=bool)
+    else:
+        skip_time_mask = build_annotation_skip_time_mask(
+            raw,
+            times_s=times_tfr,
+            radius_s=float(annotation_skip_radius_s),
+        )
+    n_columns_total = int(np.sum(finite_time_mask))
+    n_columns_skipped_masked = int(np.sum(finite_time_mask & skip_time_mask))
 
     # ----- (B) n_cycles + analysis window length per frequency -----
     if spectral_mode_use == "cwt_morlet":
@@ -615,7 +628,7 @@ def grid(
 
     def _make_group_call(
         out_idx: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, np.ndarray, dict[str, Any]]:
         """Build a computation spec for one window-group."""
         out_idx = np.asarray(out_idx, dtype=int)
         call_idx = out_idx
@@ -633,15 +646,26 @@ def grid(
             keep_pos = np.searchsorted(call_idx, out_idx)
 
         half = float(np.max(half_per_freq[call_idx]))
-        valid_mask = np.isfinite(center_samps_full)
-        if np.any(valid_mask):
-            times_valid = times_tfr[valid_mask]
+        feasible_mask = np.isfinite(center_samps_full)
+        if np.any(feasible_mask):
+            times_valid = times_tfr[feasible_mask]
             feas = (times_valid - half >= t0) & (times_valid + half <= t1)
-            valid_mask[valid_mask] &= feas
+            feasible_mask[feasible_mask] &= feas
 
-        return out_idx, call_idx, keep_pos, half, valid_mask
+        valid_mask = feasible_mask & ~skip_time_mask
+        group_counts = {
+            "output_frequency_indices": [int(item) for item in out_idx.tolist()],
+            "n_columns_total": int(n_columns_total),
+            "n_columns_skipped_masked": int(n_columns_skipped_masked),
+            "n_columns_dropped_infeasible": int(
+                np.sum(finite_time_mask & ~skip_time_mask & ~feasible_mask)
+            ),
+        }
+
+        return out_idx, call_idx, keep_pos, half, valid_mask, group_counts
 
     groups_spec = [_make_group_call(g) for g in groups_idx]
+    window_group_counts = [dict(spec[5]) for spec in groups_spec]
 
     results = Parallel(n_jobs=int(outer_n_jobs), backend=str(outer_backend))(
         delayed(_run_one_group)(
@@ -652,7 +676,7 @@ def grid(
             freqs_sub=freqs[call_idx],
             n_cycles_sub=n_cycles[call_idx],
         )
-        for out_idx, call_idx, keep_pos, half, valid_mask in groups_spec
+        for out_idx, call_idx, keep_pos, half, valid_mask, _ in groups_spec
     )
 
     for out_idx, D, con, valid_mask in results:
@@ -711,6 +735,14 @@ def grid(
             outer_n_jobs=int(outer_n_jobs),
             outer_backend=str(outer_backend),
             ordered_pairs=bool(ordered_pairs),
+            annotation_skip_radius_s=(
+                float(annotation_skip_radius_s)
+                if annotation_skip_radius_s is not None
+                else None
+            ),
+            n_columns_total=int(n_columns_total),
+            n_columns_skipped_masked=int(n_columns_skipped_masked),
+            window_group_counts=window_group_counts,
             gc_min_freqs_base=gc_min_freqs_base,
             gc_min_freqs_required=gc_min_freqs_required,
             gc_freq_padding=("neighbors" if is_gc_call else None),

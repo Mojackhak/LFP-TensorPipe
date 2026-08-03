@@ -403,6 +403,24 @@ def multitaper_mask_radius_time_s_from_freqs_n_cycles(
     return k * t_window_s
 
 
+def multitaper_window_geometry(
+    *,
+    sfreq_hz: float,
+    time_resolution_s: float,
+) -> tuple[int, int, float]:
+    """Return sample-rounded centered-window geometry for Multitaper PSI."""
+    half_window_samples = int(
+        round(float(time_resolution_s) * float(sfreq_hz) / 2.0)
+    )
+    if half_window_samples < 1:
+        raise ValueError(
+            "Multitaper PSI time_resolution_s is shorter than two input sample intervals."
+        )
+    window_n_samples = 2 * half_window_samples + 1
+    window_span_s = (window_n_samples - 1) / float(sfreq_hz)
+    return half_window_samples, window_n_samples, float(window_span_s)
+
+
 def decimated_times_from_raw(
     raw: "mne.io.BaseRaw",
     *,

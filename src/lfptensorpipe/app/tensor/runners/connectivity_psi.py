@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from lfptensorpipe.app.path_resolver import RecordContext
+from lfptensorpipe.lfp.common import multitaper_window_geometry
 from lfptensorpipe.utils.freqs import split_bands_by_intervals
 
 from .. import service as svc
@@ -206,6 +207,14 @@ def run_psi_metric(
                 "Adjust bands or low/high frequency limits."
             )
 
+        annotation_skip_radius_s: float | None = None
+        if mask_edge_effects and method_norm == "multitaper":
+            _, _, window_span_s = multitaper_window_geometry(
+                sfreq_hz=float(raw.info["sfreq"]),
+                time_resolution_s=float(time_resolution_s),
+            )
+            annotation_skip_radius_s = float(window_span_s) / 2.0
+
         tensor, metadata = psi_grid(
             raw,
             bands=psi_bands,
@@ -221,6 +230,7 @@ def run_psi_metric(
             n_jobs=int(n_jobs),
             outer_n_jobs=int(outer_n_jobs),
             verbose="ERROR",
+            annotation_skip_radius_s=annotation_skip_radius_s,
         )
 
         tensor4d = np.asarray(tensor, dtype=float)
@@ -246,6 +256,22 @@ def run_psi_metric(
                 freqs_lookup=[str(item) for item in band_names],
                 radii_s=[float(item) for item in band_radii],
             )
+        grid_params = metadata.get("params", {}) if isinstance(metadata, dict) else {}
+        if not isinstance(grid_params, dict):
+            grid_params = {}
+        count_payload = (
+            {
+                "n_columns_total": int(grid_params.get("n_columns_total", 0)),
+                "n_columns_skipped_masked": int(
+                    grid_params.get("n_columns_skipped_masked", 0)
+                ),
+                "n_columns_dropped_incomplete_window": int(
+                    grid_params.get("n_columns_dropped_incomplete_window", 0)
+                ),
+            }
+            if method_norm == "multitaper"
+            else {}
+        )
         config_payload = {
             "metric_key": metric_key,
             "metric_label": metric_label,
@@ -282,6 +308,7 @@ def run_psi_metric(
             ],
             "interpolation_applied": False,
             "tensor_shape": [int(item) for item in tensor4d.shape],
+            **count_payload,
             **_effective_n_jobs_payload(
                 n_jobs=int(n_jobs),
                 outer_n_jobs=int(outer_n_jobs),
@@ -318,6 +345,7 @@ def run_psi_metric(
             "selected_pairs": [[str(a), str(b)] for a, b in pairs],
             "n_bands": int(tensor4d.shape[2]),
             "n_times": int(tensor4d.shape[3]),
+            **count_payload,
             **_effective_n_jobs_payload(
                 n_jobs=int(n_jobs),
                 outer_n_jobs=int(outer_n_jobs),
