@@ -2494,6 +2494,8 @@ def _auto_limits_series(
     value_col: str,
     y_limits: Optional[Tuple[float, float]],
     x_limits: Optional[Tuple[float, float]],
+    x_log: bool,
+    y_log: bool,
     line_var: str,
     col_var: Optional[str] = None,
     row_var: Optional[str] = None,
@@ -2512,6 +2514,7 @@ def _auto_limits_series(
 
     This avoids a single outlier trace inside `dfw[value_col]` blowing up the axis range
     when the visualization is meant to emphasize the group mean ± uncertainty.
+    Logarithmic axes use the observed endpoints without linear padding.
     """
     if x_limits is not None and y_limits is not None:
         return x_limits, y_limits
@@ -2609,20 +2612,26 @@ def _auto_limits_series(
             x0, x1 = float(np.min(xmins)), float(np.max(xmaxs))
         else:
             x0, x1 = 0.0, 1.0
-        xr = x1 - x0
-        if (not np.isfinite(xr)) or xr == 0:
-            xr = 1.0
-        x_limits = (x0 - 0.02 * xr, x1 + 0.02 * xr)
+        if x_log:
+            x_limits = (x0, x1)
+        else:
+            xr = x1 - x0
+            if (not np.isfinite(xr)) or xr == 0:
+                xr = 1.0
+            x_limits = (x0 - 0.02 * xr, x1 + 0.02 * xr)
 
     if y_limits is None:
         if ymins and ymaxs:
             y0, y1 = float(np.min(ymins)), float(np.max(ymaxs))
         else:
             y0, y1 = 0.0, 1.0
-        yr = y1 - y0
-        if (not np.isfinite(yr)) or yr == 0:
-            yr = 1.0
-        y_limits = (y0 - 0.05 * yr, y1 + 0.05 * yr)
+        if y_log:
+            y_limits = (y0, y1)
+        else:
+            yr = y1 - y0
+            if (not np.isfinite(yr)) or yr == 0:
+                yr = 1.0
+            y_limits = (y0 - 0.05 * yr, y1 + 0.05 * yr)
 
     return x_limits, y_limits
 
@@ -2731,6 +2740,8 @@ def _plot_interaction_series_grid(
         value_col=value_col,
         x_limits=x_limits,
         y_limits=y_limits,
+        x_log=x_log,
+        y_log=y_log,
         line_var=line_var,
         col_var=col_var,
         row_var=row_var,
