@@ -131,6 +131,9 @@ def write_periodic_aperiodic_success(
         "n_columns_skipped_masked": int(
             runtime_params.get("n_columns_skipped_masked", 0)
         ),
+        "n_spectra_unsupported_masked": int(
+            runtime_params.get("n_spectra_unsupported_masked", 0)
+        ),
     }
     config_payload = {
         "metric_key": METRIC_KEY,

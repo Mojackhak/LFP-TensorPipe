@@ -80,12 +80,10 @@ def _impute_notch_intervals_local_residual(
     moved = np.moveaxis(values, -2, -1)
     original_shape = moved.shape
     rows = moved.reshape(-1, frequency_axis.size)
-    if not np.all(np.isfinite(rows) & (rows > 0.0)):
-        raise ValueError(
-            "Notch imputation requires positive finite power values on the model grid."
-        )
-    source_log_power = np.log10(rows)
-    filled = np.array(rows, copy=True, dtype=float)
+    supported = np.isfinite(rows) & (rows > 0.0)
+    source_log_power = np.full(rows.shape, np.nan, dtype=float)
+    source_log_power[supported] = np.log10(rows[supported])
+    filled = np.where(supported, rows, np.nan)
     log_frequency = np.log10(frequency_axis)
     rng = np.random.default_rng(int(seed))
 
@@ -176,7 +174,7 @@ def _run_tfr_grid(
     tfr_grid_fn=None,
     interpolate_freq_tensor_fn=None,
     smooth_axis_fn=None,
-) -> tuple[np.ndarray, dict[str, Any]]:
+) -> tuple[np.ndarray, dict[str, Any], np.ndarray, np.ndarray]:
     if interpolate_freq_tensor_fn is None:
         from lfptensorpipe.lfp.interp.freq import (
             interpolate_tensor_with_metadata_policy as interpolate_freq_tensor,
@@ -239,6 +237,10 @@ def _run_tfr_grid(
             ],
         }
 
+    unsupported_cells = ~np.isfinite(power_tensor) | (power_tensor <= 0.0)
+    unsupported_spectrum_mask = np.any(unsupported_cells, axis=-2)
+    unsupported_first_freq_index = np.argmax(unsupported_cells, axis=-2)
+
     if bool(options.freq_smooth_enabled):
         power_tensor = np.asarray(
             smooth_axis(
@@ -277,12 +279,19 @@ def _run_tfr_grid(
             dtype=float,
         )
 
-    return power_tensor, attach_transform_policy(metadata, transform_policy)
+    return (
+        power_tensor,
+        attach_transform_policy(metadata, transform_policy),
+        unsupported_spectrum_mask,
+        unsupported_first_freq_index,
+    )
 
 
 def _run_decomposition(
     power_tensor: np.ndarray,
     metadata: dict[str, Any],
+    unsupported_spectrum_mask: np.ndarray,
+    unsupported_first_freq_index: np.ndarray,
     prepared: PeriodicAperiodicPreparedInput,
     options: PeriodicAperiodicOptions,
     report_dir: Path,
@@ -323,6 +332,23 @@ def _run_decomposition(
         skip_time_mask = np.zeros(times_meta.shape, dtype=bool)
     finite_times = np.isfinite(times_meta)
     valid_time_mask = finite_times & ~skip_time_mask
+    unsupported_retained = unsupported_spectrum_mask & valid_time_mask[None, None, :]
+    if np.any(unsupported_retained):
+        unsupported_count = int(np.sum(unsupported_retained))
+        epoch_index, channel_index, time_index = (
+            int(item) for item in np.argwhere(unsupported_retained)[0]
+        )
+        frequency_index = int(
+            unsupported_first_freq_index[epoch_index, channel_index, time_index]
+        )
+        raise ValueError(
+            "Periodic/Aperiodic encountered "
+            f"{unsupported_count} unsupported spectra outside the BAD/EDGE mask; "
+            f"first at epoch={epoch_index}, channel={channel_meta[channel_index]!r}, "
+            f"frequency={float(freqs_meta[frequency_index]):g} Hz, "
+            f"time_index={time_index}, time={float(times_meta[time_index]):g} s."
+        )
+    n_spectra_unsupported_masked = int(np.sum(unsupported_spectrum_mask))
     n_columns_total = int(np.sum(finite_times))
     n_columns_skipped_masked = int(np.sum(finite_times & skip_time_mask))
     _, tfr_periodic, _, params_tensor, params_meta = decompose_fn(
@@ -397,6 +423,7 @@ def _run_decomposition(
             "annotation_skip_radius_s": annotation_skip_radius_s,
             "n_columns_total": n_columns_total,
             "n_columns_skipped_masked": n_columns_skipped_masked,
+            "n_spectra_unsupported_masked": n_spectra_unsupported_masked,
         }
     )
     metadata["params"] = metadata_params
@@ -406,6 +433,7 @@ def _run_decomposition(
             "annotation_skip_radius_s": annotation_skip_radius_s,
             "n_columns_total": n_columns_total,
             "n_columns_skipped_masked": n_columns_skipped_masked,
+            "n_spectra_unsupported_masked": n_spectra_unsupported_masked,
         }
     )
     params_meta_dict["params"] = params_runtime
@@ -498,7 +526,12 @@ def compute_periodic_aperiodic_outputs(
     decompose_fn=None,
     make_gof_rsquared_masker_fn=None,
 ) -> PeriodicAperiodicOutputs:
-    power_tensor, metadata = _run_tfr_grid(
+    (
+        power_tensor,
+        metadata,
+        unsupported_spectrum_mask,
+        unsupported_first_freq_index,
+    ) = _run_tfr_grid(
         prepared,
         options,
         tfr_grid_fn=tfr_grid_fn,
@@ -508,6 +541,8 @@ def compute_periodic_aperiodic_outputs(
     return _run_decomposition(
         power_tensor,
         metadata,
+        unsupported_spectrum_mask,
+        unsupported_first_freq_index,
         prepared,
         options,
         report_dir,
