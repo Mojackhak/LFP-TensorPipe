@@ -300,6 +300,7 @@ class MainWindowTensorRunMixin:
                 pythonpath_entries.append(token)
         if pythonpath_entries:
             env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
+        env["MPLBACKEND"] = "Agg"
         return env
 
     def _tensor_temp_json_path(self, stem: str) -> Path:

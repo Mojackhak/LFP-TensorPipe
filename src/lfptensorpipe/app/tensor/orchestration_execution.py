@@ -238,6 +238,7 @@ def _runtime_plan_worker_env(
             pythonpath_entries.append(token)
     if pythonpath_entries:
         env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
+    env["MPLBACKEND"] = "Agg"
     for env_var in _NATIVE_THREAD_ENV_VARS:
         env[env_var] = "1"
     return env
