@@ -38,7 +38,7 @@ TENSOR_METRICS: tuple[TensorMetricSpec, ...] = (
         "Coherence",
         "Undirected Connectivity",
         supported=True,
-        value_transform_mode="fisherz_sqrt",
+        value_transform_mode="fisherz",
     ),
     TensorMetricSpec(
         "plv",

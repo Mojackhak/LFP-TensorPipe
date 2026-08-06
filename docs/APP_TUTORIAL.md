@@ -719,7 +719,7 @@ metric and output type.
 | Aperiodic knee | `none` | Native | Native | Native | Native |
 | Periodic/Aperiodic fit error | `none` | Native | Native | Native | Native |
 | Periodic/Aperiodic goodness of fit | `none` | Native | Native | Native | Native |
-| Coherence | `fisherz_sqrt` | Native | Native | Native | Native |
+| Coherence | `fisherz` | Native | Native | Native | Native |
 | PLV | `logit` | Native | Native | Native | Native |
 | ciPLV | `logit` | Native | Native | Native | Native |
 | PLI | `logit` | Native | Native | Native | Native |
