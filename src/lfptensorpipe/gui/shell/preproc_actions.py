@@ -7,7 +7,9 @@ from lfptensorpipe.gui.shell.common import (
     Path,
     PathResolver,
     QDialog,
+    preproc_step_log_path,
     preproc_step_raw_path,
+    read_run_log,
     resolve_preproc_step_source,
 )
 
@@ -275,6 +277,23 @@ class MainWindowPreprocActionsMixin:
         prefix = "ECG OK" if ok else "ECG failed"
         self.statusBar().showMessage(f"{prefix}: {message}")
         self._post_step_action_sync(reason="preproc_ecg_apply")
+        if ok:
+            payload = read_run_log(
+                preproc_step_log_path(
+                    PathResolver(context),
+                    "ecg_artifact_removal",
+                )
+            )
+            unchanged = payload["params"].get("unchanged_channels", [])
+            if unchanged:
+                details = [
+                    f"- {item['channel']}: {item['reason']}" for item in unchanged
+                ]
+                self._show_warning(
+                    "ECG Apply",
+                    "ECG removal completed, but these selected channels were "
+                    "passed through unchanged:\n\n" + "\n".join(details),
+                )
 
     def _on_preproc_finish_apply(self) -> None:
         context = self._record_context()

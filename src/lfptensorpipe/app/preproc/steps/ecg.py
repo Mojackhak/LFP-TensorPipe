@@ -389,14 +389,17 @@ def apply_ecg_step(
         if missing:
             raise ValueError(f"Unknown ECG picks: {missing}")
 
-        raw_clean, figs = runtime_raw_call(
-            raw,
-            method=method,
-            picks=selected_picks,
-            inplace=False,
-            verbose=False,
+        ecg_diagnostics: dict[str, Any] = {}
+        raw_call_kwargs: dict[str, Any] = {
+            "method": method,
+            "picks": selected_picks,
+            "inplace": False,
+            "verbose": False,
             **runtime_kwargs,
-        )
+        }
+        if raw_call_ecgremover_fn is None:
+            raw_call_kwargs["_diagnostics_out"] = ecg_diagnostics
+        raw_clean, figs = runtime_raw_call(raw, **raw_call_kwargs)
 
         dst.parent.mkdir(parents=True, exist_ok=True)
         raw_clean.save(str(dst), overwrite=True)
@@ -418,6 +421,7 @@ def apply_ecg_step(
                 "method": method,
                 "picks": selected_picks,
                 "method_kwargs": persisted_kwargs,
+                **ecg_diagnostics,
             },
             input_path=str(src),
             output_path=str(dst),

@@ -28,6 +28,8 @@ Notes
 - All algorithms expect a 1D array (single channel) and the sampling rate in Hz.
 - Units: most steps are unit-agnostic (z-scored detection), but some amplitude
   thresholds (e.g., threshold_v) depend on the input units.
+- The MNE Raw adapter automatically excludes `BAD*` local supports for the three
+  built-in methods while preserving BAD samples and annotations in its output.
 - Plotting and MNE integration are optional and imported lazily.
 
 This file is intentionally self-contained so it can be dropped into a project
@@ -38,13 +40,13 @@ from __future__ import annotations
 
 import logging
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Literal, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
 from scipy.linalg import svd
-from scipy.ndimage import median_filter
+from scipy.ndimage import maximum_filter, median_filter
 from scipy.optimize import least_squares
 from scipy.signal import correlate, find_peaks
 from scipy.stats import zscore
@@ -124,6 +126,29 @@ class ECGRemovalDiagnostics:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(slots=True)
+class _ECGChannelRun:
+    """Internal cleaned-channel result with JSON-safe run diagnostics."""
+
+    cleaned: NDArray[np.float64]
+    figure: Any = None
+    candidate_beats: int = 0
+    eligible_beats: int = 0
+    bad_overlap_skipped_beats: int = 0
+    corrected_beats: int = 0
+    unchanged_reason: str = ""
+
+    def diagnostics(self, channel: str) -> dict[str, Any]:
+        return {
+            "channel": str(channel),
+            "candidate_beats": int(self.candidate_beats),
+            "eligible_beats": int(self.eligible_beats),
+            "bad_overlap_skipped_beats": int(self.bad_overlap_skipped_beats),
+            "corrected_beats": int(self.corrected_beats),
+            "unchanged_reason": str(self.unchanged_reason),
+        }
+
+
 # -----------------------------------------------------------------------------
 # Validation and small utilities
 # -----------------------------------------------------------------------------
@@ -147,6 +172,60 @@ def _ms_to_samples(ms: float, fs: float) -> int:
     # Use rounding to reduce systematic bias when ms does not map to an integer.
     n = int(round((ms / 1000.0) * fs))
     return max(n, 1)
+
+
+def _bad_prefix_sum(bad_sample_mask: NDArray[np.bool_]) -> NDArray[np.int64]:
+    """Return a leading-zero prefix sum for interval BAD-overlap queries."""
+    return np.concatenate(
+        (
+            np.zeros(1, dtype=np.int64),
+            np.cumsum(bad_sample_mask, dtype=np.int64),
+        )
+    )
+
+
+def _interval_has_bad(
+    bad_prefix: NDArray[np.int64],
+    start: int,
+    end: int,
+) -> bool:
+    """Return whether the in-bounds half-open interval contains BAD samples."""
+    return bool(bad_prefix[int(end)] - bad_prefix[int(start)])
+
+
+def _eligible_peak_mask(
+    peaks: NDArray[np.int_],
+    *,
+    start_offset: int,
+    end_offset: int,
+    n_samples: int,
+    bad_prefix: NDArray[np.int64],
+) -> tuple[NDArray[np.bool_], NDArray[np.bool_]]:
+    """Return full-support eligibility and BAD-overlap masks for peak epochs."""
+    eligible = np.zeros(peaks.size, dtype=bool)
+    overlaps_bad = np.zeros(peaks.size, dtype=bool)
+    for index, peak in enumerate(peaks.astype(int)):
+        start = int(peak + start_offset)
+        end = int(peak + end_offset)
+        if start < 0 or end > n_samples or start >= end:
+            continue
+        overlaps_bad[index] = _interval_has_bad(bad_prefix, start, end)
+        eligible[index] = not overlaps_bad[index]
+    return eligible, overlaps_bad
+
+
+def _feature_support_mask(
+    bad_sample_mask: NDArray[np.bool_],
+    *,
+    window_samples: int,
+) -> NDArray[np.bool_]:
+    """Return positions whose median-filter support contains no BAD sample."""
+    touches_bad = maximum_filter(
+        bad_sample_mask,
+        size=int(window_samples),
+        mode="reflect",
+    )
+    return ~np.asarray(touches_bad, dtype=bool)
 
 
 def _robust_scale_1d(
@@ -296,6 +375,73 @@ def detect_qrs_peaks(
     logger.info(
         "Detected %d QRS-like peaks (orientation=%s).", len(chosen_peaks), orientation
     )
+    return np.asarray(chosen_peaks, dtype=int), orientation
+
+
+def _detect_qrs_peaks_masked(
+    lfp_signal: NDArray[np.float64],
+    fs: float,
+    *,
+    valid_sample_mask: NDArray[np.bool_],
+    force_orientation: Orientation | None,
+    peak_height_range: tuple[float, float],
+    min_interpeak_ms: float,
+) -> tuple[NDArray[np.int_], Orientation | None]:
+    """Detect peaks globally while excluding invalid local-support positions."""
+    valid_values = lfp_signal[valid_sample_mask]
+    if valid_values.size == 0:
+        return np.array([], dtype=int), None
+
+    mean_val = float(np.mean(valid_values))
+    std_val = float(np.std(valid_values))
+    if std_val < 1e-12:
+        logger.warning("Valid signal variance too small for peak detection.")
+        return np.array([], dtype=int), None
+
+    z_valid = (valid_values - mean_val) / std_val
+    positive_score = np.full(lfp_signal.size, -np.inf, dtype=float)
+    negative_score = np.full(lfp_signal.size, -np.inf, dtype=float)
+    positive_score[valid_sample_mask] = z_valid
+    negative_score[valid_sample_mask] = -z_valid
+
+    min_distance_samples = _ms_to_samples(min_interpeak_ms, fs)
+    pos_peaks, _ = find_peaks(
+        positive_score,
+        height=peak_height_range,
+        distance=min_distance_samples,
+    )
+    neg_peaks, _ = find_peaks(
+        negative_score,
+        height=peak_height_range,
+        distance=min_distance_samples,
+    )
+
+    if pos_peaks.size == 0 and neg_peaks.size == 0:
+        logger.info("No QRS-like peaks detected outside BAD support.")
+        return np.array([], dtype=int), None
+
+    pos_heights = positive_score[pos_peaks]
+    neg_heights = negative_score[neg_peaks]
+    mean_pos = float(np.mean(pos_heights)) if pos_peaks.size else 0.0
+    mean_neg = float(np.mean(neg_heights)) if neg_peaks.size else 0.0
+
+    chosen_peaks = pos_peaks
+    orientation: Orientation = "positive"
+    if (neg_peaks.size > pos_peaks.size) or (
+        neg_peaks.size == pos_peaks.size and mean_neg > mean_pos
+    ):
+        chosen_peaks = neg_peaks
+        orientation = "negative"
+
+    if force_orientation == "positive":
+        chosen_peaks = pos_peaks
+        orientation = "positive"
+    elif force_orientation == "negative":
+        chosen_peaks = neg_peaks
+        orientation = "negative"
+    elif force_orientation is not None:
+        raise ECGRemovalError(f"Invalid force_orientation={force_orientation!r}")
+
     return np.asarray(chosen_peaks, dtype=int), orientation
 
 
@@ -502,6 +648,125 @@ def optimize_template(
 # -----------------------------------------------------------------------------
 # Removal methods
 # -----------------------------------------------------------------------------
+def _template_ecg_remover_core(
+    lfp_signal: np.ndarray,
+    fs: float,
+    *,
+    window_ms: float = 200.0,
+    peak_height_range: tuple[float, float] = (2.5, float("inf")),
+    min_interpeak_ms: float = 300.0,
+    force_orientation: Orientation | None = None,
+    pre_ms: float = 150.0,
+    post_ms: float = 150.0,
+    tail_ms: float = 60.0,
+    qrs_duration_ms: float = 120.0,
+    pqrst: bool = False,
+    return_figure: bool = False,
+    bad_sample_mask: NDArray[np.bool_] | None = None,
+) -> _ECGChannelRun:
+    """Run template subtraction and collect internal channel diagnostics."""
+    x = _as_1d_float(lfp_signal)
+    fs_f = _validate_fs(fs)
+
+    # Baseline-stabilized signal for detection
+    feat = lfp_feature(x, fs_f, window_ms)
+    if bad_sample_mask is None:
+        r_peaks, input_orientation = detect_qrs_peaks(
+            feat,
+            fs_f,
+            force_orientation=force_orientation,
+            peak_height_range=peak_height_range,
+            min_interpeak_ms=min_interpeak_ms,
+        )
+    else:
+        valid_feature_mask = _feature_support_mask(
+            bad_sample_mask,
+            window_samples=_ms_to_samples(window_ms, fs_f),
+        )
+        r_peaks, input_orientation = _detect_qrs_peaks_masked(
+            feat,
+            fs_f,
+            valid_sample_mask=valid_feature_mask,
+            force_orientation=force_orientation,
+            peak_height_range=peak_height_range,
+            min_interpeak_ms=min_interpeak_ms,
+        )
+
+    run = _ECGChannelRun(cleaned=x.copy(), candidate_beats=int(r_peaks.size))
+
+    if r_peaks.size == 0:
+        logger.warning("No peaks detected; returning original signal.")
+        run.unchanged_reason = "No reliable ECG peaks were detected."
+        return run
+
+    template_peaks = r_peaks
+    if bad_sample_mask is not None:
+        bad_prefix = _bad_prefix_sum(bad_sample_mask)
+        pre_samples = _ms_to_samples(pre_ms, fs_f)
+        post_samples = _ms_to_samples(post_ms, fs_f)
+        eligible_mask, overlaps_bad = _eligible_peak_mask(
+            r_peaks,
+            start_offset=-pre_samples,
+            end_offset=post_samples,
+            n_samples=x.size,
+            bad_prefix=bad_prefix,
+        )
+        run.bad_overlap_skipped_beats = int(np.sum(overlaps_bad))
+        template_peaks = r_peaks[eligible_mask]
+        run.eligible_beats = int(template_peaks.size)
+        if template_peaks.size == 0:
+            run.unchanged_reason = "No full clean heartbeat epochs were available."
+            return run
+
+    template, orientation, epoch_start, epoch_end = generate_qrs_template(
+        x,
+        fs_f,
+        template_peaks,
+        input_orientation=input_orientation,
+        force_orientation=force_orientation,
+        pre_ms=pre_ms,
+        post_ms=post_ms,
+        tail_ms=tail_ms,
+        qrs_duration_ms=qrs_duration_ms,
+        pqrst=pqrst,
+    )
+
+    if template is None:
+        logger.warning("Template generation failed; returning original signal.")
+        run.unchanged_reason = "ECG template generation failed."
+        return run
+
+    cleaned = x.copy()
+
+    # Fit + subtract per beat
+    eligible_count = 0
+    for peak in template_peaks:
+        start = int(peak + epoch_start)
+        end = int(peak + epoch_end)
+        if start < 0 or end > x.size:
+            continue
+        eligible_count += 1
+        lfp_epoch = x[start:end]
+        fitted, _, _, _ = optimize_template(template, lfp_epoch)
+        cleaned[start:end] = lfp_epoch - fitted
+        run.corrected_beats += 1
+
+    if bad_sample_mask is None:
+        run.eligible_beats = int(eligible_count)
+    else:
+        cleaned[bad_sample_mask] = x[bad_sample_mask]
+
+    if run.corrected_beats == 0:
+        run.unchanged_reason = "No heartbeat epoch could be corrected."
+
+    fig = None
+    if return_figure:
+        fig = plot_vt(template, fs_f)
+    run.cleaned = cleaned
+    run.figure = fig
+    return run
+
+
 def template_ecg_remover(
     lfp_signal: np.ndarray,
     fs: float,
@@ -522,64 +787,24 @@ def template_ecg_remover(
     Returns the cleaned signal. If return_figure=True, also returns a matplotlib
     figure of the estimated template.
     """
-    x = _as_1d_float(lfp_signal)
-    fs_f = _validate_fs(fs)
-
-    # Baseline-stabilized signal for detection
-    feat = lfp_feature(x, fs_f, window_ms)
-
-    r_peaks, input_orientation = detect_qrs_peaks(
-        feat,
-        fs_f,
-        force_orientation=force_orientation,
+    run = _template_ecg_remover_core(
+        lfp_signal,
+        fs,
+        window_ms=window_ms,
         peak_height_range=peak_height_range,
         min_interpeak_ms=min_interpeak_ms,
-    )
-
-    if r_peaks.size == 0:
-        logger.warning("No peaks detected; returning original signal.")
-        cleaned = x.copy()
-        if return_figure:
-            return cleaned, None
-        return cleaned
-
-    template, orientation, epoch_start, epoch_end = generate_qrs_template(
-        x,
-        fs_f,
-        r_peaks,
-        input_orientation=input_orientation,
         force_orientation=force_orientation,
         pre_ms=pre_ms,
         post_ms=post_ms,
         tail_ms=tail_ms,
         qrs_duration_ms=qrs_duration_ms,
         pqrst=pqrst,
+        return_figure=return_figure,
+        bad_sample_mask=None,
     )
-
-    if template is None:
-        logger.warning("Template generation failed; returning original signal.")
-        cleaned = x.copy()
-        if return_figure:
-            return cleaned, None
-        return cleaned
-
-    cleaned = x.copy()
-
-    # Fit + subtract per beat
-    for peak in r_peaks:
-        start = int(peak + epoch_start)
-        end = int(peak + epoch_end)
-        if start < 0 or end > x.size:
-            continue
-        lfp_epoch = x[start:end]
-        fitted, _, _, _ = optimize_template(template, lfp_epoch)
-        cleaned[start:end] = lfp_epoch - fitted
-
-    fig = None
     if return_figure:
-        fig = plot_vt(template, fs_f)
-        return cleaned, fig
-    return cleaned
+        return run.cleaned, run.figure
+    return run.cleaned
 
 
 def segment_signal(
@@ -813,6 +1038,126 @@ def adaptive_threshold_peak_detection(
     return best_peaks, best_threshold, corr_values_norm
 
 
+def _adaptive_threshold_peak_detection_masked(
+    lfp_signal: NDArray[np.float64],
+    template1: NDArray[np.float64],
+    fs: float,
+    *,
+    bad_sample_mask: NDArray[np.bool_],
+    min_bpm: int,
+    max_bpm: int,
+    threshold_start: float | None,
+    threshold_step: float | None,
+    max_threshold_tries: int,
+    pass_rate: float,
+    enforce_max_interval: bool,
+) -> tuple[NDArray[np.int_], float, NDArray[np.float64]] | tuple[None, None, None]:
+    """Detect Perceive peaks globally from correlation supports outside BAD."""
+    x = _as_1d_float(lfp_signal)
+    template = _as_1d_float(template1)
+    fs_f = _validate_fs(fs)
+
+    if min_bpm <= 0 or max_bpm <= 0 or min_bpm >= max_bpm:
+        raise ECGRemovalError(
+            "min_bpm and max_bpm must be positive with min_bpm < max_bpm."
+        )
+    if max_threshold_tries < 1:
+        raise ECGRemovalError("max_threshold_tries must be >= 1.")
+    if not (0.0 < pass_rate <= 1.0):
+        raise ECGRemovalError("pass_rate must be in (0, 1].")
+
+    correlation_input = x.copy()
+    correlation_input[bad_sample_mask] = 0.0
+    correlation_values = correlate(correlation_input, template, mode="full").astype(
+        float
+    )
+    template_size = int(template.size)
+    starts = np.arange(correlation_values.size, dtype=int) - template_size + 1
+    ends = starts + template_size
+    valid_correlation = (starts >= 0) & (ends <= x.size)
+
+    bad_prefix = _bad_prefix_sum(bad_sample_mask)
+    valid_indices = np.flatnonzero(valid_correlation)
+    valid_correlation[valid_indices] = (
+        bad_prefix[ends[valid_indices]] - bad_prefix[starts[valid_indices]]
+    ) == 0
+
+    valid_values = correlation_values[valid_correlation]
+    if valid_values.size == 0:
+        logger.warning("No full clean correlation supports are available.")
+        return None, None, None
+
+    q_low = float(np.clip((min_bpm / 60.0) / fs_f, 1e-6, 0.1))
+    center = float(np.median(valid_values))
+    low = float(np.quantile(valid_values, q_low))
+    high = float(np.quantile(valid_values, 1.0 - q_low))
+    scale = max(high - low, 1e-120)
+    corr_values_norm = np.full(correlation_values.size, -np.inf, dtype=float)
+    corr_values_norm[valid_correlation] = (
+        correlation_values[valid_correlation] - center
+    ) / scale
+    valid_normalized = corr_values_norm[valid_correlation]
+
+    min_peak_distance = int(fs_f / (max_bpm / 60.0))
+    max_peak_distance = int(fs_f / (min_bpm / 60.0))
+    threshold_end = float(np.quantile(valid_normalized, 1.0 - (q_low * 0.5)))
+
+    if threshold_start is None:
+        threshold_start = float(np.quantile(valid_normalized, 0.6))
+    if threshold_step is None:
+        threshold_step = (threshold_end - threshold_start) / float(max_threshold_tries)
+
+    template_peak_index = int(np.argmax(np.abs(template)))
+    best_peaks: NDArray[np.int_] | None = None
+    best_threshold: float | None = None
+    threshold = float(threshold_start)
+    for _ in range(max_threshold_tries):
+        peaks, _ = find_peaks(corr_values_norm, height=threshold)
+
+        if peaks.size > 1:
+            peak_distances = np.diff(peaks)
+            signal_peaks = peaks - template_size + 1 + template_peak_index
+            interval_is_observed = np.ones(peak_distances.size, dtype=bool)
+            for index, (left, right) in enumerate(
+                zip(signal_peaks[:-1], signal_peaks[1:])
+            ):
+                start = int(min(left, right))
+                end = int(max(left, right) + 1)
+                interval_is_observed[index] = not _interval_has_bad(
+                    bad_prefix,
+                    start,
+                    end,
+                )
+
+            if enforce_max_interval:
+                plausible = (peak_distances >= min_peak_distance) & (
+                    peak_distances <= max_peak_distance
+                )
+            else:
+                plausible = peak_distances >= min_peak_distance
+
+            n_observed = int(np.sum(interval_is_observed))
+            n_plausible = int(np.sum(plausible & interval_is_observed))
+            if n_observed > 0 and float(n_plausible) > float(n_observed) * float(
+                pass_rate
+            ):
+                best_peaks = peaks.astype(int)
+                best_threshold = float(threshold)
+                break
+
+        threshold += float(threshold_step)
+        if (threshold_step >= 0 and threshold >= threshold_end) or (
+            threshold_step < 0 and threshold <= threshold_end
+        ):
+            break
+
+    if best_peaks is None or best_threshold is None:
+        logger.warning("No suitable clean peaks found after adaptive thresholding.")
+        return None, None, None
+
+    return best_peaks, best_threshold, corr_values_norm
+
+
 def create_ecg_template(
     lfp_signal: np.ndarray,
     peaks: np.ndarray,
@@ -847,9 +1192,10 @@ def create_ecg_template(
     return np.mean(np.stack(epochs, axis=0), axis=0)
 
 
-def perceive_ecg_remover(
+def _perceive_ecg_remover_core(
     lfp_signal: np.ndarray,
     fs: float,
+    *,
     epoch_length_ms: float = 1000.0,
     window_ms: float = 200.0,
     threshold_v: float = 200e-6,
@@ -864,72 +1210,141 @@ def perceive_ecg_remover(
     after_ms: float = 100.0,
     enforce_max_interval: bool = True,
     return_figure: bool = False,
-) -> NDArray[np.float64] | tuple[NDArray[np.float64], Any]:
-    """
-    ECG removal via correlation-based detection and mirror replacement.
-
-    This is inspired by Perceive-like workflows. It is conservative: it does not
-    attempt to estimate an ECG waveform to subtract, but replaces the artifact
-    segment with mirrored samples from surrounding data.
-
-    Returns the cleaned signal. If return_figure=True, also returns a figure of
-    the refined template used for detection.
-    """
+    bad_sample_mask: NDArray[np.bool_] | None = None,
+) -> _ECGChannelRun:
+    """Run Perceive removal and collect internal channel diagnostics."""
     x = _as_1d_float(lfp_signal)
     fs_f = _validate_fs(fs)
+    run = _ECGChannelRun(cleaned=x.copy())
+    bad_skipped_peaks: set[int] = set()
 
-    epochs = segment_signal(x, fs_f, epoch_length_ms)
+    if bad_sample_mask is None:
+        epochs = segment_signal(x, fs_f, epoch_length_ms)
+    else:
+        samples_per_epoch = _ms_to_samples(epoch_length_ms, fs_f)
+        n_full_epochs = x.size // samples_per_epoch
+        if n_full_epochs < 1:
+            raise ECGRemovalError("Signal too short for the requested epoch_length_ms.")
+        trimmed_samples = n_full_epochs * samples_per_epoch
+        epoch_matrix = x[:trimmed_samples].reshape(n_full_epochs, samples_per_epoch)
+        bad_epoch_matrix = bad_sample_mask[:trimmed_samples].reshape(
+            n_full_epochs,
+            samples_per_epoch,
+        )
+        epochs = epoch_matrix[~np.any(bad_epoch_matrix, axis=1)]
+        if epochs.shape[0] == 0:
+            run.unchanged_reason = (
+                "No full clean initial Perceive epochs were available."
+            )
+            return run
+
     template0 = cross_correlation_align(epochs, fs_f, window_ms)
     template1 = find_ecg_template1(template0, fs_f, threshold_v, pad_ms)
 
-    peaks_corr, _, _ = adaptive_threshold_peak_detection(
-        x,
-        template1,
-        fs_f,
-        min_bpm=min_bpm,
-        max_bpm=max_bpm,
-        threshold_start=threshold_start,
-        threshold_step=threshold_step,
-        max_threshold_tries=max_threshold_tries,
-        pass_rate=pass_rate,
-        enforce_max_interval=enforce_max_interval,
-    )
+    if bad_sample_mask is None:
+        peaks_corr, _, _ = adaptive_threshold_peak_detection(
+            x,
+            template1,
+            fs_f,
+            min_bpm=min_bpm,
+            max_bpm=max_bpm,
+            threshold_start=threshold_start,
+            threshold_step=threshold_step,
+            max_threshold_tries=max_threshold_tries,
+            pass_rate=pass_rate,
+            enforce_max_interval=enforce_max_interval,
+        )
+    else:
+        peaks_corr, _, _ = _adaptive_threshold_peak_detection_masked(
+            x,
+            template1,
+            fs_f,
+            bad_sample_mask=bad_sample_mask,
+            min_bpm=min_bpm,
+            max_bpm=max_bpm,
+            threshold_start=threshold_start,
+            threshold_step=threshold_step,
+            max_threshold_tries=max_threshold_tries,
+            pass_rate=pass_rate,
+            enforce_max_interval=enforce_max_interval,
+        )
     if peaks_corr is None:
-        cleaned = x.copy()
-        if return_figure:
-            return cleaned, None
-        return cleaned
+        run.unchanged_reason = "Perceive initial peak detection failed."
+        return run
 
     peak_template1_idx = int(np.argmax(np.abs(template1)))
     peaks = peaks_corr - int(template1.size) + 1 + peak_template1_idx
     peaks = peaks[(peaks >= 0) & (peaks < x.size)]
 
-    template_mean = create_ecg_template(x, peaks, fs_f, before_ms, after_ms)
+    template_peaks = peaks
+    if bad_sample_mask is not None:
+        bad_prefix = _bad_prefix_sum(bad_sample_mask)
+        before_template = _ms_to_samples(before_ms, fs_f)
+        after_template = _ms_to_samples(after_ms, fs_f)
+        eligible_template, overlaps_bad = _eligible_peak_mask(
+            peaks,
+            start_offset=-before_template,
+            end_offset=after_template + 1,
+            n_samples=x.size,
+            bad_prefix=bad_prefix,
+        )
+        bad_skipped_peaks.update(peaks[overlaps_bad].astype(int).tolist())
+        template_peaks = peaks[eligible_template]
+        if template_peaks.size == 0:
+            run.candidate_beats = int(peaks.size)
+            run.bad_overlap_skipped_beats = len(bad_skipped_peaks)
+            run.unchanged_reason = (
+                "No full clean Perceive template epochs were available."
+            )
+            return run
+
+    template_mean = create_ecg_template(
+        x,
+        template_peaks,
+        fs_f,
+        before_ms,
+        after_ms,
+    )
     if template_mean is None:
-        cleaned = x.copy()
-        if return_figure:
-            return cleaned, None
-        return cleaned
+        run.candidate_beats = int(peaks.size)
+        run.bad_overlap_skipped_beats = len(bad_skipped_peaks)
+        run.unchanged_reason = "Perceive template generation failed."
+        return run
 
     template_mean1 = find_ecg_template1(template_mean, fs_f, threshold_v, pad_ms)
 
-    peaks_mean_corr, _, _ = adaptive_threshold_peak_detection(
-        x,
-        template_mean1,
-        fs_f,
-        min_bpm=min_bpm,
-        max_bpm=max_bpm,
-        threshold_start=threshold_start,
-        threshold_step=threshold_step,
-        max_threshold_tries=max_threshold_tries,
-        pass_rate=pass_rate,
-        enforce_max_interval=enforce_max_interval,
-    )
+    if bad_sample_mask is None:
+        peaks_mean_corr, _, _ = adaptive_threshold_peak_detection(
+            x,
+            template_mean1,
+            fs_f,
+            min_bpm=min_bpm,
+            max_bpm=max_bpm,
+            threshold_start=threshold_start,
+            threshold_step=threshold_step,
+            max_threshold_tries=max_threshold_tries,
+            pass_rate=pass_rate,
+            enforce_max_interval=enforce_max_interval,
+        )
+    else:
+        peaks_mean_corr, _, _ = _adaptive_threshold_peak_detection_masked(
+            x,
+            template_mean1,
+            fs_f,
+            bad_sample_mask=bad_sample_mask,
+            min_bpm=min_bpm,
+            max_bpm=max_bpm,
+            threshold_start=threshold_start,
+            threshold_step=threshold_step,
+            max_threshold_tries=max_threshold_tries,
+            pass_rate=pass_rate,
+            enforce_max_interval=enforce_max_interval,
+        )
     if peaks_mean_corr is None:
-        cleaned = x.copy()
-        if return_figure:
-            return cleaned, None
-        return cleaned
+        run.candidate_beats = int(peaks.size)
+        run.bad_overlap_skipped_beats = len(bad_skipped_peaks)
+        run.unchanged_reason = "Perceive refined peak detection failed."
+        return run
 
     peak_template_mean1_idx = int(np.argmax(np.abs(template_mean1)))
     peaks_mean = (
@@ -944,11 +1359,32 @@ def perceive_ecg_remover(
     before_samples = peak_template_mean1_idx
     after_samples = template_len - peak_template_mean1_idx - 1
 
+    run.candidate_beats = int(peaks_mean.size)
+    replacement_peaks = peaks_mean
+    if bad_sample_mask is not None:
+        eligible_replacement, overlaps_bad = _eligible_peak_mask(
+            peaks_mean,
+            start_offset=-(2 * before_samples + 1),
+            end_offset=(2 * after_samples + 1),
+            n_samples=x.size,
+            bad_prefix=bad_prefix,
+        )
+        bad_skipped_peaks.update(peaks_mean[overlaps_bad].astype(int).tolist())
+        replacement_peaks = peaks_mean[eligible_replacement]
+        run.eligible_beats = int(replacement_peaks.size)
+        run.bad_overlap_skipped_beats = len(bad_skipped_peaks)
+        if replacement_peaks.size == 0:
+            run.unchanged_reason = (
+                "No full clean Perceive replacement supports were available."
+            )
+            return run
+
     cleaned = x.copy()
     n = x.size
 
     # Mirror replacement uses the original signal x for sampling, writes into cleaned.
-    for peak in peaks_mean.astype(int):
+    eligible_count = 0
+    for peak in replacement_peaks.astype(int):
         start = peak - before_samples
         end = peak + after_samples + 1  # exclusive
 
@@ -956,6 +1392,7 @@ def perceive_ecg_remover(
         end_in = min(n, end)
         if start_in >= end_in:
             continue
+        eligible_count += 1
 
         # Build full replacement (length template_len) in the "virtual" index space [start, end).
         interp_start = start - before_samples - 1
@@ -998,16 +1435,80 @@ def perceive_ecg_remover(
 
         cleaned[start_in:end_in] = replacement_in
 
+        run.corrected_beats += 1
+
+    if bad_sample_mask is None:
+        run.eligible_beats = int(eligible_count)
+    else:
+        cleaned[bad_sample_mask] = x[bad_sample_mask]
+
+    if run.corrected_beats == 0:
+        run.unchanged_reason = "No Perceive heartbeat replacement was completed."
+
     fig = None
     if return_figure:
         fig = plot_vt(template_mean1, fs_f)
-        return cleaned, fig
-    return cleaned
+    run.cleaned = cleaned
+    run.figure = fig
+    return run
 
 
-def svd_ecg_remover(
+def perceive_ecg_remover(
     lfp_signal: np.ndarray,
     fs: float,
+    epoch_length_ms: float = 1000.0,
+    window_ms: float = 200.0,
+    threshold_v: float = 200e-6,
+    pad_ms: float = 15.0,
+    min_bpm: int = 40,
+    max_bpm: int = 180,
+    threshold_start: float | None = None,
+    threshold_step: float | None = None,
+    max_threshold_tries: int = 100,
+    pass_rate: float = 0.95,
+    before_ms: float = 50.0,
+    after_ms: float = 100.0,
+    enforce_max_interval: bool = True,
+    return_figure: bool = False,
+) -> NDArray[np.float64] | tuple[NDArray[np.float64], Any]:
+    """
+    ECG removal via correlation-based detection and mirror replacement.
+
+    This is inspired by Perceive-like workflows. It is conservative: it does not
+    attempt to estimate an ECG waveform to subtract, but replaces the artifact
+    segment with mirrored samples from surrounding data.
+
+    Returns the cleaned signal. If return_figure=True, also returns a figure of
+    the refined template used for detection.
+    """
+    run = _perceive_ecg_remover_core(
+        lfp_signal,
+        fs,
+        epoch_length_ms=epoch_length_ms,
+        window_ms=window_ms,
+        threshold_v=threshold_v,
+        pad_ms=pad_ms,
+        min_bpm=min_bpm,
+        max_bpm=max_bpm,
+        threshold_start=threshold_start,
+        threshold_step=threshold_step,
+        max_threshold_tries=max_threshold_tries,
+        pass_rate=pass_rate,
+        before_ms=before_ms,
+        after_ms=after_ms,
+        enforce_max_interval=enforce_max_interval,
+        return_figure=return_figure,
+        bad_sample_mask=None,
+    )
+    if return_figure:
+        return run.cleaned, run.figure
+    return run.cleaned
+
+
+def _svd_ecg_remover_core(
+    lfp_signal: np.ndarray,
+    fs: float,
+    *,
     components: int = 2,
     window_ms: float = 200.0,
     peak_height_range: tuple[float, float] = (2.5, float("inf")),
@@ -1019,13 +1520,9 @@ def svd_ecg_remover(
     qrs_duration_ms: float = 120.0,
     pqrst: bool = False,
     return_figure: bool = False,
-) -> NDArray[np.float64] | tuple[NDArray[np.float64], Any]:
-    """
-    Remove ECG contamination using an epoch-matrix SVD reconstruction.
-
-    Returns the cleaned signal. If return_figure=True, also returns a figure of the
-    estimated template.
-    """
+    bad_sample_mask: NDArray[np.bool_] | None = None,
+) -> _ECGChannelRun:
+    """Run SVD removal and collect internal channel diagnostics."""
     x = _as_1d_float(lfp_signal)
     fs_f = _validate_fs(fs)
     if components < 1:
@@ -1033,23 +1530,58 @@ def svd_ecg_remover(
 
     # Detect peaks on baseline-stabilized signal
     feat = lfp_feature(x, fs_f, window_ms)
-    r_peaks, input_orientation = detect_qrs_peaks(
-        feat,
-        fs_f,
-        force_orientation=force_orientation,
-        peak_height_range=peak_height_range,
-        min_interpeak_ms=min_interpeak_ms,
-    )
+    if bad_sample_mask is None:
+        r_peaks, input_orientation = detect_qrs_peaks(
+            feat,
+            fs_f,
+            force_orientation=force_orientation,
+            peak_height_range=peak_height_range,
+            min_interpeak_ms=min_interpeak_ms,
+        )
+    else:
+        valid_feature_mask = _feature_support_mask(
+            bad_sample_mask,
+            window_samples=_ms_to_samples(window_ms, fs_f),
+        )
+        r_peaks, input_orientation = _detect_qrs_peaks_masked(
+            feat,
+            fs_f,
+            valid_sample_mask=valid_feature_mask,
+            force_orientation=force_orientation,
+            peak_height_range=peak_height_range,
+            min_interpeak_ms=min_interpeak_ms,
+        )
+
+    run = _ECGChannelRun(cleaned=x.copy(), candidate_beats=int(r_peaks.size))
     if r_peaks.size == 0:
-        cleaned = x.copy()
-        if return_figure:
-            return cleaned, None
-        return cleaned
+        run.unchanged_reason = "No reliable ECG peaks were detected."
+        return run
+
+    model_peaks = r_peaks
+    if bad_sample_mask is not None:
+        bad_prefix = _bad_prefix_sum(bad_sample_mask)
+        pre_samples = _ms_to_samples(pre_ms, fs_f)
+        post_samples = _ms_to_samples(post_ms, fs_f)
+        eligible_mask, overlaps_bad = _eligible_peak_mask(
+            r_peaks,
+            start_offset=-pre_samples,
+            end_offset=post_samples,
+            n_samples=x.size,
+            bad_prefix=bad_prefix,
+        )
+        run.bad_overlap_skipped_beats = int(np.sum(overlaps_bad))
+        model_peaks = r_peaks[eligible_mask]
+        run.eligible_beats = int(model_peaks.size)
+        if model_peaks.size < 2:
+            run.unchanged_reason = (
+                "Fewer than two full clean heartbeat epochs were available."
+            )
+            return run
 
     template, _, epoch_start, epoch_end = generate_qrs_template(
         x,
         fs_f,
-        r_peaks,
+        model_peaks,
         input_orientation=input_orientation,
         force_orientation=force_orientation,
         pre_ms=pre_ms,
@@ -1059,24 +1591,22 @@ def svd_ecg_remover(
         pqrst=pqrst,
     )
     if template is None:
-        cleaned = x.copy()
-        if return_figure:
-            return cleaned, None
-        return cleaned
+        run.unchanged_reason = "ECG template generation failed."
+        return run
 
     # Remove peaks that would generate out-of-bounds epochs.
-    valid_mask = (r_peaks + epoch_start >= 0) & (r_peaks + epoch_end <= x.size)
-    r_peaks = r_peaks[valid_mask]
-    if r_peaks.size < 2:
-        cleaned = x.copy()
+    valid_mask = (model_peaks + epoch_start >= 0) & (model_peaks + epoch_end <= x.size)
+    correction_peaks = model_peaks[valid_mask]
+    run.eligible_beats = int(correction_peaks.size)
+    if correction_peaks.size < 2:
+        run.unchanged_reason = "Fewer than two heartbeat epochs could enter SVD."
         if return_figure:
-            fig = plot_vt(template, fs_f)
-            return cleaned, fig
-        return cleaned
+            run.figure = plot_vt(template, fs_f)
+        return run
 
     epoch_len = int(template.size)
-    epochs = np.zeros((epoch_len, int(r_peaks.size)), dtype=float)
-    for k, peak in enumerate(r_peaks):
+    epochs = np.zeros((epoch_len, int(correction_peaks.size)), dtype=float)
+    for k, peak in enumerate(correction_peaks):
         start_idx = int(peak + epoch_start)
         end_idx = int(peak + epoch_end)
         epochs[:, k] = x[start_idx:end_idx]
@@ -1119,8 +1649,8 @@ def svd_ecg_remover(
         ecg_fit[end_crop - 1] = pad_val
 
         # Fit only an offset (scale already captured by SVD) on the cropped part
-        start_global = int(r_peaks[k] + epoch_start)
-        end_global = int(r_peaks[k] + epoch_end)
+        start_global = int(correction_peaks[k] + epoch_start)
+        end_global = int(correction_peaks[k] + epoch_end)
         epoch = epochs[:, k]
         epoch_crop = epoch[start_crop:end_crop]
         ecg_crop = ecg_fit[start_crop:end_crop]
@@ -1139,12 +1669,62 @@ def svd_ecg_remover(
 
         corrected_epoch = epoch - ecg_fit
         cleaned[start_global:end_global] = corrected_epoch
+        run.corrected_beats += 1
+
+    if bad_sample_mask is not None:
+        cleaned[bad_sample_mask] = x[bad_sample_mask]
+
+    if run.corrected_beats == 0:
+        run.unchanged_reason = "No SVD heartbeat correction was completed."
 
     fig = None
     if return_figure:
         fig = plot_vt(template, fs_f)
-        return cleaned, fig
-    return cleaned
+    run.cleaned = cleaned
+    run.figure = fig
+    return run
+
+
+def svd_ecg_remover(
+    lfp_signal: np.ndarray,
+    fs: float,
+    components: int = 2,
+    window_ms: float = 200.0,
+    peak_height_range: tuple[float, float] = (2.5, float("inf")),
+    min_interpeak_ms: float = 300.0,
+    force_orientation: Orientation | None = None,
+    pre_ms: float = 150.0,
+    post_ms: float = 150.0,
+    tail_ms: float = 60.0,
+    qrs_duration_ms: float = 120.0,
+    pqrst: bool = False,
+    return_figure: bool = False,
+) -> NDArray[np.float64] | tuple[NDArray[np.float64], Any]:
+    """
+    Remove ECG contamination using an epoch-matrix SVD reconstruction.
+
+    Returns the cleaned signal. If return_figure=True, also returns a figure of the
+    estimated template.
+    """
+    run = _svd_ecg_remover_core(
+        lfp_signal,
+        fs,
+        components=components,
+        window_ms=window_ms,
+        peak_height_range=peak_height_range,
+        min_interpeak_ms=min_interpeak_ms,
+        force_orientation=force_orientation,
+        pre_ms=pre_ms,
+        post_ms=post_ms,
+        tail_ms=tail_ms,
+        qrs_duration_ms=qrs_duration_ms,
+        pqrst=pqrst,
+        return_figure=return_figure,
+        bad_sample_mask=None,
+    )
+    if return_figure:
+        return run.cleaned, run.figure
+    return run.cleaned
 
 
 # -----------------------------------------------------------------------------
@@ -1287,6 +1867,58 @@ def call_ecgremover(
     return df_clean, figs
 
 
+def _run_supported_ecg_method(
+    method: str,
+    lfp_signal: NDArray[np.float64],
+    fs: float,
+    *,
+    bad_sample_mask: NDArray[np.bool_] | None,
+    method_kwargs: dict[str, Any],
+) -> _ECGChannelRun:
+    """Run one built-in ECG method without changing its public return contract."""
+    if method == "template":
+        params: dict[str, Any] = asdict(TemplateFitConfig())
+        params["return_figure"] = False
+        params.update(method_kwargs)
+        return _template_ecg_remover_core(
+            lfp_signal,
+            fs,
+            bad_sample_mask=bad_sample_mask,
+            **params,
+        )
+
+    if method == "perceive":
+        params = asdict(PerceiveConfig())
+        params["return_figure"] = False
+        params.update(method_kwargs)
+        if lfp_signal.size < _ms_to_samples(float(params["epoch_length_ms"]), fs):
+            return _ECGChannelRun(
+                cleaned=np.asarray(lfp_signal, dtype=float).copy(),
+                unchanged_reason=(
+                    "The signal is shorter than one full Perceive initial epoch."
+                ),
+            )
+        return _perceive_ecg_remover_core(
+            lfp_signal,
+            fs,
+            bad_sample_mask=bad_sample_mask,
+            **params,
+        )
+
+    if method == "svd":
+        params = asdict(SvdConfig())
+        params["return_figure"] = False
+        params.update(method_kwargs)
+        return _svd_ecg_remover_core(
+            lfp_signal,
+            fs,
+            bad_sample_mask=bad_sample_mask,
+            **params,
+        )
+
+    raise ECGRemovalError(f"Unknown built-in ECG method: {method}")
+
+
 def raw_call_ecgremover(
     raw: Any,
     method: str | Callable[..., Any],
@@ -1301,7 +1933,9 @@ def raw_call_ecgremover(
     """
     Backwards-compatible MNE Raw adapter.
 
-    This function is imported lazily to avoid a hard dependency on MNE.
+    The built-in string methods automatically derive a BAD sample mask from Raw
+    annotations. Custom callables and caller-supplied method maps retain their
+    legacy behavior. MNE is imported lazily to avoid a hard dependency.
     """
     try:
         import mne  # type: ignore
@@ -1311,6 +1945,8 @@ def raw_call_ecgremover(
     if not hasattr(raw, "info") or not hasattr(raw, "get_data"):
         raise ECGRemovalError("raw must be an MNE Raw-like object.")
 
+    _diagnostics_out = kwargs.pop("_diagnostics_out", None)
+
     if isinstance(picks, str):
         picks = [picks]
     picks_list = list(picks)
@@ -1319,6 +1955,7 @@ def raw_call_ecgremover(
     if missing:
         raise ECGRemovalError(f"Channels not found in raw: {missing}")
 
+    use_builtin_runner = method_map is None
     if method_map is None:
         method_map = {
             "template": template_ecg_remover,
@@ -1339,32 +1976,62 @@ def raw_call_ecgremover(
     else:
         raise ECGRemovalError("method must be a string or a callable.")
 
-    def _safe_method(
-        lfp: np.ndarray, fs_local: float, **kw: Any
-    ) -> tuple[NDArray[np.float64], Any]:
-        out = method_func(lfp, fs_local, **kw)
-        if isinstance(out, tuple) and len(out) >= 2:
-            return np.asarray(out[0], dtype=float), out[1]
-        return np.asarray(out, dtype=float), None
-
     fs_local = float(raw.info["sfreq"])
     data = raw.get_data(picks=picks_list)  # (n_sel, n_times)
-    t = raw.times
 
-    import pandas as pd  # type: ignore
+    from lfptensorpipe.preproc.filter import _build_bad_sample_mask
 
-    df = pd.DataFrame({time_col_name: t})
-    for ch, x in zip(picks_list, data):
-        df[ch] = x
+    bad_sample_mask = np.asarray(
+        _build_bad_sample_mask(raw, bad_prefixes=("BAD",)),
+        dtype=bool,
+    )
+    active_bad_mask = bad_sample_mask if bool(np.any(bad_sample_mask)) else None
 
     if verbose:
         logger.info("Running ECG remover '%s' on channels: %s", method_name, picks_list)
 
-    df_clean, figs = call_ecgremover(_safe_method, df, fs=fs_local, **kwargs)
+    cleaned_channels: list[NDArray[np.float64]] = []
+    figs: dict[str, Any] = {}
+    channel_diagnostics: list[dict[str, Any]] = []
+    for channel, lfp in zip(picks_list, data):
+        if use_builtin_runner and isinstance(method, str):
+            run = _run_supported_ecg_method(
+                method,
+                np.asarray(lfp, dtype=float),
+                fs_local,
+                bad_sample_mask=active_bad_mask,
+                method_kwargs=dict(kwargs),
+            )
+        else:
+            out = method_func(lfp, fs_local, **kwargs)
+            if isinstance(out, tuple) and len(out) >= 2:
+                cleaned = np.asarray(out[0], dtype=float)
+                figure = out[1]
+            else:
+                cleaned = np.asarray(out, dtype=float)
+                figure = None
+            changed = not np.array_equal(cleaned, np.asarray(lfp, dtype=float))
+            run = _ECGChannelRun(
+                cleaned=cleaned,
+                figure=figure,
+                eligible_beats=int(changed),
+                corrected_beats=int(changed),
+                unchanged_reason=(
+                    "The custom ECG method produced no sample changes."
+                    if not changed
+                    else ""
+                ),
+            )
+
+        cleaned_channels.append(run.cleaned)
+        figs[channel] = run.figure
+        channel_diagnostics.append(run.diagnostics(channel))
 
     raw_out = raw if inplace else raw.copy()
     raw_out.load_data()
-    cleaned_block = df_clean[picks_list].to_numpy(dtype=float).T
+    cleaned_block = (
+        np.stack(cleaned_channels, axis=0) if cleaned_channels else np.empty_like(data)
+    )
 
     idxs = mne.pick_channels(raw_out.ch_names, include=picks_list)
     if (
@@ -1372,6 +2039,38 @@ def raw_call_ecgremover(
     ):  # noqa: SLF001 (MNE uses _data internally)
         raise RuntimeError("Shape mismatch when writing back cleaned data.")
     raw_out._data[idxs, :] = cleaned_block
+
+    if _diagnostics_out is not None:
+        unchanged_channels = [
+            {
+                "channel": item["channel"],
+                "reason": item["unchanged_reason"]
+                or "No ECG heartbeat correction was completed.",
+            }
+            for item in channel_diagnostics
+            if int(item["corrected_beats"]) == 0
+        ]
+        n_bad_annotations = sum(
+            str(description).startswith("BAD")
+            for description in raw.annotations.description
+        )
+        _diagnostics_out.clear()
+        _diagnostics_out.update(
+            {
+                "n_bad_annotations": int(n_bad_annotations),
+                "n_bad_samples": int(np.sum(bad_sample_mask)),
+                "bad_duration_s": float(np.sum(bad_sample_mask) / fs_local),
+                "n_channels_selected": int(len(picks_list)),
+                "n_channels_processed": int(
+                    sum(
+                        int(item["corrected_beats"]) > 0 for item in channel_diagnostics
+                    )
+                ),
+                "n_channels_unchanged": int(len(unchanged_channels)),
+                "channel_diagnostics": channel_diagnostics,
+                "unchanged_channels": unchanged_channels,
+            }
+        )
 
     if verbose:
         logger.info(
