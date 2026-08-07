@@ -7,7 +7,6 @@ from typing import Any
 import numpy as np
 
 from lfptensorpipe.app.path_resolver import RecordContext
-from lfptensorpipe.lfp.common import multitaper_window_geometry
 from lfptensorpipe.utils.freqs import split_bands_by_intervals
 
 from .. import service as svc
@@ -68,7 +67,8 @@ def run_psi_metric(
     time_resolution_s: float = 0.5,
     hop_s: float = 0.025,
     method: str = "morlet",
-    mt_bandwidth: float | None = None,
+    mt_time_bandwidth_product: float = 4.0,
+    mt_min_cycles: float = 3.0,
     min_cycles: float | None = 3.0,
     max_cycles: float | None = None,
     notches: Any = None,
@@ -207,14 +207,6 @@ def run_psi_metric(
                 "Adjust bands or low/high frequency limits."
             )
 
-        annotation_skip_radius_s: float | None = None
-        if mask_edge_effects and method_norm == "multitaper":
-            _, _, window_span_s = multitaper_window_geometry(
-                sfreq_hz=float(raw.info["sfreq"]),
-                time_resolution_s=float(time_resolution_s),
-            )
-            annotation_skip_radius_s = float(window_span_s) / 2.0
-
         tensor, metadata = psi_grid(
             raw,
             bands=psi_bands,
@@ -223,14 +215,15 @@ def run_psi_metric(
             hop_s=float(hop_s),
             pairs=pairs,
             ordered_pairs=True,
-            mt_bandwidth=mt_bandwidth,
+            mt_time_bandwidth_product=float(mt_time_bandwidth_product),
+            mt_min_cycles=float(mt_min_cycles),
             min_cycles=min_cycles,
             max_cycles=max_cycles,
             picks=picks,
             n_jobs=int(n_jobs),
             outer_n_jobs=int(outer_n_jobs),
             verbose="ERROR",
-            annotation_skip_radius_s=annotation_skip_radius_s,
+            mask_annotations=bool(mask_edge_effects and method_norm == "multitaper"),
         )
 
         tensor4d = np.asarray(tensor, dtype=float)
@@ -287,7 +280,8 @@ def run_psi_metric(
             "step_hz": float(step_hz),
             "time_resolution_s": float(time_resolution_s),
             "hop_s": float(hop_s),
-            "mt_bandwidth": (float(mt_bandwidth) if mt_bandwidth is not None else None),
+            "mt_time_bandwidth_product": float(mt_time_bandwidth_product),
+            "mt_min_cycles": float(mt_min_cycles),
             "min_cycles": (float(min_cycles) if min_cycles is not None else None),
             "max_cycles": (float(max_cycles) if max_cycles is not None else None),
             "mask_edge_effects": bool(mask_edge_effects),
@@ -327,7 +321,8 @@ def run_psi_metric(
             ),
             "time_resolution_s": float(time_resolution_s),
             "hop_s": float(hop_s),
-            "mt_bandwidth": (float(mt_bandwidth) if mt_bandwidth is not None else None),
+            "mt_time_bandwidth_product": float(mt_time_bandwidth_product),
+            "mt_min_cycles": float(mt_min_cycles),
             "min_cycles": (float(min_cycles) if min_cycles is not None else None),
             "max_cycles": (float(max_cycles) if max_cycles is not None else None),
             "mask_edge_effects": bool(mask_edge_effects),
@@ -388,9 +383,8 @@ def run_psi_metric(
                 "method": str(method),
                 "time_resolution_s": float(time_resolution_s),
                 "hop_s": float(hop_s),
-                "mt_bandwidth": (
-                    float(mt_bandwidth) if mt_bandwidth is not None else None
-                ),
+                "mt_time_bandwidth_product": float(mt_time_bandwidth_product),
+                "mt_min_cycles": float(mt_min_cycles),
                 "min_cycles": (float(min_cycles) if min_cycles is not None else None),
                 "max_cycles": (float(max_cycles) if max_cycles is not None else None),
                 "mask_edge_effects": bool(mask_edge_effects),

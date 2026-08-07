@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import math
 
 from lfptensorpipe.app.tensor.frequency import (
     validate_periodic_aperiodic_notch_bounds,
@@ -18,8 +19,23 @@ from lfptensorpipe.gui.shell.common import (
 )
 
 TENSOR_CONFIG_SCHEMA = "lfptensorpipe.tensor-config"
-TENSOR_CONFIG_VERSION = 3
+TENSOR_CONFIG_VERSION = 4
+TENSOR_CONFIG_LEGACY_VERSION = 3
 TENSOR_CONFIG_FILE_NAME = "lfptensorpipe_tensor_config.json"
+TENSOR_MULTITAPER_METRIC_KEYS = frozenset(
+    {
+        "raw_power",
+        "periodic_aperiodic",
+        "coherence",
+        "imcoh_abs",
+        "plv",
+        "ciplv",
+        "pli",
+        "wpli",
+        "trgc",
+        "psi",
+    }
+)
 TENSOR_DIRTY_KEYS = {
     "tensor.active_metric",
     "tensor.mask_edge_effects",
@@ -37,7 +53,8 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "method",
         "min_cycles",
         "max_cycles",
-        "time_bandwidth",
+        "mt_time_bandwidth_product",
+        "mt_min_cycles",
         "notches",
         "notch_widths",
         "selected_channels",
@@ -52,7 +69,8 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "freq_range_hz",
         "min_cycles",
         "max_cycles",
-        "time_bandwidth",
+        "mt_time_bandwidth_product",
+        "mt_min_cycles",
         "freq_smooth_enabled",
         "freq_smooth_sigma",
         "time_smooth_enabled",
@@ -74,7 +92,8 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "time_resolution_s",
         "hop_s",
         "method",
-        "mt_bandwidth",
+        "mt_time_bandwidth_product",
+        "mt_min_cycles",
         "min_cycles",
         "max_cycles",
         "notches",
@@ -88,7 +107,8 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "time_resolution_s",
         "hop_s",
         "method",
-        "mt_bandwidth",
+        "mt_time_bandwidth_product",
+        "mt_min_cycles",
         "min_cycles",
         "max_cycles",
         "notches",
@@ -102,7 +122,8 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "time_resolution_s",
         "hop_s",
         "method",
-        "mt_bandwidth",
+        "mt_time_bandwidth_product",
+        "mt_min_cycles",
         "min_cycles",
         "max_cycles",
         "notches",
@@ -116,7 +137,8 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "time_resolution_s",
         "hop_s",
         "method",
-        "mt_bandwidth",
+        "mt_time_bandwidth_product",
+        "mt_min_cycles",
         "min_cycles",
         "max_cycles",
         "notches",
@@ -130,7 +152,8 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "time_resolution_s",
         "hop_s",
         "method",
-        "mt_bandwidth",
+        "mt_time_bandwidth_product",
+        "mt_min_cycles",
         "min_cycles",
         "max_cycles",
         "notches",
@@ -144,7 +167,8 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "time_resolution_s",
         "hop_s",
         "method",
-        "mt_bandwidth",
+        "mt_time_bandwidth_product",
+        "mt_min_cycles",
         "min_cycles",
         "max_cycles",
         "notches",
@@ -158,7 +182,8 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "time_resolution_s",
         "hop_s",
         "method",
-        "mt_bandwidth",
+        "mt_time_bandwidth_product",
+        "mt_min_cycles",
         "min_cycles",
         "max_cycles",
         "gc_n_lags",
@@ -173,7 +198,8 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "time_resolution_s",
         "hop_s",
         "method",
-        "mt_bandwidth",
+        "mt_time_bandwidth_product",
+        "mt_min_cycles",
         "min_cycles",
         "max_cycles",
         "notches",
@@ -432,6 +458,32 @@ class MainWindowTensorConfigMixin:
                     labels.append(label)
                 out[key] = labels or None
                 continue
+            if key == "mt_time_bandwidth_product":
+                try:
+                    parsed = float(value)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"tensor.metric_params.{metric_key}.{key} must be a number."
+                    ) from exc
+                if not math.isfinite(parsed) or parsed < 2.0:
+                    raise ValueError(
+                        f"tensor.metric_params.{metric_key}.{key} must be finite and >= 2."
+                    )
+                out[key] = parsed
+                continue
+            if key == "mt_min_cycles":
+                try:
+                    parsed = float(value)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"tensor.metric_params.{metric_key}.{key} must be a number."
+                    ) from exc
+                if not math.isfinite(parsed) or parsed <= 0.0:
+                    raise ValueError(
+                        f"tensor.metric_params.{metric_key}.{key} must be finite and > 0."
+                    )
+                out[key] = parsed
+                continue
             out[key] = self._tensor_config_json_value(value)
 
         out.update(
@@ -456,7 +508,7 @@ class MainWindowTensorConfigMixin:
                 f"Unsupported tensor config schema: {payload.get('schema')!r}."
             )
         version = payload.get("version")
-        if version != TENSOR_CONFIG_VERSION:
+        if version not in {TENSOR_CONFIG_LEGACY_VERSION, TENSOR_CONFIG_VERSION}:
             raise ValueError(
                 f"Unsupported tensor config version: {payload.get('version')!r}."
             )
@@ -478,16 +530,20 @@ class MainWindowTensorConfigMixin:
             for metric_key in supported_metric_keys
             if metric_key not in metric_params_by_key
         ]
-        required_missing = [
-            metric_key for metric_key in missing if metric_key != "imcoh_abs"
-        ]
+        required_missing = (
+            [metric_key for metric_key in missing if metric_key != "imcoh_abs"]
+            if version == TENSOR_CONFIG_LEGACY_VERSION
+            else list(missing)
+        )
         if required_missing:
             raise ValueError(
                 "Tensor config is missing metric definitions for: "
                 + ", ".join(required_missing)
                 + "."
             )
-        imcoh_abs_defaulted = "imcoh_abs" in missing
+        imcoh_abs_defaulted = (
+            version == TENSOR_CONFIG_LEGACY_VERSION and "imcoh_abs" in missing
+        )
         if imcoh_abs_defaulted:
             metric_params_by_key["imcoh_abs"] = self._tensor_effective_metric_defaults(
                 "imcoh_abs",
@@ -496,6 +552,40 @@ class MainWindowTensorConfigMixin:
             )
 
         warnings: list[str] = []
+        if version == TENSOR_CONFIG_LEGACY_VERSION:
+            for metric_key in TENSOR_MULTITAPER_METRIC_KEYS:
+                node = metric_params_by_key.get(metric_key)
+                if not isinstance(node, dict):
+                    continue
+                normalized_legacy = dict(node)
+                normalized_legacy.pop("time_bandwidth", None)
+                normalized_legacy.pop("mt_bandwidth", None)
+                normalized_legacy["mt_time_bandwidth_product"] = 4.0
+                normalized_legacy["mt_min_cycles"] = 3.0
+                metric_params_by_key[metric_key] = normalized_legacy
+            warnings.append(
+                "Legacy Multitaper parameters were ignored. Defaults were applied: "
+                "time-bandwidth product = 4.0, minimum cycles = 3.0. "
+                "Existing Multitaper tensors must be recomputed."
+            )
+        else:
+            for metric_key in TENSOR_MULTITAPER_METRIC_KEYS:
+                node = metric_params_by_key.get(metric_key)
+                if not isinstance(node, dict):
+                    continue
+                missing_mt_fields = [
+                    field_name
+                    for field_name in (
+                        "mt_time_bandwidth_product",
+                        "mt_min_cycles",
+                    )
+                    if field_name not in node
+                ]
+                if missing_mt_fields:
+                    raise ValueError(
+                        f"tensor.metric_params.{metric_key} is missing required "
+                        "Multitaper fields: " + ", ".join(missing_mt_fields) + "."
+                    )
         unknown_metric_keys = [
             str(metric_key)
             for metric_key in metric_params_by_key.keys()
@@ -606,29 +696,6 @@ class MainWindowTensorConfigMixin:
             self._record_param_syncing = False
         self._refresh_tensor_controls()
 
-    def _persist_imported_tensor_snapshot(
-        self,
-        context: RecordContext,
-        tensor_snapshot: dict[str, Any],
-    ) -> bool:
-        ok_existing, existing_payload, _ = self._load_record_params_payload(context)
-        payload = (
-            dict(existing_payload)
-            if ok_existing and isinstance(existing_payload, dict)
-            else {}
-        )
-        payload["tensor"] = dict(tensor_snapshot)
-        ok = self._write_record_params_payload(
-            context,
-            params=payload,
-            reason="tensor_import_config",
-        )
-        if ok:
-            self._record_param_dirty_keys.difference_update(TENSOR_DIRTY_KEYS)
-            return True
-        self._record_param_dirty_keys.update(TENSOR_DIRTY_KEYS)
-        return False
-
     def _on_tensor_export_config(self) -> None:
         context = self._record_context()
         if context is None:
@@ -695,12 +762,7 @@ class MainWindowTensorConfigMixin:
             return
 
         self._apply_tensor_import_snapshot(context, tensor_snapshot)
-        if not self._persist_imported_tensor_snapshot(context, tensor_snapshot):
-            self._show_warning(
-                "Import Configs",
-                "Tensor config imported into the current session, but persisting record UI state failed.",
-            )
-            return
+        self._record_param_dirty_keys.update(TENSOR_DIRTY_KEYS)
 
         self.statusBar().showMessage(f"Imported Tensor config: {import_path.name}")
         if warnings:

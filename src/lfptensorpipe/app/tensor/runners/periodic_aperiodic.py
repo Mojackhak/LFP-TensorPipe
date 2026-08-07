@@ -81,7 +81,8 @@ def run_periodic_aperiodic_metric(
     hop_s: float = 0.025,
     min_cycles: float | None = 3.0,
     max_cycles: float | None = None,
-    time_bandwidth: float = 1.0,
+    mt_time_bandwidth_product: float = 4.0,
+    mt_min_cycles: float = 3.0,
     freq_range_hz: tuple[float, float] | None = None,
     freq_smooth_enabled: bool = True,
     freq_smooth_sigma: float | None = 1.5,
@@ -119,7 +120,8 @@ def run_periodic_aperiodic_metric(
         hop_s=hop_s,
         min_cycles=min_cycles,
         max_cycles=max_cycles,
-        time_bandwidth=time_bandwidth,
+        mt_time_bandwidth_product=mt_time_bandwidth_product,
+        mt_min_cycles=mt_min_cycles,
         freq_range_hz=freq_range_hz,
         freq_smooth_enabled=freq_smooth_enabled,
         freq_smooth_sigma=freq_smooth_sigma,
@@ -135,9 +137,7 @@ def run_periodic_aperiodic_metric(
         notch_widths=notch_widths,
         n_jobs=n_jobs,
         outer_n_jobs=outer_n_jobs,
-        value_transform_mode=svc.TENSOR_METRICS_BY_KEY[
-            METRIC_KEY
-        ].value_transform_mode,
+        value_transform_mode=svc.TENSOR_METRICS_BY_KEY[METRIC_KEY].value_transform_mode,
     )
     paths = build_periodic_aperiodic_paths(options)
     input_failure = validate_preproc_input(paths)

@@ -11,12 +11,12 @@ Design notes
   time window that safely contains either Morlet wavelet support
   (`spectral_mode='cwt_morlet'`) or the multitaper window
   (`spectral_mode='multitaper'`).
-- When `min_cycles` imposes longer low-frequency windows, the effective
-  temporal resolution becomes lower for those frequencies. We accept this (it is
-  the intended trade-off for stable low-frequency estimates).
+- Morlet cycle limits and the Multitaper minimum-cycle rule can impose longer
+  low-frequency windows. The resulting lower temporal resolution is the
+  intended trade-off for stable low-frequency estimates.
 - For multivariate Granger causality (GC), MNE-Connectivity requires a minimum
-  number of frequency bins per call relative to `gc_n_lags`. If `min_cycles`
-  causes each low-frequency bin to become its own window-group, the GC estimator
+  number of frequency bins per call relative to `gc_n_lags`. If dynamic windows
+  cause each low-frequency bin to become its own window-group, the GC estimator
   can fail with "frequency resolution (0)". We prevent this by **padding the
   frequency list per window-group** with neighboring bins (and then keeping only
   the original bins in the output).
@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import inspect
 from typing import Any, Dict, List, Sequence, Tuple
+import warnings
 
 import numpy as np
 from joblib import Parallel, delayed
@@ -38,6 +39,7 @@ from ..common.timefreq import (
     channel_names_after_picks,
     decimated_times_from_raw,
     morlet_n_cycles_from_time_fwhm,
+    multitaper_fixed_p_parameters,
 )
 from ..runtime.tensor_helpers import build_annotation_skip_time_mask
 from .selection import resolve_pairs
@@ -278,7 +280,8 @@ def grid(
     min_cycles: float | None = 1.0,
     max_cycles: float | None = None,
     # Multitaper options
-    mt_bandwidth: float | None = None,
+    mt_time_bandwidth_product: float = 4.0,
+    mt_min_cycles: float = 3.0,
     mt_adaptive: bool | None = None,
     mt_low_bias: bool | None = None,
     window_multiple: float = 1.0,
@@ -315,7 +318,7 @@ def grid(
     Spectral estimation mode:
       - `spectral_mode="cwt_morlet"` uses CWT-Morlet kernels.
       - `spectral_mode="multitaper"` uses multitaper kernels
-        (optionally with `mt_bandwidth`, `mt_adaptive`, `mt_low_bias`).
+        (optionally with `mt_adaptive` and `mt_low_bias`).
 
     Notes
     -----
@@ -410,13 +413,11 @@ def grid(
         cycles_kw = "n_cycles"
 
     mt_param_flags = {
-        "mt_bandwidth": mt_bandwidth,
+        "mt_bandwidth": mt_time_bandwidth_product,
         "mt_adaptive": mt_adaptive,
         "mt_low_bias": mt_low_bias,
     }
     if spectral_mode_use == "multitaper":
-        if isinstance(mt_bandwidth, (int, float)) and float(mt_bandwidth) <= 0:
-            raise ValueError("`mt_bandwidth` must be > 0 when provided.")
         unsupported_mt = [
             name
             for name, value in mt_param_flags.items()
@@ -466,19 +467,27 @@ def grid(
         window_len_s = _compute_wavelet_support_seconds(freqs, n_cycles)
         n_cycles_source = "morlet_fwhm_time_const"
     else:
-        n_cycles = np.asarray(freqs, dtype=float) * float(time_resolution_s)
-        n_cycles_source = "multitaper_T_const"
-        if min_cycles is not None:
-            n_cycles = np.maximum(n_cycles, float(min_cycles))
-            n_cycles_source += f"+floor({float(min_cycles)})"
-        if max_cycles is not None:
-            if float(max_cycles) <= 0:
-                raise ValueError("`max_cycles` must be > 0 when provided.")
-            if min_cycles is not None and float(max_cycles) < float(min_cycles):
-                raise ValueError("`max_cycles` must be >= `min_cycles`.")
-            n_cycles = np.minimum(n_cycles, float(max_cycles))
-            n_cycles_source += f"+ceil({float(max_cycles)})"
-        window_len_s = _compute_multitaper_window_seconds(freqs, n_cycles)
+        (
+            n_cycles,
+            window_len_s,
+            mt_effective_bandwidth_hz,
+            _,
+        ) = multitaper_fixed_p_parameters(
+            freqs,
+            time_resolution_s=float(time_resolution_s),
+            mt_time_bandwidth_product=float(mt_time_bandwidth_product),
+            mt_min_cycles=float(mt_min_cycles),
+        )
+        n_cycles_source = "multitaper_fixed_P_adaptive_window"
+        available_duration_s = float(max(0, raw.n_times - 1)) / float(sfreq)
+        longest_index = int(np.argmax(window_len_s))
+        if float(window_len_s[longest_index]) > available_duration_s:
+            raise ValueError(
+                "Effective Multitaper window at "
+                f"{float(freqs[longest_index]):g} Hz is "
+                f"{float(window_len_s[longest_index]):g} s, longer than the "
+                f"available duration {available_duration_s:g} s."
+            )
 
     L_wave = np.maximum(
         window_len_s * float(window_multiple) * float(safety_margin), 1.0 / sfreq
@@ -567,8 +576,8 @@ def grid(
         if "gc_n_lags" in spectral_conn_params:
             conn_kwargs["gc_n_lags"] = int(gc_n_lags)
         if spectral_mode_use == "multitaper":
-            if mt_bandwidth is not None and "mt_bandwidth" in spectral_conn_params:
-                conn_kwargs["mt_bandwidth"] = float(mt_bandwidth)
+            if "mt_bandwidth" in spectral_conn_params:
+                conn_kwargs["mt_bandwidth"] = float(mt_time_bandwidth_product)
             if mt_adaptive is not None and "mt_adaptive" in spectral_conn_params:
                 conn_kwargs["mt_adaptive"] = bool(mt_adaptive)
             if mt_low_bias is not None and "mt_low_bias" in spectral_conn_params:
@@ -701,6 +710,14 @@ def grid(
     conn = np.transpose(data_accum, (1, 2, 0))[
         np.newaxis, ...
     ]  # (1, n_pairs, n_freqs, n_times)
+    fully_unusable = ~np.any(np.isfinite(conn), axis=(0, 1, 3))
+    if bool(np.any(fully_unusable)):
+        warnings.warn(
+            f"Connectivity contains {int(np.sum(fully_unusable))} frequency entries "
+            "with no usable output centers; they remain NaN.",
+            UserWarning,
+            stacklevel=2,
+        )
     metadata = dict(
         axes=dict(
             epoch=np.arange(conn.shape[0]),
@@ -727,7 +744,24 @@ def grid(
             target_n_times=target_n_times,
             min_cycles=min_cycles,
             max_cycles=max_cycles,
-            mt_bandwidth=(float(mt_bandwidth) if mt_bandwidth is not None else None),
+            mt_time_bandwidth_product=(
+                float(mt_time_bandwidth_product)
+                if spectral_mode_use == "multitaper"
+                else None
+            ),
+            mt_min_cycles=(
+                float(mt_min_cycles) if spectral_mode_use == "multitaper" else None
+            ),
+            mt_effective_window_s=(
+                np.asarray(window_len_s, dtype=float)
+                if spectral_mode_use == "multitaper"
+                else None
+            ),
+            mt_effective_bandwidth_hz=(
+                np.asarray(mt_effective_bandwidth_hz, dtype=float)
+                if spectral_mode_use == "multitaper"
+                else None
+            ),
             mt_adaptive=(bool(mt_adaptive) if mt_adaptive is not None else None),
             mt_low_bias=(bool(mt_low_bias) if mt_low_bias is not None else None),
             window_multiple=float(window_multiple),

@@ -15,7 +15,7 @@ from mne.time_frequency import (
     tfr_multitaper,
 )
 
-from ..common.timefreq import compute_decimation
+from ..common.timefreq import compute_decimation, multitaper_fixed_p_parameters
 
 
 def _compute_n_cycles(
@@ -28,7 +28,9 @@ def _compute_n_cycles(
     fwhm_power_hz: Optional[float],
     min_cycles: Optional[float],
     max_cycles: Optional[float],
-) -> tuple[np.ndarray, str]:
+    mt_time_bandwidth_product: float,
+    mt_min_cycles: float,
+) -> tuple[np.ndarray, str, np.ndarray | None, np.ndarray | None]:
     """Compute n_cycles for Morlet or multitaper with a clear provenance string."""
     method_l = method.lower()
 
@@ -56,28 +58,39 @@ def _compute_n_cycles(
                 cycles_source = "morlet_cycles_const"
 
     elif method_l == "multitaper":
-        if time_resolution_s is not None:
-            # Constant time window T across freqs: n_cycles(f) = f * T
-            T = float(time_resolution_s)
-            n_cycles_vec = freqs * T
-            cycles_source = "multitaper_T_const"
-        else:
-            n_cycles_vec = np.full_like(freqs, float(n_cycles_constant), dtype=float)
-            cycles_source = "multitaper_cycles_const"
+        if time_resolution_s is None:
+            raise ValueError("Multitaper requires `time_resolution_s`.")
+        (
+            n_cycles_vec,
+            effective_window_s,
+            effective_bandwidth_hz,
+            _,
+        ) = multitaper_fixed_p_parameters(
+            freqs,
+            time_resolution_s=float(time_resolution_s),
+            mt_time_bandwidth_product=float(mt_time_bandwidth_product),
+            mt_min_cycles=float(mt_min_cycles),
+        )
+        return (
+            n_cycles_vec,
+            "multitaper_fixed_P_adaptive_window",
+            effective_window_s,
+            effective_bandwidth_hz,
+        )
 
     else:
         raise ValueError("`method` must be 'morlet' or 'multitaper'.")
 
-    if min_cycles is not None:
+    if method_l == "morlet" and min_cycles is not None:
         n_cycles_vec = np.maximum(n_cycles_vec, float(min_cycles))
         cycles_source += f"+floor({float(min_cycles)})"
-    if (max_cycles is not None) and (float(max_cycles) > 0):
+    if method_l == "morlet" and (max_cycles is not None) and (float(max_cycles) > 0):
         if min_cycles is not None and float(max_cycles) < float(min_cycles):
             raise ValueError("`max_cycles` must be >= `min_cycles`.")
         n_cycles_vec = np.minimum(n_cycles_vec, float(max_cycles))
         cycles_source += f"+ceil({float(max_cycles)})"
 
-    return n_cycles_vec, cycles_source
+    return n_cycles_vec, cycles_source, None, None
 
 
 def grid(
@@ -94,7 +107,8 @@ def grid(
     min_cycles: Optional[float] = 3.0,
     max_cycles: Optional[float] = None,
     # Multitaper controls
-    time_bandwidth: float = 1.0,
+    mt_time_bandwidth_product: float = 4.0,
+    mt_min_cycles: float = 3.0,
     # Timing / compute controls
     hop_s: Optional[float] = 0.025,
     decim: Optional[int] = None,
@@ -137,7 +151,12 @@ def grid(
 
     decim_eff, hop_s_eff = compute_decimation(sfreq, hop_s=hop_s, decim=decim)
 
-    n_cycles_vec, cycles_source = _compute_n_cycles(
+    (
+        n_cycles_vec,
+        cycles_source,
+        mt_effective_window_s,
+        mt_effective_bandwidth_hz,
+    ) = _compute_n_cycles(
         method=method,
         freqs=freqs_use,
         time_resolution_s=time_resolution_s,
@@ -146,9 +165,21 @@ def grid(
         fwhm_power_hz=fwhm_power_hz,
         min_cycles=min_cycles,
         max_cycles=max_cycles,
+        mt_time_bandwidth_product=float(mt_time_bandwidth_product),
+        mt_min_cycles=float(mt_min_cycles),
     )
 
     method_l = method.lower()
+    if method_l == "multitaper" and mt_effective_window_s is not None:
+        available_duration_s = float(max(0, len(data.times) - 1)) / float(sfreq)
+        longest_index = int(np.argmax(mt_effective_window_s))
+        longest_window_s = float(mt_effective_window_s[longest_index])
+        if longest_window_s > available_duration_s:
+            raise ValueError(
+                "Effective Multitaper window at "
+                f"{float(freqs_use[longest_index]):g} Hz is {longest_window_s:g} s, "
+                f"longer than the available duration {available_duration_s:g} s."
+            )
 
     pick_names: list[str] | None = None
     pick_indices: np.ndarray | None = None
@@ -183,7 +214,7 @@ def grid(
                 data,
                 freqs=freqs_use,
                 n_cycles=n_cycles_vec,
-                time_bandwidth=time_bandwidth,
+                time_bandwidth=float(mt_time_bandwidth_product),
                 return_itc=return_itc,
                 decim=decim_eff,
                 average=average,
@@ -192,7 +223,7 @@ def grid(
             )
             T = n_cycles_vec / freqs_use
             time_window_s = T
-            bandwidth_hz_est = time_bandwidth / T
+            bandwidth_hz_est = float(mt_time_bandwidth_product) / T
             fwhm_time_est = None
             fwhm_power_est = None
 
@@ -221,7 +252,7 @@ def grid(
                 sfreq=sfreq,
                 freqs=freqs_use,
                 n_cycles=n_cycles_vec,
-                time_bandwidth=time_bandwidth,
+                time_bandwidth=float(mt_time_bandwidth_product),
                 output="power",
                 decim=decim_eff,
                 n_jobs=n_jobs,
@@ -229,7 +260,7 @@ def grid(
             )
             T = n_cycles_vec / freqs_use
             time_window_s = T
-            bandwidth_hz_est = time_bandwidth / T
+            bandwidth_hz_est = float(mt_time_bandwidth_product) / T
             fwhm_time_est = None
             fwhm_power_est = None
 
@@ -295,9 +326,12 @@ def grid(
             fwhm_power_hz=fwhm_power_hz,
             min_cycles=min_cycles,
             max_cycles=max_cycles,
-            time_bandwidth=(
-                float(time_bandwidth) if method_l == "multitaper" else None
+            mt_time_bandwidth_product=(
+                float(mt_time_bandwidth_product) if method_l == "multitaper" else None
             ),
+            mt_min_cycles=(float(mt_min_cycles) if method_l == "multitaper" else None),
+            mt_effective_window_s=mt_effective_window_s,
+            mt_effective_bandwidth_hz=mt_effective_bandwidth_hz,
             hop_s=hop_s,
             hop_s_eff=hop_s_eff,
             decim=decim,

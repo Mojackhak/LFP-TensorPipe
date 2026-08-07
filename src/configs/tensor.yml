@@ -68,7 +68,8 @@ metric_defaults:
     - 80.0
     min_cycles: 3.0
     max_cycles: 13.0
-    time_bandwidth: 1.0
+    mt_time_bandwidth_product: 4.0
+    mt_min_cycles: 3.0
     smooth_enabled: true
     kernel_size: 13
     aperiodic_mode: fixed
@@ -117,7 +118,8 @@ metric_defaults:
     method: morlet
     min_cycles: 3.0
     max_cycles: 13.0
-    time_bandwidth: 1.0
+    mt_time_bandwidth_product: 4.0
+    mt_min_cycles: 3.0
     selected_channels:
     - '0_1'
     - '1_2'
@@ -150,7 +152,8 @@ metric_defaults:
     time_resolution_s: 5.0
     hop_s: 0.25
     method: morlet
-    mt_bandwidth: null
+    mt_time_bandwidth_product: 4.0
+    mt_min_cycles: 3.0
     min_cycles: 3.0
     max_cycles: 13.0
     gc_n_lags: null
@@ -174,7 +177,8 @@ metric_defaults:
     time_resolution_s: 5.0
     hop_s: 0.25
     method: morlet
-    mt_bandwidth: null
+    mt_time_bandwidth_product: 4.0
+    mt_min_cycles: 3.0
     min_cycles: 3.0
     max_cycles: null
     gc_n_lags: null
@@ -198,7 +202,8 @@ metric_defaults:
     time_resolution_s: 5.0
     hop_s: 0.25
     method: morlet
-    mt_bandwidth: null
+    mt_time_bandwidth_product: 4.0
+    mt_min_cycles: 3.0
     min_cycles: 3.0
     max_cycles: 13.0
     gc_n_lags: null
@@ -222,7 +227,8 @@ metric_defaults:
     time_resolution_s: 5.0
     hop_s: 0.25
     method: morlet
-    mt_bandwidth: null
+    mt_time_bandwidth_product: 4.0
+    mt_min_cycles: 3.0
     min_cycles: 3.0
     max_cycles: 13.0
     gc_n_lags: null
@@ -246,7 +252,8 @@ metric_defaults:
     time_resolution_s: 5.0
     hop_s: 0.25
     method: morlet
-    mt_bandwidth: null
+    mt_time_bandwidth_product: 4.0
+    mt_min_cycles: 3.0
     min_cycles: 3.0
     max_cycles: null
     gc_n_lags: 20
@@ -286,7 +293,8 @@ metric_defaults:
       start: 35.0
       end: 75.0
     method: morlet
-    mt_bandwidth: null
+    mt_time_bandwidth_product: 4.0
+    mt_min_cycles: 3.0
     time_resolution_s: 5.0
     hop_s: 0.25
     min_cycles: 3.0
@@ -346,7 +354,8 @@ metric_defaults:
     time_resolution_s: 5.0
     hop_s: 0.25
     method: morlet
-    mt_bandwidth: null
+    mt_time_bandwidth_product: 4.0
+    mt_min_cycles: 3.0
     min_cycles: 3.0
     max_cycles: 13.0
     gc_n_lags: null
@@ -370,7 +379,8 @@ metric_defaults:
     time_resolution_s: 5.0
     hop_s: 0.25
     method: morlet
-    mt_bandwidth: null
+    mt_time_bandwidth_product: 4.0
+    mt_min_cycles: 3.0
     min_cycles: 3.0
     max_cycles: 13.0
     gc_n_lags: null

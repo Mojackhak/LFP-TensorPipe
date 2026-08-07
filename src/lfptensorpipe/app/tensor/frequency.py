@@ -414,6 +414,8 @@ def _cycles_from_time_resolution(
     time_resolution_s: float,
     min_cycles: float | None,
     max_cycles: float | None,
+    mt_time_bandwidth_product: float = 4.0,
+    mt_min_cycles: float = 3.0,
 ) -> np.ndarray:
     return _cycles_from_time_resolution_runtime(
         freqs_hz,
@@ -421,6 +423,8 @@ def _cycles_from_time_resolution(
         time_resolution_s=float(time_resolution_s),
         min_cycles=min_cycles,
         max_cycles=max_cycles,
+        mt_time_bandwidth_product=float(mt_time_bandwidth_product),
+        mt_min_cycles=float(mt_min_cycles),
     )
 
 
@@ -431,6 +435,8 @@ def _compute_mask_radii_seconds(
     time_resolution_s: float,
     min_cycles: float | None,
     max_cycles: float | None,
+    mt_time_bandwidth_product: float = 4.0,
+    mt_min_cycles: float = 3.0,
 ) -> np.ndarray:
     return _compute_mask_radii_seconds_runtime(
         freqs_hz,
@@ -438,6 +444,8 @@ def _compute_mask_radii_seconds(
         time_resolution_s=float(time_resolution_s),
         min_cycles=min_cycles,
         max_cycles=max_cycles,
+        mt_time_bandwidth_product=float(mt_time_bandwidth_product),
+        mt_min_cycles=float(mt_min_cycles),
     )
 
 

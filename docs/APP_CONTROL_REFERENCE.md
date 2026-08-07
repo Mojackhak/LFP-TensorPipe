@@ -519,7 +519,7 @@ and the execution of tensor generation.
 | `Low freq` | Sets the lower bound of the frequency grid that will actually be computed for the active metric. It should stay inside the valid post-preprocess range, rather than being treated as a display-only crop. | Active metric configuration. | Shown only for metrics that expose it. |
 | `High freq` | Sets the upper bound of the frequency grid that will actually be computed for the active metric. It cannot exceed the effective preprocess ceiling or the current Nyquist limit. | Active metric configuration. | Shown only for metrics that expose it. |
 | `Step` | Sets the spacing between adjacent sampled frequencies. Smaller steps create a denser frequency grid, but they also increase runtime and output size. | Active metric configuration. | Shown only for metrics that expose it. |
-| `Time resolution` | Sets the window duration used to estimate time-varying spectra or connectivity. Longer windows usually stabilize low-frequency estimates, while shorter windows preserve faster temporal changes. | Active metric configuration. | Shown only for metrics that expose it. |
+| `Time resolution` | Sets the target Morlet time scale or the minimum Multitaper window. With Multitaper, low frequencies use a longer window when required by `MT minimum cycles`. | Active metric configuration. | Shown only for metrics that expose it. |
 | `Hop` | Sets the shift between adjacent analysis windows. Smaller hops make the time axis denser and smoother, but they also increase overlap and compute cost. | Active metric configuration. | Shown only for metrics that expose it. |
 | `SpecParam freq range` | Sets the fitting range used by the SpecParam model, not the final display or export range. In practice, it is usually safer to keep this range slightly wider than the final `Low freq` and `High freq` bounds, allowing boundary frequencies to be trimmed using the final `Low freq` and `High freq` bounds because they are often not modeled reliably as oscillatory peaks. | Visible for periodic/aperiodic metrics. |
 | `Percentile` | Sets the percentile used to convert the burst baseline into a burst-detection threshold. Higher percentiles make burst calls more conservative, while lower percentiles admit more candidate bursts. | Burst metric configuration. | Visible for burst metrics. |
@@ -597,9 +597,10 @@ tensor frequency and time grid.
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | `Method` | Chooses the spectral backend for raw power, typically `morlet` or `multitaper`. This choice determines how time-frequency power is estimated before any downstream use. | Raw-power runtime method. | Always available in this dialog. |
-| `Min cycles` | Sets the minimum number of oscillatory cycles used by the spectral estimator. Lower values improve time localization but blur frequency resolution; higher values do the opposite. | Raw-power time/frequency trade-off. | Always available in this dialog. |
-| `Max cycles` | Sets an optional upper bound on cycle count when the method supports varying cycles by frequency. Use it to stop high frequencies from becoming overly smoothed in time. | Raw-power time/frequency trade-off. | Optional. |
-| `Time bandwidth` | Sets the multitaper time-bandwidth product. Higher values usually stabilize spectra and reduce variance, but they also widen spectral smoothing. | Multitaper behavior. | Relevant when the chosen method uses multitaper. |
+| `Morlet min cycles` | Sets the minimum Morlet cycle count. | Morlet time/frequency trade-off. | Enabled only for Morlet. |
+| `Morlet max cycles` | Sets the optional maximum Morlet cycle count. | Morlet time/frequency trade-off. | Enabled only for Morlet. |
+| `MT time-bandwidth product` | Sets the dimensionless DPSS time-bandwidth product. The default is `4.0`. Higher values use more smoothing and usually more tapers. | Multitaper behavior. | Enabled only for Multitaper; must be at least `2`. |
+| `MT minimum cycles` | Sets the minimum oscillation cycles in a Multitaper window. Low frequencies use a longer window when needed. The default is `3.0`. | Multitaper low-frequency stability and temporal support. | Enabled only for Multitaper; must be greater than `0`. |
 | `Notches` | Adds metric-local notch exclusions on top of any preprocess filtering. Use this when a metric still needs narrowband suppression that should not be baked into preprocess globally. | Metric-local runtime filtering. | Supported tensor metrics only. |
 | `Notch widths` | Sets the bandwidth for each metric-local notch. Wider values suppress more surrounding energy but can also remove nearby neural content. | Metric-local runtime filtering. | Supported tensor metrics only. |
 | `Save` | Saves the dialog values to the current session. | Current raw-power advanced settings. | Blocks on invalid values. |
@@ -609,7 +610,8 @@ tensor frequency and time grid.
 
 **Notes**
 
-- `Method`, `Min cycles`, `Max cycles`, and `Time bandwidth` jointly control the time-versus-frequency resolution trade-off.
+- Morlet uses `Morlet min cycles` and `Morlet max cycles`. Multitaper instead uses
+  `MT time-bandwidth product` and `MT minimum cycles`.
 - `Notches` here are metric-local. They do not rewrite the finished preprocess signal.
 
 ### 7.8 Periodic/Aperiodic Advance
@@ -619,9 +621,10 @@ tensor frequency and time grid.
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | `Method` | Chooses the spectral backend used to generate the input spectrum before SpecParam fitting. This choice changes the stability and smoothness of the spectrum that the periodic/aperiodic model sees. | Periodic/aperiodic runtime method. | Always available in this dialog. |
-| `Min cycles` | Sets the minimum cycles used by the spectral estimator. Fewer cycles improve temporal responsiveness, while more cycles usually stabilize spectral peaks. | Spectral estimation trade-off. | Always available in this dialog. |
-| `Max cycles` | Sets an optional ceiling on cycle count for methods that vary cycles by frequency. Use it when you want to limit oversmoothing at higher frequencies. | Spectral estimation trade-off. | Optional. |
-| `Time bandwidth` | Sets the multitaper time-bandwidth product. Higher values usually make the spectrum smoother and more stable, but they also reduce spectral sharpness. | Multitaper behavior. | Relevant when the chosen method uses multitaper. |
+| `Morlet min cycles` | Sets the minimum Morlet cycle count. | Morlet spectral estimation trade-off. | Enabled only for Morlet. |
+| `Morlet max cycles` | Sets the optional maximum Morlet cycle count. | Morlet spectral estimation trade-off. | Enabled only for Morlet. |
+| `MT time-bandwidth product` | Sets the dimensionless DPSS time-bandwidth product. The default is `4.0`. | Multitaper smoothing and stability. | Enabled only for Multitaper; must be at least `2`. |
+| `MT minimum cycles` | Sets the minimum cycles in the Multitaper window. Low frequencies use a longer window when needed. The default is `3.0`. | Multitaper low-frequency stability and temporal support. | Enabled only for Multitaper; must be greater than `0`. |
 | `Freq` | Enables pre-fit smoothing across the frequency axis. Use it when the input spectrum is too ragged for stable decomposition. | Pre-fit frequency smoothing. | Periodic/aperiodic dialog only. |
 | `Freq smooth sigma` | Sets the Gaussian sigma used when frequency smoothing is enabled. Larger values suppress fine ripples more aggressively, which can stabilize fits but also blur narrow peaks. | Pre-fit frequency smoothing strength. | Requires `Freq` smoothing to be enabled. |
 | `Time` | Enables pre-fit smoothing across time. This can stabilize frame-to-frame fits when the signal is noisy, but it also reduces sensitivity to brief spectral changes. | Pre-fit temporal smoothing. | Periodic/aperiodic dialog only. |
@@ -641,7 +644,8 @@ tensor frequency and time grid.
 
 **Notes**
 
-- `Method`, cycle settings, and `Time bandwidth` shape the spectrum before any SpecParam fitting begins.
+- Morlet cycle settings or the two Multitaper settings shape the spectrum
+  before any SpecParam fitting begins.
 - `Freq smooth sigma` and `Time smooth kernel size` only matter if their corresponding smoothing checkbox is enabled.
 - `Fit QC threshold` is a retention rule after fitting, not a way to improve the fit itself.
 - Periodic/Aperiodic notch intervals are reconstructed in
@@ -672,9 +676,10 @@ tensor frequency and time grid.
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | `Method` | Chooses the spectral backend used to estimate the phase representation before PLV is computed. | PLV runtime method. | Always available in this dialog. |
-| `MT bandwidth` | Sets the multitaper bandwidth when the multitaper backend is used. Higher values stabilize estimates but reduce spectral sharpness. | Multitaper behavior. | Relevant when the chosen method uses multitaper. |
-| `Min cycles` | Sets the minimum wavelet cycles used for PLV estimation. Lower values emphasize temporal precision; higher values emphasize frequency precision. | PLV time/frequency trade-off. | Always available in this dialog. |
-| `Max cycles` | Sets an optional ceiling on cycle count. Use it to limit oversmoothing at higher frequencies. | PLV time/frequency trade-off. | Optional. |
+| `MT time-bandwidth product` | Sets the dimensionless DPSS time-bandwidth product. The default is `4.0`. | Multitaper smoothing and stability. | Enabled only for Multitaper; must be at least `2`. |
+| `MT minimum cycles` | Sets the minimum cycles in a Multitaper connectivity window. Low frequencies use a longer window when needed. | Multitaper low-frequency stability and temporal support. | Enabled only for Multitaper; must be greater than `0`. |
+| `Morlet min cycles` | Sets the minimum Morlet cycle count used for PLV estimation. | Morlet PLV time/frequency trade-off. | Enabled only for Morlet. |
+| `Morlet max cycles` | Sets the optional maximum Morlet cycle count. | Morlet PLV time/frequency trade-off. | Enabled only for Morlet. |
 | `Notches` | Adds metric-local notch exclusions before PLV is computed. | Metric-local runtime filtering. | Supported tensor metrics only. |
 | `Notch widths` | Sets the bandwidth for each metric-local notch. | Metric-local runtime filtering. | Supported tensor metrics only. |
 | `Save` | Saves the dialog values to the current session. | Current PLV advanced settings. | Blocks on invalid values. |
@@ -689,9 +694,10 @@ tensor frequency and time grid.
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | `Method` | Chooses the spectral backend used before TRGC estimation. | TRGC runtime method. | Always available in this dialog. |
-| `MT bandwidth` | Sets the multitaper bandwidth when multitaper is used. Higher values smooth more strongly and reduce variance, but they also widen spectral estimates. | Multitaper behavior. | Relevant when the chosen method uses multitaper. |
-| `Min cycles` | Sets the minimum cycles used by the spectral estimator. Lower values improve temporal precision; higher values improve spectral stability. | TRGC time/frequency trade-off. | Always available in this dialog. |
-| `Max cycles` | Sets an optional ceiling on cycle count. | TRGC time/frequency trade-off. | Optional. |
+| `MT time-bandwidth product` | Sets the dimensionless DPSS time-bandwidth product. The default is `4.0`. | Multitaper smoothing and stability. | Enabled only for Multitaper; must be at least `2`. |
+| `MT minimum cycles` | Sets the minimum cycles in each Multitaper TRGC window. Low frequencies use a longer window when needed. | Multitaper low-frequency stability and temporal support. | Enabled only for Multitaper; must be greater than `0`. |
+| `Morlet min cycles` | Sets the minimum Morlet cycle count. | Morlet TRGC time/frequency trade-off. | Enabled only for Morlet. |
+| `Morlet max cycles` | Sets the optional maximum Morlet cycle count. | Morlet TRGC time/frequency trade-off. | Enabled only for Morlet. |
 | `GC lags` | Sets how many past samples are used in the autoregressive part of the TRGC model. More lags can model slower interactions, but they also increase model complexity and data requirements. | TRGC model order. | TRGC dialog only. |
 | `Group by samples` | Groups TRGC frequencies by exact window length in samples instead of by a rounded millisecond grid. Use it when you need grouping tied tightly to the recording sample rate. | TRGC grouping strategy. | TRGC dialog only. |
 | `Round ms` | Sets the millisecond grid used to group TRGC window lengths when `Group by samples` is off. Smaller values preserve finer distinctions but can create more groups and noisier summaries. | TRGC grouping strategy. | TRGC dialog only; disabled when `Group by samples` is enabled. |
@@ -714,9 +720,10 @@ tensor frequency and time grid.
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | `Method` | Chooses the spectral backend used before PSI is computed. | PSI runtime method. | Always available in this dialog. |
-| `MT bandwidth` | Sets the multitaper bandwidth when multitaper is used. Higher values usually increase stability at the cost of spectral sharpness. | Multitaper behavior. | Relevant when the chosen method uses multitaper. |
-| `Min cycles` | Sets the minimum cycles used by the spectral estimator. Lower values respond faster in time; higher values stabilize frequency estimates. | PSI time/frequency trade-off. | Always available in this dialog. |
-| `Max cycles` | Sets an optional ceiling on cycle count. | PSI time/frequency trade-off. | Optional. |
+| `MT time-bandwidth product` | Sets the dimensionless DPSS time-bandwidth product. PSI derives the bandwidth in Hz from this value and each band's effective window. | Multitaper smoothing and stability. | Enabled only for Multitaper; must be at least `2`. |
+| `MT minimum cycles` | Sets the minimum cycles in each Multitaper PSI band window. A band's lowest retained frequency determines whether its window grows. | Multitaper low-frequency stability and temporal support. | Enabled only for Multitaper; must be greater than `0`. |
+| `Morlet min cycles` | Sets the minimum Morlet cycle count. | Morlet PSI time/frequency trade-off. | Enabled only for Morlet. |
+| `Morlet max cycles` | Sets the optional maximum Morlet cycle count. | Morlet PSI time/frequency trade-off. | Enabled only for Morlet. |
 | `Notches` | Adds metric-local notch exclusions before PSI is computed. | Metric-local runtime filtering. | Supported tensor metrics only. |
 | `Notch widths` | Sets the bandwidth for each metric-local notch. | Metric-local runtime filtering. | Supported tensor metrics only. |
 | `Save` | Saves the dialog values to the current session. | Current PSI advanced settings. | Blocks on invalid values. |

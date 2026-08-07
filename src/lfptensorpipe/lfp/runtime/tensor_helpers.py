@@ -7,6 +7,7 @@ Build Tensor metric runners.
 from __future__ import annotations
 
 from typing import Any
+import warnings
 
 import numpy as np
 
@@ -39,6 +40,8 @@ def cycles_from_time_resolution(
     time_resolution_s: float,
     min_cycles: float | None,
     max_cycles: float | None,
+    mt_time_bandwidth_product: float = 4.0,
+    mt_min_cycles: float = 3.0,
 ) -> np.ndarray:
     if method == "morlet":
         cycles = (
@@ -47,12 +50,19 @@ def cycles_from_time_resolution(
             * np.pi
             / np.sqrt(2.0 * np.log(2.0))
         )
+        if min_cycles is not None:
+            cycles = np.maximum(cycles, float(min_cycles))
+        if max_cycles is not None:
+            cycles = np.minimum(cycles, float(max_cycles))
     else:
-        cycles = np.asarray(freqs_hz, dtype=float) * float(time_resolution_s)
-    if min_cycles is not None:
-        cycles = np.maximum(cycles, float(min_cycles))
-    if max_cycles is not None:
-        cycles = np.minimum(cycles, float(max_cycles))
+        from lfptensorpipe.lfp.common import multitaper_fixed_p_parameters
+
+        cycles, _, _, _ = multitaper_fixed_p_parameters(
+            np.asarray(freqs_hz, dtype=float),
+            time_resolution_s=float(time_resolution_s),
+            mt_time_bandwidth_product=float(mt_time_bandwidth_product),
+            mt_min_cycles=float(mt_min_cycles),
+        )
     return np.asarray(cycles, dtype=float)
 
 
@@ -63,6 +73,8 @@ def compute_mask_radii_seconds(
     time_resolution_s: float,
     min_cycles: float | None,
     max_cycles: float | None,
+    mt_time_bandwidth_product: float = 4.0,
+    mt_min_cycles: float = 3.0,
 ) -> np.ndarray:
     from lfptensorpipe.lfp.common import (
         morlet_mask_radius_time_s_from_freqs_n_cycles,
@@ -75,6 +87,8 @@ def compute_mask_radii_seconds(
         time_resolution_s=float(time_resolution_s),
         min_cycles=min_cycles,
         max_cycles=max_cycles,
+        mt_time_bandwidth_product=float(mt_time_bandwidth_product),
+        mt_min_cycles=float(mt_min_cycles),
     )
     if method == "morlet":
         return np.asarray(
@@ -135,6 +149,20 @@ def apply_dynamic_edge_mask_strict(
             f"{metric_label} edge mask changed tensor shape unexpectedly: "
             f"{np.asarray(tensor).shape} -> {masked_tensor.shape}"
         )
+    axes = masked_meta.get("axes", {})
+    freq_values = axes.get("freq", []) if isinstance(axes, dict) else []
+    if masked_tensor.ndim >= 2 and masked_tensor.shape[-2] == len(freq_values):
+        reduction_axes = tuple(
+            axis for axis in range(masked_tensor.ndim) if axis != masked_tensor.ndim - 2
+        )
+        fully_masked = ~np.any(np.isfinite(masked_tensor), axis=reduction_axes)
+        if bool(np.any(fully_masked)):
+            warnings.warn(
+                f"{metric_label} contains {int(np.sum(fully_masked))} frequency or band "
+                "entries with no usable values after BAD/EDGE masking; they remain NaN.",
+                UserWarning,
+                stacklevel=2,
+            )
     return masked_tensor, masked_meta
 
 
@@ -160,10 +188,16 @@ def psi_band_radii_seconds(
         raise ValueError("PSI metadata missing bands_union_hz.")
 
     if method == "multitaper":
-        window_span_s = float(params.get("multitaper_window_span_s", time_resolution_s))
-        if not np.isfinite(window_span_s) or window_span_s <= 0.0:
-            raise ValueError("PSI Multitaper metadata has invalid window span.")
-        return band_names, [window_span_s / 2.0] * len(band_names)
+        windows = np.asarray(
+            params.get("mt_effective_window_s", []), dtype=float
+        ).ravel()
+        if windows.size != len(band_names):
+            raise ValueError(
+                "PSI Multitaper metadata window count does not match the band axis."
+            )
+        if np.any(~np.isfinite(windows)) or np.any(windows <= 0.0):
+            raise ValueError("PSI Multitaper metadata has invalid effective windows.")
+        return band_names, [float(item) / 2.0 for item in windows.tolist()]
 
     if method == "morlet":
         cwt_freqs = params.get("cwt_freqs")

@@ -54,7 +54,10 @@ def plan_undirected(
             ),
             "hop_s": svc._as_float(metric_params.get("hop_s"), 0.025),
             "method": str(metric_params.get("method", "morlet")),
-            "mt_bandwidth": svc._as_optional_float(metric_params.get("mt_bandwidth")),
+            "mt_time_bandwidth_product": svc._as_float(
+                metric_params.get("mt_time_bandwidth_product"), 4.0
+            ),
+            "mt_min_cycles": svc._as_float(metric_params.get("mt_min_cycles"), 3.0),
             "min_cycles": svc._as_optional_float(metric_params.get("min_cycles"), 3.0),
             "max_cycles": svc._as_optional_float(metric_params.get("max_cycles")),
             "notches": metric_params.get("notches"),
@@ -103,9 +106,10 @@ def plan_trgc(
                 ),
                 "hop_s": svc._as_float(metric_params.get("hop_s"), 0.025),
                 "method": str(metric_params.get("method", "morlet")),
-                "mt_bandwidth": svc._as_optional_float(
-                    metric_params.get("mt_bandwidth")
+                "mt_time_bandwidth_product": svc._as_float(
+                    metric_params.get("mt_time_bandwidth_product"), 4.0
                 ),
+                "mt_min_cycles": svc._as_float(metric_params.get("mt_min_cycles"), 3.0),
                 "min_cycles": svc._as_optional_float(
                     metric_params.get("min_cycles"), 3.0
                 ),
@@ -177,7 +181,10 @@ def plan_psi(
             ),
             "hop_s": svc._as_float(metric_params.get("hop_s"), 0.025),
             "method": str(metric_params.get("method", "morlet")),
-            "mt_bandwidth": svc._as_optional_float(metric_params.get("mt_bandwidth")),
+            "mt_time_bandwidth_product": svc._as_float(
+                metric_params.get("mt_time_bandwidth_product"), 4.0
+            ),
+            "mt_min_cycles": svc._as_float(metric_params.get("mt_min_cycles"), 3.0),
             "min_cycles": svc._as_optional_float(metric_params.get("min_cycles"), 3.0),
             "max_cycles": svc._as_optional_float(metric_params.get("max_cycles")),
             "notches": metric_params.get("notches"),

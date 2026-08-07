@@ -199,7 +199,8 @@ def _run_tfr_grid(
         hop_s=float(options.hop_s),
         min_cycles=options.min_cycles,
         max_cycles=options.max_cycles,
-        time_bandwidth=float(options.time_bandwidth),
+        mt_time_bandwidth_product=float(options.mt_time_bandwidth_product),
+        mt_min_cycles=float(options.mt_min_cycles),
         n_jobs=int(options.n_jobs),
     )
     power_tensor = _normalize_power_tensor(power)
@@ -320,6 +321,8 @@ def _run_decomposition(
             time_resolution_s=float(options.time_resolution_s),
             min_cycles=options.min_cycles,
             max_cycles=options.max_cycles,
+            mt_time_bandwidth_product=float(options.mt_time_bandwidth_product),
+            mt_min_cycles=float(options.mt_min_cycles),
         )
         annotation_skip_radius_s = float(np.min(final_radii))
         skip_time_mask = build_annotation_skip_time_mask(
@@ -477,6 +480,8 @@ def _apply_edge_masks(
         time_resolution_s=float(options.time_resolution_s),
         min_cycles=options.min_cycles,
         max_cycles=options.max_cycles,
+        mt_time_bandwidth_product=float(options.mt_time_bandwidth_product),
+        mt_min_cycles=float(options.mt_min_cycles),
     )
     tensor, metadata = svc._apply_dynamic_edge_mask_strict(
         raw=prepared.raw,

@@ -28,6 +28,7 @@ Notes:
 from __future__ import annotations
 
 from typing import Any, Dict, Mapping, Sequence, Tuple
+import warnings
 
 import numpy as np
 import mne
@@ -38,6 +39,7 @@ from ..common.timefreq import (
     compute_decimation,
     decimated_times_from_raw,
     morlet_n_cycles_from_time_fwhm,
+    multitaper_fixed_p_parameters,
     multitaper_window_geometry,
 )
 from ..connectivity.selection import resolve_pairs
@@ -208,7 +210,7 @@ def _run_multitaper_windows(
     targets_idx: np.ndarray,
     seg_edges: np.ndarray,
     sfreq_hz: float,
-    mt_bandwidth: float | None,
+    mt_bandwidth: float,
     block_size: int,
     outer_n_jobs: int,
     verbose: Any | None,
@@ -240,8 +242,7 @@ def _run_multitaper_windows(
             "n_jobs": 1,
             "verbose": verbose,
         }
-        if mt_bandwidth is not None:
-            kwargs["mt_bandwidth"] = float(mt_bandwidth)
+        kwargs["mt_bandwidth"] = float(mt_bandwidth)
         conn = phase_slope_index_fn(**kwargs)
         values = np.asarray(conn.get_data(), dtype=float)
         expected = (n_pairs, n_segments)
@@ -282,19 +283,20 @@ def grid(
     cwt_freqs: np.ndarray | None = None,
     min_cycles: float | None = 1.0,
     max_cycles: float | None = None,
-    mt_bandwidth: float | None = None,
+    mt_time_bandwidth_product: float = 4.0,
+    mt_min_cycles: float = 3.0,
     block_size: int = 1000,
     n_jobs: int = 1,
     outer_n_jobs: int | None = None,
     verbose: Any | None = None,
-    annotation_skip_radius_s: float | None = None,
+    mask_annotations: bool = False,
 ) -> tuple[np.ndarray, Dict[str, Any]]:
     """Compute time-resolved PSI aligned to a TFR-like time grid.
 
     Args:
         raw: Continuous MNE Raw.
         bands: Mapping band_name -> (fmin,fmax) in Hz.
-        time_resolution_s: Target Morlet time-domain FWHM, or centered
+        time_resolution_s: Target Morlet time-domain FWHM, or minimum centered
             Multitaper analysis-window duration, in seconds.
         pairs: Optional explicit list of ordered pairs (seed, target).
         groups: Optional mapping group_name -> list[channel_name] to build pairs within groups.
@@ -307,6 +309,8 @@ def grid(
         cwt_freqs: Optional explicit wavelet frequency grid used internally by PSI.
         min_cycles: Lower bound for Morlet cycles when converting from time FWHM.
         max_cycles: Optional upper bound for Morlet cycles.
+        mt_time_bandwidth_product: Dimensionless DPSS time-bandwidth product.
+        mt_min_cycles: Minimum cycles in a Multitaper band window.
         block_size: Forwarded to :func:`mne_connectivity.phase_slope_index`.
         n_jobs: Parallel jobs forwarded to Morlet PSI. For Multitaper, this is
             the window-loop fallback when `outer_n_jobs` is None.
@@ -326,9 +330,6 @@ def grid(
     method_use = _normalize_method(method)
     mode_use = "cwt_morlet" if method_use == "morlet" else "multitaper"
     resolved_outer_n_jobs = int(n_jobs) if outer_n_jobs is None else int(outer_n_jobs)
-    if mt_bandwidth is not None and float(mt_bandwidth) <= 0:
-        raise ValueError("`mt_bandwidth` must be > 0 when provided.")
-
     band_names, band_segments, seg_edges, seg_to_band, union_edges = _normalize_bands(
         bands
     )
@@ -406,9 +407,15 @@ def grid(
             "Install with 'pip install mne-connectivity'."
         ) from e
 
-    multitaper_half_window_samples: int | None = None
-    multitaper_window_n_samples: int | None = None
-    multitaper_window_span_s: float | None = None
+    mt_reference_frequencies_hz: np.ndarray | None = None
+    mt_effective_window_s: np.ndarray | None = None
+    mt_effective_bandwidth_hz: np.ndarray | None = None
+    mt_half_window_samples: list[int] | None = None
+    mt_window_n_samples: list[int] | None = None
+    mt_window_span_s: list[float] | None = None
+    mt_n_valid_windows_by_band: list[int] | None = None
+    mt_n_skipped_masked_by_band: list[int] | None = None
+    mt_n_dropped_incomplete_by_band: list[int] | None = None
     n_valid_windows: int | None = None
     n_columns_total: int | None = None
     n_columns_skipped_masked: int | None = None
@@ -450,80 +457,143 @@ def grid(
         n_times_dec = int(psi_dec.shape[-1])
         n_times_compute = min(n_times_dec, n_times_target)
     else:
+        mt_reference_frequencies_hz = np.asarray(
+            [
+                float(np.min(seg_edges[np.flatnonzero(seg_to_band == band_i), 0]))
+                for band_i in range(len(band_names))
+            ],
+            dtype=float,
+        )
         (
-            multitaper_half_window_samples,
-            multitaper_window_n_samples,
-            multitaper_window_span_s,
-        ) = multitaper_window_geometry(
-            sfreq_hz=float(sfreq_use),
+            _,
+            mt_effective_window_s,
+            mt_effective_bandwidth_hz,
+            mt_mask_radius_s,
+        ) = multitaper_fixed_p_parameters(
+            mt_reference_frequencies_hz,
             time_resolution_s=float(time_resolution_s),
+            mt_time_bandwidth_product=float(mt_time_bandwidth_product),
+            mt_min_cycles=float(mt_min_cycles),
         )
-        if mt_bandwidth is not None:
-            normalized_half_bandwidth = (
-                float(mt_bandwidth)
-                * int(multitaper_window_n_samples)
-                / (2.0 * float(sfreq_use))
+
+        available_duration_s = float(max(0, data.shape[-1] - 1)) / float(sfreq_use)
+        longest_band_index = int(np.argmax(mt_effective_window_s))
+        if float(mt_effective_window_s[longest_band_index]) > available_duration_s:
+            raise ValueError(
+                "Effective Multitaper PSI window for band "
+                f"'{band_names[longest_band_index]}' at "
+                f"{float(mt_reference_frequencies_hz[longest_band_index]):g} Hz is "
+                f"{float(mt_effective_window_s[longest_band_index]):g} s, longer "
+                f"than the available duration {available_duration_s:g} s."
             )
-            if normalized_half_bandwidth < 0.5:
-                minimum_bandwidth = float(sfreq_use) / int(multitaper_window_n_samples)
-                raise ValueError(
-                    "Multitaper PSI mt_bandwidth is too small for the selected "
-                    "time_resolution_s. "
-                    f"Use mt_bandwidth >= {minimum_bandwidth:.3f} Hz."
-                )
-        _validate_multitaper_band_resolution(
-            seg_edges=seg_edges,
-            sfreq_hz=float(sfreq_use),
-            window_n_samples=int(multitaper_window_n_samples),
-        )
+
         center_samples = np.arange(n_times_target, dtype=int) * int(decim_eff)
         finite_target_times = np.isfinite(times)
-        if annotation_skip_radius_s is None:
-            skip_time_mask = np.zeros(times.shape, dtype=bool)
-        else:
-            skip_time_mask = build_annotation_skip_time_mask(
-                raw,
-                times_s=times,
-                radius_s=float(annotation_skip_radius_s),
-            )
-        complete_windows = (
-            finite_target_times
-            & (center_samples - int(multitaper_half_window_samples) >= 0)
-            & (
-                center_samples + int(multitaper_half_window_samples)
-                < int(data.shape[-1])
-            )
-        )
-        n_complete_windows = int(np.sum(complete_windows))
-        if n_complete_windows == 0:
-            raise ValueError(
-                "Multitaper PSI has no complete centered analysis window. "
-                "Reduce time_resolution_s or use a longer recording."
-            )
-        valid_time_indices = np.flatnonzero(complete_windows & ~skip_time_mask)
-        n_valid_windows = int(valid_time_indices.size)
         n_columns_total = int(np.sum(finite_target_times))
-        n_columns_skipped_masked = int(
-            np.sum(finite_target_times & skip_time_mask)
+        psi_dec = np.full(
+            (len(pair_names), int(seg_edges.shape[0]), n_times_target),
+            np.nan,
+            dtype=float,
         )
-        n_columns_dropped_incomplete_window = int(
-            np.sum(finite_target_times & ~skip_time_mask & ~complete_windows)
-        )
-        psi_dec = _run_multitaper_windows(
-            data=data,
-            center_samples=center_samples,
-            valid_time_indices=valid_time_indices,
-            half_window_samples=int(multitaper_half_window_samples),
-            seeds_idx=seeds_idx,
-            targets_idx=targets_idx,
-            seg_edges=seg_edges,
-            sfreq_hz=float(sfreq_use),
-            mt_bandwidth=mt_bandwidth,
-            block_size=int(block_size),
-            outer_n_jobs=int(resolved_outer_n_jobs),
-            verbose=verbose,
-            phase_slope_index_fn=phase_slope_index,
-        )
+        n_bands = len(band_names)
+        mt_half_window_samples = [0] * n_bands
+        mt_window_n_samples = [0] * n_bands
+        mt_window_span_s = [0.0] * n_bands
+        mt_n_valid_windows_by_band = [0] * n_bands
+        mt_n_skipped_masked_by_band = [0] * n_bands
+        mt_n_dropped_incomplete_by_band = [0] * n_bands
+
+        # Bands whose effective window is identical share one estimator geometry
+        # (window samples, bandwidth, and mask radius all derive from it), so they
+        # can be computed in one backend call per output center instead of one per
+        # band. Grouping on the exact float is conservative: a spurious split only
+        # costs extra calls, it never mixes different estimators.
+        window_groups: dict[float, list[int]] = {}
+        for band_i in range(n_bands):
+            window_groups.setdefault(float(mt_effective_window_s[band_i]), []).append(
+                band_i
+            )
+
+        for window_value, group_band_indices in window_groups.items():
+            group_labels = ", ".join(
+                f"'{band_names[band_i]}'" for band_i in group_band_indices
+            )
+            segment_indices = np.flatnonzero(
+                np.isin(seg_to_band, np.asarray(group_band_indices, dtype=int))
+            )
+            group_segment_edges = seg_edges[segment_indices]
+            half_window_samples, window_n_samples, window_span_s = (
+                multitaper_window_geometry(
+                    sfreq_hz=float(sfreq_use),
+                    time_resolution_s=window_value,
+                )
+            )
+            _validate_multitaper_band_resolution(
+                seg_edges=group_segment_edges,
+                sfreq_hz=float(sfreq_use),
+                window_n_samples=int(window_n_samples),
+            )
+            complete_windows = (
+                finite_target_times
+                & (center_samples - int(half_window_samples) >= 0)
+                & (center_samples + int(half_window_samples) < int(data.shape[-1]))
+            )
+            if not bool(np.any(complete_windows)):
+                raise ValueError(
+                    "Multitaper PSI has no complete centered analysis window for "
+                    f"band {group_labels} with required window {window_value:g} s."
+                )
+
+            if not mask_annotations:
+                skip_time_mask = np.zeros(times.shape, dtype=bool)
+            else:
+                skip_time_mask = build_annotation_skip_time_mask(
+                    raw,
+                    times_s=times,
+                    radius_s=float(mt_mask_radius_s[group_band_indices[0]]),
+                )
+            valid_time_indices = np.flatnonzero(complete_windows & ~skip_time_mask)
+            if valid_time_indices.size == 0:
+                warnings.warn(
+                    f"Multitaper PSI band {group_labels} has no usable output centers after BAD/EDGE masking; values remain NaN.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            else:
+                group_values = _run_multitaper_windows(
+                    data=data,
+                    center_samples=center_samples,
+                    valid_time_indices=valid_time_indices,
+                    half_window_samples=int(half_window_samples),
+                    seeds_idx=seeds_idx,
+                    targets_idx=targets_idx,
+                    seg_edges=group_segment_edges,
+                    sfreq_hz=float(sfreq_use),
+                    mt_bandwidth=float(
+                        mt_effective_bandwidth_hz[group_band_indices[0]]
+                    ),
+                    block_size=int(block_size),
+                    outer_n_jobs=int(resolved_outer_n_jobs),
+                    verbose=verbose,
+                    phase_slope_index_fn=phase_slope_index,
+                )
+                psi_dec[:, segment_indices, :] = group_values
+
+            n_skipped_masked = int(np.sum(finite_target_times & skip_time_mask))
+            n_dropped_incomplete = int(
+                np.sum(finite_target_times & ~skip_time_mask & ~complete_windows)
+            )
+            for band_i in group_band_indices:
+                mt_half_window_samples[band_i] = int(half_window_samples)
+                mt_window_n_samples[band_i] = int(window_n_samples)
+                mt_window_span_s[band_i] = float(window_span_s)
+                mt_n_valid_windows_by_band[band_i] = int(valid_time_indices.size)
+                mt_n_skipped_masked_by_band[band_i] = n_skipped_masked
+                mt_n_dropped_incomplete_by_band[band_i] = n_dropped_incomplete
+
+        n_valid_windows = int(min(mt_n_valid_windows_by_band))
+        n_columns_skipped_masked = int(max(mt_n_skipped_masked_by_band))
+        n_columns_dropped_incomplete_window = int(max(mt_n_dropped_incomplete_by_band))
         n_times_compute = int(n_times_target)
 
     n_pairs = len(pair_names)
@@ -582,23 +652,32 @@ def grid(
             **pair_meta,
             method=str(method_use),
             spectral_mode=str(mode_use),
-            mt_bandwidth=(float(mt_bandwidth) if mt_bandwidth is not None else None),
+            mt_time_bandwidth_product=(
+                float(mt_time_bandwidth_product) if method_use == "multitaper" else None
+            ),
+            mt_min_cycles=(
+                float(mt_min_cycles) if method_use == "multitaper" else None
+            ),
+            mt_effective_window_s=mt_effective_window_s,
+            mt_effective_bandwidth_hz=mt_effective_bandwidth_hz,
+            mt_window_reference_frequency_hz=mt_reference_frequencies_hz,
             **(
                 {
                     "time_axis_mode": "sliding_window",
-                    "multitaper_half_window_samples": multitaper_half_window_samples,
-                    "multitaper_window_n_samples": multitaper_window_n_samples,
-                    "multitaper_window_span_s": multitaper_window_span_s,
+                    "multitaper_half_window_samples_by_band": mt_half_window_samples,
+                    "multitaper_window_n_samples_by_band": mt_window_n_samples,
+                    "multitaper_window_span_s_by_band": mt_window_span_s,
                     "multitaper_n_valid_windows": n_valid_windows,
-                    "annotation_skip_radius_s": (
-                        float(annotation_skip_radius_s)
-                        if annotation_skip_radius_s is not None
-                        else None
-                    ),
+                    "multitaper_n_valid_windows_by_band": mt_n_valid_windows_by_band,
+                    "annotation_skip_enabled": bool(mask_annotations),
                     "n_columns_total": n_columns_total,
                     "n_columns_skipped_masked": n_columns_skipped_masked,
+                    "n_columns_skipped_masked_by_band": mt_n_skipped_masked_by_band,
                     "n_columns_dropped_incomplete_window": (
                         n_columns_dropped_incomplete_window
+                    ),
+                    "n_columns_dropped_incomplete_window_by_band": (
+                        mt_n_dropped_incomplete_by_band
                     ),
                     "outer_n_jobs": int(resolved_outer_n_jobs),
                 }

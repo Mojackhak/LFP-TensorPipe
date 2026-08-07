@@ -61,7 +61,8 @@ def _default_tensor_metric_params(
             "method": "morlet",
             "min_cycles": 3.0,
             "max_cycles": None,
-            "time_bandwidth": 1.0,
+            "mt_time_bandwidth_product": 4.0,
+            "mt_min_cycles": 3.0,
         }
     if metric_key == "periodic_aperiodic":
         return {
@@ -73,7 +74,8 @@ def _default_tensor_metric_params(
             ],
             "min_cycles": 3.0,
             "max_cycles": None,
-            "time_bandwidth": 1.0,
+            "mt_time_bandwidth_product": 4.0,
+            "mt_min_cycles": 3.0,
             "freq_smooth_enabled": True,
             "freq_smooth_sigma": 1.5,
             "time_smooth_enabled": True,
@@ -92,7 +94,8 @@ def _default_tensor_metric_params(
         payload = {
             **common,
             "method": "morlet",
-            "mt_bandwidth": None,
+            "mt_time_bandwidth_product": 4.0,
+            "mt_min_cycles": 3.0,
             "min_cycles": 3.0,
             "max_cycles": None,
             "gc_n_lags": 20 if metric_key == "trgc" else None,
@@ -108,7 +111,8 @@ def _default_tensor_metric_params(
                 dict(item) for item in self._load_tensor_metric_bands_defaults("psi")
             ],
             "method": "morlet",
-            "mt_bandwidth": None,
+            "mt_time_bandwidth_product": 4.0,
+            "mt_min_cycles": 3.0,
             "time_resolution_s": 0.5,
             "hop_s": 0.025,
             "min_cycles": 3.0,

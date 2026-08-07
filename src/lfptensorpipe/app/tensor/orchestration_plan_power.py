@@ -37,7 +37,10 @@ def plan_raw_power(
             "hop_s": svc._as_float(metric_params.get("hop_s"), 0.025),
             "min_cycles": svc._as_optional_float(metric_params.get("min_cycles"), 3.0),
             "max_cycles": svc._as_optional_float(metric_params.get("max_cycles")),
-            "time_bandwidth": svc._as_float(metric_params.get("time_bandwidth"), 1.0),
+            "mt_time_bandwidth_product": svc._as_float(
+                metric_params.get("mt_time_bandwidth_product"), 4.0
+            ),
+            "mt_min_cycles": svc._as_float(metric_params.get("mt_min_cycles"), 3.0),
             "notches": metric_params.get("notches"),
             "notch_widths": metric_params.get(
                 "notch_widths",
@@ -80,7 +83,10 @@ def plan_periodic_aperiodic(
             "hop_s": svc._as_float(metric_params.get("hop_s"), 0.025),
             "min_cycles": svc._as_optional_float(metric_params.get("min_cycles"), 3.0),
             "max_cycles": svc._as_optional_float(metric_params.get("max_cycles")),
-            "time_bandwidth": svc._as_float(metric_params.get("time_bandwidth"), 1.0),
+            "mt_time_bandwidth_product": svc._as_float(
+                metric_params.get("mt_time_bandwidth_product"), 4.0
+            ),
+            "mt_min_cycles": svc._as_float(metric_params.get("mt_min_cycles"), 3.0),
             "freq_range_hz": parsed_freq_range,
             "freq_smooth_enabled": bool(metric_params.get("freq_smooth_enabled", True)),
             "freq_smooth_sigma": svc._as_optional_float(

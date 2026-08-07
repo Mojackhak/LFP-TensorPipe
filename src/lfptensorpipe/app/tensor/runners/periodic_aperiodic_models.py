@@ -40,7 +40,8 @@ class PeriodicAperiodicOptions:
     hop_s: float
     min_cycles: float | None
     max_cycles: float | None
-    time_bandwidth: float
+    mt_time_bandwidth_product: float
+    mt_min_cycles: float
     freq_range_hz: tuple[float, float] | None
     freq_smooth_enabled: bool
     freq_smooth_sigma: float | None

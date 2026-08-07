@@ -64,7 +64,8 @@ def write_periodic_aperiodic_failure(
             "max_cycles": (
                 float(options.max_cycles) if options.max_cycles is not None else None
             ),
-            "time_bandwidth": float(options.time_bandwidth),
+            "mt_time_bandwidth_product": float(options.mt_time_bandwidth_product),
+            "mt_min_cycles": float(options.mt_min_cycles),
             "freq_range_hz": (
                 [float(options.freq_range_hz[0]), float(options.freq_range_hz[1])]
                 if options.freq_range_hz is not None
@@ -120,9 +121,7 @@ def write_periodic_aperiodic_success(
 ) -> tuple[bool, str]:
     interpolation_seed = derive_notch_interpolation_seed(options.context)
     runtime_params = (
-        outputs.metadata.get("params", {})
-        if isinstance(outputs.metadata, dict)
-        else {}
+        outputs.metadata.get("params", {}) if isinstance(outputs.metadata, dict) else {}
     )
     if not isinstance(runtime_params, dict):
         runtime_params = {}
@@ -156,7 +155,8 @@ def write_periodic_aperiodic_success(
         "max_cycles": (
             float(options.max_cycles) if options.max_cycles is not None else None
         ),
-        "time_bandwidth": float(options.time_bandwidth),
+        "mt_time_bandwidth_product": float(options.mt_time_bandwidth_product),
+        "mt_min_cycles": float(options.mt_min_cycles),
         "freq_range_hz": [float(prepared.spec_low), float(prepared.spec_high)],
         "freq_smooth_enabled": bool(options.freq_smooth_enabled),
         "freq_smooth_sigma": (
@@ -262,7 +262,10 @@ def write_periodic_aperiodic_success(
                             if options.max_cycles is not None
                             else None
                         ),
-                        "time_bandwidth": float(options.time_bandwidth),
+                        "mt_time_bandwidth_product": float(
+                            options.mt_time_bandwidth_product
+                        ),
+                        "mt_min_cycles": float(options.mt_min_cycles),
                         "freq_range_hz": [
                             float(prepared.spec_low),
                             float(prepared.spec_high),

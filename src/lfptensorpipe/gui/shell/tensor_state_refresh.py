@@ -63,6 +63,7 @@ class MainWindowTensorStateRefreshMixin:
             )
 
     def _refresh_tensor_metric_indicators_from_draft(self) -> None:
+        self._sync_tensor_time_resolution_label()
         context = self._record_context()
         self._refresh_tensor_metric_indicators(context)
 

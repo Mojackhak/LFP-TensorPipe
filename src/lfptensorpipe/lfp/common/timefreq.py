@@ -6,6 +6,7 @@ All code comments and docstrings are in English (per project rules).
 from __future__ import annotations
 
 from typing import Literal, Sequence
+import warnings
 
 import numpy as np
 
@@ -16,6 +17,58 @@ except Exception:  # pragma: no cover
 
 
 FreqGridKind = Literal["linear", "log"]
+
+
+def multitaper_fixed_p_parameters(
+    freqs_hz: Sequence[float],
+    *,
+    time_resolution_s: float,
+    mt_time_bandwidth_product: float,
+    mt_min_cycles: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Return fixed-P adaptive Multitaper parameters aligned to frequencies.
+
+    ``time_resolution_s`` is the minimum window duration. Frequencies that need
+    a longer window to include ``mt_min_cycles`` use ``mt_min_cycles / f``.
+    The full DPSS bandwidth is ``P / T`` and the mask radius is ``T / 2``.
+    """
+    freqs = np.asarray(freqs_hz, dtype=float)
+    if freqs.ndim != 1 or freqs.size < 1:
+        raise ValueError("`freqs_hz` must be a 1D array with at least one element.")
+    freqs = freqs.ravel()
+    if np.any(~np.isfinite(freqs)) or np.any(freqs <= 0.0):
+        raise ValueError("`freqs_hz` must be finite and > 0.")
+
+    minimum_window_s = float(time_resolution_s)
+    if not np.isfinite(minimum_window_s) or minimum_window_s <= 0.0:
+        raise ValueError("`time_resolution_s` must be finite and > 0.")
+
+    product = float(mt_time_bandwidth_product)
+    if not np.isfinite(product) or product < 2.0:
+        raise ValueError("`mt_time_bandwidth_product` must be finite and >= 2.")
+
+    minimum_cycles = float(mt_min_cycles)
+    if not np.isfinite(minimum_cycles) or minimum_cycles <= 0.0:
+        raise ValueError("`mt_min_cycles` must be finite and > 0.")
+
+    if product < 3.0:
+        warnings.warn(
+            "mt_time_bandwidth_product < 3 may provide only about one good taper.",
+            UserWarning,
+            stacklevel=2,
+        )
+    elif product > 8.0:
+        warnings.warn(
+            "mt_time_bandwidth_product > 8 increases spectral smoothing and computation cost.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    window_s = np.maximum(minimum_window_s, minimum_cycles / freqs)
+    n_cycles = freqs * window_s
+    full_bandwidth_hz = product / window_s
+    mask_radius_s = window_s / 2.0
+    return n_cycles, window_s, full_bandwidth_hz, mask_radius_s
 
 
 def make_frequency_grid(
@@ -409,9 +462,7 @@ def multitaper_window_geometry(
     time_resolution_s: float,
 ) -> tuple[int, int, float]:
     """Return sample-rounded centered-window geometry for Multitaper PSI."""
-    half_window_samples = int(
-        round(float(time_resolution_s) * float(sfreq_hz) / 2.0)
-    )
+    half_window_samples = int(round(float(time_resolution_s) * float(sfreq_hz) / 2.0))
     if half_window_samples < 1:
         raise ValueError(
             "Multitaper PSI time_resolution_s is shorter than two input sample intervals."

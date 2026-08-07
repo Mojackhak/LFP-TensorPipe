@@ -102,6 +102,31 @@ class MainWindowTensorStateMetricsMixin:
     def _tensor_active_metric_params(self) -> dict[str, Any]:
         return dict(self._tensor_metric_params.get(self._tensor_active_metric_key, {}))
 
+    def _sync_tensor_time_resolution_label(self) -> None:
+        edit = self._tensor_time_resolution_edit
+        form = self._tensor_metric_params_form
+        if edit is None or form is None:
+            return
+        label = form.labelForField(edit)
+        if label is None:
+            return
+        params = self._tensor_metric_params.get(self._tensor_active_metric_key, {})
+        method = params.get("method", "morlet")
+        if (
+            self._tensor_method_combo is not None
+            and self._tensor_method_combo.isVisible()
+        ):
+            method = self._tensor_method_combo.currentData()
+        is_multitaper = str(method).strip().lower() == "multitaper"
+        label.setText(
+            "Minimum MT window (s)" if is_multitaper else "Time resolution (s)"
+        )
+        edit.setToolTip(
+            "Minimum Multitaper window. Low frequencies may use longer windows."
+            if is_multitaper
+            else "Window duration for spectral estimation."
+        )
+
     def _apply_tensor_metric_payload(
         self, metric_key: str, payload: dict[str, Any]
     ) -> None:
@@ -380,6 +405,7 @@ class MainWindowTensorStateMetricsMixin:
             if idx < 0:
                 idx = 0
             self._tensor_method_combo.setCurrentIndex(idx)
+        self._sync_tensor_time_resolution_label()
         if self._tensor_freq_range_edit is not None:
             self._tensor_freq_range_edit.setText(
                 self._format_freq_range(params.get("freq_range_hz"))

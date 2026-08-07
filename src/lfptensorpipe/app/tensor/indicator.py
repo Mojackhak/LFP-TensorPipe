@@ -192,6 +192,35 @@ def _periodic_freq_range(params: dict[str, Any]) -> list[float] | None:
     return [float(spec_low), float(spec_high)]
 
 
+def _spectral_method_signature(
+    params: dict[str, Any],
+    *,
+    require_multitaper_fields: bool = False,
+) -> dict[str, Any]:
+    method = str(params.get("method", "morlet")).strip().lower()
+    if method == "multitaper":
+        product = (
+            _as_optional_float(params.get("mt_time_bandwidth_product"))
+            if require_multitaper_fields
+            else _as_float(params.get("mt_time_bandwidth_product"), 4.0)
+        )
+        minimum_cycles = (
+            _as_optional_float(params.get("mt_min_cycles"))
+            if require_multitaper_fields
+            else _as_float(params.get("mt_min_cycles"), 3.0)
+        )
+        return {
+            "method": method,
+            "mt_time_bandwidth_product": product,
+            "mt_min_cycles": minimum_cycles,
+        }
+    return {
+        "method": method,
+        "min_cycles": _as_optional_float(params.get("min_cycles"), 3.0),
+        "max_cycles": _as_optional_float(params.get("max_cycles")),
+    }
+
+
 def _metric_log_signature(
     metric_key: str, params: dict[str, Any]
 ) -> dict[str, Any] | None:
@@ -207,12 +236,9 @@ def _metric_log_signature(
             "low_freq": float(params.get("low_freq")),
             "high_freq": float(params.get("high_freq")),
             "step_hz": float(params.get("step_hz")),
-            "method": str(params.get("method", "morlet")),
+            **_spectral_method_signature(params, require_multitaper_fields=True),
             "time_resolution_s": float(params.get("time_resolution_s")),
             "hop_s": float(params.get("hop_s")),
-            "min_cycles": _as_optional_float(params.get("min_cycles"), 3.0),
-            "max_cycles": _as_optional_float(params.get("max_cycles")),
-            "time_bandwidth": _as_float(params.get("time_bandwidth"), 1.0),
             "mask_edge_effects": bool(params.get("mask_edge_effects", True)),
             "notches": notches,
             "notch_widths": notch_widths,
@@ -233,12 +259,9 @@ def _metric_log_signature(
             "low_freq": float(params.get("low_freq")),
             "high_freq": float(params.get("high_freq")),
             "step_hz": float(params.get("step_hz")),
-            "method": str(params.get("method", "morlet")),
+            **_spectral_method_signature(params, require_multitaper_fields=True),
             "time_resolution_s": float(params.get("time_resolution_s")),
             "hop_s": float(params.get("hop_s")),
-            "min_cycles": _as_optional_float(params.get("min_cycles"), 3.0),
-            "max_cycles": _as_optional_float(params.get("max_cycles")),
-            "time_bandwidth": _as_float(params.get("time_bandwidth"), 1.0),
             "freq_range_hz": freq_range,
             "freq_smooth_enabled": bool(params.get("freq_smooth_enabled", True)),
             "freq_smooth_sigma": _as_optional_float(
@@ -282,10 +305,7 @@ def _metric_log_signature(
             "time_resolution_s": float(params.get("time_resolution_s")),
             "hop_s": float(params.get("hop_s")),
             "connectivity_metric": connectivity_metric_map[metric_key],
-            "method": str(params.get("method", "morlet")),
-            "mt_bandwidth": _as_optional_float(params.get("mt_bandwidth")),
-            "min_cycles": _as_optional_float(params.get("min_cycles"), 3.0),
-            "max_cycles": _as_optional_float(params.get("max_cycles")),
+            **_spectral_method_signature(params, require_multitaper_fields=True),
             "mask_edge_effects": bool(params.get("mask_edge_effects", True)),
             "notches": notches,
             "notch_widths": notch_widths,
@@ -302,10 +322,7 @@ def _metric_log_signature(
             "time_resolution_s": float(params.get("time_resolution_s")),
             "hop_s": float(params.get("hop_s")),
             "connectivity_metric": "trgc",
-            "method": str(params.get("method", "morlet")),
-            "mt_bandwidth": _as_optional_float(params.get("mt_bandwidth")),
-            "min_cycles": _as_optional_float(params.get("min_cycles"), 3.0),
-            "max_cycles": _as_optional_float(params.get("max_cycles")),
+            **_spectral_method_signature(params, require_multitaper_fields=True),
             "gc_n_lags": _as_int(params.get("gc_n_lags"), 20),
             "group_by_samples": bool(params.get("group_by_samples", False)),
             "round_ms": _as_float(params.get("round_ms"), 50.0),
@@ -319,17 +336,17 @@ def _metric_log_signature(
         bands_used = _normalize_runtime_bands_signature(params.get("bands_used"))
         if pairs is None or bands_used is None:
             return None
-        method = str(params.get("method", "morlet"))
+        method_signature = _spectral_method_signature(
+            params, require_multitaper_fields=True
+        )
+        method = str(method_signature["method"])
         signature = {
             "low_freq": float(params.get("low_freq")),
             "high_freq": float(params.get("high_freq")),
             "step_hz": float(params.get("step_hz")),
-            "method": method,
+            **method_signature,
             "time_resolution_s": float(params.get("time_resolution_s")),
             "hop_s": float(params.get("hop_s")),
-            "mt_bandwidth": _as_optional_float(params.get("mt_bandwidth")),
-            "min_cycles": _as_optional_float(params.get("min_cycles"), 3.0),
-            "max_cycles": _as_optional_float(params.get("max_cycles")),
             "mask_edge_effects": bool(params.get("mask_edge_effects", True)),
             "notches": notches,
             "notch_widths": notch_widths,
@@ -443,12 +460,9 @@ def _current_metric_signature(
             "low_freq": prepared.metric_low,
             "high_freq": prepared.metric_high,
             "step_hz": prepared.metric_step,
-            "method": str(metric_params.get("method", "morlet")),
+            **_spectral_method_signature(metric_params),
             "time_resolution_s": _as_float(metric_params.get("time_resolution_s"), 0.5),
             "hop_s": _as_float(metric_params.get("hop_s"), 0.025),
-            "min_cycles": _as_optional_float(metric_params.get("min_cycles"), 3.0),
-            "max_cycles": _as_optional_float(metric_params.get("max_cycles")),
-            "time_bandwidth": _as_float(metric_params.get("time_bandwidth"), 1.0),
             "mask_edge_effects": bool(mask_edge_effects),
             "notches": notches,
             "notch_widths": notch_widths,
@@ -463,12 +477,9 @@ def _current_metric_signature(
             "low_freq": prepared.metric_low,
             "high_freq": prepared.metric_high,
             "step_hz": prepared.metric_step,
-            "method": str(metric_params.get("method", "morlet")),
+            **_spectral_method_signature(metric_params),
             "time_resolution_s": _as_float(metric_params.get("time_resolution_s"), 0.5),
             "hop_s": _as_float(metric_params.get("hop_s"), 0.025),
-            "min_cycles": _as_optional_float(metric_params.get("min_cycles"), 3.0),
-            "max_cycles": _as_optional_float(metric_params.get("max_cycles")),
-            "time_bandwidth": _as_float(metric_params.get("time_bandwidth"), 1.0),
             "freq_range_hz": [
                 float(prepared.parsed_freq_range[0]),
                 float(prepared.parsed_freq_range[1]),
@@ -516,10 +527,7 @@ def _current_metric_signature(
             "time_resolution_s": _as_float(metric_params.get("time_resolution_s"), 0.5),
             "hop_s": _as_float(metric_params.get("hop_s"), 0.025),
             "connectivity_metric": connectivity_metric_map[metric_key],
-            "method": str(metric_params.get("method", "morlet")),
-            "mt_bandwidth": _as_optional_float(metric_params.get("mt_bandwidth")),
-            "min_cycles": _as_optional_float(metric_params.get("min_cycles"), 3.0),
-            "max_cycles": _as_optional_float(metric_params.get("max_cycles")),
+            **_spectral_method_signature(metric_params),
             "mask_edge_effects": bool(mask_edge_effects),
             "notches": notches,
             "notch_widths": notch_widths,
@@ -536,10 +544,7 @@ def _current_metric_signature(
             "time_resolution_s": _as_float(metric_params.get("time_resolution_s"), 0.5),
             "hop_s": _as_float(metric_params.get("hop_s"), 0.025),
             "connectivity_metric": "trgc",
-            "method": str(metric_params.get("method", "morlet")),
-            "mt_bandwidth": _as_optional_float(metric_params.get("mt_bandwidth")),
-            "min_cycles": _as_optional_float(metric_params.get("min_cycles"), 3.0),
-            "max_cycles": _as_optional_float(metric_params.get("max_cycles")),
+            **_spectral_method_signature(metric_params),
             "gc_n_lags": _as_int(metric_params.get("gc_n_lags"), 20),
             "group_by_samples": bool(metric_params.get("group_by_samples", False)),
             "round_ms": _as_float(metric_params.get("round_ms"), 50.0),
@@ -561,17 +566,15 @@ def _current_metric_signature(
         )
         if pairs is None or bands_used is None:
             return None
-        method = str(metric_params.get("method", "morlet"))
+        method_signature = _spectral_method_signature(metric_params)
+        method = str(method_signature["method"])
         signature = {
             "low_freq": prepared.metric_low,
             "high_freq": prepared.metric_high,
             "step_hz": prepared.metric_step,
-            "method": method,
+            **method_signature,
             "time_resolution_s": _as_float(metric_params.get("time_resolution_s"), 0.5),
             "hop_s": _as_float(metric_params.get("hop_s"), 0.025),
-            "mt_bandwidth": _as_optional_float(metric_params.get("mt_bandwidth")),
-            "min_cycles": _as_optional_float(metric_params.get("min_cycles"), 3.0),
-            "max_cycles": _as_optional_float(metric_params.get("max_cycles")),
             "mask_edge_effects": bool(mask_edge_effects),
             "notches": notches,
             "notch_widths": notch_widths,

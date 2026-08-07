@@ -51,6 +51,8 @@ class MainWindowRecordParamsApplyTensorMixin:
                         merged = _deep_merge_dict(default_params, node)
                     else:
                         merged = default_params
+                    merged.pop("time_bandwidth", None)
+                    merged.pop("mt_bandwidth", None)
                     if spec.key == "periodic_aperiodic":
                         merged.pop("smooth_enabled", None)
                         merged.pop("kernel_size", None)

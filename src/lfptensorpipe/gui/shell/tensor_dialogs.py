@@ -221,7 +221,8 @@ class MainWindowTensorDialogsMixin:
                 "method",
                 "min_cycles",
                 "max_cycles",
-                "time_bandwidth",
+                "mt_time_bandwidth_product",
+                "mt_min_cycles",
                 "notches",
                 "notch_widths",
             )
@@ -230,7 +231,8 @@ class MainWindowTensorDialogsMixin:
                 "method",
                 "min_cycles",
                 "max_cycles",
-                "time_bandwidth",
+                "mt_time_bandwidth_product",
+                "mt_min_cycles",
                 "freq_smooth_enabled",
                 "freq_smooth_sigma",
                 "time_smooth_enabled",
@@ -247,7 +249,8 @@ class MainWindowTensorDialogsMixin:
         if metric_key in TENSOR_UNDIRECTED_METRIC_KEYS:
             return (
                 "method",
-                "mt_bandwidth",
+                "mt_time_bandwidth_product",
+                "mt_min_cycles",
                 "min_cycles",
                 "max_cycles",
                 "notches",
@@ -256,7 +259,8 @@ class MainWindowTensorDialogsMixin:
         if metric_key == "trgc":
             return (
                 "method",
-                "mt_bandwidth",
+                "mt_time_bandwidth_product",
+                "mt_min_cycles",
                 "min_cycles",
                 "max_cycles",
                 "gc_n_lags",
@@ -268,7 +272,8 @@ class MainWindowTensorDialogsMixin:
         if metric_key == "psi":
             return (
                 "method",
-                "mt_bandwidth",
+                "mt_time_bandwidth_product",
+                "mt_min_cycles",
                 "min_cycles",
                 "max_cycles",
                 "notches",

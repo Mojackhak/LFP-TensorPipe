@@ -243,7 +243,8 @@ def _prepare_trgc_backend_inputs(
     time_resolution_s: float,
     hop_s: float,
     method: str,
-    mt_bandwidth: float | None,
+    mt_time_bandwidth_product: float,
+    mt_min_cycles: float,
     min_cycles: float | None,
     max_cycles: float | None,
     gc_n_lags: int,
@@ -344,6 +345,8 @@ def _prepare_trgc_backend_inputs(
         time_resolution_s=float(time_resolution_s),
         min_cycles=min_cycles,
         max_cycles=max_cycles,
+        mt_time_bandwidth_product=float(mt_time_bandwidth_product),
+        mt_min_cycles=float(mt_min_cycles),
     )
     annotation_skip_radius_s = (
         float(np.min(final_mask_radii)) if mask_edge_effects else None
@@ -371,7 +374,8 @@ def _prepare_trgc_backend_inputs(
         "annotation_skip_radius_s": annotation_skip_radius_s,
         "time_resolution_s": float(time_resolution_s),
         "hop_s": float(hop_s),
-        "mt_bandwidth": mt_bandwidth,
+        "mt_time_bandwidth_product": float(mt_time_bandwidth_product),
+        "mt_min_cycles": float(mt_min_cycles),
         "min_cycles": min_cycles,
         "max_cycles": max_cycles,
         "gc_n_lags": int(gc_n_lags),
@@ -418,7 +422,8 @@ def _compute_trgc_backend_tensor(
             multivariate=True,
             ordered_pairs=True,
             spectral_mode=str(prepared["spectral_mode_use"]),
-            mt_bandwidth=prepared["mt_bandwidth"],
+            mt_time_bandwidth_product=float(prepared["mt_time_bandwidth_product"]),
+            mt_min_cycles=float(prepared["mt_min_cycles"]),
             min_cycles=prepared["min_cycles"],
             max_cycles=prepared["max_cycles"],
             gc_n_lags=int(prepared["gc_n_lags"]),
@@ -473,11 +478,8 @@ def _build_trgc_backend_state(
         "step_hz": float(prepared["step_hz"]),
         "time_resolution_s": float(prepared["time_resolution_s"]),
         "hop_s": float(prepared["hop_s"]),
-        "mt_bandwidth": (
-            float(prepared["mt_bandwidth"])
-            if prepared["mt_bandwidth"] is not None
-            else None
-        ),
+        "mt_time_bandwidth_product": float(prepared["mt_time_bandwidth_product"]),
+        "mt_min_cycles": float(prepared["mt_min_cycles"]),
         "min_cycles": (
             float(prepared["min_cycles"])
             if prepared["min_cycles"] is not None
@@ -512,9 +514,7 @@ def _build_trgc_backend_state(
         "n_pairs": len(prepared["pairs_requested"]),
         "n_pairs_compute": len(prepared["pairs_compute"]),
         "n_columns_total": int(grid_params.get("n_columns_total", 0)),
-        "n_columns_skipped_masked": int(
-            grid_params.get("n_columns_skipped_masked", 0)
-        ),
+        "n_columns_skipped_masked": int(grid_params.get("n_columns_skipped_masked", 0)),
         "window_group_counts": list(grid_params.get("window_group_counts", [])),
         "execution_model": "trgc_backend_plan",
         **_effective_n_jobs_payload(
@@ -586,7 +586,8 @@ def run_trgc_backend_metric(
     time_resolution_s: float = 0.5,
     hop_s: float = 0.025,
     method: str = "morlet",
-    mt_bandwidth: float | None = None,
+    mt_time_bandwidth_product: float = 4.0,
+    mt_min_cycles: float = 3.0,
     min_cycles: float | None = 3.0,
     max_cycles: float | None = None,
     gc_n_lags: int = 20,
@@ -633,7 +634,8 @@ def run_trgc_backend_metric(
             time_resolution_s=time_resolution_s,
             hop_s=hop_s,
             method=method,
-            mt_bandwidth=mt_bandwidth,
+            mt_time_bandwidth_product=float(mt_time_bandwidth_product),
+            mt_min_cycles=float(mt_min_cycles),
             min_cycles=min_cycles,
             max_cycles=max_cycles,
             gc_n_lags=gc_n_lags,
@@ -759,6 +761,19 @@ def run_trgc_finalize_metric(
 
         gc_state = dict(gc_payload["state"])
         gc_tr_state = dict(gc_tr_payload["state"])
+        missing_mt_fields = [
+            field_name
+            for field_name in ("mt_time_bandwidth_product", "mt_min_cycles")
+            if gc_state.get(field_name) is None
+        ]
+        if missing_mt_fields:
+            raise ValueError(
+                "TRGC backend artifact predates the fixed-P Multitaper contract "
+                "(missing " + ", ".join(missing_mt_fields) + "); re-run the TRGC "
+                "backends before finalizing."
+            )
+        mt_time_bandwidth_product = float(gc_state["mt_time_bandwidth_product"])
+        mt_min_cycles = float(gc_state["mt_min_cycles"])
         if gc_state.get("pairs_compute") != gc_tr_state.get("pairs_compute"):
             raise ValueError(
                 "TRGC backend pair metadata mismatch between gc and gc_tr."
@@ -809,6 +824,8 @@ def run_trgc_finalize_metric(
                 time_resolution_s=float(gc_state["time_resolution_s"]),
                 min_cycles=gc_state.get("min_cycles"),
                 max_cycles=gc_state.get("max_cycles"),
+                mt_time_bandwidth_product=mt_time_bandwidth_product,
+                mt_min_cycles=mt_min_cycles,
             )
             tensor4d, metadata = _apply_dynamic_edge_mask_strict(
                 raw=raw,
@@ -830,7 +847,8 @@ def run_trgc_finalize_metric(
             "step_hz": float(gc_state["step_hz"]),
             "time_resolution_s": float(gc_state["time_resolution_s"]),
             "hop_s": float(gc_state["hop_s"]),
-            "mt_bandwidth": gc_state.get("mt_bandwidth"),
+            "mt_time_bandwidth_product": mt_time_bandwidth_product,
+            "mt_min_cycles": mt_min_cycles,
             "min_cycles": gc_state.get("min_cycles"),
             "max_cycles": gc_state.get("max_cycles"),
             "group_by_samples": bool(gc_state.get("group_by_samples", False)),
@@ -891,7 +909,8 @@ def run_trgc_finalize_metric(
             "connectivity_metric": "trgc",
             "method": str(gc_state["method"]),
             "backend_methods": list(TRGC_BACKEND_METHODS),
-            "mt_bandwidth": gc_state.get("mt_bandwidth"),
+            "mt_time_bandwidth_product": mt_time_bandwidth_product,
+            "mt_min_cycles": mt_min_cycles,
             "min_cycles": gc_state.get("min_cycles"),
             "max_cycles": gc_state.get("max_cycles"),
             "group_by_samples": bool(gc_state.get("group_by_samples", False)),
@@ -1011,7 +1030,8 @@ def run_trgc_metric(
     time_resolution_s: float = 0.5,
     hop_s: float = 0.025,
     method: str = "morlet",
-    mt_bandwidth: float | None = None,
+    mt_time_bandwidth_product: float = 4.0,
+    mt_min_cycles: float = 3.0,
     min_cycles: float | None = 3.0,
     max_cycles: float | None = None,
     gc_n_lags: int = 20,
@@ -1040,7 +1060,8 @@ def run_trgc_metric(
         time_resolution_s=time_resolution_s,
         hop_s=hop_s,
         method=method,
-        mt_bandwidth=mt_bandwidth,
+        mt_time_bandwidth_product=float(mt_time_bandwidth_product),
+        mt_min_cycles=float(mt_min_cycles),
         min_cycles=min_cycles,
         max_cycles=max_cycles,
         gc_n_lags=gc_n_lags,
@@ -1081,7 +1102,8 @@ def run_trgc_metric(
         time_resolution_s=time_resolution_s,
         hop_s=hop_s,
         method=method,
-        mt_bandwidth=mt_bandwidth,
+        mt_time_bandwidth_product=float(mt_time_bandwidth_product),
+        mt_min_cycles=float(mt_min_cycles),
         min_cycles=min_cycles,
         max_cycles=max_cycles,
         gc_n_lags=gc_n_lags,
