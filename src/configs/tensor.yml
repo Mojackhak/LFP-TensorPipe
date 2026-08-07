@@ -363,6 +363,30 @@ metric_defaults:
       - '8_9'
     - - '10_11'
       - '9_10'
+  imcoh_abs:
+    low_freq_hz: 1.0
+    high_freq_hz: 75.0
+    freq_step_hz: 0.5
+    time_resolution_s: 5.0
+    hop_s: 0.25
+    method: morlet
+    mt_bandwidth: null
+    min_cycles: 3.0
+    max_cycles: 13.0
+    gc_n_lags: null
+    selected_pairs:
+    - - '0_1'
+      - '1_2'
+    - - '0_1'
+      - '2_3'
+    - - '1_2'
+      - '2_3'
+    - - '8_9'
+      - '9_10'
+    - - '10_11'
+      - '8_9'
+    - - '10_11'
+      - '9_10'
 selector_defaults:
   undirected_pairs:
   - 0_1-1_2

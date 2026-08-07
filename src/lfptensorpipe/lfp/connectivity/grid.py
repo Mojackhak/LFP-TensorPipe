@@ -359,8 +359,12 @@ def grid(
     # Users often refer to "gc_tr" as time-reversed Granger causality.
     method_in = str(method)
     method_use = method_in
+    output_component: str | None = None
     time_reversed_use = bool(time_reversed)
-    if method_in.lower() == "gc_tr":
+    if method_in.lower() == "imcoh_abs":
+        method_use = "cohy"
+        output_component = "absolute_imaginary"
+    elif method_in.lower() == "gc_tr":
         method_use = "gc"
         time_reversed_use = True
 
@@ -572,6 +576,8 @@ def grid(
 
         con = spectral_connectivity_time(epochs, **conn_kwargs)
         D = con.get_data()  # (n_valid, n_pairs, n_freqs_sub)
+        if output_component == "absolute_imaginary":
+            D = np.abs(np.imag(D))
 
         keep_pos_i = np.asarray(keep_pos, dtype=int)
         if keep_pos_i.ndim != 1 or keep_pos_i.size != out_idx.size:
@@ -706,6 +712,11 @@ def grid(
         params=dict(
             method=str(method_in),
             method_internal=str(method_use),
+            **(
+                {"output_component": output_component}
+                if output_component is not None
+                else {}
+            ),
             time_reversed=bool(time_reversed_use),
             multivariate=bool(multivariate),
             time_resolution_s=float(time_resolution_s),

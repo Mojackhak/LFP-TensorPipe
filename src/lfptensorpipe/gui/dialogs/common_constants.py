@@ -57,12 +57,20 @@ PREPROC_VIZ_STEP_LABELS = {
     "finish": "5. Finish",
 }
 TENSOR_CHANNEL_METRIC_KEYS = {"raw_power", "periodic_aperiodic", "burst"}
-TENSOR_UNDIRECTED_METRIC_KEYS = {"coherence", "plv", "ciplv", "pli", "wpli"}
+TENSOR_UNDIRECTED_METRIC_KEYS = {
+    "coherence",
+    "imcoh_abs",
+    "plv",
+    "ciplv",
+    "pli",
+    "wpli",
+}
 TENSOR_DIRECTED_METRIC_KEYS = {"trgc", "psi"}
 TENSOR_COMMON_BASIC_METRIC_KEYS = {
     "raw_power",
     "periodic_aperiodic",
     "coherence",
+    "imcoh_abs",
     "plv",
     "ciplv",
     "pli",
@@ -90,6 +98,15 @@ TENSOR_BASIC_PARAM_ROWS_BY_METRIC = {
         }
     ),
     "coherence": frozenset(
+        {
+            "low_freq_hz",
+            "high_freq_hz",
+            "freq_step_hz",
+            "time_resolution_s",
+            "hop_s",
+        }
+    ),
+    "imcoh_abs": frozenset(
         {
             "low_freq_hz",
             "high_freq_hz",

@@ -501,6 +501,13 @@ The validated demo config enables:
 - `psi`
 - `burst`
 
+`Absolute imaginary coherence (|ImCoh|)` is also available and is unchecked by
+default. Enable it when you want to examine the non-zero phase-lag component of
+connectivity alongside Coherence. For a direct comparison, use the same channel
+pairs, frequency range, time settings, spectral method, and notch settings for
+both metrics. `|ImCoh|` is an undirected magnitude and must not be interpreted
+as lead-lag direction or causality.
+
 For this walkthrough:
 
 1. import the config
@@ -720,6 +727,7 @@ metric and output type.
 | Periodic/Aperiodic fit error | `none` | Native | Native | Native | Native |
 | Periodic/Aperiodic goodness of fit | `none` | Native | Native | Native | Native |
 | Coherence | `fisherz` | Native | Native | Native | Native |
+| Absolute imaginary coherence (\|ImCoh\|) | `fisherz` | Native | Native | Native | Native |
 | PLV | `logit` | Native | Native | Native | Native |
 | ciPLV | `logit` | Native | Native | Native | Native |
 | PLI | `logit` | Native | Native | Native | Native |

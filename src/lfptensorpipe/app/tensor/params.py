@@ -41,6 +41,13 @@ TENSOR_METRICS: tuple[TensorMetricSpec, ...] = (
         value_transform_mode="fisherz",
     ),
     TensorMetricSpec(
+        "imcoh_abs",
+        "Absolute imaginary coherence (|ImCoh|)",
+        "Undirected Connectivity",
+        supported=True,
+        value_transform_mode="fisherz",
+    ),
+    TensorMetricSpec(
         "plv",
         "PLV",
         "Undirected Connectivity",
@@ -75,12 +82,20 @@ TENSOR_METRICS: tuple[TensorMetricSpec, ...] = (
 TENSOR_METRICS_BY_KEY = {metric.key: metric for metric in TENSOR_METRICS}
 
 TENSOR_CHANNEL_SELECTOR_KEYS = {"raw_power", "periodic_aperiodic", "burst"}
-TENSOR_UNDIRECTED_SELECTOR_KEYS = {"coherence", "plv", "ciplv", "pli", "wpli"}
+TENSOR_UNDIRECTED_SELECTOR_KEYS = {
+    "coherence",
+    "imcoh_abs",
+    "plv",
+    "ciplv",
+    "pli",
+    "wpli",
+}
 TENSOR_DIRECTED_SELECTOR_KEYS = {"trgc", "psi"}
 TENSOR_COMMON_BASIC_KEYS = {
     "raw_power",
     "periodic_aperiodic",
     "coherence",
+    "imcoh_abs",
     "plv",
     "ciplv",
     "pli",

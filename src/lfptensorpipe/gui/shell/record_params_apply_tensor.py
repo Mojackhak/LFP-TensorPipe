@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from lfptensorpipe.gui.shell.common import (
     Any,
     RecordContext,
@@ -59,6 +61,14 @@ class MainWindowRecordParamsApplyTensorMixin:
                         )
                     )
                     merged_params[spec.key] = merged
+                if not isinstance(metric_params.get("imcoh_abs"), dict):
+                    coherence_params = merged_params.get("coherence", {})
+                    imcoh_abs_params = merged_params.get("imcoh_abs", {})
+                    for field_name in ("notches", "notch_widths"):
+                        if field_name in coherence_params:
+                            imcoh_abs_params[field_name] = deepcopy(
+                                coherence_params[field_name]
+                            )
                 self._tensor_metric_params = merged_params
                 for spec in TENSOR_METRICS:
                     params = self._tensor_metric_params.get(spec.key, {})

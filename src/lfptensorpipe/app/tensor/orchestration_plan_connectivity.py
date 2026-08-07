@@ -29,6 +29,7 @@ def plan_undirected(
     _ = context
     connectivity_metric_map = {
         "coherence": "coh",
+        "imcoh_abs": "imcoh_abs",
         "plv": "plv",
         "ciplv": "ciplv",
         "pli": "pli",

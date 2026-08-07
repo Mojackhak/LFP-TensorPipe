@@ -259,7 +259,15 @@ class TensorMetricAdvanceDialog(QDialog):
             )
             self._append_shared_notch_fields(form)
             return
-        if self._metric_key in {"coherence", "plv", "ciplv", "pli", "wpli", "trgc"}:
+        if self._metric_key in {
+            "coherence",
+            "imcoh_abs",
+            "plv",
+            "ciplv",
+            "pli",
+            "wpli",
+            "trgc",
+        }:
             method_combo = QComboBox()
             for item in ("morlet", "multitaper"):
                 method_combo.addItem(item, item)

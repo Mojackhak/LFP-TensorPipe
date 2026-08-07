@@ -54,6 +54,17 @@ metric_defaults:
     colorbar_pad_mm: 4.0
     cbar_label_offset_mm: 10.0
     colorbar_label: Coherence
+  imcoh_abs:
+    boxsize:
+    - 60.0
+    - 50.0
+    font_size: 10
+    tick_label_size: 7
+    x_label_offset_mm: 6.0
+    y_label_offset_mm: 10.0
+    colorbar_pad_mm: 4.0
+    cbar_label_offset_mm: 10.0
+    colorbar_label: Absolute imaginary coherence (|ImCoh|)
   plv:
     boxsize:
     - 60.0

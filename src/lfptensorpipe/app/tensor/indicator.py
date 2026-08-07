@@ -262,13 +262,14 @@ def _metric_log_signature(
             "notch_widths": notch_widths,
             "selected_channels": channels,
         }
-    if metric_key in {"coherence", "plv", "ciplv", "pli", "wpli"}:
+    if metric_key in {"coherence", "imcoh_abs", "plv", "ciplv", "pli", "wpli"}:
         directed = False
         pairs = _normalize_pairs(params.get("selected_pairs"), directed=directed)
         if pairs is None:
             return None
         connectivity_metric_map = {
             "coherence": "coh",
+            "imcoh_abs": "imcoh_abs",
             "plv": "plv",
             "ciplv": "ciplv",
             "pli": "pli",
@@ -496,12 +497,13 @@ def _current_metric_signature(
             "notch_widths": notch_widths,
             "selected_channels": channels,
         }
-    if metric_key in {"coherence", "plv", "ciplv", "pli", "wpli"}:
+    if metric_key in {"coherence", "imcoh_abs", "plv", "ciplv", "pli", "wpli"}:
         pairs = _normalize_pairs(prepared.metric_pairs, directed=False)
         if pairs is None:
             return None
         connectivity_metric_map = {
             "coherence": "coh",
+            "imcoh_abs": "imcoh_abs",
             "plv": "plv",
             "ciplv": "ciplv",
             "pli": "pli",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 
 from lfptensorpipe.app.tensor.frequency import (
@@ -67,6 +68,20 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "selected_channels",
     ),
     "coherence": (
+        "low_freq_hz",
+        "high_freq_hz",
+        "freq_step_hz",
+        "time_resolution_s",
+        "hop_s",
+        "method",
+        "mt_bandwidth",
+        "min_cycles",
+        "max_cycles",
+        "notches",
+        "notch_widths",
+        "selected_pairs",
+    ),
+    "imcoh_abs": (
         "low_freq_hz",
         "high_freq_hz",
         "freq_step_hz",
@@ -431,6 +446,7 @@ class MainWindowTensorConfigMixin:
         self,
         payload: dict[str, Any],
         *,
+        context: RecordContext | None,
         available_channels: tuple[str, ...],
     ) -> tuple[dict[str, Any], list[str]]:
         if not isinstance(payload, dict):
@@ -456,22 +472,33 @@ class MainWindowTensorConfigMixin:
             )
 
         supported_metric_keys = self._tensor_config_supported_metric_keys()
+        metric_params_by_key = dict(metric_params)
         missing = [
             metric_key
             for metric_key in supported_metric_keys
-            if metric_key not in metric_params
+            if metric_key not in metric_params_by_key
         ]
-        if missing:
+        required_missing = [
+            metric_key for metric_key in missing if metric_key != "imcoh_abs"
+        ]
+        if required_missing:
             raise ValueError(
                 "Tensor config is missing metric definitions for: "
-                + ", ".join(missing)
+                + ", ".join(required_missing)
                 + "."
+            )
+        imcoh_abs_defaulted = "imcoh_abs" in missing
+        if imcoh_abs_defaulted:
+            metric_params_by_key["imcoh_abs"] = self._tensor_effective_metric_defaults(
+                "imcoh_abs",
+                context=context,
+                available_channels=available_channels,
             )
 
         warnings: list[str] = []
         unknown_metric_keys = [
             str(metric_key)
-            for metric_key in metric_params.keys()
+            for metric_key in metric_params_by_key.keys()
             if str(metric_key) not in supported_metric_keys
         ]
         if unknown_metric_keys:
@@ -526,12 +553,22 @@ class MainWindowTensorConfigMixin:
             normalized_params, metric_warnings = (
                 self._normalize_tensor_config_metric_params(
                     metric_key,
-                    metric_params.get(metric_key, {}),
+                    metric_params_by_key.get(metric_key, {}),
                     available_channels=available_channels,
                 )
             )
             normalized_metric_params[metric_key] = normalized_params
-            warnings.extend(metric_warnings)
+            if not (imcoh_abs_defaulted and metric_key == "imcoh_abs"):
+                warnings.extend(metric_warnings)
+
+        if imcoh_abs_defaulted:
+            coherence_params = normalized_metric_params["coherence"]
+            imcoh_abs_params = normalized_metric_params["imcoh_abs"]
+            for field_name in ("notches", "notch_widths"):
+                if field_name in coherence_params:
+                    imcoh_abs_params[field_name] = deepcopy(
+                        coherence_params[field_name]
+                    )
 
         validate_periodic_aperiodic_notch_bounds(
             normalized_metric_params["periodic_aperiodic"]
@@ -650,6 +687,7 @@ class MainWindowTensorConfigMixin:
                 payload = json.load(handle)
             tensor_snapshot, warnings = self._normalize_tensor_config_import_payload(
                 payload,
+                context=context,
                 available_channels=tuple(self._tensor_available_channels),
             )
         except Exception as exc:  # noqa: BLE001
