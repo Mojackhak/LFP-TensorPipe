@@ -267,7 +267,10 @@ Removal`, and `ECG Artifact Removal` are optional and retain their displayed
 order. When an optional step is applied after one or more earlier optional
 steps were skipped, it reads the nearest earlier successful preprocess output.
 `Finish` promotes the latest successful output, including `Raw` when every
-optional step was skipped.
+optional step was skipped. The finished output contains zero-duration `EDGE`
+markers at the physical recording start and last sample. Bad Segment Removal
+owns only the internal `EDGE` markers created where retained signal spans are
+stitched together.
 
 An indicator is gray when a step has not been run, green when its current
 output completed successfully, and yellow when an attempted run failed or a
@@ -302,7 +305,7 @@ log is also shown as yellow when its corresponding output file is missing.
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | `Bad Segment Removal` indicator | Reports bad-segment removal readiness. | User feedback only. | Read-only. |
-| `Apply` (Bad Segment Removal) | Removes bad spans and stitches the remaining valid signal. | Cleaned signal for downstream steps. | Available after Raw succeeds; skipped earlier optional steps are bypassed. |
+| `Apply` (Bad Segment Removal) | Removes bad spans, stitches the remaining valid signal, and marks internal stitch points. | Cleaned signal for downstream steps. | Available after Raw succeeds; skipped earlier optional steps are bypassed. |
 | `Plot` (Bad Segment Removal) | Plots bad-segment-removal output. | QC only. | Requires successful bad-segment output. |
 | `Method` (ECG) | Chooses the ECG artifact-removal strategy. | ECG step parameters. | Available after Raw succeeds. |
 | `Channels` (ECG) | Opens the ECG channel selector. | ECG channel subset. | Requires channels from the current valid ECG input source. |
@@ -310,7 +313,7 @@ log is also shown as yellow when its corresponding output file is missing.
 | `Apply` (ECG) | Runs ECG artifact removal. | ECG-cleaned signal. | Requires Raw and valid ECG settings; skipped earlier optional steps are bypassed. |
 | `Plot` (ECG) | Plots ECG-cleaned output. | QC only. | Requires successful ECG output. |
 | `Finish` indicator | Reports readiness of the finalized preprocess output. | Downstream stage freshness. | Read-only. |
-| `Apply` (Finish) | Writes the finalized preprocess result used by downstream stages. | Tensor, alignment, and feature inputs. | Requires Raw or a later successful optional-step output. |
+| `Apply` (Finish) | Writes the finalized preprocess result and adds zero-duration `EDGE` markers at its physical start and last sample. | Tensor, alignment, and feature inputs. | Requires Raw or a later successful optional-step output. |
 | `Plot` (Finish) | Plots the finalized preprocess output. | QC only. | Requires successful finish output. |
 | `Step` (Visualization) | Chooses which preprocess output the PSD/TFR QC views should read. | QC plotting source. | Always available once at least one eligible step exists. |
 | `Advance` (PSD) | Opens PSD plot settings. | PSD QC session/default settings. | Always available. |
@@ -535,7 +538,9 @@ and the execution of tensor generation.
 - `Low freq`, `High freq`, and `Step` define the frequency grid.
 - `Time resolution` and `Hop` define the time grid.
 - `SpecParam freq range` is the fit envelope for periodic/aperiodic modeling, not a second copy of the final output bounds.
-- `Mask Edge Effects` is edge masking, not frequency cropping.
+- `Mask Edge Effects` controls annotation-derived masking, not frequency
+  cropping or algorithmic availability. PSI-Multitaper output centers without
+  a complete centered analysis window remain `NaN` when this control is off.
 
 ### 7.3 Periodic/Aperiodic Basic Panel Variant
 

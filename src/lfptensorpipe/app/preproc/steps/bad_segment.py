@@ -54,13 +54,9 @@ def apply_bad_segment_step(
     invalidate_downstream_fn: InvalidateFn,
     read_raw_fif_fn: Callable[..., Any] | None = None,
     filter_lfp_with_bad_annotations_fn: Callable[..., Any] | None = None,
-    add_head_tail_annotations_fn: Callable[..., Any] | None = None,
 ) -> tuple[bool, str]:
     """Apply bad-segment-removal step using function defaults."""
-    from lfptensorpipe.preproc.filter import (
-        add_head_tail_annotations,
-        filter_lfp_with_bad_annotations,
-    )
+    from lfptensorpipe.preproc.filter import filter_lfp_with_bad_annotations
 
     resolver = PathResolver(context)
     dst = preproc_step_raw_path(resolver, "bad_segment_removal")
@@ -86,7 +82,6 @@ def apply_bad_segment_step(
         runtime_filter = (
             filter_lfp_with_bad_annotations_fn or filter_lfp_with_bad_annotations
         )
-        runtime_add_edges = add_head_tail_annotations_fn or add_head_tail_annotations
 
         raw = read_raw_fif_fn(str(src), preload=True, verbose="ERROR")
         removal_annotations = _select_bad_segment_annotations(raw.annotations)
@@ -107,16 +102,14 @@ def apply_bad_segment_step(
         else:
             raw_good = filtered
             filter_report = {}
-        raw_out, edge_report = runtime_add_edges(raw_good)
 
         dst.parent.mkdir(parents=True, exist_ok=True)
-        raw_out.save(str(dst), overwrite=True)
+        raw_good.save(str(dst), overwrite=True)
         write_preproc_step_config(
             resolver=resolver,
             step="bad_segment_removal",
             config={
                 "filter_report": filter_report,
-                "edge_report": edge_report,
             },
         )
         mark_preproc_step_fn(
@@ -128,7 +121,7 @@ def apply_bad_segment_step(
             output_path=str(dst),
             message=(
                 f"Bad Segment step completed using source {source_step} with "
-                "filter_lfp_with_bad_annotations + add_head_tail_annotations defaults."
+                "filter_lfp_with_bad_annotations defaults."
             ),
         )
         invalidate_downstream_fn(context, "bad_segment_removal")

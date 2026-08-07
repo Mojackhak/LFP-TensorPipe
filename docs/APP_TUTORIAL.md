@@ -316,9 +316,9 @@ section:
 | `0. Raw` | Confirm that the imported raw signal, markers, and duration entered the project correctly | run | filter QC |
 | `1. Filter` | Apply core band-pass and demo-specific notch filtering, and annotate bad spans | run | annotations and bad-span QC |
 | `2. Annotations` | Write manually labeled gait events onto the filtered time axis | run | alignment anchors and feature timing |
-| `3. Bad Segment Removal` | Remove bad spans and stitch the remaining valid signal into one clean stream | run | finish output |
+| `3. Bad Segment Removal` | Remove bad spans and mark internal stitch points in the remaining valid signal | run | finish output |
 | `4. ECG Artifact Removal` | Optionally suppress residual cardiac contamination | skip | finish output when needed |
-| `5. Finish` | Export the finalized preprocess result for downstream modules | run | tensor, align, features |
+| `5. Finish` | Export the finalized result with physical start/end edge markers | run | tensor, align, features |
 | `Visualization` | Show PSD/TFR QC without rewriting the data | run as needed | manual QC only |
 
 The validated preprocess path for this demo is:
@@ -403,7 +403,9 @@ the filtered signal.
 
 This step removes previously marked bad spans and stitches the remaining valid
 signal into a clean continuous stream. In this demo, that stitched output is
-the last cleaning step before the record is finalized.
+the last cleaning step before the record is finalized. Internal `EDGE` markers
+identify the stitch points created by removed spans; this step does not add the
+physical recording-start or recording-end markers.
 
 Click `Bad Segment Removal -> Apply`.
 
@@ -429,7 +431,9 @@ values for all three methods.
 
 This step exports the finalized preprocess result that downstream modules read.
 In this demo, `Finish -> Apply` promotes the `Bad Segment Removal` output, so
-Tensor, Align, and Features all start from the same cleaned record.
+Tensor, Align, and Features all start from the same cleaned record. Finish also
+adds zero-duration `EDGE` markers at the physical recording start and the last
+sample, regardless of which optional preprocess steps were run.
 
 After skipping ECG cleanup in this walkthrough, go directly to `Finish ->
 Apply`.

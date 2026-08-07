@@ -1160,16 +1160,24 @@ def add_head_tail_annotations(
         (to ensure it lies within the data range).
 
     The annotation time reference frame follows existing `raw.annotations.orig_time`:
-      - If orig_time is None, onsets are relative to the current raw start (0 sec).
+      - If orig_time is None, MNE re-adds `raw.first_samp / sfreq` inside
+        `set_annotations`, so head/tail onsets are built in the raw-relative frame and
+        existing onsets (which already carry that offset) are converted back before
+        they are merged. Mixing the two frames would push existing annotations outside
+        the crop window applied by `set_annotations` and silently drop them.
       - If orig_time is not None, onsets are absolute seconds from orig_time, aligned
-        using raw.first_samp.
+        using raw.first_samp, and no conversion is needed.
 
     Returns
     -------
     raw_out : mne.io.BaseRaw
         Raw with appended head/tail annotations.
     report : dict
-        Summary including onsets/durations and reference-frame details.
+        Summary including onsets/durations and reference-frame details. All onset-like
+        report fields are expressed in the frame of the returned
+        `raw_out.annotations.onset`, so they can be compared against the saved file
+        directly; `first_time_sec` is the offset that converts them back to the
+        raw-relative frame.
     """
     raw_out = raw.copy() if copy else raw
 
@@ -1195,16 +1203,30 @@ def add_head_tail_annotations(
 
     total_len_sec = float(n_times) / sfreq
     orig_time = ann.orig_time
+    first_time_sec = float(raw_out.first_samp) / sfreq
+    n_annotations_in = int(len(ann))
 
-    # Determine recording bounds in the annotation reference frame
+    # Determine recording bounds in the annotation reference frame.
+    # `report_offset` converts that frame into the frame of the annotations that
+    # `set_annotations` will finally expose on raw_out.
     if orig_time is None:
+        # set_annotations() re-adds first_time for orig_time=None, so build the new
+        # onsets raw-relative and pull the existing ones back into the same frame.
         rec_start_sec = 0.0
         rec_end_sec = total_len_sec
         last_sample_sec = max(rec_start_sec, rec_end_sec - 1.0 / sfreq)
+        report_offset = first_time_sec
+        ann = mne.Annotations(
+            onset=np.asarray(ann.onset, dtype=float) - first_time_sec,
+            duration=np.asarray(ann.duration, dtype=float),
+            description=np.asarray(ann.description, dtype=object),
+            orig_time=None,
+        )
     else:
-        rec_start_sec = float(raw_out.first_samp) / sfreq
+        rec_start_sec = first_time_sec
         rec_end_sec = float(raw_out.first_samp + n_times) / sfreq  # exclusive end
         last_sample_sec = float(raw_out.first_samp + n_times - 1) / sfreq
+        report_offset = 0.0
 
     head_desc = str(description) if head_description is None else str(head_description)
     tail_desc = str(description) if tail_description is None else str(tail_description)
@@ -1279,13 +1301,16 @@ def add_head_tail_annotations(
         "head_description": head_desc,
         "tail_description": tail_desc,
         "n_added": int(len(new_onsets)),
-        "added_onsets_sec": [float(x) for x in new_onsets],
+        "added_onsets_sec": [float(x) + report_offset for x in new_onsets],
         "added_durations_sec": [float(x) for x in new_durs],
         "orig_time_is_none": bool(orig_time is None),
-        "recording_start_sec": float(rec_start_sec),
-        "recording_end_sec": float(rec_end_sec),
-        "last_sample_sec": float(last_sample_sec),
+        "first_time_sec": float(first_time_sec),
+        "recording_start_sec": float(rec_start_sec) + report_offset,
+        "recording_end_sec": float(rec_end_sec) + report_offset,
+        "last_sample_sec": float(last_sample_sec) + report_offset,
         "total_duration_sec": float(total_len_sec),
+        "n_annotations_in": n_annotations_in,
+        "n_annotations_out": int(len(raw_out.annotations)),
     }
 
     return raw_out, report

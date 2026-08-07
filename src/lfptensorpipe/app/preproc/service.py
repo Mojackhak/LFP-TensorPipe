@@ -245,12 +245,19 @@ def resolve_preproc_step_source(
     )
 
 
-def apply_finish_step(context: RecordContext) -> tuple[bool, str]:
+def apply_finish_step(
+    context: RecordContext,
+    *,
+    read_raw_fif_fn: Any | None = None,
+    add_head_tail_annotations_fn: Any | None = None,
+) -> tuple[bool, str]:
     ok, message = _apply_finish_step_impl(
         context,
         resolve_finish_source_fn=resolve_finish_source,
         preproc_step_raw_path_fn=preproc_step_raw_path,
         mark_preproc_step_fn=mark_preproc_step,
+        read_raw_fif_fn=read_raw_fif_fn,
+        add_head_tail_annotations_fn=add_head_tail_annotations_fn,
     )
     if ok:
         invalidate_after_preproc_result_change(context, changed_step="finish")
@@ -288,7 +295,6 @@ def apply_bad_segment_step(
     *,
     read_raw_fif_fn: Any | None = None,
     filter_lfp_with_bad_annotations_fn: Any | None = None,
-    add_head_tail_annotations_fn: Any | None = None,
 ) -> tuple[bool, str]:
     ok, message = _apply_bad_segment_step_impl(
         context,
@@ -297,7 +303,6 @@ def apply_bad_segment_step(
         invalidate_downstream_fn=invalidate_downstream_preproc_steps,
         read_raw_fif_fn=read_raw_fif_fn,
         filter_lfp_with_bad_annotations_fn=filter_lfp_with_bad_annotations_fn,
-        add_head_tail_annotations_fn=add_head_tail_annotations_fn,
     )
     return ok, message
 
