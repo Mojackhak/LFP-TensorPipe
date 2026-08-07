@@ -144,6 +144,8 @@ def _format_parse_result(dialog, preview: ParsedImportPreview) -> str:
         f"sfreq: {sfreq:.2f}",
         f"duration: {duration:.3f} s",
     ]
+    if report.get("timeline"):
+        lines.append(f"timeline: {report['timeline']}")
     if dialog._sync_check.isChecked():
         if dialog._sync_state is None:
             lines.append("sync: needs config")

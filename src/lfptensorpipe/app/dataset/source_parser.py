@@ -8,6 +8,11 @@ from typing import Any
 import pandas as pd
 
 from lfptensorpipe.io.converter import df2mne
+from lfptensorpipe.io.timeline import (
+    format_timeline_normalization,
+    normalize_raw_timeline,
+    raw_relative_onsets,
+)
 
 
 def _is_fif_like_path(path: Path) -> bool:
@@ -96,6 +101,8 @@ def _load_raw_from_source(
 
     import mne
 
+    # Deliberately not normalized here: load_import_channel_names() only needs
+    # ch_names, and the import runner normalizes (and reports) before saving.
     raw = mne.io.read_raw(str(source_path), preload=True, verbose="ERROR")
     return raw, suffix == ".fif"
 
@@ -106,35 +113,46 @@ def parse_record_source(
     paths: dict[str, str],
     options: dict[str, Any] | None = None,
 ) -> tuple[Any, dict[str, str], bool]:
-    """Parse one import source by selected import type."""
+    """Parse one import source by selected import type.
+
+    Every branch funnels through `normalize_raw_timeline`, so downstream steps
+    (sync, reset-reference, import) always see `first_samp == 0` without any
+    change to the absolute time of samples or annotations.
+    """
     normalized = str(import_type).strip()
     if normalized == "Medtronic":
         from lfptensorpipe.io.medtronic import parse as parse_medtronic
 
         raw, report = parse_medtronic(paths, options)
-        return raw, report, False
-    if normalized == "PINS":
+        is_fif_input = False
+    elif normalized == "PINS":
         from lfptensorpipe.io.pins import parse as parse_pins
 
         raw, report = parse_pins(paths, options)
-        return raw, report, False
-    if normalized == "Sceneray":
+        is_fif_input = False
+    elif normalized == "Sceneray":
         from lfptensorpipe.io.sceneray import parse as parse_sceneray
 
         raw, report = parse_sceneray(paths, options)
-        return raw, report, False
-    if normalized == "Legacy (MNE supported)":
+        is_fif_input = False
+    elif normalized == "Legacy (MNE supported)":
         from lfptensorpipe.io.mne_supported import parse as parse_mne_supported
 
         raw, report = parse_mne_supported(paths, options)
-        file_path = Path(str(paths.get("file_path", "")))
-        return raw, report, _is_fif_like_path(file_path)
-    if normalized == "Legacy (CSV)":
+        is_fif_input = _is_fif_like_path(Path(str(paths.get("file_path", ""))))
+    elif normalized == "Legacy (CSV)":
         from lfptensorpipe.io.csv import parse as parse_legacy_csv
 
         raw, report = parse_legacy_csv(paths, options)
-        return raw, report, False
-    raise ValueError(f"Unsupported import type: {import_type!r}")
+        is_fif_input = False
+    else:
+        raise ValueError(f"Unsupported import type: {import_type!r}")
+
+    raw, timeline_report = normalize_raw_timeline(raw)
+    summary = format_timeline_normalization(timeline_report)
+    if summary and isinstance(report, dict):
+        report["timeline"] = summary
+    return raw, report, is_fif_input
 
 
 def apply_reset_reference(
@@ -203,7 +221,17 @@ def apply_reset_reference(
     )
     out = mne.io.RawArray(mat, info, verbose="ERROR")
     out.set_meas_date(raw.info.get("meas_date"))
-    out.set_annotations(raw.annotations.copy())
+    # `out` restarts at first_samp == 0, so onsets must be pulled back into the
+    # record-relative frame or set_annotations() would crop them away.
+    annotations = raw.annotations
+    out.set_annotations(
+        mne.Annotations(
+            onset=raw_relative_onsets(raw),
+            duration=np.asarray(annotations.duration, dtype=float),
+            description=np.asarray(annotations.description, dtype=object),
+            orig_time=out.info.get("meas_date"),
+        )
+    )
     return out
 
 

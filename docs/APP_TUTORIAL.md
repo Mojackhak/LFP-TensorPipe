@@ -99,6 +99,14 @@ Also enable `Advanced` and set the metadata sidecar to:
 Click `Parse` first. The parse summary should report the SceneRay vendor,
 sampling rate, duration, and channel count.
 
+Parsing also rebases the recording onto a zero sample offset, so every imported
+record shares one time convention before `Sync` and `Reset reference` run.
+Nothing moves in time: `first_samp` becomes `0`, `meas_date` advances by the same
+amount, and every annotation onset shifts back by it, so absolute timestamps and
+the spacing between markers and samples are unchanged. Sources that already start
+at sample `0` — every vendor flow in this tutorial — are left untouched. When a
+rebase does happen, the parse summary adds a `timeline:` line reporting it.
+
 ### 3.1 Configure `Sync`
 
 This step aligns the LFP recording with the gait-video time base. In this

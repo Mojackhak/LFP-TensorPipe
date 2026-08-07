@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 from scipy.signal import find_peaks
 
+from lfptensorpipe.io.timeline import raw_relative_onsets
+
 from .models import (
     MarkerPair,
     MarkerPoint,
@@ -344,7 +346,9 @@ def build_synced_raw(raw: Any, estimate: SyncEstimate) -> Any:
 
     annotations = getattr(raw, "annotations", None)
     if annotations is not None and len(annotations) > 0:
-        onsets = np.asarray(annotations.onset, dtype=float)
+        # synced_raw restarts at first_samp == 0, so onsets must be pulled back
+        # into the record-relative frame before the lag shift is applied.
+        onsets = raw_relative_onsets(raw)
         durations = np.asarray(annotations.duration, dtype=float)
         desc = list(annotations.description)
         if sfreq_after_hz != sfreq_before_hz:
