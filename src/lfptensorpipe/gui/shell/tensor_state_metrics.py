@@ -110,21 +110,10 @@ class MainWindowTensorStateMetricsMixin:
         label = form.labelForField(edit)
         if label is None:
             return
-        params = self._tensor_metric_params.get(self._tensor_active_metric_key, {})
-        method = params.get("method", "morlet")
-        if (
-            self._tensor_method_combo is not None
-            and self._tensor_method_combo.isVisible()
-        ):
-            method = self._tensor_method_combo.currentData()
-        is_multitaper = str(method).strip().lower() == "multitaper"
-        label.setText(
-            "Minimum MT window (s)" if is_multitaper else "Time resolution (s)"
-        )
+        label.setText("Time resolution (s)")
         edit.setToolTip(
-            "Minimum Multitaper window. Low frequencies may use longer windows."
-            if is_multitaper
-            else "Window duration for spectral estimation."
+            "Target Morlet time scale or minimum Multitaper window. "
+            "Low frequencies may use longer Multitaper windows."
         )
 
     def _apply_tensor_metric_payload(

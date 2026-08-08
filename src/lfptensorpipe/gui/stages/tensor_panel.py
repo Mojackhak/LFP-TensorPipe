@@ -188,7 +188,8 @@ def _build_tensor_metric_params_block(self) -> QGroupBox:
     self._tensor_step_edit.setToolTip("Frequency spacing for computation grid.")
     self._tensor_time_resolution_edit = QLineEdit()
     self._tensor_time_resolution_edit.setToolTip(
-        "Window duration for spectral estimation."
+        "Target Morlet time scale or minimum Multitaper window. "
+        "Low frequencies may use longer Multitaper windows."
     )
     self._tensor_hop_edit = QLineEdit()
     self._tensor_hop_edit.setToolTip("Step size between adjacent windows.")
