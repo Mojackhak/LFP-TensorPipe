@@ -15,6 +15,144 @@ ValidateNameFn = Callable[[str], tuple[bool, str]]
 DiscoverFn = Callable[..., list[str]]
 LoadRawFn = Callable[..., tuple[Any, bool]]
 ApplyBipolarFn = Callable[..., Any]
+RecordScopePathsFn = Callable[[Path, str, str], dict[str, Path]]
+
+
+def _standard_record_roots(
+    *,
+    project_root: Path,
+    subject: str,
+    record: str,
+    record_scope_paths_fn: RecordScopePathsFn,
+) -> dict[str, Path]:
+    """Return every standard record root keyed by scope.
+
+    The scope set comes from the injected mapping rather than a local copy, so a
+    new standard scope is covered by the occupancy check automatically instead of
+    being skipped until a second list is updated.
+    """
+    return dict(record_scope_paths_fn(project_root, subject, record))
+
+
+def _occupied_record_roots(standard_roots: dict[str, Path]) -> tuple[Path, ...]:
+    return tuple(path for path in standard_roots.values() if path.exists())
+
+
+def _record_conflict_message(
+    *,
+    subject: str,
+    record: str,
+    occupied_roots: tuple[Path, ...],
+) -> str:
+    paths = "\n".join(f"- {path}" for path in occupied_roots)
+    return (
+        f"Record already exists: {subject}/{record}.\n"
+        f"Occupied standard roots:\n{paths}"
+    )
+
+
+def _persist_record_import(
+    *,
+    project_root: Path,
+    subject: str,
+    record: str,
+    raw: Any,
+    source_path: Path,
+    is_fif_input: bool,
+    result_cls: type,
+    record_scope_paths_fn: RecordScopePathsFn,
+    rawdata_record_fif_path_fn: Callable[[Path, str, str], Path],
+    sourcedata_record_raw_dir_fn: Callable[[Path, str, str], Path],
+    persist_import_sync_artifacts_fn: Callable[..., Any] | None = None,
+    sync_state: Any | None = None,
+):
+    """Persist an import and roll back only record roots created by this call."""
+    standard_roots = _standard_record_roots(
+        project_root=project_root,
+        subject=subject,
+        record=record,
+        record_scope_paths_fn=record_scope_paths_fn,
+    )
+    occupied_roots = _occupied_record_roots(standard_roots)
+    if occupied_roots:
+        return result_cls(
+            ok=False,
+            message=_record_conflict_message(
+                subject=subject,
+                record=record,
+                occupied_roots=occupied_roots,
+            ),
+        )
+
+    raw_fif_path = rawdata_record_fif_path_fn(project_root, subject, record)
+    source_copy_path: Path | None = None
+    owned_roots: list[Path] = []
+
+    try:
+        # Normally a no-op: parse_record_source already normalized. It still fires
+        # for callers that reach this API without going through the parse choke point.
+        raw, timeline_report = normalize_raw_timeline(raw)
+        timeline_summary = format_timeline_normalization(timeline_report)
+
+        derivatives_root = standard_roots["derivatives"]
+        derivatives_root.mkdir(parents=True, exist_ok=False)
+        owned_roots.append(derivatives_root)
+
+        rawdata_root = standard_roots["rawdata"]
+        rawdata_root.mkdir(parents=True, exist_ok=False)
+        owned_roots.append(rawdata_root)
+        raw_fif_path.parent.mkdir(parents=True, exist_ok=True)
+        raw.save(str(raw_fif_path))
+
+        if not bool(is_fif_input):
+            sourcedata_root = standard_roots["sourcedata"]
+            sourcedata_root.mkdir(parents=True, exist_ok=False)
+            owned_roots.append(sourcedata_root)
+            source_copy_path = (
+                sourcedata_record_raw_dir_fn(project_root, subject, record)
+                / source_path.name
+            )
+            source_copy_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, source_copy_path)
+
+        if sync_state is not None:
+            if persist_import_sync_artifacts_fn is None:
+                raise RuntimeError("Missing persist_import_sync_artifacts_fn.")
+            persist_import_sync_artifacts_fn(
+                project_root=project_root,
+                subject=subject,
+                record=record,
+                raw_fif_path=raw_fif_path,
+                sync_state=sync_state,
+            )
+    except Exception as exc:  # noqa: BLE001
+        for root in reversed(owned_roots):
+            if not root.exists():
+                continue
+            try:
+                shutil.rmtree(root)
+            except Exception:  # noqa: BLE001
+                continue
+
+        remaining_roots = _occupied_record_roots(standard_roots)
+        message = f"Failed to import record: {exc}"
+        if remaining_roots:
+            remaining = "\n".join(f"- {path}" for path in remaining_roots)
+            message = (
+                f"{message}\n"
+                f"Standard record roots still present after cleanup:\n{remaining}"
+            )
+        return result_cls(ok=False, message=message)
+
+    message = f"Record imported: {subject}/{record}"
+    if timeline_summary:
+        message = f"{message} ({timeline_summary})"
+    return result_cls(
+        ok=True,
+        message=message,
+        raw_fif_path=raw_fif_path,
+        sourcedata_copy_path=source_copy_path,
+    )
 
 
 def import_record_from_raw(
@@ -29,9 +167,8 @@ def import_record_from_raw(
     validate_subject_name_fn: ValidateNameFn,
     validate_record_name_fn: ValidateNameFn,
     discover_subjects_fn: DiscoverFn,
-    discover_records_fn: DiscoverFn,
+    record_scope_paths_fn: RecordScopePathsFn,
     rawdata_record_fif_path_fn: Callable[[Path, str, str], Path],
-    derivatives_record_root_fn: Callable[[Path, str, str], Path],
     sourcedata_record_raw_dir_fn: Callable[[Path, str, str], Path],
     persist_import_sync_artifacts_fn: Callable[..., Any] | None = None,
     sync_state: Any | None = None,
@@ -55,74 +192,39 @@ def import_record_from_raw(
         return result_cls(ok=False, message=f"Missing project path: {project_root}")
     if normalized_subject not in discover_subjects_fn(project_root):
         return result_cls(ok=False, message=f"Missing subject: {normalized_subject}")
-    if normalized_record in discover_records_fn(project_root, normalized_subject):
+
+    standard_roots = _standard_record_roots(
+        project_root=project_root,
+        subject=normalized_subject,
+        record=normalized_record,
+        record_scope_paths_fn=record_scope_paths_fn,
+    )
+    occupied_roots = _occupied_record_roots(standard_roots)
+    if occupied_roots:
         return result_cls(
             ok=False,
-            message=f"Record already exists: {normalized_subject}/{normalized_record}",
+            message=_record_conflict_message(
+                subject=normalized_subject,
+                record=normalized_record,
+                occupied_roots=occupied_roots,
+            ),
         )
     if not source_path.exists() or not source_path.is_file():
         return result_cls(ok=False, message=f"Missing source file: {source_path}")
 
-    raw_fif_path = rawdata_record_fif_path_fn(
-        project_root, normalized_subject, normalized_record
-    )
-    derivatives_root = derivatives_record_root_fn(
-        project_root, normalized_subject, normalized_record
-    )
-    sync_root = derivatives_root / "import"
-    source_copy_path: Path | None = None
-    raw_record_root = raw_fif_path.parents[1]
-
-    # Normally a no-op: parse_record_source already normalized. It still fires for
-    # callers that reach this API without going through the parse choke point.
-    raw, timeline_report = normalize_raw_timeline(raw)
-    timeline_summary = format_timeline_normalization(timeline_report)
-
-    try:
-        derivatives_root.mkdir(parents=True, exist_ok=True)
-        raw_fif_path.parent.mkdir(parents=True, exist_ok=True)
-        raw.save(str(raw_fif_path), overwrite=True)
-
-        if not bool(is_fif_input):
-            source_copy_path = (
-                sourcedata_record_raw_dir_fn(
-                    project_root, normalized_subject, normalized_record
-                )
-                / source_path.name
-            )
-            source_copy_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source_path, source_copy_path)
-
-        if sync_state is not None:
-            if persist_import_sync_artifacts_fn is None:
-                raise RuntimeError("Missing persist_import_sync_artifacts_fn.")
-            persist_import_sync_artifacts_fn(
-                project_root=project_root,
-                subject=normalized_subject,
-                record=normalized_record,
-                raw_fif_path=raw_fif_path,
-                sync_state=sync_state,
-            )
-    except Exception as exc:
-        for root in (
-            sync_root,
-            source_copy_path.parents[1] if source_copy_path is not None else None,
-            raw_record_root,
-            derivatives_root,
-        ):
-            if root is None or not root.exists():
-                continue
-            shutil.rmtree(root, ignore_errors=True)
-        return result_cls(ok=False, message=f"Failed to import record: {exc}")
-
-    message = f"Record imported: {normalized_subject}/{normalized_record}"
-    if timeline_summary:
-        message = f"{message} ({timeline_summary})"
-    return result_cls(
-        ok=True,
-        message=message,
-        raw_fif_path=raw_fif_path,
-        sourcedata_copy_path=source_copy_path,
+    return _persist_record_import(
+        project_root=project_root,
+        subject=normalized_subject,
+        record=normalized_record,
+        raw=raw,
+        source_path=source_path,
+        is_fif_input=is_fif_input,
+        result_cls=result_cls,
+        record_scope_paths_fn=record_scope_paths_fn,
+        rawdata_record_fif_path_fn=rawdata_record_fif_path_fn,
+        sourcedata_record_raw_dir_fn=sourcedata_record_raw_dir_fn,
+        persist_import_sync_artifacts_fn=persist_import_sync_artifacts_fn,
+        sync_state=sync_state,
     )
 
 
@@ -140,11 +242,10 @@ def import_record(
     validate_subject_name_fn: ValidateNameFn,
     validate_record_name_fn: ValidateNameFn,
     discover_subjects_fn: DiscoverFn,
-    discover_records_fn: DiscoverFn,
+    record_scope_paths_fn: RecordScopePathsFn,
     load_raw_from_source_fn: LoadRawFn,
     apply_bipolar_reference_fn: ApplyBipolarFn,
     rawdata_record_fif_path_fn: Callable[[Path, str, str], Path],
-    derivatives_record_root_fn: Callable[[Path, str, str], Path],
     sourcedata_record_raw_dir_fn: Callable[[Path, str, str], Path],
     read_only_project_root: Path | None = None,
 ):
@@ -166,10 +267,22 @@ def import_record(
         return result_cls(ok=False, message=f"Missing project path: {project_root}")
     if normalized_subject not in discover_subjects_fn(project_root):
         return result_cls(ok=False, message=f"Missing subject: {normalized_subject}")
-    if normalized_record in discover_records_fn(project_root, normalized_subject):
+
+    standard_roots = _standard_record_roots(
+        project_root=project_root,
+        subject=normalized_subject,
+        record=normalized_record,
+        record_scope_paths_fn=record_scope_paths_fn,
+    )
+    occupied_roots = _occupied_record_roots(standard_roots)
+    if occupied_roots:
         return result_cls(
             ok=False,
-            message=f"Record already exists: {normalized_subject}/{normalized_record}",
+            message=_record_conflict_message(
+                subject=normalized_subject,
+                record=normalized_record,
+                occupied_roots=occupied_roots,
+            ),
         )
     if not source_path.exists() or not source_path.is_file():
         return result_cls(ok=False, message=f"Missing source file: {source_path}")
@@ -185,41 +298,18 @@ def import_record(
             bipolar_pairs,
             bipolar_names if bipolar_names else None,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return result_cls(ok=False, message=f"Failed to load source: {exc}")
 
-    raw_fif_path = rawdata_record_fif_path_fn(
-        project_root, normalized_subject, normalized_record
-    )
-    derivatives_root = derivatives_record_root_fn(
-        project_root, normalized_subject, normalized_record
-    )
-    derivatives_root.mkdir(parents=True, exist_ok=True)
-    raw_fif_path.parent.mkdir(parents=True, exist_ok=True)
-    raw, timeline_report = normalize_raw_timeline(raw)
-    timeline_summary = format_timeline_normalization(timeline_report)
-    try:
-        raw.save(str(raw_fif_path), overwrite=True)
-    except Exception as exc:
-        return result_cls(ok=False, message=f"Failed to save raw.fif: {exc}")
-
-    source_copy_path: Path | None = None
-    if not is_fif_input:
-        source_copy_path = (
-            sourcedata_record_raw_dir_fn(
-                project_root, normalized_subject, normalized_record
-            )
-            / source_path.name
-        )
-        source_copy_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_path, source_copy_path)
-
-    message = f"Record imported: {normalized_subject}/{normalized_record}"
-    if timeline_summary:
-        message = f"{message} ({timeline_summary})"
-    return result_cls(
-        ok=True,
-        message=message,
-        raw_fif_path=raw_fif_path,
-        sourcedata_copy_path=source_copy_path,
+    return _persist_record_import(
+        project_root=project_root,
+        subject=normalized_subject,
+        record=normalized_record,
+        raw=raw,
+        source_path=source_path,
+        is_fif_input=is_fif_input,
+        result_cls=result_cls,
+        record_scope_paths_fn=record_scope_paths_fn,
+        rawdata_record_fif_path_fn=rawdata_record_fif_path_fn,
+        sourcedata_record_raw_dir_fn=sourcedata_record_raw_dir_fn,
     )

@@ -8,8 +8,10 @@ from __future__ import annotations
 
 from .config_store import AppConfigStore
 from .dataset_index import (
+    STANDARD_RECORD_SCOPES,
     discover_records,
     discover_subjects,
+    standard_record_scope_roots,
     resolve_demo_data_root,
     resolve_demo_data_source_readonly,
     scan_stage_states,
@@ -59,8 +61,10 @@ from .runlog_store import (
 
 __all__ = [
     "AppConfigStore",
+    "STANDARD_RECORD_SCOPES",
     "discover_records",
     "discover_subjects",
+    "standard_record_scope_roots",
     "invalidate_after_alignment_finish",
     "invalidate_after_alignment_run",
     "invalidate_after_localize_result_change",

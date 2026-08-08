@@ -266,11 +266,17 @@ def _on_confirm(dialog) -> None:
     if not ok:
         QMessageBox.warning(dialog, "Import Failed", normalized)
         return
-    if normalized in dialog._existing_records:
+    if dialog._record_name_is_occupied(normalized):
+        occupied_paths = dialog._occupied_paths_for_record(normalized)
+        if occupied_paths:
+            paths = "\n".join(f"- {path}" for path in occupied_paths)
+            message = f"Record name is occupied by:\n{paths}"
+        else:
+            message = f"Record name already exists: {normalized}"
         QMessageBox.warning(
             dialog,
             "Import Failed",
-            f"Record name already exists: {normalized}",
+            message,
         )
         return
     if dialog._reset_check.isChecked() and len(dialog._reset_rows) == 0:

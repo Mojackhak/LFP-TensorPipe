@@ -78,12 +78,31 @@ def discover_subjects(project_root: Path) -> list[str]:
     return sorted(set(candidates))
 
 
+def standard_record_scope_roots(project_root: Path, subject: str) -> dict[str, Path]:
+    """Return the subject-level parent of each standard record root, by scope.
+
+    This is the single definition of the current standard record layout. Record
+    discovery and the import-occupancy check must both derive from it, otherwise
+    a layout change could make a record block imports without being listed, or
+    the reverse.
+    """
+    return {
+        "derivatives": project_root / "derivatives" / "lfptensorpipe" / subject,
+        "rawdata": project_root / "rawdata" / subject / "ses-postop" / "lfp",
+        "sourcedata": project_root / "sourcedata" / subject / "lfp",
+    }
+
+
+STANDARD_RECORD_SCOPES: tuple[str, ...] = tuple(standard_record_scope_roots(Path(), ""))
+
+
 def discover_records(project_root: Path, subject: str) -> list[str]:
-    """Discover records from derivatives root only."""
-    records_root = project_root / "derivatives" / "lfptensorpipe" / subject
-    if not records_root.exists():
-        return []
-    candidates = [path.name for path in records_root.iterdir() if path.is_dir()]
+    """Discover records from all current standard record roots."""
+    candidates: list[str] = []
+    for records_root in standard_record_scope_roots(project_root, subject).values():
+        if not records_root.exists():
+            continue
+        candidates.extend(path.name for path in records_root.iterdir() if path.is_dir())
     return sorted(set(candidates))
 
 

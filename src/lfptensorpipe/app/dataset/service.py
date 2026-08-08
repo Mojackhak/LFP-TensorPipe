@@ -7,7 +7,7 @@ from pathlib import Path
 import shutil
 from typing import Any
 
-from lfptensorpipe.app.dataset_index import discover_records, discover_subjects
+from lfptensorpipe.app.dataset_index import discover_subjects
 from .delete_runner import delete_record as _delete_record_impl
 from .import_runner import (
     import_record as _import_record_impl,
@@ -194,9 +194,8 @@ def import_record_from_raw(
         validate_subject_name_fn=validate_subject_name,
         validate_record_name_fn=validate_record_name,
         discover_subjects_fn=discover_subjects,
-        discover_records_fn=discover_records,
+        record_scope_paths_fn=record_delete_scope_paths,
         rawdata_record_fif_path_fn=rawdata_record_fif_path,
-        derivatives_record_root_fn=derivatives_record_root,
         sourcedata_record_raw_dir_fn=sourcedata_record_raw_dir,
         persist_import_sync_artifacts_fn=_persist_import_sync_artifacts_impl,
         read_only_project_root=read_only_project_root,
@@ -230,12 +229,11 @@ def import_record(
         validate_subject_name_fn=validate_subject_name,
         validate_record_name_fn=validate_record_name,
         discover_subjects_fn=discover_subjects,
-        discover_records_fn=discover_records,
+        record_scope_paths_fn=record_delete_scope_paths,
         load_raw_from_source_fn=load_raw_from_source_fn or _load_raw_from_source,
         apply_bipolar_reference_fn=apply_bipolar_reference_fn
         or _apply_bipolar_reference,
         rawdata_record_fif_path_fn=rawdata_record_fif_path,
-        derivatives_record_root_fn=derivatives_record_root,
         sourcedata_record_raw_dir_fn=sourcedata_record_raw_dir,
         read_only_project_root=read_only_project_root,
     )

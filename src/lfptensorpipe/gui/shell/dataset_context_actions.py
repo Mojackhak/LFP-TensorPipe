@@ -72,11 +72,22 @@ class MainWindowDatasetContextActionsMixin:
                 self._current_subject,
             )
         )
+        occupied_record_paths = {}
+        for record_name in existing_records:
+            scope_paths = self._record_delete_scope_paths_runtime(
+                self._current_project,
+                self._current_subject,
+                record_name,
+            )
+            occupied_record_paths[record_name] = tuple(
+                path for path in scope_paths.values() if path.exists()
+            )
         dialog = self._create_record_import_dialog(
             project_root=self._current_project,
             existing_records=existing_records,
             default_import_type=self._load_record_import_last_type(),
             config_store=self._config_store,
+            occupied_record_paths=occupied_record_paths,
             parent=self,
         )
         if dialog.exec() != QDialog.Accepted:

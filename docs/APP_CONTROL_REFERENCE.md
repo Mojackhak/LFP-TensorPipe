@@ -43,10 +43,10 @@ on the selected project, subject, and record.
 | `Project +` | Adds an existing project path to recent project history. | Available project choices. | Always available. |
 | `Subject` | Selects the active subject under the current project. | Record list and all record-scoped panels. | Requires a selected project. |
 | `Subject +` | Creates a new subject folder under the current project. | Subject inventory. | Requires a selected project. |
-| `Record` | Selects the active record under the current subject. | Localize and all stage pages. | Requires a selected subject. |
-| `Record +` | Opens the record import dialog. | Creates a new record when the import completes successfully. | Requires a selected subject. |
+| `Record` | Selects the active record under the current subject. Records are listed when any standard Derivatives, Rawdata, or Sourcedata record root exists. | Localize and all stage pages. | Requires a selected subject. A record with no canonical Rawdata input remains manageable but is not runnable. |
+| `Record +` | Opens the record import dialog. | Creates a new record when the import completes successfully. | Requires a selected subject. A name already occupied by any standard record root cannot be imported. |
 | `Record R` | Renames the selected record while preserving compatible downstream artifacts. | Record name and artifact paths that track that name. | Requires exactly one selected record. |
-| `Record -` | Opens a permanent-delete dialog for the selected record. | The selected standard `Derivatives`, `Rawdata`, and/or `Sourcedata` record roots. | Requires exactly one selected record; `Derivatives` is selected by default. |
+| `Record -` | Opens a permanent-delete dialog for the selected record. | The selected standard `Derivatives`, `Rawdata`, and/or `Sourcedata` record roots. | Requires exactly one selected record. Missing scopes are disabled; the first existing scope in Derivatives, Rawdata, Sourcedata order is selected by default. |
 
 `Record -` deletes only the selected standard record roots:
 
@@ -54,8 +54,18 @@ on the selected project, subject, and record.
 - `Rawdata`: `<project>/rawdata/<subject>/ses-postop/lfp/<record>`
 - `Sourcedata`: `<project>/sourcedata/<subject>/lfp/<record>`
 
-The dialog defaults to `Derivatives` only and disables `Delete` when no scope is
-selected. Deletion is permanent and does not move files to Trash.
+A record remains listed while any one of these standard roots exists, including
+an empty or partially populated root left by an interrupted operation. Deleting
+only Derivatives therefore does not hide a record that still has Rawdata or
+Sourcedata. A Rawdata-only record starts with gray processing state; the existing
+Raw Plot action can bootstrap its preprocessing input from the canonical
+`raw.fif`. A Sourcedata-only record can be renamed or deleted but is not runnable
+because it has no canonical Rawdata input.
+
+The Delete dialog disables scopes whose standard roots do not exist. It selects
+only the first existing scope in Derivatives, Rawdata, Sourcedata order and
+disables `Delete` when no scope is selected. Deletion is permanent and does not
+move files to Trash.
 
 ### 2.2 Localize Summary Row
 
@@ -96,7 +106,7 @@ inputs.
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | `Import Type` | Chooses the parser family for the source file. | Which fields, validation rules, and sidecars are required. | Always available. |
-| `Record Name` | Defines the record name that will be created under the current subject. | Record folder name and downstream artifact paths. | Required before import can succeed. |
+| `Record Name` | Defines the record name that will be created under the current subject and reports any occupied standard record paths. | Record folder name and downstream artifact paths. | Required before import can succeed. A conflict does not block Parse, but it disables `Confirm Import`. |
 | `File Path` | Points to the primary source file. | Parse result and final imported record contents. | Required before parse. |
 | `Browse` | Opens a file chooser for the primary source file. | Fills `File Path`. | Always available. |
 | `Advanced` | Reveals optional sidecar inputs supported by the selected import type. | Whether auxiliary import fields are shown. | Always available. |
@@ -110,8 +120,16 @@ inputs.
 | `Configure...` (Reset reference) | Opens the reset-reference dialog. | Saved reset-reference pairs. | Enabled when `Reset reference` is checked and channels were parsed. |
 | `Reset reference` summary | Reports the saved reset-reference state. | Import gating feedback. | Read-only. |
 | `Parse Result` | Reports parser summary such as vendor, channels, sampling rate, and duration. | Human validation only. | Read-only after parse. |
-| `Confirm Import` | Commits the parsed record into the current subject. | Record creation under the selected subject. | Disabled until parse succeeds and all enabled prerequisite dialogs are saved. |
+| `Confirm Import` | Commits the parsed record into the current subject. The backend repeats the standard-path conflict check immediately before writing. | Record creation under the selected subject. | Disabled until parse succeeds, all enabled prerequisite dialogs are saved, and the normalized record name is not occupied. |
 | `Cancel` | Closes the dialog without importing. | No record creation. | Always available. |
+
+An import name is occupied when any standard Derivatives, Rawdata, or Sourcedata
+record root already exists, even if that root is empty or incomplete. A conflict
+is rejected before directory creation, Raw saving, source copying, or sync export;
+ordinary import never overwrites an occupied record. If a Python exception occurs
+after a new import starts writing, rollback removes only standard record roots
+created by that import call and preserves pre-existing paths, the caller's source
+file, shared subject directories, and unrelated records.
 
 ### 3.2 Sync Import Signal
 

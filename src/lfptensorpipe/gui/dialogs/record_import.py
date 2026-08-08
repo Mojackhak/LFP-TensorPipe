@@ -22,6 +22,7 @@ from .common import (
     RECORD_CONFIG_FILENAME,
     RECORD_IMPORT_TYPES,
     RECORD_RESET_REFERENCE_DEFAULTS_KEY,
+    validate_record_name,
 )
 from .dataset_types import ParsedImportPreview, ResetReferenceRow
 from .import_sync import ImportSyncDialog
@@ -74,6 +75,7 @@ class RecordImportDialog(QDialog):
         existing_records: tuple[str, ...],
         default_import_type: str,
         config_store: AppConfigStore,
+        occupied_record_paths: dict[str, tuple[Path, ...]] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -83,6 +85,10 @@ class RecordImportDialog(QDialog):
         self._config_store = config_store
         self._project_root = project_root
         self._existing_records = set(existing_records)
+        self._occupied_record_paths = {
+            name: tuple(paths) for name, paths in (occupied_record_paths or {}).items()
+        }
+        self._existing_records.update(self._occupied_record_paths)
         self._parsed: ParsedImportPreview | None = None
         self._sync_state = None
         self._reset_rows: tuple[ResetReferenceRow, ...] = ()
@@ -122,6 +128,14 @@ class RecordImportDialog(QDialog):
             "Record name to create under the current subject."
         )
         left_layout.addWidget(self._record_name_edit, row, 1)
+        row += 1
+
+        self._record_conflict_label = QLabel()
+        self._record_conflict_label.setObjectName("recordImportConflictPaths")
+        self._record_conflict_label.setWordWrap(True)
+        self._record_conflict_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._record_conflict_label.setVisible(False)
+        left_layout.addWidget(self._record_conflict_label, row, 1)
         row += 1
 
         left_layout.addWidget(QLabel("File Path"), row, 0)
@@ -430,6 +444,32 @@ class RecordImportDialog(QDialog):
 
     def _set_result_placeholder(self) -> None:
         _set_result_placeholder_impl(self)
+
+    def _occupied_paths_for_record(self, normalized_record: str) -> tuple[Path, ...]:
+        return self._occupied_record_paths.get(normalized_record, ())
+
+    def _record_name_is_occupied(self, normalized_record: str | None = None) -> bool:
+        if normalized_record is None:
+            ok, normalized_record = validate_record_name(self.selected_record_name)
+            if not ok:
+                return False
+        return normalized_record in self._existing_records
+
+    def _update_record_conflict_display(self) -> None:
+        ok, normalized_record = validate_record_name(self.selected_record_name)
+        if not ok or not self._record_name_is_occupied(normalized_record):
+            self._record_conflict_label.clear()
+            self._record_conflict_label.setVisible(False)
+            return
+
+        occupied_paths = self._occupied_paths_for_record(normalized_record)
+        if occupied_paths:
+            paths = "\n".join(f"- {path}" for path in occupied_paths)
+            message = f"Record name is occupied by:\n{paths}"
+        else:
+            message = f"Record name is occupied: {normalized_record}"
+        self._record_conflict_label.setText(message)
+        self._record_conflict_label.setVisible(True)
 
     def _on_record_name_edited(self, _text: str) -> None:
         self._record_name_edited = True

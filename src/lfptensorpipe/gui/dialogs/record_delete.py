@@ -55,10 +55,19 @@ class RecordDeleteDialog(QDialog):
         warning_label.setWordWrap(True)
         root.addWidget(warning_label)
 
+        default_scope = next(
+            (
+                scope
+                for scope in RECORD_DELETE_SCOPES
+                if self._scope_paths[scope].exists()
+            ),
+            None,
+        )
         for scope in RECORD_DELETE_SCOPES:
             checkbox = QCheckBox(_SCOPE_LABELS[scope])
             checkbox.setObjectName(f"recordDeleteScope_{scope}")
-            checkbox.setChecked(scope == "derivatives")
+            checkbox.setEnabled(self._scope_paths[scope].exists())
+            checkbox.setChecked(scope == default_scope)
             checkbox.toggled.connect(self._update_delete_enabled)
             root.addWidget(checkbox)
 

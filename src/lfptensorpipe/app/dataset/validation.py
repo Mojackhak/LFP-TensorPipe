@@ -5,11 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
-from lfptensorpipe.app.dataset_index import discover_subjects
+from lfptensorpipe.app.dataset_index import (
+    STANDARD_RECORD_SCOPES,
+    discover_subjects,
+    standard_record_scope_roots,
+)
 
 SUBJECT_PATTERN = re.compile(r"^sub-[A-Za-z0-9]+$")
 RECORD_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
-RECORD_DELETE_SCOPES = ("derivatives", "rawdata", "sourcedata")
+# Delete exposes exactly the standard record scopes, in layout order.
+RECORD_DELETE_SCOPES = STANDARD_RECORD_SCOPES
 
 
 def validate_subject_name(subject: str) -> tuple[bool, str]:
@@ -67,23 +72,15 @@ def record_delete_scope_paths(
 ) -> dict[str, Path]:
     """Return standard record roots keyed by delete scope."""
     return {
-        "derivatives": (
-            project_root / "derivatives" / "lfptensorpipe" / subject / record
-        ),
-        "rawdata": (project_root / "rawdata" / subject / "ses-postop" / "lfp" / record),
-        "sourcedata": project_root / "sourcedata" / subject / "lfp" / record,
+        scope: root / record
+        for scope, root in standard_record_scope_roots(project_root, subject).items()
     }
 
 
 def rawdata_record_fif_path(project_root: Path, subject: str, record: str) -> Path:
     """Return standardized raw FIF output path for one record import."""
     return (
-        project_root
-        / "rawdata"
-        / subject
-        / "ses-postop"
-        / "lfp"
-        / record
+        record_delete_scope_paths(project_root, subject, record)["rawdata"]
         / "raw"
         / "raw.fif"
     )
@@ -91,9 +88,11 @@ def rawdata_record_fif_path(project_root: Path, subject: str, record: str) -> Pa
 
 def derivatives_record_root(project_root: Path, subject: str, record: str) -> Path:
     """Return derivatives record root for one imported record."""
-    return project_root / "derivatives" / "lfptensorpipe" / subject / record
+    return record_delete_scope_paths(project_root, subject, record)["derivatives"]
 
 
 def sourcedata_record_raw_dir(project_root: Path, subject: str, record: str) -> Path:
     """Return sourcedata original-file directory for non-FIF imports."""
-    return project_root / "sourcedata" / subject / "lfp" / record / "raw"
+    return (
+        record_delete_scope_paths(project_root, subject, record)["sourcedata"] / "raw"
+    )

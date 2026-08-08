@@ -52,7 +52,11 @@ def _update_sync_configure_button_state(dialog) -> None:
 
 
 def _update_confirm_button_state(dialog) -> None:
+    dialog._update_record_conflict_display()
     if dialog._parsed is None:
+        dialog._confirm_button.setEnabled(False)
+        return
+    if dialog._record_name_is_occupied():
         dialog._confirm_button.setEnabled(False)
         return
     if dialog._sync_check.isChecked() and dialog._sync_state is None:

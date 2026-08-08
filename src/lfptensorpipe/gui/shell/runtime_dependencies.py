@@ -47,6 +47,7 @@ from lfptensorpipe.app import (
     preproc_annotations_panel_state,
     preproc_ecg_panel_state,
     preproc_filter_panel_state,
+    record_delete_scope_paths,
     rename_record,
     upgrade_record_run_logs,
     run_align_epochs,
@@ -226,6 +227,14 @@ class MainWindowRuntimeDependenciesMixin:
         subject: str,
     ) -> list[str]:
         return discover_records(project_root, subject)
+
+    def _record_delete_scope_paths_runtime(
+        self,
+        project_root: Path,
+        subject: str,
+        record: str,
+    ) -> dict[str, Path]:
+        return record_delete_scope_paths(project_root, subject, record)
 
     def _upgrade_record_run_logs_runtime(
         self,
