@@ -272,6 +272,7 @@ class MainWindowTensorStateMetricsMixin:
             parse_float_field(self._tensor_time_resolution_edit, "time_resolution_s")
             parse_float_field(self._tensor_hop_edit, "hop_s")
         elif metric_key == "psi":
+            parse_float_field(self._tensor_step_edit, "freq_step_hz")
             parse_float_field(self._tensor_time_resolution_edit, "time_resolution_s")
             parse_float_field(self._tensor_hop_edit, "hop_s")
         if (
@@ -325,6 +326,7 @@ class MainWindowTensorStateMetricsMixin:
             overlay_text_field(self._tensor_time_resolution_edit, "time_resolution_s")
             overlay_text_field(self._tensor_hop_edit, "hop_s")
         elif metric_key == "psi":
+            overlay_text_field(self._tensor_step_edit, "freq_step_hz")
             overlay_text_field(self._tensor_time_resolution_edit, "time_resolution_s")
             overlay_text_field(self._tensor_hop_edit, "hop_s")
         if (

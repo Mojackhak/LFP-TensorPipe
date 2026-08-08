@@ -160,7 +160,7 @@ TENSOR_BASIC_PARAM_ROWS_BY_METRIC = {
             "hop_s",
         }
     ),
-    "psi": frozenset({"bands", "time_resolution_s", "hop_s"}),
+    "psi": frozenset({"freq_step_hz", "bands", "time_resolution_s", "hop_s"}),
     "burst": frozenset({"bands", "percentile"}),
 }
 T = TypeVar("T")

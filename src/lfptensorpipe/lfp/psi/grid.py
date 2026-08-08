@@ -121,31 +121,121 @@ def _normalize_bands(
     return band_names, band_segments, seg_edges_arr, seg_to_band_arr, union_edges_arr
 
 
-def _weighted_nanmean(
-    values: np.ndarray, weights: np.ndarray, *, axis: int
-) -> np.ndarray:
-    """Weighted mean that ignores NaNs.
+def _segment_frequency_support(
+    seg_edges: np.ndarray,
+    frequencies_hz: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Count strict-internal frequencies and adjacent PSI terms per segment."""
+    freqs = np.asarray(frequencies_hz, dtype=float)
+    counts = np.asarray(
+        [
+            int(np.sum((freqs > float(low)) & (freqs < float(high))))
+            for low, high in np.asarray(seg_edges, dtype=float)
+        ],
+        dtype=int,
+    )
+    return counts, np.maximum(counts - 1, 0)
 
-    Args:
-        values: Array with NaNs.
-        weights: 1D weights aligned with `axis`.
-        axis: Axis to reduce.
-    """
-    w = np.asarray(weights, dtype=float)
-    if w.ndim != 1:
-        raise ValueError("weights must be 1D")
-    w = w / np.sum(w) if np.sum(w) > 0 else w
-    w_shape = [1] * values.ndim
-    w_shape[axis] = w.size
-    w_b = w.reshape(w_shape)
 
-    finite = np.isfinite(values)
-    num = np.nansum(values * w_b, axis=axis)
-    den = np.nansum(w_b * finite, axis=axis)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        out = num / den
-    out = np.where(den > 0, out, np.nan)
-    return out
+def _validate_band_frequency_support(
+    *,
+    method: str,
+    band_names: list[str],
+    seg_edges: np.ndarray,
+    seg_to_band: np.ndarray,
+    n_internal_frequencies: np.ndarray,
+    n_adjacent_pairs: np.ndarray,
+) -> None:
+    unsupported_bands: list[str] = []
+    for band_i, band_name in enumerate(band_names):
+        segment_indices = np.flatnonzero(seg_to_band == band_i)
+        if bool(np.any(n_adjacent_pairs[segment_indices] > 0)):
+            continue
+        segment_details = ", ".join(
+            f"[{float(seg_edges[index, 0]):g}, {float(seg_edges[index, 1]):g}] Hz: "
+            f"{int(n_internal_frequencies[index])} internal frequencies, "
+            f"{int(n_adjacent_pairs[index])} adjacent pairs"
+            for index in segment_indices
+        )
+        unsupported_bands.append(f"'{band_name}' ({segment_details})")
+
+    if not unsupported_bands:
+        return
+    advice = (
+        "Decrease Step (Hz) or widen the band segment."
+        if method == "morlet"
+        else "Increase time_resolution_s or widen the band segment."
+    )
+    raise ValueError(
+        f"{method.capitalize()} PSI requires at least two frequencies strictly "
+        "inside at least one segment of every band. Unsupported band(s): "
+        + "; ".join(unsupported_bands)
+        + f". {advice}"
+    )
+
+
+def _partial_frequency_support_message(
+    *,
+    band_names: list[str],
+    seg_edges: np.ndarray,
+    seg_to_band: np.ndarray,
+    n_internal_frequencies: np.ndarray,
+    n_adjacent_pairs: np.ndarray,
+) -> str | None:
+    dropped: list[str] = []
+    for segment_index in np.flatnonzero(n_adjacent_pairs == 0):
+        band_name = band_names[int(seg_to_band[segment_index])]
+        dropped.append(
+            f"'{band_name}' [{float(seg_edges[segment_index, 0]):g}, "
+            f"{float(seg_edges[segment_index, 1]):g}] Hz "
+            f"({int(n_internal_frequencies[segment_index])} internal frequencies, "
+            f"{int(n_adjacent_pairs[segment_index])} adjacent pairs)"
+        )
+    if not dropped:
+        return None
+    return (
+        "PSI uses partial frequency support; dropped segment(s) without an "
+        "adjacent frequency pair: " + "; ".join(dropped) + "."
+    )
+
+
+def _frequency_support_by_band(
+    *,
+    band_names: list[str],
+    seg_edges: np.ndarray,
+    seg_to_band: np.ndarray,
+    n_internal_frequencies: np.ndarray,
+    n_adjacent_pairs: np.ndarray,
+) -> dict[str, dict[str, list[Any]]]:
+    support: dict[str, dict[str, list[Any]]] = {}
+    for band_i, band_name in enumerate(band_names):
+        segment_indices = np.flatnonzero(seg_to_band == band_i)
+        configured = [
+            [float(seg_edges[index, 0]), float(seg_edges[index, 1])]
+            for index in segment_indices
+        ]
+        used = [
+            [float(seg_edges[index, 0]), float(seg_edges[index, 1])]
+            for index in segment_indices
+            if int(n_adjacent_pairs[index]) > 0
+        ]
+        dropped = [
+            [float(seg_edges[index, 0]), float(seg_edges[index, 1])]
+            for index in segment_indices
+            if int(n_adjacent_pairs[index]) == 0
+        ]
+        support[str(band_name)] = {
+            "configured_segments_hz": configured,
+            "used_segments_hz": used,
+            "dropped_segments_hz": dropped,
+            "n_internal_frequencies_by_segment": [
+                int(n_internal_frequencies[index]) for index in segment_indices
+            ],
+            "n_adjacent_pairs_by_segment": [
+                int(n_adjacent_pairs[index]) for index in segment_indices
+            ],
+        }
+    return support
 
 
 def _default_cwt_freqs(band_edges: np.ndarray) -> np.ndarray:
@@ -175,29 +265,6 @@ def _normalize_method(method: str) -> str:
     if token in {"multitaper", "mt"}:
         return "multitaper"
     raise ValueError("`method` must be 'morlet' or 'multitaper'.")
-
-
-def _validate_multitaper_band_resolution(
-    *,
-    seg_edges: np.ndarray,
-    sfreq_hz: float,
-    window_n_samples: int,
-) -> None:
-    fourier_freqs = np.fft.rfftfreq(
-        int(window_n_samples),
-        d=1.0 / float(sfreq_hz),
-    )
-    for low, high in np.asarray(seg_edges, dtype=float):
-        n_bins = int(
-            np.sum((fourier_freqs > float(low)) & (fourier_freqs < float(high)))
-        )
-        if n_bins < 2:
-            raise ValueError(
-                "Multitaper PSI requires at least two frequency bins strictly "
-                f"inside every runtime band segment; [{float(low):g}, "
-                f"{float(high):g}] Hz has {n_bins}. Increase time_resolution_s "
-                "or widen the band segment."
-            )
 
 
 def _run_multitaper_windows(
@@ -372,6 +439,15 @@ def grid(
         )
     cwt_freqs_use: np.ndarray | None = None
     cwt_n_cycles: np.ndarray | None = None
+    mt_reference_frequencies_hz: np.ndarray | None = None
+    mt_effective_window_s: np.ndarray | None = None
+    mt_effective_bandwidth_hz: np.ndarray | None = None
+    mt_mask_radius_s: np.ndarray | None = None
+    mt_half_window_samples: list[int] | None = None
+    mt_window_n_samples: list[int] | None = None
+    mt_window_span_s: list[float] | None = None
+    n_internal_frequencies = np.zeros(seg_edges.shape[0], dtype=int)
+    n_adjacent_pairs = np.zeros(seg_edges.shape[0], dtype=int)
     if method_use == "morlet":
         cwt_freqs_use = (
             _default_cwt_freqs(seg_edges)
@@ -396,66 +472,10 @@ def grid(
             min_cycles=min_cycles,
             max_cycles=max_cycles,
         )
-
-    # Compute PSI.
-    try:
-        from mne_connectivity.effective import phase_slope_index
-    except Exception as e:  # pragma: no cover
-        raise ModuleNotFoundError(
-            "mne_connectivity is required for PSI computation. "
-            f"Import failed with {type(e).__name__}: {e}. "
-            "Install with 'pip install mne-connectivity'."
-        ) from e
-
-    mt_reference_frequencies_hz: np.ndarray | None = None
-    mt_effective_window_s: np.ndarray | None = None
-    mt_effective_bandwidth_hz: np.ndarray | None = None
-    mt_half_window_samples: list[int] | None = None
-    mt_window_n_samples: list[int] | None = None
-    mt_window_span_s: list[float] | None = None
-    mt_n_valid_windows_by_band: list[int] | None = None
-    mt_n_skipped_masked_by_band: list[int] | None = None
-    mt_n_dropped_incomplete_by_band: list[int] | None = None
-    n_valid_windows: int | None = None
-    n_columns_total: int | None = None
-    n_columns_skipped_masked: int | None = None
-    n_columns_dropped_incomplete_window: int | None = None
-    if method_use == "morlet":
-        data_compute = data
-        if target_n_times is not None and target_n_times > 0:
-            max_sample = int((int(target_n_times) - 1) * int(decim_eff) + 1)
-            max_sample = min(max_sample, int(data.shape[-1]))
-            data_compute = data[:, :max_sample]
-
-        fmin_tuple = tuple(float(x) for x in seg_edges[:, 0])
-        fmax_tuple = tuple(float(x) for x in seg_edges[:, 1])
-        conn_kwargs: dict[str, Any] = dict(
-            data=data_compute[np.newaxis, :, :],
-            indices=(seeds_idx, targets_idx),
-            sfreq=float(sfreq_use),
-            mode=mode_use,
-            fmin=fmin_tuple,
-            fmax=fmax_tuple,
-            block_size=int(block_size),
-            n_jobs=int(n_jobs),
-            verbose=verbose,
+        n_internal_frequencies, n_adjacent_pairs = _segment_frequency_support(
+            seg_edges,
+            cwt_freqs_use,
         )
-        conn_kwargs["cwt_freqs"] = cwt_freqs_use
-        conn_kwargs["cwt_n_cycles"] = cwt_n_cycles
-        conn = phase_slope_index(**conn_kwargs)
-        psi_raw = np.asarray(conn.get_data(), dtype=float)
-        expected_full = (
-            len(pair_names),
-            int(seg_edges.shape[0]),
-            int(data_compute.shape[-1]),
-        )
-        if tuple(psi_raw.shape) != expected_full:
-            raise RuntimeError(
-                f"PSI data shape mismatch: got {psi_raw.shape}, expected {expected_full}."
-            )
-        psi_dec = psi_raw[:, :, :: int(decim_eff)]
-        n_times_dec = int(psi_dec.shape[-1])
-        n_times_compute = min(n_times_dec, n_times_target)
     else:
         mt_reference_frequencies_hz = np.asarray(
             [
@@ -487,6 +507,119 @@ def grid(
                 f"than the available duration {available_duration_s:g} s."
             )
 
+        n_bands = len(band_names)
+        mt_half_window_samples = [0] * n_bands
+        mt_window_n_samples = [0] * n_bands
+        mt_window_span_s = [0.0] * n_bands
+        for band_i in range(n_bands):
+            half_window_samples, window_n_samples, window_span_s = (
+                multitaper_window_geometry(
+                    sfreq_hz=float(sfreq_use),
+                    time_resolution_s=float(mt_effective_window_s[band_i]),
+                )
+            )
+            mt_half_window_samples[band_i] = int(half_window_samples)
+            mt_window_n_samples[band_i] = int(window_n_samples)
+            mt_window_span_s[band_i] = float(window_span_s)
+            segment_indices = np.flatnonzero(seg_to_band == band_i)
+            fourier_freqs = np.fft.rfftfreq(
+                int(window_n_samples),
+                d=1.0 / float(sfreq_use),
+            )
+            internal_counts, adjacent_counts = _segment_frequency_support(
+                seg_edges[segment_indices],
+                fourier_freqs,
+            )
+            n_internal_frequencies[segment_indices] = internal_counts
+            n_adjacent_pairs[segment_indices] = adjacent_counts
+
+    _validate_band_frequency_support(
+        method=method_use,
+        band_names=band_names,
+        seg_edges=seg_edges,
+        seg_to_band=seg_to_band,
+        n_internal_frequencies=n_internal_frequencies,
+        n_adjacent_pairs=n_adjacent_pairs,
+    )
+    used_segment_mask = n_adjacent_pairs > 0
+    used_segment_indices = np.flatnonzero(used_segment_mask)
+    partial_support_message = _partial_frequency_support_message(
+        band_names=band_names,
+        seg_edges=seg_edges,
+        seg_to_band=seg_to_band,
+        n_internal_frequencies=n_internal_frequencies,
+        n_adjacent_pairs=n_adjacent_pairs,
+    )
+
+    # Compute PSI.
+    try:
+        from mne_connectivity.effective import phase_slope_index
+    except Exception as e:  # pragma: no cover
+        raise ModuleNotFoundError(
+            "mne_connectivity is required for PSI computation. "
+            f"Import failed with {type(e).__name__}: {e}. "
+            "Install with 'pip install mne-connectivity'."
+        ) from e
+
+    mt_n_valid_windows_by_band: list[int] | None = None
+    mt_n_skipped_masked_by_band: list[int] | None = None
+    mt_n_dropped_incomplete_by_band: list[int] | None = None
+    n_valid_windows: int | None = None
+    n_columns_total: int | None = None
+    n_columns_skipped_masked: int | None = None
+    n_columns_dropped_incomplete_window: int | None = None
+    if method_use == "morlet":
+        data_compute = data
+        if target_n_times is not None and target_n_times > 0:
+            max_sample = int((int(target_n_times) - 1) * int(decim_eff) + 1)
+            max_sample = min(max_sample, int(data.shape[-1]))
+            data_compute = data[:, :max_sample]
+
+        used_segment_edges = seg_edges[used_segment_indices]
+        fmin_tuple = tuple(float(x) for x in used_segment_edges[:, 0])
+        fmax_tuple = tuple(float(x) for x in used_segment_edges[:, 1])
+        conn_kwargs: dict[str, Any] = dict(
+            data=data_compute[np.newaxis, :, :],
+            indices=(seeds_idx, targets_idx),
+            sfreq=float(sfreq_use),
+            mode=mode_use,
+            fmin=fmin_tuple,
+            fmax=fmax_tuple,
+            block_size=int(block_size),
+            n_jobs=int(n_jobs),
+            verbose=verbose,
+        )
+        conn_kwargs["cwt_freqs"] = cwt_freqs_use
+        conn_kwargs["cwt_n_cycles"] = cwt_n_cycles
+        conn = phase_slope_index(**conn_kwargs)
+        psi_raw = np.asarray(conn.get_data(), dtype=float)
+        expected_full = (
+            len(pair_names),
+            int(used_segment_edges.shape[0]),
+            int(data_compute.shape[-1]),
+        )
+        if tuple(psi_raw.shape) != expected_full:
+            raise RuntimeError(
+                f"PSI data shape mismatch: got {psi_raw.shape}, expected {expected_full}."
+            )
+        psi_dec = np.full(
+            (len(pair_names), int(seg_edges.shape[0]), n_times_target),
+            np.nan,
+            dtype=float,
+        )
+        psi_used_dec = psi_raw[:, :, :: int(decim_eff)]
+        n_times_dec = int(psi_used_dec.shape[-1])
+        n_times_compute = min(n_times_dec, n_times_target)
+        psi_dec[:, used_segment_indices, :n_times_compute] = psi_used_dec[
+            :, :, :n_times_compute
+        ]
+    else:
+        assert mt_effective_window_s is not None
+        assert mt_effective_bandwidth_hz is not None
+        assert mt_mask_radius_s is not None
+        assert mt_half_window_samples is not None
+        assert mt_window_n_samples is not None
+        assert mt_window_span_s is not None
         center_samples = np.arange(n_times_target, dtype=int) * int(decim_eff)
         finite_target_times = np.isfinite(times)
         n_columns_total = int(np.sum(finite_target_times))
@@ -496,9 +629,6 @@ def grid(
             dtype=float,
         )
         n_bands = len(band_names)
-        mt_half_window_samples = [0] * n_bands
-        mt_window_n_samples = [0] * n_bands
-        mt_window_span_s = [0.0] * n_bands
         mt_n_valid_windows_by_band = [0] * n_bands
         mt_n_skipped_masked_by_band = [0] * n_bands
         mt_n_dropped_incomplete_by_band = [0] * n_bands
@@ -518,21 +648,15 @@ def grid(
             group_labels = ", ".join(
                 f"'{band_names[band_i]}'" for band_i in group_band_indices
             )
-            segment_indices = np.flatnonzero(
+            configured_segment_indices = np.flatnonzero(
                 np.isin(seg_to_band, np.asarray(group_band_indices, dtype=int))
             )
+            segment_indices = configured_segment_indices[
+                used_segment_mask[configured_segment_indices]
+            ]
             group_segment_edges = seg_edges[segment_indices]
-            half_window_samples, window_n_samples, window_span_s = (
-                multitaper_window_geometry(
-                    sfreq_hz=float(sfreq_use),
-                    time_resolution_s=window_value,
-                )
-            )
-            _validate_multitaper_band_resolution(
-                seg_edges=group_segment_edges,
-                sfreq_hz=float(sfreq_use),
-                window_n_samples=int(window_n_samples),
-            )
+            first_band_index = group_band_indices[0]
+            half_window_samples = mt_half_window_samples[first_band_index]
             complete_windows = (
                 finite_target_times
                 & (center_samples - int(half_window_samples) >= 0)
@@ -584,9 +708,6 @@ def grid(
                 np.sum(finite_target_times & ~skip_time_mask & ~complete_windows)
             )
             for band_i in group_band_indices:
-                mt_half_window_samples[band_i] = int(half_window_samples)
-                mt_window_n_samples[band_i] = int(window_n_samples)
-                mt_window_span_s[band_i] = float(window_span_s)
                 mt_n_valid_windows_by_band[band_i] = int(valid_time_indices.size)
                 mt_n_skipped_masked_by_band[band_i] = n_skipped_masked
                 mt_n_dropped_incomplete_by_band[band_i] = n_dropped_incomplete
@@ -600,27 +721,23 @@ def grid(
     # Combine segments back to original band axis.
     psi_bands = np.full((n_pairs, len(band_names), n_times_target), np.nan, dtype=float)
 
-    # Precompute segment weights using the internal cwt frequency grid.
-    seg_weights = np.zeros(seg_edges.shape[0], dtype=float)
-    for si, (lo, hi) in enumerate(seg_edges):
-        if method_use == "morlet" and cwt_freqs_use is not None:
-            seg_weights[si] = float(
-                np.sum((cwt_freqs_use >= lo) & (cwt_freqs_use <= hi))
-            )
-            if seg_weights[si] <= 0:
-                seg_weights[si] = float(max(hi - lo, 1.0))
-        else:
-            seg_weights[si] = float(max(hi - lo, 1e-6))
-
     for bi in range(len(band_names)):
-        seg_idx = np.flatnonzero(seg_to_band == bi)
-        if seg_idx.size == 0:
-            continue
+        configured_seg_idx = np.flatnonzero(seg_to_band == bi)
+        seg_idx = configured_seg_idx[used_segment_mask[configured_seg_idx]]
         vals = psi_dec[:, seg_idx, :n_times_compute]
-        w = seg_weights[seg_idx]
-        psi_bands[:, bi, :n_times_compute] = _weighted_nanmean(vals, w, axis=1)
+        finite_cells = np.all(np.isfinite(vals), axis=1)
+        combined = np.sum(np.where(np.isfinite(vals), vals, 0.0), axis=1)
+        combined[~finite_cells] = np.nan
+        psi_bands[:, bi, :n_times_compute] = combined
 
     out = psi_bands[np.newaxis, :, :, :]
+    frequency_support = _frequency_support_by_band(
+        band_names=band_names,
+        seg_edges=seg_edges,
+        seg_to_band=seg_to_band,
+        n_internal_frequencies=n_internal_frequencies,
+        n_adjacent_pairs=n_adjacent_pairs,
+    )
 
     metadata: Dict[str, Any] = dict(
         axes=dict(
@@ -642,6 +759,8 @@ def grid(
             band_names=list(band_names),
             segments_flat_hz=np.asarray(seg_edges, dtype=float).tolist(),
             segments_to_band=np.asarray(seg_to_band, dtype=int).tolist(),
+            partial_frequency_support=partial_support_message is not None,
+            frequency_support_by_band=frequency_support,
             time_resolution_s=float(time_resolution_s),
             hop_s=hop_s,
             decim=int(decim_eff),
@@ -699,5 +818,12 @@ def grid(
             sfreq_used_hz=float(sfreq_use),
         ),
     )
+
+    if partial_support_message is not None:
+        warnings.warn(
+            partial_support_message,
+            UserWarning,
+            stacklevel=2,
+        )
 
     return out, metadata

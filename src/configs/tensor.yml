@@ -273,6 +273,7 @@ metric_defaults:
     - - '9_10'
       - '10_11'
   psi:
+    freq_step_hz: 0.5
     bands:
     - name: delta
       start: 1.0

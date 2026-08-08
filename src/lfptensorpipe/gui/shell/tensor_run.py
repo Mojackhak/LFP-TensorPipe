@@ -119,6 +119,12 @@ class MainWindowTensorRunMixin:
                     raise ValueError(
                         f"{self._tensor_metric_display_name(metric_key)}: {message}"
                     )
+            elif metric_key == "psi":
+                step_hz = float(params.get("freq_step_hz", 0.0))
+                if step_hz <= 0.0:
+                    raise ValueError(
+                        f"{self._tensor_metric_display_name(metric_key)} step must be > 0."
+                    )
             if metric_key in {"psi", "burst"}:
                 bands = self._collect_tensor_bands(params.get("bands"))
                 params["bands"] = bands

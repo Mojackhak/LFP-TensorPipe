@@ -54,6 +54,27 @@ def _serialize_runtime_bands(
     return serialized
 
 
+def _partial_support_success_message(
+    metric_label: str,
+    frequency_support_by_band: dict[str, Any],
+) -> str:
+    dropped: list[str] = []
+    for band_name, support in frequency_support_by_band.items():
+        if not isinstance(support, dict):
+            continue
+        segments = support.get("dropped_segments_hz")
+        if not isinstance(segments, list):
+            continue
+        for segment in segments:
+            if not isinstance(segment, (list, tuple)) or len(segment) != 2:
+                continue
+            dropped.append(
+                f"'{band_name}' [{float(segment[0]):g}, {float(segment[1]):g}] Hz"
+            )
+    suffix = ": " + "; ".join(dropped) if dropped else ""
+    return f"{metric_label} tensor computed with partial frequency support{suffix}."
+
+
 def run_psi_metric(
     context: RecordContext,
     *,
@@ -104,6 +125,7 @@ def run_psi_metric(
     _apply_dynamic_edge_mask_strict = svc._apply_dynamic_edge_mask_strict
     _psi_band_radii_seconds = svc._psi_band_radii_seconds
     _effective_n_jobs_payload = svc._effective_n_jobs_payload
+    _build_frequency_grid = svc._build_frequency_grid
     _normalize_selected_pairs = (
         normalize_selected_pairs_fn or svc._normalize_selected_pairs
     )
@@ -111,7 +133,6 @@ def run_psi_metric(
     TENSOR_METRICS_BY_KEY = svc.TENSOR_METRICS_BY_KEY
     permutations = svc.permutations
 
-    _ = step_hz
     resolver = PathResolver(context)
     metric_key = "psi"
     metric_label = TENSOR_METRICS_BY_KEY[metric_key].display_name
@@ -207,6 +228,16 @@ def run_psi_metric(
                 "Adjust bands or low/high frequency limits."
             )
 
+        cwt_freqs = None
+        if method_norm == "morlet":
+            nyquist = float(raw.info["sfreq"]) / 2.0
+            applied_high = min(float(high_freq), nyquist)
+            cwt_freqs = _build_frequency_grid(
+                float(low_freq),
+                float(applied_high),
+                float(step_hz),
+            )
+
         tensor, metadata = psi_grid(
             raw,
             bands=psi_bands,
@@ -219,6 +250,7 @@ def run_psi_metric(
             mt_min_cycles=float(mt_min_cycles),
             min_cycles=min_cycles,
             max_cycles=max_cycles,
+            cwt_freqs=cwt_freqs,
             picks=picks,
             n_jobs=int(n_jobs),
             outer_n_jobs=int(outer_n_jobs),
@@ -268,6 +300,15 @@ def run_psi_metric(
         grid_params = metadata.get("params", {}) if isinstance(metadata, dict) else {}
         if not isinstance(grid_params, dict):
             grid_params = {}
+        frequency_support_by_band = grid_params.get("frequency_support_by_band", {})
+        if not isinstance(frequency_support_by_band, dict):
+            frequency_support_by_band = {}
+        support_payload = {
+            "partial_frequency_support": bool(
+                grid_params.get("partial_frequency_support", False)
+            ),
+            "frequency_support_by_band": frequency_support_by_band,
+        }
         count_payload = (
             {
                 "n_columns_total": int(grid_params.get("n_columns_total", 0)),
@@ -318,13 +359,21 @@ def run_psi_metric(
             ],
             "interpolation_applied": False,
             "tensor_shape": [int(item) for item in tensor4d.shape],
+            **support_payload,
             **count_payload,
             **_effective_n_jobs_payload(
                 n_jobs=int(n_jobs),
                 outer_n_jobs=int(outer_n_jobs),
             ),
         }
-        success_message = f"{metric_label} tensor computed."
+        success_message = (
+            _partial_support_success_message(
+                metric_label,
+                frequency_support_by_band,
+            )
+            if bool(support_payload["partial_frequency_support"])
+            else f"{metric_label} tensor computed."
+        )
         log_params = {
             "low_freq": float(low_freq),
             "high_freq": float(high_freq),
@@ -356,6 +405,7 @@ def run_psi_metric(
             "selected_pairs": [[str(a), str(b)] for a, b in pairs],
             "n_bands": int(tensor4d.shape[2]),
             "n_times": int(tensor4d.shape[3]),
+            **support_payload,
             **count_payload,
             **_effective_n_jobs_payload(
                 n_jobs=int(n_jobs),
@@ -386,7 +436,7 @@ def run_psi_metric(
                 ),
             ]
         )
-        return True, f"{metric_label} tensor computed."
+        return True, success_message
     except Exception as exc:  # noqa: BLE001
         _write_metric_log(
             resolver,

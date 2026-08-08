@@ -194,6 +194,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "selected_pairs",
     ),
     "psi": (
+        "freq_step_hz",
         "bands",
         "time_resolution_s",
         "hop_s",

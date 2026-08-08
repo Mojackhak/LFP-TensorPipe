@@ -94,7 +94,26 @@ class MainWindowTensorStateRefreshMixin:
 
         selected_metrics = self._selected_tensor_metrics()
         for row_key, widget in self._tensor_basic_param_widgets.items():
-            widget.setEnabled(editable and row_key in visible_basic_rows)
+            enabled = editable and row_key in visible_basic_rows
+            if row_key == "freq_step_hz":
+                method = (
+                    str(
+                        self._tensor_metric_params.get(metric_key, {}).get(
+                            "method", "morlet"
+                        )
+                    )
+                    .strip()
+                    .lower()
+                )
+                if metric_key == "psi" and method == "multitaper":
+                    enabled = False
+                    widget.setToolTip(
+                        "Disabled for Multitaper PSI; frequency spacing is "
+                        "determined by the sampling rate and effective window."
+                    )
+                else:
+                    widget.setToolTip("Frequency spacing for computation grid.")
+            widget.setEnabled(enabled)
 
         requires_channels = self._tensor_metric_requires_channel_selector(metric_key)
         requires_pairs = self._tensor_metric_pair_mode(metric_key) is not None

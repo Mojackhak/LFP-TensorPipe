@@ -331,15 +331,12 @@ class MainWindowTensorDialogsMixin:
             return
         payload = dialog.selected_params or {}
         self._apply_tensor_metric_payload(metric_key, payload)
-        self._apply_active_tensor_params_to_panel()
-        self._refresh_tensor_pair_button_text()
-        self._refresh_tensor_bands_button_text()
         if self._tensor_metric_requires_channel_selector(metric_key) or (
             self._tensor_metric_pair_mode(metric_key) is not None
         ):
             self._mark_record_param_dirty("tensor.selectors")
         self._mark_record_param_dirty("tensor.metric_params")
-        self._refresh_tensor_metric_indicators_from_draft()
+        self._refresh_tensor_controls()
         context = self._record_context()
         if context is not None and getattr(dialog, "selected_action", "save") == "save":
             warnings = self._tensor_metric_notch_warnings(

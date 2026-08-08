@@ -386,7 +386,6 @@ def _metric_log_signature(
         signature = {
             "low_freq": float(params.get("low_freq")),
             "high_freq": float(params.get("high_freq")),
-            "step_hz": float(params.get("step_hz")),
             **method_signature,
             "time_resolution_s": float(params.get("time_resolution_s")),
             "hop_s": float(params.get("hop_s")),
@@ -399,6 +398,8 @@ def _metric_log_signature(
             signature["time_axis_mode"] = str(
                 params.get("time_axis_mode", "whole_record_repeat")
             )
+        else:
+            signature["step_hz"] = float(params.get("step_hz"))
         return signature
     if metric_key == "burst":
         channels = _normalize_channels(params.get("selected_channels"))
@@ -629,7 +630,6 @@ def _current_metric_signature(
         signature = {
             "low_freq": prepared.metric_low,
             "high_freq": prepared.metric_high,
-            "step_hz": prepared.metric_step,
             **method_signature,
             "time_resolution_s": _as_float(metric_params.get("time_resolution_s"), 0.5),
             "hop_s": _as_float(metric_params.get("hop_s"), 0.025),
@@ -640,6 +640,8 @@ def _current_metric_signature(
         }
         if method.strip().lower() == "multitaper":
             signature["time_axis_mode"] = "sliding_window"
+        else:
+            signature["step_hz"] = prepared.metric_step
         return signature
     if metric_key == "burst":
         channels = _normalize_channels(prepared.metric_channels)

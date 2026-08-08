@@ -47,6 +47,18 @@ def _resolve_metric_frequency_params(
         metric_low, metric_high, metric_step = svc.load_tensor_frequency_defaults(
             context
         )
+        if metric_key == "psi":
+            configured_step = svc._as_optional_float(metric_params.get("freq_step_hz"))
+            if configured_step is not None:
+                metric_step = configured_step
+            freq_ok, freq_message, _ = svc.validate_tensor_frequency_params(
+                context,
+                low_freq=float(metric_low),
+                high_freq=float(metric_high),
+                step_hz=float(metric_step),
+            )
+            if not freq_ok:
+                raise ValueError(freq_message)
         return float(metric_low), float(metric_high), float(metric_step)
 
     metric_low = svc._as_optional_float(metric_params.get("low_freq_hz"))

@@ -407,6 +407,7 @@
         ]
       },
       "psi": {
+        "freq_step_hz": 0.5,
         "bands": [
           {
             "name": "theta",

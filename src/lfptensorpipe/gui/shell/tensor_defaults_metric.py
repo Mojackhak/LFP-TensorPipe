@@ -107,6 +107,7 @@ def _default_tensor_metric_params(
     if metric_key == "psi":
         return {
             **default_tensor_metric_notch_params(),
+            "freq_step_hz": float(step_hz),
             "bands": [
                 dict(item) for item in self._load_tensor_metric_bands_defaults("psi")
             ],
