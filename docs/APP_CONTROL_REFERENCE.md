@@ -764,7 +764,7 @@ tensor frequency and time grid.
 | `Thresholds` label | Shows whether a precomputed thresholds file is currently loaded. Use it to verify whether burst thresholds are coming from an external file or from the current session configuration. | Burst threshold source context. | Burst dialog only. |
 | `Load thresholds.pkl` | Loads precomputed burst thresholds from a pickle file. This is useful when you want to reuse a threshold definition instead of deriving it again in the current session. | Burst threshold source context. | Burst dialog only. |
 | `Clear thresholds` | Removes the loaded thresholds file and returns threshold handling to the remaining burst settings. | Burst threshold source context. | Burst dialog only. |
-| `Baseline annotations` | Chooses which finished annotation label should define the baseline segments used for burst thresholding. Pick a label that represents the reference state you want burst thresholds to reflect. | Burst threshold derivation. | Burst dialog only. |
+| `Baseline annotations` | Chooses which finished annotation label should define the baseline segments used for burst thresholding. Pick a label that represents the reference state you want burst thresholds to reflect. | Burst threshold derivation. | Burst dialog only. When deriving thresholds from data, the run fails if the exact selected label is absent or has no samples remaining after BAD/EDGE exclusion. |
 | `Min cycles` | Sets the minimum cycles used for burst detection. Lower values allow shorter events to qualify; higher values demand more sustained oscillatory content. | Burst duration sensitivity. | Burst dialog only. |
 | `Max cycles` | Sets an optional ceiling on burst cycle count. Use it when you want to stop very long cycle assumptions from oversmoothing burst detection. | Burst duration sensitivity. | Burst dialog only. |
 | `Notches` | Adds metric-local notch exclusions before burst detection is computed. | Metric-local runtime filtering. | Supported tensor metrics only. |
@@ -777,7 +777,7 @@ tensor frequency and time grid.
 **Notes**
 
 - A loaded thresholds file can replace threshold estimation work that would otherwise happen inside the current session.
-- `Baseline annotations` determines which labeled baseline periods define the burst threshold context when thresholds are derived from data rather than loaded from file.
+- `Baseline annotations` determines which labeled baseline periods define the burst threshold context when thresholds are derived from data rather than loaded from file. Missing or wholly excluded baseline data blocks the run; Burst does not fall back to the full recording.
 
 ### 7.13 Undirected Tensor Pairs
 

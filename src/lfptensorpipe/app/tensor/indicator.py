@@ -30,6 +30,7 @@ from .params import (
 )
 from .paths import tensor_metric_log_path
 from .runners.burst import (
+    BURST_BASELINE_FALLBACK,
     _build_runtime_bands as _build_burst_runtime_bands,
     _resolve_burst_time_grid,
     _serialize_runtime_bands as _serialize_burst_runtime_bands,
@@ -404,30 +405,45 @@ def _metric_log_signature(
         bands_used = _normalize_runtime_bands_signature(params.get("bands_used"))
         if channels is None or bands_used is None:
             return None
-        return {
-            "low_freq": float(params.get("low_freq")),
-            "high_freq": float(params.get("high_freq")),
-            "step_hz": float(params.get("step_hz")),
-            "percentile": _as_float(params.get("percentile"), 75.0),
-            "baseline_keep": sorted(
+        baseline_keep = (
+            sorted(
                 {
                     str(item).strip()
                     for item in (params.get("baseline_keep") or [])
                     if str(item).strip()
                 }
             )
-            or None,
+            or None
+        )
+        thresholds_source_value = params.get("thresholds_source_path")
+        thresholds_source_path = (
+            str(thresholds_source_value).strip()
+            if thresholds_source_value is not None
+            and str(thresholds_source_value).strip()
+            else None
+        )
+        hop_s, decim = _resolve_burst_time_grid(
+            hop_s=_as_optional_float(params.get("hop_s")),
+            decim=_as_optional_int(params.get("decim")),
+        )
+        return {
+            "low_freq": float(params.get("low_freq")),
+            "high_freq": float(params.get("high_freq")),
+            "step_hz": float(params.get("step_hz")),
+            "percentile": _as_float(params.get("percentile"), 75.0),
+            "baseline_keep": baseline_keep,
             "baseline_match": "exact",
-            "min_cycles": _as_float(params.get("min_cycles"), 2.0),
-            "max_cycles": _as_optional_float(params.get("max_cycles")),
-            "hop_s": _as_optional_float(params.get("hop_s")),
-            "decim": _as_optional_int(params.get("decim"), 1),
-            "mask_edge_effects": bool(params.get("mask_edge_effects", True)),
-            "thresholds_source_path": (
-                str(params.get("thresholds_source_path")).strip()
-                if str(params.get("thresholds_source_path", "")).strip()
+            "baseline_fallback": (
+                str(params.get("baseline_fallback", "full")).strip().lower()
+                if baseline_keep is not None and thresholds_source_path is None
                 else None
             ),
+            "min_cycles": _as_float(params.get("min_cycles"), 2.0),
+            "max_cycles": _as_optional_float(params.get("max_cycles")),
+            "hop_s": hop_s,
+            "decim": decim,
+            "mask_edge_effects": bool(params.get("mask_edge_effects", True)),
+            "thresholds_source_path": thresholds_source_path,
             "notch_intervals_hz": notch_intervals,
             "bands_used": bands_used,
             "selected_channels": channels,
@@ -652,9 +668,10 @@ def _current_metric_signature(
             )
             or None
         )
+        thresholds_value = metric_params.get("thresholds_path")
         thresholds_path = (
-            str(metric_params.get("thresholds_path")).strip()
-            if str(metric_params.get("thresholds_path", "")).strip()
+            str(thresholds_value).strip()
+            if thresholds_value is not None and str(thresholds_value).strip()
             else None
         )
         return {
@@ -664,6 +681,11 @@ def _current_metric_signature(
             "percentile": _as_float(metric_params.get("percentile"), 75.0),
             "baseline_keep": baseline_keep,
             "baseline_match": "exact",
+            "baseline_fallback": (
+                BURST_BASELINE_FALLBACK
+                if baseline_keep is not None and thresholds_path is None
+                else None
+            ),
             "min_cycles": _as_float(metric_params.get("min_cycles"), 2.0),
             "max_cycles": _as_optional_float(metric_params.get("max_cycles")),
             "hop_s": hop_s,

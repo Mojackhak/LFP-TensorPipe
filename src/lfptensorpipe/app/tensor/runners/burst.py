@@ -11,6 +11,8 @@ from lfptensorpipe.utils.freqs import split_bands_by_intervals
 
 from .. import service as svc
 
+BURST_BASELINE_FALLBACK = "raise"
+
 
 def _build_runtime_bands(
     *,
@@ -204,6 +206,7 @@ def run_burst_metric(
             percentile=float(percentile),
             baseline_keep=baseline_keep,
             baseline_match="exact",
+            baseline_fallback=BURST_BASELINE_FALLBACK,
             min_cycles=float(min_cycles),
             max_cycles=(float(max_cycles) if max_cycles is not None else None),
             hop_s=hop_s_use,
@@ -257,6 +260,7 @@ def run_burst_metric(
             "percentile": float(percentile),
             "baseline_keep": list(baseline_keep) if baseline_keep is not None else None,
             "baseline_match": "exact",
+            "baseline_fallback": BURST_BASELINE_FALLBACK,
             "min_cycles": float(min_cycles),
             "max_cycles": (float(max_cycles) if max_cycles is not None else None),
             "hop_s": hop_s_use,
@@ -297,6 +301,7 @@ def run_burst_metric(
             "percentile": float(percentile),
             "baseline_keep": list(baseline_keep) if baseline_keep is not None else None,
             "baseline_match": "exact",
+            "baseline_fallback": BURST_BASELINE_FALLBACK,
             "min_cycles": float(min_cycles),
             "max_cycles": (float(max_cycles) if max_cycles is not None else None),
             "hop_s": hop_s_use,
@@ -371,6 +376,7 @@ def run_burst_metric(
                     list(baseline_keep) if baseline_keep is not None else None
                 ),
                 "baseline_match": "exact",
+                "baseline_fallback": BURST_BASELINE_FALLBACK,
                 "min_cycles": float(min_cycles),
                 "max_cycles": (float(max_cycles) if max_cycles is not None else None),
                 "hop_s": hop_s_use,
@@ -406,4 +412,4 @@ def run_burst_metric(
             raw.close()
 
 
-__all__ = ["run_burst_metric"]
+__all__ = ["BURST_BASELINE_FALLBACK", "run_burst_metric"]
