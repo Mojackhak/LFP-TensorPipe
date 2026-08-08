@@ -283,17 +283,26 @@ def parse_positive_float_tuple(value: Any) -> tuple[float, ...]:
     return tuple(parsed)
 
 
-def expand_notch_widths(notch_widths: Any, n_notches: int) -> tuple[float, ...]:
+def expand_notch_radii(
+    notch_radii: Any,
+    n_notches: int,
+    *,
+    legacy_mismatched_list_broadcast: bool = False,
+) -> tuple[float, ...]:
     if n_notches <= 0:
         return ()
-    widths = parse_positive_float_tuple(notch_widths)
-    if not widths:
+    radii = parse_positive_float_tuple(notch_radii)
+    if not radii:
         return tuple(2.0 for _ in range(n_notches))
-    if len(widths) == 1:
-        return tuple(float(widths[0]) for _ in range(n_notches))
-    if len(widths) == n_notches:
-        return tuple(float(item) for item in widths)
-    return tuple(float(widths[0]) for _ in range(n_notches))
+    if len(radii) == 1:
+        return tuple(float(radii[0]) for _ in range(n_notches))
+    if len(radii) == n_notches:
+        return tuple(float(item) for item in radii)
+    if legacy_mismatched_list_broadcast:
+        return tuple(float(radii[0]) for _ in range(n_notches))
+    raise ValueError(
+        "notch_radii must contain one value or match the number of notches."
+    )
 
 
 def compute_notch_intervals(
@@ -301,12 +310,12 @@ def compute_notch_intervals(
     low_freq: float,
     high_freq: float,
     notches: tuple[float, ...],
-    notch_widths: tuple[float, ...],
+    notch_radii: tuple[float, ...],
 ) -> list[tuple[float, float]]:
     intervals: list[tuple[float, float]] = []
-    for notch, width in zip(notches, notch_widths, strict=False):
-        lo = float(notch) - float(width)
-        hi = float(notch) + float(width)
+    for notch, radius in zip(notches, notch_radii, strict=False):
+        lo = float(notch) - float(radius)
+        hi = float(notch) + float(radius)
         if hi < low_freq or lo > high_freq:
             continue
         intervals.append((lo, hi))

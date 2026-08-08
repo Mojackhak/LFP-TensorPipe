@@ -55,9 +55,9 @@ def plan_burst(
             "decim": svc._as_optional_int(metric_params.get("decim")),
             "thresholds": metric_params.get("thresholds"),
             "notches": metric_params.get("notches"),
-            "notch_widths": metric_params.get(
-                "notch_widths",
-                svc.DEFAULT_TENSOR_NOTCH_WIDTH,
+            "notch_radii": metric_params.get(
+                "notch_radii",
+                svc.DEFAULT_TENSOR_NOTCH_RADIUS,
             ),
             "thresholds_source_path": (
                 str(metric_params.get("thresholds_path"))

@@ -90,11 +90,11 @@ def prepare_periodic_aperiodic_runtime(
     )(options.context)
     runtime_notch_payload = svc.build_tensor_metric_notch_payload(
         options.notches,
-        options.notch_widths,
+        options.notch_radii,
     )
     runtime_notches = tuple(float(item) for item in runtime_notch_payload["notches"])
-    runtime_notch_widths = svc._expand_notch_widths(
-        runtime_notch_payload["notch_widths"],
+    runtime_notch_radii = svc._expand_notch_radii(
+        runtime_notch_payload["notch_radii"],
         len(runtime_notches),
     )
     svc.validate_periodic_aperiodic_notch_bounds(
@@ -104,7 +104,7 @@ def prepare_periodic_aperiodic_runtime(
             "freq_step_hz": float(options.step_hz),
             "freq_range_hz": options.freq_range_hz,
             "notches": runtime_notches,
-            "notch_widths": runtime_notch_widths,
+            "notch_radii": runtime_notch_radii,
         }
     )
     freqs_model = svc._build_frequency_grid(spec_low, spec_high, options.step_hz)
@@ -117,7 +117,7 @@ def prepare_periodic_aperiodic_runtime(
         low_freq=spec_low,
         high_freq=spec_high,
         notches=runtime_notches,
-        notch_widths=runtime_notch_widths,
+        notch_radii=runtime_notch_radii,
     )
     notch_intervals = svc._canonicalize_notch_intervals_on_grid(
         freqs_model,
@@ -133,7 +133,7 @@ def prepare_periodic_aperiodic_runtime(
         if bool(np.any(removed_mask)):
             if freqs_compute.size < 2:
                 raise ValueError(
-                    "Notch exclusion removed too many bins; relax notch widths or frequency range."
+                    "Notch exclusion removed too many bins; reduce notch radii or widen the frequency range."
                 )
             interpolation_applied = True
 
@@ -142,7 +142,7 @@ def prepare_periodic_aperiodic_runtime(
         picks=picks,
         inheritance=inheritance,
         runtime_notches=runtime_notches,
-        runtime_notch_widths=runtime_notch_widths,
+        runtime_notch_radii=runtime_notch_radii,
         spec_low=spec_low,
         spec_high=spec_high,
         freqs_model=np.asarray(freqs_model, dtype=float),

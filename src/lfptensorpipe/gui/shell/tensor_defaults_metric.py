@@ -155,12 +155,19 @@ def _load_tensor_metric_default_params(
     base = self._default_tensor_metric_params(metric_key, context=context)
     defaults_payload = self._load_tensor_metric_defaults_payload()
     node = defaults_payload.get(metric_key)
+    legacy_notch_fields = False
     if isinstance(node, dict):
-        base = _deep_merge_dict(base, node)
+        normalized_node = dict(node)
+        legacy_notch_fields = "notch_widths" in normalized_node
+        legacy_notch_radii = normalized_node.pop("notch_widths", None)
+        if legacy_notch_fields and "notch_radii" not in normalized_node:
+            normalized_node["notch_radii"] = legacy_notch_radii
+        base = _deep_merge_dict(base, normalized_node)
     base.update(
         build_tensor_metric_notch_payload(
             base.get("notches"),
-            base.get("notch_widths"),
+            base.get("notch_radii"),
+            legacy_mismatched_list_broadcast=legacy_notch_fields,
         )
     )
     if metric_key in {"psi", "burst"}:
@@ -238,7 +245,7 @@ def _save_tensor_metric_default_params(
     serialized.update(
         build_tensor_metric_notch_payload(
             serialized.get("notches"),
-            serialized.get("notch_widths"),
+            serialized.get("notch_radii"),
         )
     )
     if "selected_channels" in serialized:
@@ -323,7 +330,7 @@ def _tensor_prepare_metric_default_payload(
     prepared.update(
         build_tensor_metric_notch_payload(
             prepared.get("notches"),
-            prepared.get("notch_widths"),
+            prepared.get("notch_radii"),
         )
     )
 

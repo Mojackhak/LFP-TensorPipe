@@ -16,6 +16,7 @@ from lfptensorpipe.gui.shell.common import (
     _deep_merge_dict,
     _nested_get,
     alignment_paradigm_log_path,
+    build_tensor_metric_notch_payload,
     default_ecg_method_params,
     load_annotations_csv_rows,
     read_run_log,
@@ -215,10 +216,27 @@ class MainWindowRecordParamsSnapshotLogsMixin:
                     metric_params.get("step_hz"),
                     current_params.get("freq_step_hz", 0.5),
                 )
+            legacy_notch_widths_present = (
+                "notch_widths" in metric_params and "notch_radii" not in metric_params
+            )
             for key, value in metric_params.items():
                 if key in {"low_freq", "high_freq", "step_hz"}:
                     continue
+                if key == "notch_widths":
+                    continue
                 current_params[key] = value
+            if legacy_notch_widths_present:
+                # Applied after the copy loop: normalization sorts and merges the
+                # centers, so a raw `notches` value copied above would otherwise
+                # desynchronize the centers from their radii whenever the log
+                # lists `notch_widths` before `notches`.
+                current_params.update(
+                    build_tensor_metric_notch_payload(
+                        metric_params.get("notches", current_params.get("notches")),
+                        metric_params.get("notch_widths"),
+                        legacy_mismatched_list_broadcast=True,
+                    )
+                )
             channels = metric_params.get("selected_channels")
             if isinstance(channels, list):
                 current_params["selected_channels"] = [

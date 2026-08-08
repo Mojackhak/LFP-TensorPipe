@@ -86,7 +86,7 @@ def run_burst_metric(
     thresholds: Any = None,
     thresholds_source_path: str | None = None,
     notches: Any = None,
-    notch_widths: Any = 2.0,
+    notch_radii: Any = 2.0,
     n_jobs: int = 1,
     outer_n_jobs: int = 1,
     read_raw_fif_fn=None,
@@ -127,17 +127,17 @@ def run_burst_metric(
     log_path = tensor_metric_log_path(resolver, metric_key, create=True)
     thresholds_artifact_path = metric_dir / "thresholds.pkl"
     inheritance = load_tensor_filter_inheritance(context)
-    runtime_notch_payload = svc.build_tensor_metric_notch_payload(notches, notch_widths)
+    runtime_notch_payload = svc.build_tensor_metric_notch_payload(notches, notch_radii)
     runtime_notches = tuple(float(item) for item in runtime_notch_payload["notches"])
-    runtime_notch_widths = svc._expand_notch_widths(
-        runtime_notch_payload["notch_widths"],
+    runtime_notch_radii = svc._expand_notch_radii(
+        runtime_notch_payload["notch_radii"],
         len(runtime_notches),
     )
     notch_intervals = _compute_notch_intervals(
         low_freq=float(low_freq),
         high_freq=float(high_freq),
         notches=runtime_notches,
-        notch_widths=runtime_notch_widths,
+        notch_radii=runtime_notch_radii,
     )
     hop_s_use, decim_use = _resolve_burst_time_grid(hop_s=hop_s, decim=decim)
 
@@ -218,6 +218,23 @@ def run_burst_metric(
                 f"Unexpected {metric_label} tensor shape: {tensor4d.shape}"
             )
 
+        metadata = dict(metadata)
+        metadata.update(
+            {
+                "notches": [float(item) for item in runtime_notches],
+                "notch_radii": [float(item) for item in runtime_notch_radii],
+                "notch_intervals_hz": [
+                    [float(low), float(high)] for low, high in notch_intervals
+                ],
+                "inherited_filter_notches": [
+                    float(item) for item in inheritance.notches
+                ],
+                "inherited_filter_notch_widths": [
+                    float(item) for item in inheritance.notch_widths
+                ],
+            }
+        )
+
         written_thresholds = None
         if isinstance(metadata, dict):
             qc = metadata.get("qc", {})
@@ -256,7 +273,7 @@ def run_burst_metric(
                 else None
             ),
             "notches": [float(item) for item in runtime_notches],
-            "notch_widths": [float(item) for item in runtime_notch_widths],
+            "notch_radii": [float(item) for item in runtime_notch_radii],
             "inherited_filter_notches": [float(item) for item in inheritance.notches],
             "inherited_filter_notch_widths": [
                 float(item) for item in inheritance.notch_widths
@@ -292,7 +309,7 @@ def run_burst_metric(
                 else None
             ),
             "notches": [float(item) for item in runtime_notches],
-            "notch_widths": [float(item) for item in runtime_notch_widths],
+            "notch_radii": [float(item) for item in runtime_notch_radii],
             "inherited_filter_notches": [float(item) for item in inheritance.notches],
             "inherited_filter_notch_widths": [
                 float(item) for item in inheritance.notch_widths
@@ -366,7 +383,7 @@ def run_burst_metric(
                     else None
                 ),
                 "notches": [float(item) for item in runtime_notches],
-                "notch_widths": [float(item) for item in runtime_notch_widths],
+                "notch_radii": [float(item) for item in runtime_notch_radii],
                 "inherited_filter_notches": [
                     float(item) for item in inheritance.notches
                 ],

@@ -14,7 +14,7 @@ from .tensor_helpers import (
     compute_notch_intervals,
     cut_frequency_grid_by_intervals,
     cycles_from_time_resolution,
-    expand_notch_widths,
+    expand_notch_radii,
     parse_positive_float_tuple,
     psi_band_radii_seconds,
 )
@@ -27,7 +27,7 @@ __all__ = [
     "compute_notch_intervals",
     "cut_frequency_grid_by_intervals",
     "cycles_from_time_resolution",
-    "expand_notch_widths",
+    "expand_notch_radii",
     "parse_positive_float_tuple",
     "psi_band_radii_seconds",
 ]

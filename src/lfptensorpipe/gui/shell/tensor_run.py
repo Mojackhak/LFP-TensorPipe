@@ -90,7 +90,7 @@ class MainWindowTensorRunMixin:
             params.update(
                 build_tensor_metric_notch_payload(
                     params.get("notches"),
-                    params.get("notch_widths"),
+                    params.get("notch_radii"),
                 )
             )
             if metric_key in TENSOR_COMMON_BASIC_METRIC_KEYS:

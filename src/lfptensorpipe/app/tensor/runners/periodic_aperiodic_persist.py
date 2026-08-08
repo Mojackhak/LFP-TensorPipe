@@ -42,7 +42,7 @@ def write_periodic_aperiodic_failure(
     options: PeriodicAperiodicOptions,
     *,
     notches: list[float],
-    notch_widths: list[float],
+    notch_radii: list[float],
     inherited_filter_notches: list[float],
     inherited_filter_notch_widths: list[float],
     message: str,
@@ -94,7 +94,7 @@ def write_periodic_aperiodic_failure(
             "fit_qc_threshold": float(options.fit_qc_threshold),
             "mask_edge_effects": bool(options.mask_edge_effects),
             "notches": list(notches),
-            "notch_widths": list(notch_widths),
+            "notch_radii": list(notch_radii),
             "inherited_filter_notches": list(inherited_filter_notches),
             "inherited_filter_notch_widths": list(inherited_filter_notch_widths),
             "specparam_report_dir": str(paths.report_dir),
@@ -120,6 +120,23 @@ def write_periodic_aperiodic_success(
     outputs: PeriodicAperiodicOutputs,
 ) -> tuple[bool, str]:
     interpolation_seed = derive_notch_interpolation_seed(options.context)
+    notch_metadata = {
+        "notches": [float(item) for item in prepared.runtime_notches],
+        "notch_radii": [float(item) for item in prepared.runtime_notch_radii],
+        "notch_intervals_hz": [
+            [float(low), float(high)] for low, high in prepared.notch_intervals
+        ],
+        "inherited_filter_notches": [
+            float(item) for item in prepared.inheritance.notches
+        ],
+        "inherited_filter_notch_widths": [
+            float(item) for item in prepared.inheritance.notch_widths
+        ],
+    }
+    tensor_metadata = dict(outputs.metadata)
+    tensor_metadata.update(notch_metadata)
+    params_metadata = dict(outputs.params_meta)
+    params_metadata.update(notch_metadata)
     runtime_params = (
         outputs.metadata.get("params", {}) if isinstance(outputs.metadata, dict) else {}
     )
@@ -187,7 +204,7 @@ def write_periodic_aperiodic_success(
         "freqs_full": [float(item) for item in prepared.freqs_model.tolist()],
         "freqs_final": [float(item) for item in prepared.freqs_final.tolist()],
         "notches": [float(item) for item in prepared.runtime_notches],
-        "notch_widths": [float(item) for item in prepared.runtime_notch_widths],
+        "notch_radii": [float(item) for item in prepared.runtime_notch_radii],
         "inherited_filter_notches": [
             float(item) for item in prepared.inheritance.notches
         ],
@@ -222,14 +239,14 @@ def write_periodic_aperiodic_success(
             (
                 paths.output_path,
                 lambda path: svc.save_pkl(
-                    {"tensor": outputs.tensor, "meta": outputs.metadata},
+                    {"tensor": outputs.tensor, "meta": tensor_metadata},
                     path,
                 ),
             ),
             (
                 paths.aperiodic_output_path,
                 lambda path: svc.save_pkl(
-                    {"tensor": outputs.params_tensor, "meta": outputs.params_meta},
+                    {"tensor": outputs.params_tensor, "meta": params_metadata},
                     path,
                 ),
             ),
@@ -293,8 +310,8 @@ def write_periodic_aperiodic_success(
                         "fit_qc_threshold": float(options.fit_qc_threshold),
                         "mask_edge_effects": bool(options.mask_edge_effects),
                         "notches": [float(item) for item in prepared.runtime_notches],
-                        "notch_widths": [
-                            float(item) for item in prepared.runtime_notch_widths
+                        "notch_radii": [
+                            float(item) for item in prepared.runtime_notch_radii
                         ],
                         "inherited_filter_notches": [
                             float(item) for item in prepared.inheritance.notches

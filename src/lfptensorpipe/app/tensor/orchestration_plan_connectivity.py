@@ -61,9 +61,9 @@ def plan_undirected(
             "min_cycles": svc._as_optional_float(metric_params.get("min_cycles"), 3.0),
             "max_cycles": svc._as_optional_float(metric_params.get("max_cycles")),
             "notches": metric_params.get("notches"),
-            "notch_widths": metric_params.get(
-                "notch_widths",
-                svc.DEFAULT_TENSOR_NOTCH_WIDTH,
+            "notch_radii": metric_params.get(
+                "notch_radii",
+                svc.DEFAULT_TENSOR_NOTCH_RADIUS,
             ),
         },
     )
@@ -120,9 +120,9 @@ def plan_trgc(
                 ),
                 "round_ms": svc._as_float(metric_params.get("round_ms"), 50.0),
                 "notches": metric_params.get("notches"),
-                "notch_widths": metric_params.get(
-                    "notch_widths",
-                    svc.DEFAULT_TENSOR_NOTCH_WIDTH,
+                "notch_radii": metric_params.get(
+                    "notch_radii",
+                    svc.DEFAULT_TENSOR_NOTCH_RADIUS,
                 ),
             },
             log_metric_key="trgc",
@@ -188,9 +188,9 @@ def plan_psi(
             "min_cycles": svc._as_optional_float(metric_params.get("min_cycles"), 3.0),
             "max_cycles": svc._as_optional_float(metric_params.get("max_cycles")),
             "notches": metric_params.get("notches"),
-            "notch_widths": metric_params.get(
-                "notch_widths",
-                svc.DEFAULT_TENSOR_NOTCH_WIDTH,
+            "notch_radii": metric_params.get(
+                "notch_radii",
+                svc.DEFAULT_TENSOR_NOTCH_RADIUS,
             ),
         },
     )

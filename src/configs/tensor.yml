@@ -95,7 +95,7 @@ metric_defaults:
     - 83.5
     - 125.25
     - 167.0
-    notch_widths:
+    notch_radii:
     - 2.0
     - 2.0
     - 2.0
@@ -133,7 +133,7 @@ metric_defaults:
     - 83.0
     - 125.25
     - 167.0
-    notch_widths:
+    notch_radii:
     - 2.0
     - 2.0
     - 2.0

@@ -54,7 +54,7 @@ class PeriodicAperiodicOptions:
     peak_threshold: float
     fit_qc_threshold: float
     notches: Any
-    notch_widths: Any
+    notch_radii: Any
     n_jobs: int
     outer_n_jobs: int
     value_transform_mode: TransformMode
@@ -77,7 +77,7 @@ class PeriodicAperiodicPreparedInput:
     picks: list[str]
     inheritance: TensorFilterInheritance
     runtime_notches: tuple[float, ...]
-    runtime_notch_widths: tuple[float, ...]
+    runtime_notch_radii: tuple[float, ...]
     spec_low: float
     spec_high: float
     freqs_model: np.ndarray

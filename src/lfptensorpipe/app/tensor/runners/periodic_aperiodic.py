@@ -95,7 +95,7 @@ def run_periodic_aperiodic_metric(
     peak_threshold: float = 2.0,
     fit_qc_threshold: float = 0.6,
     notches: Any = None,
-    notch_widths: Any = 2.0,
+    notch_radii: Any = 2.0,
     n_jobs: int = 1,
     outer_n_jobs: int = 1,
     read_raw_fif_fn=None,
@@ -134,7 +134,7 @@ def run_periodic_aperiodic_metric(
         peak_threshold=peak_threshold,
         fit_qc_threshold=fit_qc_threshold,
         notches=notches,
-        notch_widths=notch_widths,
+        notch_radii=notch_radii,
         n_jobs=n_jobs,
         outer_n_jobs=outer_n_jobs,
         value_transform_mode=svc.TENSOR_METRICS_BY_KEY[METRIC_KEY].value_transform_mode,
@@ -168,7 +168,7 @@ def run_periodic_aperiodic_metric(
     except Exception as exc:  # noqa: BLE001
         runtime_notch_payload = svc.build_tensor_metric_notch_payload(
             options.notches,
-            options.notch_widths,
+            options.notch_radii,
         )
         inheritance = (
             prepared.inheritance
@@ -179,9 +179,9 @@ def run_periodic_aperiodic_metric(
             paths,
             options,
             notches=[float(item) for item in runtime_notch_payload["notches"]],
-            notch_widths=list(
-                svc._expand_notch_widths(
-                    runtime_notch_payload["notch_widths"],
+            notch_radii=list(
+                svc._expand_notch_radii(
+                    runtime_notch_payload["notch_radii"],
                     len(runtime_notch_payload["notches"]),
                 )
             ),

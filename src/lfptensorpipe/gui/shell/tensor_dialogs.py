@@ -26,7 +26,7 @@ class MainWindowTensorDialogsMixin:
             normalized.update(
                 build_tensor_metric_notch_payload(
                     normalized.get("notches"),
-                    normalized.get("notch_widths"),
+                    normalized.get("notch_radii"),
                 )
             )
             if normalized != self._tensor_metric_params.get(spec.key, {}):
@@ -224,7 +224,7 @@ class MainWindowTensorDialogsMixin:
                 "mt_time_bandwidth_product",
                 "mt_min_cycles",
                 "notches",
-                "notch_widths",
+                "notch_radii",
             )
         if metric_key == "periodic_aperiodic":
             return (
@@ -244,7 +244,7 @@ class MainWindowTensorDialogsMixin:
                 "peak_threshold",
                 "fit_qc_threshold",
                 "notches",
-                "notch_widths",
+                "notch_radii",
             )
         if metric_key in TENSOR_UNDIRECTED_METRIC_KEYS:
             return (
@@ -254,7 +254,7 @@ class MainWindowTensorDialogsMixin:
                 "min_cycles",
                 "max_cycles",
                 "notches",
-                "notch_widths",
+                "notch_radii",
             )
         if metric_key == "trgc":
             return (
@@ -267,7 +267,7 @@ class MainWindowTensorDialogsMixin:
                 "group_by_samples",
                 "round_ms",
                 "notches",
-                "notch_widths",
+                "notch_radii",
             )
         if metric_key == "psi":
             return (
@@ -277,7 +277,7 @@ class MainWindowTensorDialogsMixin:
                 "min_cycles",
                 "max_cycles",
                 "notches",
-                "notch_widths",
+                "notch_radii",
             )
         if metric_key == "burst":
             return (
@@ -286,7 +286,7 @@ class MainWindowTensorDialogsMixin:
                 "min_cycles",
                 "max_cycles",
                 "notches",
-                "notch_widths",
+                "notch_radii",
             )
         return ()
 

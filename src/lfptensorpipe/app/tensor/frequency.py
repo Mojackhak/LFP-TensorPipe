@@ -20,7 +20,7 @@ from lfptensorpipe.lfp.runtime import (
     compute_notch_intervals as _compute_notch_intervals_runtime,
     cut_frequency_grid_by_intervals as _cut_frequency_grid_by_intervals_runtime,
     cycles_from_time_resolution as _cycles_from_time_resolution_runtime,
-    expand_notch_widths as _expand_notch_widths_runtime,
+    expand_notch_radii as _expand_notch_radii_runtime,
     parse_positive_float_tuple as _parse_positive_float_tuple_runtime,
     psi_band_radii_seconds as _psi_band_radii_seconds_runtime,
 )
@@ -28,7 +28,7 @@ from lfptensorpipe.lfp.runtime import (
 from .coercion import _as_float
 from .params import DEFAULT_TENSOR_BANDS
 
-DEFAULT_TENSOR_NOTCH_WIDTH = 2.0
+DEFAULT_TENSOR_NOTCH_RADIUS = 2.0
 TENSOR_NOTCH_TOLERANCE_HZ = 1e-6
 
 
@@ -54,7 +54,7 @@ class TensorFrequencyBounds:
 
 
 def default_tensor_metric_notch_params() -> dict[str, Any]:
-    return {"notches": [], "notch_widths": float(DEFAULT_TENSOR_NOTCH_WIDTH)}
+    return {"notches": [], "notch_radii": float(DEFAULT_TENSOR_NOTCH_RADIUS)}
 
 
 def _strict_positive_float_list(value: Any, *, field_name: str) -> list[float]:
@@ -80,39 +80,45 @@ def _strict_positive_float_list(value: Any, *, field_name: str) -> list[float]:
 
 def normalize_tensor_metric_notch_params(
     notches_value: Any,
-    notch_widths_value: Any,
+    notch_radii_value: Any,
+    *,
+    legacy_mismatched_list_broadcast: bool = False,
 ) -> tuple[tuple[float, ...], tuple[float, ...]]:
     raw_notches = _strict_positive_float_list(notches_value, field_name="notches")
     if not raw_notches:
         return (), ()
 
-    raw_widths = _strict_positive_float_list(
-        notch_widths_value,
-        field_name="notch_widths",
+    raw_radii = _strict_positive_float_list(
+        notch_radii_value,
+        field_name="notch_radii",
     )
-    if not raw_widths:
-        expanded_widths = [
-            float(DEFAULT_TENSOR_NOTCH_WIDTH) for _ in range(len(raw_notches))
+    if not raw_radii:
+        expanded_radii = [
+            float(DEFAULT_TENSOR_NOTCH_RADIUS) for _ in range(len(raw_notches))
         ]
-    elif len(raw_widths) == 1:
-        expanded_widths = [float(raw_widths[0]) for _ in range(len(raw_notches))]
-    elif len(raw_widths) == len(raw_notches):
-        expanded_widths = [float(item) for item in raw_widths]
+    elif len(raw_radii) == 1:
+        expanded_radii = [float(raw_radii[0]) for _ in range(len(raw_notches))]
+    elif len(raw_radii) == len(raw_notches):
+        expanded_radii = [float(item) for item in raw_radii]
+    elif legacy_mismatched_list_broadcast:
+        expanded_radii = [float(raw_radii[0]) for _ in range(len(raw_notches))]
     else:
-        expanded_widths = [float(raw_widths[0]) for _ in range(len(raw_notches))]
+        raise ValueError(
+            "notch_radii must contain one value or match the number of notches."
+        )
 
     paired = sorted(
-        zip(raw_notches, expanded_widths, strict=False),
+        zip(raw_notches, expanded_radii, strict=False),
         key=lambda item: float(item[0]),
     )
     merged: list[list[float]] = []
-    for notch, width in paired:
+    for notch, radius in paired:
         notch_f = float(notch)
-        width_f = float(width)
+        radius_f = float(radius)
         if merged and abs(notch_f - merged[-1][0]) <= TENSOR_NOTCH_TOLERANCE_HZ:
-            merged[-1][1] = max(float(merged[-1][1]), width_f)
+            merged[-1][1] = max(float(merged[-1][1]), radius_f)
             continue
-        merged.append([notch_f, width_f])
+        merged.append([notch_f, radius_f])
     return (
         tuple(float(item[0]) for item in merged),
         tuple(float(item[1]) for item in merged),
@@ -121,25 +127,28 @@ def normalize_tensor_metric_notch_params(
 
 def build_tensor_metric_notch_payload(
     notches_value: Any,
-    notch_widths_value: Any,
+    notch_radii_value: Any,
+    *,
+    legacy_mismatched_list_broadcast: bool = False,
 ) -> dict[str, Any]:
-    notches, notch_widths = normalize_tensor_metric_notch_params(
+    notches, notch_radii = normalize_tensor_metric_notch_params(
         notches_value,
-        notch_widths_value,
+        notch_radii_value,
+        legacy_mismatched_list_broadcast=legacy_mismatched_list_broadcast,
     )
     if not notches:
         return default_tensor_metric_notch_params()
-    widths_out: float | list[float]
+    radii_out: float | list[float]
     if all(
-        abs(float(item) - float(notch_widths[0])) <= TENSOR_NOTCH_TOLERANCE_HZ
-        for item in notch_widths
+        abs(float(item) - float(notch_radii[0])) <= TENSOR_NOTCH_TOLERANCE_HZ
+        for item in notch_radii
     ):
-        widths_out = float(notch_widths[0])
+        radii_out = float(notch_radii[0])
     else:
-        widths_out = [float(item) for item in notch_widths]
+        radii_out = [float(item) for item in notch_radii]
     return {
         "notches": [float(item) for item in notches],
-        "notch_widths": widths_out,
+        "notch_radii": radii_out,
     }
 
 
@@ -217,9 +226,9 @@ def _clean_equal_width_notch_donor_bounds(
 
 def validate_periodic_aperiodic_notch_bounds(params: dict[str, Any]) -> None:
     """Require reconstructable SpecParam notch intervals on the model grid."""
-    notches, notch_widths = normalize_tensor_metric_notch_params(
+    notches, notch_radii = normalize_tensor_metric_notch_params(
         params.get("notches"),
-        params.get("notch_widths"),
+        params.get("notch_radii"),
     )
     if not notches:
         return
@@ -259,7 +268,7 @@ def validate_periodic_aperiodic_notch_bounds(params: dict[str, Any]) -> None:
         low_freq=spec_low,
         high_freq=spec_high,
         notches=notches,
-        notch_widths=notch_widths,
+        notch_radii=notch_radii,
     )
     intervals = _canonicalize_notch_intervals_on_grid(model_grid, intervals)
     for interval_low, interval_high in intervals:
@@ -286,7 +295,7 @@ def validate_periodic_aperiodic_notch_bounds(params: dict[str, Any]) -> None:
                 "Periodic/Aperiodic notch interval "
                 f"[{interval_low:g}, {interval_high:g}] Hz has no clean "
                 "equal-width donor segment on either side of the SpecParam "
-                "model grid. Reduce the notch width, move the notch, or widen "
+                "model grid. Reduce the notch radius, move the notch, or widen "
                 "the fitting range."
             )
 
@@ -362,9 +371,9 @@ def compute_tensor_metric_filter_notch_warnings(
         return []
     metric_low, metric_high = interest_range
 
-    metric_notches, metric_widths = normalize_tensor_metric_notch_params(
+    metric_notches, metric_radii = normalize_tensor_metric_notch_params(
         metric_params.get("notches"),
-        metric_params.get("notch_widths", DEFAULT_TENSOR_NOTCH_WIDTH),
+        metric_params.get("notch_radii", DEFAULT_TENSOR_NOTCH_RADIUS),
     )
     warnings: list[str] = []
 
@@ -373,36 +382,37 @@ def compute_tensor_metric_filter_notch_warnings(
         inheritance.notch_widths,
         strict=False,
     ):
-        if not (
-            float(metric_low) - float(filter_width)
-            < float(filter_notch)
-            < float(metric_high) + float(filter_width)
-        ):
+        nominal_radius = float(filter_width) / 2.0
+        nominal_low = float(filter_notch) - nominal_radius
+        nominal_high = float(filter_notch) + nominal_radius
+        if nominal_high < float(metric_low) or nominal_low > float(metric_high):
             continue
 
-        matched_width: float | None = None
-        for metric_notch, metric_width in zip(
+        matched_radius: float | None = None
+        for metric_notch, metric_radius in zip(
             metric_notches,
-            metric_widths,
+            metric_radii,
             strict=False,
         ):
             if (
                 abs(float(metric_notch) - float(filter_notch))
                 <= TENSOR_NOTCH_TOLERANCE_HZ
             ):
-                matched_width = float(metric_width)
+                matched_radius = float(metric_radius)
                 break
 
-        if matched_width is None:
+        if matched_radius is None:
             warnings.append(
                 f"Missing preprocess filter notch {float(filter_notch):g} Hz."
             )
             continue
-        if float(matched_width) + TENSOR_NOTCH_TOLERANCE_HZ < float(filter_width):
+        if float(matched_radius) + TENSOR_NOTCH_TOLERANCE_HZ < nominal_radius:
             warnings.append(
                 "Notch "
-                f"{float(filter_notch):g} Hz width is too small "
-                f"(metric={float(matched_width):g}, filter={float(filter_width):g})."
+                f"{float(filter_notch):g} Hz radius is smaller than half the "
+                "inherited Preprocess width "
+                f"(Tensor radius={float(matched_radius):g}, "
+                f"Preprocess width={float(filter_width):g})."
             )
     return warnings
 
@@ -489,8 +499,8 @@ def _parse_positive_float_tuple(value: Any) -> tuple[float, ...]:
     return _parse_positive_float_tuple_runtime(value)
 
 
-def _expand_notch_widths(notch_widths: Any, n_notches: int) -> tuple[float, ...]:
-    return _expand_notch_widths_runtime(notch_widths, int(n_notches))
+def _expand_notch_radii(notch_radii: Any, n_notches: int) -> tuple[float, ...]:
+    return _expand_notch_radii_runtime(notch_radii, int(n_notches))
 
 
 def _compute_notch_intervals(
@@ -498,13 +508,13 @@ def _compute_notch_intervals(
     low_freq: float,
     high_freq: float,
     notches: tuple[float, ...],
-    notch_widths: tuple[float, ...],
+    notch_radii: tuple[float, ...],
 ) -> list[tuple[float, float]]:
     return _compute_notch_intervals_runtime(
         low_freq=float(low_freq),
         high_freq=float(high_freq),
         notches=tuple(notches),
-        notch_widths=tuple(notch_widths),
+        notch_radii=tuple(notch_radii),
     )
 
 
@@ -572,8 +582,10 @@ def load_tensor_filter_inheritance(context: RecordContext) -> TensorFilterInheri
             low_freq = _as_float(params.get("low_freq", low_freq), low_freq)
             high_freq = _as_float(params.get("high_freq", high_freq), high_freq)
             notches = _parse_positive_float_tuple(params.get("notches"))
-            notch_widths = _expand_notch_widths(
-                params.get("notch_widths", 2.0), len(notches)
+            notch_widths = _expand_notch_radii_runtime(
+                params.get("notch_widths", 2.0),
+                len(notches),
+                legacy_mismatched_list_broadcast=True,
             )
 
     if high_freq <= low_freq:
@@ -679,7 +691,7 @@ def _effective_n_jobs_payload(
 
 __all__ = [
     "DEFAULT_TENSOR_BANDS",
-    "DEFAULT_TENSOR_NOTCH_WIDTH",
+    "DEFAULT_TENSOR_NOTCH_RADIUS",
     "TensorFilterInheritance",
     "TensorFrequencyBounds",
     "_apply_dynamic_edge_mask_strict",
@@ -689,7 +701,7 @@ __all__ = [
     "_cut_frequency_grid_by_intervals",
     "_cycles_from_time_resolution",
     "_effective_n_jobs_payload",
-    "_expand_notch_widths",
+    "_expand_notch_radii",
     "_load_finish_nyquist_hz",
     "_parse_positive_float_tuple",
     "_psi_band_radii_seconds",

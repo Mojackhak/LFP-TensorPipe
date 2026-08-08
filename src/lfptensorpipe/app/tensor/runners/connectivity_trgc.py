@@ -27,7 +27,7 @@ from ..frequency import (
     _compute_notch_intervals,
     _cut_frequency_grid_by_intervals,
     _effective_n_jobs_payload,
-    _expand_notch_widths,
+    _expand_notch_radii,
     load_tensor_filter_inheritance,
     build_tensor_metric_notch_payload,
 )
@@ -251,7 +251,7 @@ def _prepare_trgc_backend_inputs(
     group_by_samples: bool,
     round_ms: float,
     notches: Any = None,
-    notch_widths: Any = 2.0,
+    notch_radii: Any = 2.0,
     read_raw_fif_fn=None,
     normalize_selected_pairs_fn=None,
     compute_notch_intervals_fn=None,
@@ -262,11 +262,11 @@ def _prepare_trgc_backend_inputs(
     inheritance = load_tensor_filter_inheritance(context)
     runtime_notch_payload = build_tensor_metric_notch_payload(
         notches,
-        notch_widths,
+        notch_radii,
     )
     runtime_notches = tuple(float(item) for item in runtime_notch_payload["notches"])
-    runtime_notch_widths = _expand_notch_widths(
-        runtime_notch_payload["notch_widths"],
+    runtime_notch_radii = _expand_notch_radii(
+        runtime_notch_payload["notch_radii"],
         len(runtime_notches),
     )
 
@@ -322,7 +322,7 @@ def _prepare_trgc_backend_inputs(
         low_freq=low_freq,
         high_freq=applied_high,
         notches=runtime_notches,
-        notch_widths=runtime_notch_widths,
+        notch_radii=runtime_notch_radii,
     )
     freqs_compute = freqs_full
     interpolation_applied = False
@@ -333,7 +333,7 @@ def _prepare_trgc_backend_inputs(
         if bool(np.any(removed_mask)):
             if freqs_compute.size < 2:
                 raise ValueError(
-                    "Notch exclusion removed too many bins; relax notch widths or frequency range."
+                    "Notch exclusion removed too many bins; reduce notch radii or widen the frequency range."
                 )
             interpolation_applied = True
 
@@ -367,7 +367,7 @@ def _prepare_trgc_backend_inputs(
         "interpolation_applied": bool(interpolation_applied),
         "inheritance": inheritance,
         "runtime_notches": runtime_notches,
-        "runtime_notch_widths": runtime_notch_widths,
+        "runtime_notch_radii": runtime_notch_radii,
         "method_norm": str(method_norm),
         "spectral_mode_use": str(spectral_mode_use),
         "mask_edge_effects": bool(mask_edge_effects),
@@ -448,6 +448,21 @@ def _compute_trgc_backend_tensor(
             transform_mode=None,
         )
         backend_tensor4d = np.asarray(backend_tensor4d, dtype=float)
+    inheritance = prepared["inheritance"]
+    backend_metadata = dict(backend_metadata)
+    backend_metadata.update(
+        {
+            "notches": [float(item) for item in prepared["runtime_notches"]],
+            "notch_radii": [float(item) for item in prepared["runtime_notch_radii"]],
+            "notch_intervals_hz": [
+                [float(low), float(high)] for low, high in prepared["notch_intervals"]
+            ],
+            "inherited_filter_notches": [float(item) for item in inheritance.notches],
+            "inherited_filter_notch_widths": [
+                float(item) for item in inheritance.notch_widths
+            ],
+        }
+    )
     return backend_tensor4d, backend_metadata
 
 
@@ -460,7 +475,7 @@ def _build_trgc_backend_state(
 ) -> dict[str, Any]:
     inheritance = prepared["inheritance"]
     runtime_notches = prepared["runtime_notches"]
-    runtime_notch_widths = prepared["runtime_notch_widths"]
+    runtime_notch_radii = prepared["runtime_notch_radii"]
     grid_params = metadata.get("params", {}) if isinstance(metadata, dict) else {}
     if not isinstance(grid_params, dict):
         grid_params = {}
@@ -502,7 +517,7 @@ def _build_trgc_backend_state(
         "freqs_compute": [float(item) for item in prepared["freqs_compute"].tolist()],
         "freqs_full": [float(item) for item in prepared["freqs_full"].tolist()],
         "notches": [float(item) for item in runtime_notches],
-        "notch_widths": [float(item) for item in runtime_notch_widths],
+        "notch_radii": [float(item) for item in runtime_notch_radii],
         "inherited_filter_notches": [float(item) for item in inheritance.notches],
         "inherited_filter_notch_widths": [
             float(item) for item in inheritance.notch_widths
@@ -594,7 +609,7 @@ def run_trgc_backend_metric(
     group_by_samples: bool = False,
     round_ms: float = 50.0,
     notches: Any = None,
-    notch_widths: Any = 2.0,
+    notch_radii: Any = 2.0,
     n_jobs: int = 1,
     outer_n_jobs: int = 1,
     read_raw_fif_fn=None,
@@ -612,11 +627,11 @@ def run_trgc_backend_metric(
     prepared: dict[str, Any] | None = None
     output_path = None
     log_path = None
-    runtime_notch_payload = build_tensor_metric_notch_payload(notches, notch_widths)
+    runtime_notch_payload = build_tensor_metric_notch_payload(notches, notch_radii)
     runtime_notches = [float(item) for item in runtime_notch_payload["notches"]]
-    runtime_notch_widths = list(
-        _expand_notch_widths(
-            runtime_notch_payload["notch_widths"],
+    runtime_notch_radii = list(
+        _expand_notch_radii(
+            runtime_notch_payload["notch_radii"],
             len(runtime_notches),
         )
     )
@@ -642,7 +657,7 @@ def run_trgc_backend_metric(
             group_by_samples=group_by_samples,
             round_ms=round_ms,
             notches=notches,
-            notch_widths=notch_widths,
+            notch_radii=notch_radii,
             read_raw_fif_fn=read_raw_fif_fn,
             normalize_selected_pairs_fn=normalize_selected_pairs_fn,
             compute_notch_intervals_fn=compute_notch_intervals_fn,
@@ -716,7 +731,7 @@ def run_trgc_backend_metric(
                 "group_by_samples": bool(group_by_samples),
                 "round_ms": float(round_ms),
                 "notches": list(runtime_notches),
-                "notch_widths": list(runtime_notch_widths),
+                "notch_radii": list(runtime_notch_radii),
                 "inherited_filter_notches": [
                     float(item) for item in inheritance.notches
                 ],
@@ -836,6 +851,21 @@ def run_trgc_finalize_metric(
                 radii_s=[float(item) for item in radii.tolist()],
             )
 
+        metadata = dict(metadata)
+        metadata.update(
+            {
+                "notches": list(gc_state.get("notches", [])),
+                "notch_radii": list(gc_state.get("notch_radii", [])),
+                "notch_intervals_hz": list(gc_state.get("notch_intervals_hz", [])),
+                "inherited_filter_notches": list(
+                    gc_state.get("inherited_filter_notches", [])
+                ),
+                "inherited_filter_notch_widths": list(
+                    gc_state.get("inherited_filter_notch_widths", [])
+                ),
+            }
+        )
+
         config_payload = {
             "metric_key": metric_key,
             "metric_label": metric_label,
@@ -864,7 +894,7 @@ def run_trgc_finalize_metric(
             "freqs_compute": list(gc_state.get("freqs_compute", [])),
             "freqs_full": list(gc_state.get("freqs_full", [])),
             "notches": list(gc_state.get("notches", [])),
-            "notch_widths": list(gc_state.get("notch_widths", [])),
+            "notch_radii": list(gc_state.get("notch_radii", [])),
             "inherited_filter_notches": list(
                 gc_state.get("inherited_filter_notches", [])
             ),
@@ -917,7 +947,7 @@ def run_trgc_finalize_metric(
             "round_ms": float(gc_state.get("round_ms", 50.0)),
             "mask_edge_effects": bool(mask_edge_effects),
             "notches": list(gc_state.get("notches", [])),
-            "notch_widths": list(gc_state.get("notch_widths", [])),
+            "notch_radii": list(gc_state.get("notch_radii", [])),
             "inherited_filter_notches": list(
                 gc_state.get("inherited_filter_notches", [])
             ),
@@ -995,7 +1025,7 @@ def run_trgc_finalize_metric(
                 "round_ms": float(gc_state.get("round_ms", 50.0)),
                 "execution_model": "trgc_backend_finalize",
                 "notches": list(gc_state.get("notches", [])),
-                "notch_widths": list(gc_state.get("notch_widths", [])),
+                "notch_radii": list(gc_state.get("notch_radii", [])),
                 "inherited_filter_notches": list(
                     gc_state.get("inherited_filter_notches", [])
                 ),
@@ -1038,7 +1068,7 @@ def run_trgc_metric(
     group_by_samples: bool = False,
     round_ms: float = 50.0,
     notches: Any = None,
-    notch_widths: Any = 2.0,
+    notch_radii: Any = 2.0,
     n_jobs: int = 1,
     outer_n_jobs: int = 1,
     read_raw_fif_fn=None,
@@ -1068,7 +1098,7 @@ def run_trgc_metric(
         group_by_samples=group_by_samples,
         round_ms=round_ms,
         notches=notches,
-        notch_widths=notch_widths,
+        notch_radii=notch_radii,
         n_jobs=n_jobs,
         outer_n_jobs=1,
         read_raw_fif_fn=read_raw_fif_fn,
@@ -1110,7 +1140,7 @@ def run_trgc_metric(
         group_by_samples=group_by_samples,
         round_ms=round_ms,
         notches=notches,
-        notch_widths=notch_widths,
+        notch_radii=notch_radii,
         n_jobs=n_jobs,
         outer_n_jobs=1,
         read_raw_fif_fn=read_raw_fif_fn,

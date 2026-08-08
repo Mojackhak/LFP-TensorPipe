@@ -42,9 +42,9 @@ def plan_raw_power(
             ),
             "mt_min_cycles": svc._as_float(metric_params.get("mt_min_cycles"), 3.0),
             "notches": metric_params.get("notches"),
-            "notch_widths": metric_params.get(
-                "notch_widths",
-                svc.DEFAULT_TENSOR_NOTCH_WIDTH,
+            "notch_radii": metric_params.get(
+                "notch_radii",
+                svc.DEFAULT_TENSOR_NOTCH_RADIUS,
             ),
         },
     )
@@ -106,9 +106,9 @@ def plan_periodic_aperiodic(
                 metric_params.get("fit_qc_threshold"), 0.6
             ),
             "notches": metric_params.get("notches"),
-            "notch_widths": metric_params.get(
-                "notch_widths",
-                svc.DEFAULT_TENSOR_NOTCH_WIDTH,
+            "notch_radii": metric_params.get(
+                "notch_radii",
+                svc.DEFAULT_TENSOR_NOTCH_RADIUS,
             ),
         },
     )

@@ -106,17 +106,21 @@ class TensorMetricAdvanceDialog(QDialog):
 
     def _append_shared_notch_fields(self, form: QFormLayout) -> None:
         notches = QLineEdit()
-        notch_widths = QLineEdit()
+        notch_radii = QLineEdit()
         notches.setToolTip(
             "Comma-separated notch center frequencies in Hz. Leave blank to disable metric-specific notch exclusion."
         )
-        notch_widths.setToolTip(
-            "Notch filter bandwidth (Hz). A single value broadcasts to all metric notches. Leave blank to use 2 Hz."
+        notch_radii.setToolTip(
+            "Half-width around each notch center. A 50 Hz center with a 2 Hz "
+            "radius excludes 48-52 Hz. When inherited from Preprocess, the "
+            "numeric notch-width value is preserved as the Tensor radius. "
+            "A single value broadcasts to all metric notches. Leave blank to "
+            "use 2 Hz."
         )
         form.addRow("Notches", notches)
-        form.addRow("Notch widths", notch_widths)
+        form.addRow("Notch radius (Hz)", notch_radii)
         self._fields["notches"] = notches
-        self._fields["notch_widths"] = notch_widths
+        self._fields["notch_radii"] = notch_radii
 
     @staticmethod
     def _stringify_notches(value: Any) -> str:
@@ -124,7 +128,7 @@ class TensorMetricAdvanceDialog(QDialog):
         return ", ".join(f"{float(item):g}" for item in payload["notches"])
 
     @staticmethod
-    def _stringify_notch_widths(value: Any) -> str:
+    def _stringify_notch_radii(value: Any) -> str:
         if value is None:
             return ""
         if isinstance(value, (list, tuple)):
@@ -137,7 +141,7 @@ class TensorMetricAdvanceDialog(QDialog):
         return [float(item) for item in payload["notches"]]
 
     @staticmethod
-    def _parse_notch_widths(text: str) -> float | list[float] | None:
+    def _parse_notch_radii(text: str) -> float | list[float] | None:
         token = text.strip()
         if not token:
             return None
@@ -146,7 +150,7 @@ class TensorMetricAdvanceDialog(QDialog):
             return None
         values = [float(item) for item in parts]
         if any((not np.isfinite(float(item))) or float(item) <= 0.0 for item in values):
-            raise ValueError("notch_widths must contain positive finite numbers.")
+            raise ValueError("notch_radii must contain positive finite numbers.")
         if len(values) == 1:
             return float(values[0])
         return [float(item) for item in values]
@@ -455,8 +459,8 @@ class TensorMetricAdvanceDialog(QDialog):
             if isinstance(widget, QLineEdit):
                 if key == "notches":
                     widget.setText(self._stringify_notches(value))
-                elif key == "notch_widths":
-                    widget.setText(self._stringify_notch_widths(value))
+                elif key == "notch_radii":
+                    widget.setText(self._stringify_notch_radii(value))
                 elif value is None:
                     widget.clear()
                 elif isinstance(value, (list, tuple)) and len(value) == 2:
@@ -605,8 +609,8 @@ class TensorMetricAdvanceDialog(QDialog):
                 if key == "notches":
                     out[key] = self._parse_notches(text)
                     continue
-                if key == "notch_widths":
-                    out[key] = self._parse_notch_widths(text)
+                if key == "notch_radii":
+                    out[key] = self._parse_notch_radii(text)
                     continue
                 if not text:
                     if key in {
@@ -680,6 +684,18 @@ class TensorMetricAdvanceDialog(QDialog):
             return
         payload = dict(self._working_base_params)
         payload.update(field_payload)
+        try:
+            payload.update(
+                build_tensor_metric_notch_payload(
+                    payload.get("notches"),
+                    payload.get("notch_radii"),
+                )
+            )
+        except ValueError as exc:
+            QMessageBox.warning(
+                self, "Tensor Advance", f"Invalid advanced params:\n{exc}"
+            )
+            return
         if self._metric_key == "periodic_aperiodic":
             try:
                 validate_periodic_aperiodic_notch_bounds(payload)

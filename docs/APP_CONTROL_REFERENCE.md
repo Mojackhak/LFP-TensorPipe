@@ -602,7 +602,7 @@ tensor frequency and time grid.
 | `MT time-bandwidth product` | Sets the dimensionless DPSS time-bandwidth product. The default is `4.0`. Higher values use more smoothing and usually more tapers. | Multitaper behavior. | Enabled only for Multitaper; must be at least `2`. |
 | `MT minimum cycles` | Sets the minimum oscillation cycles in a Multitaper window. Low frequencies use a longer window when needed. The default is `3.0`. | Multitaper low-frequency stability and temporal support. | Enabled only for Multitaper; must be greater than `0`. |
 | `Notches` | Adds metric-local notch exclusions on top of any preprocess filtering. Use this when a metric still needs narrowband suppression that should not be baked into preprocess globally. | Metric-local runtime filtering. | Supported tensor metrics only. |
-| `Notch widths` | Sets the bandwidth for each metric-local notch. Wider values suppress more surrounding energy but can also remove nearby neural content. | Metric-local runtime filtering. | Supported tensor metrics only. |
+| `Notch radius (Hz)` | Sets the half-width on each side of a metric-local notch center. A `50 Hz` center with a `2 Hz` radius excludes `48–52 Hz`, for a complete excluded width of `4 Hz`. | Metric-local runtime filtering. | Use one positive value for every center or one value per center. |
 | `Save` | Saves the dialog values to the current session. | Current raw-power advanced settings. | Blocks on invalid values. |
 | `Set as Default` | Saves the current advanced settings as defaults. | Future raw-power defaults. | Blocks on invalid values. |
 | `Restore Defaults` | Restores saved defaults. | Current dialog values. | Always available. |
@@ -613,6 +613,12 @@ tensor frequency and time grid.
 - Morlet uses `Morlet min cycles` and `Morlet max cycles`. Multitaper instead uses
   `MT time-bandwidth product` and `MT minimum cycles`.
 - `Notches` here are metric-local. They do not rewrite the finished preprocess signal.
+- Build Tensor intentionally preserves an inherited Preprocess notch-width
+  value as its default radius. A Preprocess width of `2 Hz` therefore becomes
+  a Tensor radius of `2 Hz`, producing a default complete exclusion of `4 Hz`.
+  This is a conservative default, not a mandatory minimum. A Tensor radius at
+  least half the inherited Preprocess width covers the nominal stop band and
+  does not produce a coverage warning.
 
 ### 7.8 Periodic/Aperiodic Advance
 
@@ -636,7 +642,7 @@ tensor frequency and time grid.
 | `Peak threshold` | Sets the peak-detection threshold used during fitting. Lower thresholds admit smaller peaks, while higher thresholds suppress weak candidates. | Peak-detection sensitivity. | Periodic/aperiodic dialog only. |
 | `Fit QC threshold` | Sets the minimum quality score required to keep a decomposition result. Higher thresholds discard more uncertain fits and therefore trade coverage for reliability. | Output retention after fitting. | Periodic/aperiodic dialog only. |
 | `Notches` | Defines the center frequencies of metric-local Periodic/Aperiodic exclusion intervals. Frequencies inside each interval are omitted from spectral estimation and refilled before SpecParam fitting. | Metric-local spectral preparation. | Supported tensor metrics only. |
-| `Notch widths` | Defines the plus/minus extent of each Periodic/Aperiodic exclusion interval. For example, center `50 Hz` and width `2 Hz` refills grid bins from `48` through `52 Hz`, inclusive. | Metric-local spectral preparation. | Supported tensor metrics only. |
+| `Notch radius (Hz)` | Defines the half-width of each Periodic/Aperiodic exclusion interval. For example, center `50 Hz` and radius `2 Hz` refills grid bins from `48` through `52 Hz`, inclusive. | Metric-local spectral preparation. | Use one positive value for every center or one value per center. |
 | `Save` | Saves the dialog values to the current session. | Current periodic/aperiodic advanced settings. | Blocks if an effective notch interval touches or crosses a SpecParam fitting boundary or has no clean equal-width donor segment. |
 | `Set as Default` | Saves the current advanced settings as defaults. | Future periodic/aperiodic defaults. | Uses the same notch-boundary and donor-availability validation as `Save`. |
 | `Restore Defaults` | Restores saved defaults. | Current dialog values. | Always available. |
@@ -681,7 +687,7 @@ tensor frequency and time grid.
 | `Morlet min cycles` | Sets the minimum Morlet cycle count used for PLV estimation. | Morlet PLV time/frequency trade-off. | Enabled only for Morlet. |
 | `Morlet max cycles` | Sets the optional maximum Morlet cycle count. | Morlet PLV time/frequency trade-off. | Enabled only for Morlet. |
 | `Notches` | Adds metric-local notch exclusions before PLV is computed. | Metric-local runtime filtering. | Supported tensor metrics only. |
-| `Notch widths` | Sets the bandwidth for each metric-local notch. | Metric-local runtime filtering. | Supported tensor metrics only. |
+| `Notch radius (Hz)` | Sets the half-width on each side of a metric-local notch center. | Metric-local runtime filtering. | Use one positive value for every center or one value per center. |
 | `Save` | Saves the dialog values to the current session. | Current PLV advanced settings. | Blocks on invalid values. |
 | `Set as Default` | Saves the current advanced settings as defaults. | Future PLV defaults. | Blocks on invalid values. |
 | `Restore Defaults` | Restores saved defaults. | Current dialog values. | Always available. |
@@ -702,7 +708,7 @@ tensor frequency and time grid.
 | `Group by samples` | Groups TRGC frequencies by exact window length in samples instead of by a rounded millisecond grid. Use it when you need grouping tied tightly to the recording sample rate. | TRGC grouping strategy. | TRGC dialog only. |
 | `Round ms` | Sets the millisecond grid used to group TRGC window lengths when `Group by samples` is off. Smaller values preserve finer distinctions but can create more groups and noisier summaries. | TRGC grouping strategy. | TRGC dialog only; disabled when `Group by samples` is enabled. |
 | `Notches` | Adds metric-local notch exclusions before TRGC is computed. | Metric-local runtime filtering. | Supported tensor metrics only. |
-| `Notch widths` | Sets the bandwidth for each metric-local notch. | Metric-local runtime filtering. | Supported tensor metrics only. |
+| `Notch radius (Hz)` | Sets the half-width on each side of a metric-local notch center. | Metric-local runtime filtering. | Use one positive value for every center or one value per center. |
 | `Save` | Saves the dialog values to the current session. | Current TRGC advanced settings. | Blocks on invalid values. |
 | `Set as Default` | Saves the current advanced settings as defaults. | Future TRGC defaults. | Blocks on invalid values. |
 | `Restore Defaults` | Restores saved defaults. | Current dialog values. | Always available. |
@@ -725,7 +731,7 @@ tensor frequency and time grid.
 | `Morlet min cycles` | Sets the minimum Morlet cycle count. | Morlet PSI time/frequency trade-off. | Enabled only for Morlet. |
 | `Morlet max cycles` | Sets the optional maximum Morlet cycle count. | Morlet PSI time/frequency trade-off. | Enabled only for Morlet. |
 | `Notches` | Adds metric-local notch exclusions before PSI is computed. | Metric-local runtime filtering. | Supported tensor metrics only. |
-| `Notch widths` | Sets the bandwidth for each metric-local notch. | Metric-local runtime filtering. | Supported tensor metrics only. |
+| `Notch radius (Hz)` | Sets the half-width on each side of a metric-local notch center. | Metric-local runtime filtering. | Use one positive value for every center or one value per center. |
 | `Save` | Saves the dialog values to the current session. | Current PSI advanced settings. | Blocks on invalid values. |
 | `Set as Default` | Saves the current advanced settings as defaults. | Future PSI defaults. | Blocks on invalid values. |
 | `Restore Defaults` | Restores saved defaults. | Current dialog values. | Always available. |
@@ -744,7 +750,7 @@ tensor frequency and time grid.
 | `Min cycles` | Sets the minimum cycles used for burst detection. Lower values allow shorter events to qualify; higher values demand more sustained oscillatory content. | Burst duration sensitivity. | Burst dialog only. |
 | `Max cycles` | Sets an optional ceiling on burst cycle count. Use it when you want to stop very long cycle assumptions from oversmoothing burst detection. | Burst duration sensitivity. | Burst dialog only. |
 | `Notches` | Adds metric-local notch exclusions before burst detection is computed. | Metric-local runtime filtering. | Supported tensor metrics only. |
-| `Notch widths` | Sets the bandwidth for each metric-local notch. | Metric-local runtime filtering. | Supported tensor metrics only. |
+| `Notch radius (Hz)` | Sets the half-width on each side of a metric-local notch center. | Metric-local runtime filtering. | Use one positive value for every center or one value per center. |
 | `Save` | Saves the dialog values to the current session. | Current burst advanced settings. | Blocks on invalid values. |
 | `Set as Default` | Saves the current advanced settings as defaults. | Future burst defaults. | Blocks on invalid values. |
 | `Restore Defaults` | Restores saved defaults. | Current dialog values. | Always available. |

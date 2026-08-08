@@ -56,7 +56,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "mt_time_bandwidth_product",
         "mt_min_cycles",
         "notches",
-        "notch_widths",
+        "notch_radii",
         "selected_channels",
     ),
     "periodic_aperiodic": (
@@ -82,7 +82,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "peak_threshold",
         "fit_qc_threshold",
         "notches",
-        "notch_widths",
+        "notch_radii",
         "selected_channels",
     ),
     "coherence": (
@@ -97,7 +97,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "min_cycles",
         "max_cycles",
         "notches",
-        "notch_widths",
+        "notch_radii",
         "selected_pairs",
     ),
     "imcoh_abs": (
@@ -112,7 +112,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "min_cycles",
         "max_cycles",
         "notches",
-        "notch_widths",
+        "notch_radii",
         "selected_pairs",
     ),
     "plv": (
@@ -127,7 +127,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "min_cycles",
         "max_cycles",
         "notches",
-        "notch_widths",
+        "notch_radii",
         "selected_pairs",
     ),
     "ciplv": (
@@ -142,7 +142,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "min_cycles",
         "max_cycles",
         "notches",
-        "notch_widths",
+        "notch_radii",
         "selected_pairs",
     ),
     "pli": (
@@ -157,7 +157,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "min_cycles",
         "max_cycles",
         "notches",
-        "notch_widths",
+        "notch_radii",
         "selected_pairs",
     ),
     "wpli": (
@@ -172,7 +172,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "min_cycles",
         "max_cycles",
         "notches",
-        "notch_widths",
+        "notch_radii",
         "selected_pairs",
     ),
     "trgc": (
@@ -190,7 +190,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "group_by_samples",
         "round_ms",
         "notches",
-        "notch_widths",
+        "notch_radii",
         "selected_pairs",
     ),
     "psi": (
@@ -203,7 +203,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "min_cycles",
         "max_cycles",
         "notches",
-        "notch_widths",
+        "notch_radii",
         "selected_pairs",
     ),
     "burst": (
@@ -216,7 +216,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "decim",
         "thresholds",
         "notches",
-        "notch_widths",
+        "notch_radii",
         "selected_channels",
     ),
 }
@@ -276,15 +276,15 @@ class MainWindowTensorConfigMixin:
             if key == "notches":
                 out[key] = build_tensor_metric_notch_payload(
                     params.get("notches"),
-                    params.get("notch_widths"),
+                    params.get("notch_radii"),
                 )["notches"]
                 continue
-            if key == "notch_widths":
+            if key == "notch_radii":
                 out[key] = self._tensor_config_json_value(
                     build_tensor_metric_notch_payload(
                         params.get("notches"),
-                        params.get("notch_widths"),
-                    )["notch_widths"]
+                        params.get("notch_radii"),
+                    )["notch_radii"]
                 )
                 continue
             if key not in params:
@@ -350,9 +350,15 @@ class MainWindowTensorConfigMixin:
         node: dict[str, Any],
         *,
         available_channels: tuple[str, ...],
+        legacy_notch_fields: bool = False,
     ) -> tuple[dict[str, Any], list[str]]:
         if not isinstance(node, dict):
             raise ValueError(f"tensor.metric_params.{metric_key} must be an object.")
+        if "notch_widths" in node:
+            raise ValueError(
+                f"tensor.metric_params.{metric_key}.notch_widths was removed "
+                "from Build Tensor schema 4. Use notch_radii instead."
+            )
         if metric_key == "periodic_aperiodic":
             removed_keys = sorted(
                 key for key in ("smooth_enabled", "kernel_size") if key in node
@@ -424,14 +430,16 @@ class MainWindowTensorConfigMixin:
             if key == "notches":
                 out[key] = build_tensor_metric_notch_payload(
                     value,
-                    node.get("notch_widths"),
+                    node.get("notch_radii"),
+                    legacy_mismatched_list_broadcast=legacy_notch_fields,
                 )["notches"]
                 continue
-            if key == "notch_widths":
+            if key == "notch_radii":
                 out[key] = build_tensor_metric_notch_payload(
                     node.get("notches"),
                     value,
-                )["notch_widths"]
+                    legacy_mismatched_list_broadcast=legacy_notch_fields,
+                )["notch_radii"]
                 continue
             if key == "thresholds":
                 if value is not None and not isinstance(value, list):
@@ -489,7 +497,8 @@ class MainWindowTensorConfigMixin:
         out.update(
             build_tensor_metric_notch_payload(
                 out.get("notches"),
-                out.get("notch_widths"),
+                out.get("notch_radii"),
+                legacy_mismatched_list_broadcast=legacy_notch_fields,
             )
         )
         return out, warnings
@@ -553,6 +562,18 @@ class MainWindowTensorConfigMixin:
 
         warnings: list[str] = []
         if version == TENSOR_CONFIG_LEGACY_VERSION:
+            for metric_key in supported_metric_keys:
+                node = metric_params_by_key.get(metric_key)
+                if not isinstance(node, dict):
+                    continue
+                normalized_legacy = dict(node)
+                legacy_radius_present = "notch_widths" in normalized_legacy
+                legacy_radius_value = normalized_legacy.pop("notch_widths", None)
+                if not (imcoh_abs_defaulted and metric_key == "imcoh_abs"):
+                    normalized_legacy.pop("notch_radii", None)
+                if legacy_radius_present:
+                    normalized_legacy["notch_radii"] = legacy_radius_value
+                metric_params_by_key[metric_key] = normalized_legacy
             for metric_key in TENSOR_MULTITAPER_METRIC_KEYS:
                 node = metric_params_by_key.get(metric_key)
                 if not isinstance(node, dict):
@@ -564,9 +585,14 @@ class MainWindowTensorConfigMixin:
                 normalized_legacy["mt_min_cycles"] = 3.0
                 metric_params_by_key[metric_key] = normalized_legacy
             warnings.append(
-                "Legacy Multitaper parameters were ignored. Defaults were applied: "
-                "time-bandwidth product = 4.0, minimum cycles = 3.0. "
-                "Existing Multitaper tensors must be recomputed."
+                "Version 3 Tensor config was imported.\n\n"
+                "Legacy Build Tensor notch_widths values were preserved unchanged "
+                "as notch_radii because those values already represented a radius."
+                "\n\nLegacy Multitaper time_bandwidth and mt_bandwidth values "
+                "were ignored. Version 4 defaults were applied: time-bandwidth "
+                "product = 4.0 and minimum cycles = 3.0. Existing Multitaper "
+                "tensors must be recomputed.\n\nRe-export the configuration to "
+                "save the canonical version 4 fields."
             )
         else:
             for metric_key in TENSOR_MULTITAPER_METRIC_KEYS:
@@ -645,6 +671,7 @@ class MainWindowTensorConfigMixin:
                     metric_key,
                     metric_params_by_key.get(metric_key, {}),
                     available_channels=available_channels,
+                    legacy_notch_fields=(version == TENSOR_CONFIG_LEGACY_VERSION),
                 )
             )
             normalized_metric_params[metric_key] = normalized_params
@@ -654,7 +681,7 @@ class MainWindowTensorConfigMixin:
         if imcoh_abs_defaulted:
             coherence_params = normalized_metric_params["coherence"]
             imcoh_abs_params = normalized_metric_params["imcoh_abs"]
-            for field_name in ("notches", "notch_widths"):
+            for field_name in ("notches", "notch_radii"):
                 if field_name in coherence_params:
                     imcoh_abs_params[field_name] = deepcopy(
                         coherence_params[field_name]

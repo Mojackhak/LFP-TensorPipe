@@ -61,6 +61,18 @@ def run_build_tensor(
     if not metrics:
         return False, "No tensor metric selected."
 
+    provided_metric_params = (
+        metric_params_map if isinstance(metric_params_map, dict) else {}
+    )
+    for metric_key in metrics:
+        metric_params = provided_metric_params.get(metric_key)
+        if isinstance(metric_params, dict) and "notch_widths" in metric_params:
+            return (
+                False,
+                f"metric_params_map.{metric_key}.notch_widths was removed from "
+                "Build Tensor schema 4. Use notch_radii instead.",
+            )
+
     if svc.indicator_from_log(svc.preproc_step_log_path(resolver, "finish")) != "green":
         return False, "Preprocess finish must be green before Build Tensor."
 

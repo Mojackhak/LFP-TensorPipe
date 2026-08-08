@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from .frequency import (
     DEFAULT_TENSOR_BANDS,
-    DEFAULT_TENSOR_NOTCH_WIDTH,
+    DEFAULT_TENSOR_NOTCH_RADIUS,
     TensorFilterInheritance,
     TensorFrequencyBounds,
     build_tensor_metric_notch_payload,
@@ -34,7 +34,7 @@ from .service import run_build_tensor
 
 __all__ = [
     "DEFAULT_TENSOR_BANDS",
-    "DEFAULT_TENSOR_NOTCH_WIDTH",
+    "DEFAULT_TENSOR_NOTCH_RADIUS",
     "TENSOR_METRICS",
     "TENSOR_METRICS_BY_KEY",
     "TensorFilterInheritance",

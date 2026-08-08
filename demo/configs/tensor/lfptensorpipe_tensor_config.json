@@ -34,7 +34,7 @@
           125.25,
           167.0
         ],
-        "notch_widths": 2.0,
+        "notch_radii": 2.0,
         "selected_channels": [
           "0_1",
           "1_2",
@@ -78,7 +78,7 @@
           125.25,
           167.0
         ],
-        "notch_widths": 2.0,
+        "notch_radii": 2.0,
         "selected_channels": [
           "0_1",
           "1_2",
@@ -105,7 +105,7 @@
           125.25,
           167.0
         ],
-        "notch_widths": 2.0,
+        "notch_radii": 2.0,
         "selected_pairs": [
           [
             "0_1",
@@ -150,7 +150,7 @@
           125.25,
           167.0
         ],
-        "notch_widths": 2.0,
+        "notch_radii": 2.0,
         "selected_pairs": [
           [
             "0_1",
@@ -195,7 +195,7 @@
           125.25,
           167.0
         ],
-        "notch_widths": 2.0,
+        "notch_radii": 2.0,
         "selected_pairs": [
           [
             "0_1",
@@ -240,7 +240,7 @@
           125.25,
           167.0
         ],
-        "notch_widths": 2.0,
+        "notch_radii": 2.0,
         "selected_pairs": [
           [
             "0_1",
@@ -285,7 +285,7 @@
           125.25,
           167.0
         ],
-        "notch_widths": 2.0,
+        "notch_radii": 2.0,
         "selected_pairs": [
           [
             "0_1",
@@ -330,7 +330,7 @@
           125.25,
           167.0
         ],
-        "notch_widths": 2.0,
+        "notch_radii": 2.0,
         "selected_pairs": [
           [
             "0_1",
@@ -378,7 +378,7 @@
           125.25,
           167.0
         ],
-        "notch_widths": 2.0,
+        "notch_radii": 2.0,
         "selected_pairs": [
           [
             "0_1",
@@ -447,7 +447,7 @@
           125.25,
           167.0
         ],
-        "notch_widths": 2.0,
+        "notch_radii": 2.0,
         "selected_pairs": [
           [
             "0_1",
@@ -570,7 +570,7 @@
           125.25,
           167.0
         ],
-        "notch_widths": 2.0,
+        "notch_radii": 2.0,
         "selected_channels": [
           "0_1",
           "1_2",

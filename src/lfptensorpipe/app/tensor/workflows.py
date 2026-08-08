@@ -27,7 +27,7 @@ from .coercion import (
 )
 from .frequency import (
     DEFAULT_TENSOR_BANDS,
-    DEFAULT_TENSOR_NOTCH_WIDTH,
+    DEFAULT_TENSOR_NOTCH_RADIUS,
     TensorFilterInheritance,
     TensorFrequencyBounds,
     _apply_dynamic_edge_mask_strict,
@@ -39,7 +39,7 @@ from .frequency import (
     _cut_frequency_grid_by_intervals,
     _cycles_from_time_resolution,
     _effective_n_jobs_payload,
-    _expand_notch_widths,
+    _expand_notch_radii,
     _load_finish_nyquist_hz,
     _parse_positive_float_tuple,
     _psi_band_radii_seconds,

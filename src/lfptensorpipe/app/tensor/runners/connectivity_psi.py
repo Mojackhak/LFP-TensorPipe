@@ -72,7 +72,7 @@ def run_psi_metric(
     min_cycles: float | None = 3.0,
     max_cycles: float | None = None,
     notches: Any = None,
-    notch_widths: Any = 2.0,
+    notch_radii: Any = 2.0,
     n_jobs: int = 1,
     outer_n_jobs: int = 1,
     read_raw_fif_fn=None,
@@ -121,17 +121,17 @@ def run_psi_metric(
     config_path = tensor_metric_config_path(resolver, metric_key, create=True)
     log_path = tensor_metric_log_path(resolver, metric_key, create=True)
     inheritance = load_tensor_filter_inheritance(context)
-    runtime_notch_payload = svc.build_tensor_metric_notch_payload(notches, notch_widths)
+    runtime_notch_payload = svc.build_tensor_metric_notch_payload(notches, notch_radii)
     runtime_notches = tuple(float(item) for item in runtime_notch_payload["notches"])
-    runtime_notch_widths = svc._expand_notch_widths(
-        runtime_notch_payload["notch_widths"],
+    runtime_notch_radii = svc._expand_notch_radii(
+        runtime_notch_payload["notch_radii"],
         len(runtime_notches),
     )
     notch_intervals = _compute_notch_intervals(
         low_freq=float(low_freq),
         high_freq=float(high_freq),
         notches=runtime_notches,
-        notch_widths=runtime_notch_widths,
+        notch_radii=runtime_notch_radii,
     )
 
     if indicator_from_log(preproc_step_log_path(resolver, "finish")) != "green":
@@ -249,6 +249,22 @@ def run_psi_metric(
                 freqs_lookup=[str(item) for item in band_names],
                 radii_s=[float(item) for item in band_radii],
             )
+        metadata = dict(metadata)
+        metadata.update(
+            {
+                "notches": [float(item) for item in runtime_notches],
+                "notch_radii": [float(item) for item in runtime_notch_radii],
+                "notch_intervals_hz": [
+                    [float(low), float(high)] for low, high in notch_intervals
+                ],
+                "inherited_filter_notches": [
+                    float(item) for item in inheritance.notches
+                ],
+                "inherited_filter_notch_widths": [
+                    float(item) for item in inheritance.notch_widths
+                ],
+            }
+        )
         grid_params = metadata.get("params", {}) if isinstance(metadata, dict) else {}
         if not isinstance(grid_params, dict):
             grid_params = {}
@@ -292,7 +308,7 @@ def run_psi_metric(
             "selected_pairs": [[str(a), str(b)] for a, b in pairs],
             "pairs": [[str(a), str(b)] for a, b in pairs],
             "notches": [float(item) for item in runtime_notches],
-            "notch_widths": [float(item) for item in runtime_notch_widths],
+            "notch_radii": [float(item) for item in runtime_notch_radii],
             "inherited_filter_notches": [float(item) for item in inheritance.notches],
             "inherited_filter_notch_widths": [
                 float(item) for item in inheritance.notch_widths
@@ -327,7 +343,7 @@ def run_psi_metric(
             "max_cycles": (float(max_cycles) if max_cycles is not None else None),
             "mask_edge_effects": bool(mask_edge_effects),
             "notches": [float(item) for item in runtime_notches],
-            "notch_widths": [float(item) for item in runtime_notch_widths],
+            "notch_radii": [float(item) for item in runtime_notch_radii],
             "inherited_filter_notches": [float(item) for item in inheritance.notches],
             "inherited_filter_notch_widths": [
                 float(item) for item in inheritance.notch_widths
@@ -389,7 +405,7 @@ def run_psi_metric(
                 "max_cycles": (float(max_cycles) if max_cycles is not None else None),
                 "mask_edge_effects": bool(mask_edge_effects),
                 "notches": [float(item) for item in runtime_notches],
-                "notch_widths": [float(item) for item in runtime_notch_widths],
+                "notch_radii": [float(item) for item in runtime_notch_radii],
                 "inherited_filter_notches": [
                     float(item) for item in inheritance.notches
                 ],

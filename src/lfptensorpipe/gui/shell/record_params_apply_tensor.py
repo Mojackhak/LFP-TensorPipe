@@ -48,8 +48,14 @@ class MainWindowRecordParamsApplyTensorMixin:
                     )
                     node = metric_params.get(spec.key)
                     if isinstance(node, dict):
-                        merged = _deep_merge_dict(default_params, node)
+                        normalized_node = dict(node)
+                        legacy_notch_fields = "notch_widths" in normalized_node
+                        legacy_notch_radii = normalized_node.pop("notch_widths", None)
+                        if legacy_notch_fields and "notch_radii" not in normalized_node:
+                            normalized_node["notch_radii"] = legacy_notch_radii
+                        merged = _deep_merge_dict(default_params, normalized_node)
                     else:
+                        legacy_notch_fields = False
                         merged = default_params
                     merged.pop("time_bandwidth", None)
                     merged.pop("mt_bandwidth", None)
@@ -59,14 +65,15 @@ class MainWindowRecordParamsApplyTensorMixin:
                     merged.update(
                         build_tensor_metric_notch_payload(
                             merged.get("notches"),
-                            merged.get("notch_widths"),
+                            merged.get("notch_radii"),
+                            legacy_mismatched_list_broadcast=legacy_notch_fields,
                         )
                     )
                     merged_params[spec.key] = merged
                 if not isinstance(metric_params.get("imcoh_abs"), dict):
                     coherence_params = merged_params.get("coherence", {})
                     imcoh_abs_params = merged_params.get("imcoh_abs", {})
-                    for field_name in ("notches", "notch_widths"):
+                    for field_name in ("notches", "notch_radii"):
                         if field_name in coherence_params:
                             imcoh_abs_params[field_name] = deepcopy(
                                 coherence_params[field_name]

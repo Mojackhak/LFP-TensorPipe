@@ -12,7 +12,8 @@ from lfptensorpipe.app.runlog_store import read_run_log
 
 from .coercion import _as_float, _as_int, _as_optional_float, _as_optional_int
 from .frequency import (
-    DEFAULT_TENSOR_NOTCH_WIDTH,
+    DEFAULT_TENSOR_NOTCH_RADIUS,
+    TENSOR_NOTCH_TOLERANCE_HZ,
     _compute_notch_intervals,
     load_tensor_frequency_defaults,
     normalize_tensor_metric_notch_params,
@@ -110,14 +111,50 @@ def _read_payload(path: Path) -> dict[str, Any] | None:
 
 
 def _notch_payload(params: dict[str, Any]) -> tuple[list[float], list[float]] | None:
+    legacy_notch_fields = "notch_radii" not in params and "notch_widths" in params
+    radii_value = (
+        params.get("notch_radii")
+        if "notch_radii" in params
+        else params.get("notch_widths", DEFAULT_TENSOR_NOTCH_RADIUS)
+    )
     try:
-        notches, notch_widths = normalize_tensor_metric_notch_params(
+        notches, notch_radii = normalize_tensor_metric_notch_params(
             params.get("notches"),
-            params.get("notch_widths", DEFAULT_TENSOR_NOTCH_WIDTH),
+            radii_value,
+            legacy_mismatched_list_broadcast=legacy_notch_fields,
         )
     except Exception:
         return None
-    return list(notches), list(notch_widths)
+    return list(notches), list(notch_radii)
+
+
+def _notch_intervals_signature(
+    *,
+    notches: list[float],
+    notch_radii: list[float],
+    low_freq: float,
+    high_freq: float,
+) -> list[list[float]]:
+    intervals = _compute_notch_intervals(
+        low_freq=float(low_freq),
+        high_freq=float(high_freq),
+        notches=tuple(notches),
+        notch_radii=tuple(notch_radii),
+    )
+    clipped = sorted(
+        (
+            max(float(low), float(low_freq)),
+            min(float(high), float(high_freq)),
+        )
+        for low, high in intervals
+    )
+    merged: list[list[float]] = []
+    for low, high in clipped:
+        if merged and float(low) <= float(merged[-1][1]) + TENSOR_NOTCH_TOLERANCE_HZ:
+            merged[-1][1] = max(float(merged[-1][1]), float(high))
+            continue
+        merged.append([float(low), float(high)])
+    return merged
 
 
 def _normalize_channels(value: Any) -> list[str] | None:
@@ -227,7 +264,16 @@ def _metric_log_signature(
     notch_payload = _notch_payload(params)
     if notch_payload is None:
         return None
-    notches, notch_widths = notch_payload
+    notches, notch_radii = notch_payload
+    try:
+        notch_intervals = _notch_intervals_signature(
+            notches=notches,
+            notch_radii=notch_radii,
+            low_freq=float(params.get("low_freq")),
+            high_freq=float(params.get("high_freq")),
+        )
+    except (TypeError, ValueError):
+        return None
     if metric_key == "raw_power":
         channels = _normalize_channels(params.get("selected_channels"))
         if channels is None:
@@ -240,8 +286,7 @@ def _metric_log_signature(
             "time_resolution_s": float(params.get("time_resolution_s")),
             "hop_s": float(params.get("hop_s")),
             "mask_edge_effects": bool(params.get("mask_edge_effects", True)),
-            "notches": notches,
-            "notch_widths": notch_widths,
+            "notch_intervals_hz": notch_intervals,
             "selected_channels": channels,
         }
     if metric_key == "periodic_aperiodic":
@@ -281,8 +326,7 @@ def _metric_log_signature(
             "peak_threshold": _as_float(params.get("peak_threshold"), 2.0),
             "fit_qc_threshold": _as_float(params.get("fit_qc_threshold"), 0.6),
             "mask_edge_effects": bool(params.get("mask_edge_effects", True)),
-            "notches": notches,
-            "notch_widths": notch_widths,
+            "notch_intervals_hz": notch_intervals,
             "selected_channels": channels,
         }
     if metric_key in {"coherence", "imcoh_abs", "plv", "ciplv", "pli", "wpli"}:
@@ -307,8 +351,7 @@ def _metric_log_signature(
             "connectivity_metric": connectivity_metric_map[metric_key],
             **_spectral_method_signature(params, require_multitaper_fields=True),
             "mask_edge_effects": bool(params.get("mask_edge_effects", True)),
-            "notches": notches,
-            "notch_widths": notch_widths,
+            "notch_intervals_hz": notch_intervals,
             "selected_pairs": pairs,
         }
     if metric_key == "trgc":
@@ -327,8 +370,7 @@ def _metric_log_signature(
             "group_by_samples": bool(params.get("group_by_samples", False)),
             "round_ms": _as_float(params.get("round_ms"), 50.0),
             "mask_edge_effects": bool(params.get("mask_edge_effects", True)),
-            "notches": notches,
-            "notch_widths": notch_widths,
+            "notch_intervals_hz": notch_intervals,
             "selected_pairs": pairs,
         }
     if metric_key == "psi":
@@ -348,8 +390,7 @@ def _metric_log_signature(
             "time_resolution_s": float(params.get("time_resolution_s")),
             "hop_s": float(params.get("hop_s")),
             "mask_edge_effects": bool(params.get("mask_edge_effects", True)),
-            "notches": notches,
-            "notch_widths": notch_widths,
+            "notch_intervals_hz": notch_intervals,
             "bands_used": bands_used,
             "selected_pairs": pairs,
         }
@@ -387,8 +428,7 @@ def _metric_log_signature(
                 if str(params.get("thresholds_source_path", "")).strip()
                 else None
             ),
-            "notches": notches,
-            "notch_widths": notch_widths,
+            "notch_intervals_hz": notch_intervals,
             "bands_used": bands_used,
             "selected_channels": channels,
         }
@@ -402,13 +442,13 @@ def _psi_or_burst_bands_signature(
     metric_high: float,
     bands: list[dict[str, Any]],
     notches: list[float],
-    notch_widths: list[float],
+    notch_radii: list[float],
 ) -> dict[str, list[float] | list[list[float]]] | None:
     notch_intervals = _compute_notch_intervals(
         low_freq=metric_low,
         high_freq=metric_high,
         notches=tuple(notches),
-        notch_widths=tuple(notch_widths),
+        notch_radii=tuple(notch_radii),
     )
     if metric_key == "psi":
         runtime_bands = _build_psi_runtime_bands(
@@ -444,13 +484,19 @@ def _current_metric_signature(
     notch_payload = _notch_payload(metric_params)
     if notch_payload is None:
         return None
-    notches, notch_widths = notch_payload
+    notches, notch_radii = notch_payload
     prepared = prepare_metric_plan_inputs(
         _VALIDATION_SVC,
         context,
         metric_key=metric_key,
         metric_label=spec.display_name,
         metric_params=dict(metric_params),
+    )
+    notch_intervals = _notch_intervals_signature(
+        notches=notches,
+        notch_radii=notch_radii,
+        low_freq=prepared.metric_low,
+        high_freq=prepared.metric_high,
     )
     if metric_key == "raw_power":
         channels = _normalize_channels(prepared.metric_channels)
@@ -464,8 +510,7 @@ def _current_metric_signature(
             "time_resolution_s": _as_float(metric_params.get("time_resolution_s"), 0.5),
             "hop_s": _as_float(metric_params.get("hop_s"), 0.025),
             "mask_edge_effects": bool(mask_edge_effects),
-            "notches": notches,
-            "notch_widths": notch_widths,
+            "notch_intervals_hz": notch_intervals,
             "selected_channels": channels,
         }
     if metric_key == "periodic_aperiodic":
@@ -504,8 +549,7 @@ def _current_metric_signature(
             "peak_threshold": _as_float(metric_params.get("peak_threshold"), 2.0),
             "fit_qc_threshold": _as_float(metric_params.get("fit_qc_threshold"), 0.6),
             "mask_edge_effects": bool(mask_edge_effects),
-            "notches": notches,
-            "notch_widths": notch_widths,
+            "notch_intervals_hz": notch_intervals,
             "selected_channels": channels,
         }
     if metric_key in {"coherence", "imcoh_abs", "plv", "ciplv", "pli", "wpli"}:
@@ -529,8 +573,7 @@ def _current_metric_signature(
             "connectivity_metric": connectivity_metric_map[metric_key],
             **_spectral_method_signature(metric_params),
             "mask_edge_effects": bool(mask_edge_effects),
-            "notches": notches,
-            "notch_widths": notch_widths,
+            "notch_intervals_hz": notch_intervals,
             "selected_pairs": pairs,
         }
     if metric_key == "trgc":
@@ -549,8 +592,7 @@ def _current_metric_signature(
             "group_by_samples": bool(metric_params.get("group_by_samples", False)),
             "round_ms": _as_float(metric_params.get("round_ms"), 50.0),
             "mask_edge_effects": bool(mask_edge_effects),
-            "notches": notches,
-            "notch_widths": notch_widths,
+            "notch_intervals_hz": notch_intervals,
             "selected_pairs": pairs,
         }
     if metric_key == "psi":
@@ -562,7 +604,7 @@ def _current_metric_signature(
             metric_high=prepared.metric_high,
             bands=bands,
             notches=notches,
-            notch_widths=notch_widths,
+            notch_radii=notch_radii,
         )
         if pairs is None or bands_used is None:
             return None
@@ -576,8 +618,7 @@ def _current_metric_signature(
             "time_resolution_s": _as_float(metric_params.get("time_resolution_s"), 0.5),
             "hop_s": _as_float(metric_params.get("hop_s"), 0.025),
             "mask_edge_effects": bool(mask_edge_effects),
-            "notches": notches,
-            "notch_widths": notch_widths,
+            "notch_intervals_hz": notch_intervals,
             "bands_used": bands_used,
             "selected_pairs": pairs,
         }
@@ -593,7 +634,7 @@ def _current_metric_signature(
             metric_high=prepared.metric_high,
             bands=bands,
             notches=notches,
-            notch_widths=notch_widths,
+            notch_radii=notch_radii,
         )
         if channels is None or bands_used is None:
             return None
@@ -629,8 +670,7 @@ def _current_metric_signature(
             "decim": decim,
             "mask_edge_effects": bool(mask_edge_effects),
             "thresholds_source_path": thresholds_path,
-            "notches": notches,
-            "notch_widths": notch_widths,
+            "notch_intervals_hz": notch_intervals,
             "bands_used": bands_used,
             "selected_channels": channels,
         }
