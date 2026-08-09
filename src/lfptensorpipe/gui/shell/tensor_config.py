@@ -6,6 +6,10 @@ from copy import deepcopy
 import json
 import math
 
+from lfptensorpipe.app.tensor.cpu_budget import (
+    DEFAULT_TENSOR_CPU_PERCENT,
+    normalize_tensor_cpu_percent,
+)
 from lfptensorpipe.app.tensor.frequency import (
     validate_periodic_aperiodic_notch_bounds,
 )
@@ -39,6 +43,7 @@ TENSOR_MULTITAPER_METRIC_KEYS = frozenset(
 TENSOR_DIRTY_KEYS = {
     "tensor.active_metric",
     "tensor.mask_edge_effects",
+    "tensor.cpu_percent",
     "tensor.metric_params",
     "tensor.selected_metrics",
     "tensor.selectors",
@@ -337,6 +342,11 @@ class MainWindowTensorConfigMixin:
                     self._tensor_mask_edge_checkbox.isChecked()
                     if self._tensor_mask_edge_checkbox is not None
                     else True
+                ),
+                "cpu_percent": normalize_tensor_cpu_percent(
+                    self._tensor_cpu_percent_edit.text().strip()
+                    if self._tensor_cpu_percent_edit is not None
+                    else DEFAULT_TENSOR_CPU_PERCENT
                 ),
                 "metric_params": {
                     metric_key: self._collect_tensor_config_metric_params(metric_key)
@@ -664,6 +674,9 @@ class MainWindowTensorConfigMixin:
             raise ValueError(
                 "Tensor config `tensor.mask_edge_effects` must be a boolean."
             )
+        cpu_percent = normalize_tensor_cpu_percent(
+            tensor_node.get("cpu_percent", DEFAULT_TENSOR_CPU_PERCENT)
+        )
 
         normalized_metric_params: dict[str, dict[str, Any]] = {}
         for metric_key in supported_metric_keys:
@@ -697,6 +710,7 @@ class MainWindowTensorConfigMixin:
                 "selected_metrics": list(selected_metrics),
                 "active_metric": active_metric,
                 "mask_edge_effects": bool(mask_edge_effects),
+                "cpu_percent": cpu_percent,
                 "metric_params": normalized_metric_params,
             },
             warnings,

@@ -294,6 +294,18 @@ def _build_tensor_actions_block(self) -> QGroupBox:
     config_row_layout.addWidget(self._tensor_import_button, 1)
     config_row_layout.addWidget(self._tensor_export_button, 1)
 
+    cpu_row = QWidget()
+    cpu_row_layout = QHBoxLayout(cpu_row)
+    cpu_row_layout.setContentsMargins(0, 0, 0, 0)
+    cpu_row_layout.setSpacing(grid_spacing)
+    cpu_row_layout.addWidget(QLabel("CPU (%)"))
+    self._tensor_cpu_percent_edit = QLineEdit("75")
+    self._tensor_cpu_percent_edit.setToolTip(
+        "Build-wide CPU budget from 0 to 100 percent. The run uses at least one "
+        "CPU slot and does not include this value in tensor freshness."
+    )
+    cpu_row_layout.addWidget(self._tensor_cpu_percent_edit, 1)
+
     run_row = QWidget()
     run_row_layout = QHBoxLayout(run_row)
     run_row_layout.setContentsMargins(0, 0, 0, 0)
@@ -303,5 +315,6 @@ def _build_tensor_actions_block(self) -> QGroupBox:
     run_row_layout.addWidget(self._tensor_run_button)
 
     layout.addWidget(config_row)
+    layout.addWidget(cpu_row)
     layout.addWidget(run_row)
     return block

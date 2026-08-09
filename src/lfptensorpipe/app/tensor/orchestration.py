@@ -10,6 +10,8 @@ from lfptensorpipe.app.shared.downstream_invalidation import (
     invalidate_after_tensor_result_change,
 )
 
+from .cpu_budget import DEFAULT_TENSOR_CPU_PERCENT, derive_global_compute_slots
+from .cancellation import raise_if_tensor_cancellation_requested
 from .orchestration_execution import (
     apply_effective_parallel_policy,
     execute_runtime_plans,
@@ -45,6 +47,7 @@ def run_build_tensor(
     bands: list[dict[str, Any]] | None = None,
     selected_channels: list[str] | None = None,
     selected_pairs: dict[str, list[tuple[str, str]]] | None = None,
+    cpu_percent: float = DEFAULT_TENSOR_CPU_PERCENT,
     service_overrides: Mapping[str, Any] | None = None,
 ) -> tuple[bool, str]:
     """Run Build Tensor for selected metrics.
@@ -60,6 +63,13 @@ def run_build_tensor(
     metrics = [item for item in selected_metrics if str(item).strip()]
     if not metrics:
         return False, "No tensor metric selected."
+    raise_if_tensor_cancellation_requested()
+    try:
+        normalized_cpu_percent, detected_cpu_count, global_compute_slots = (
+            derive_global_compute_slots(cpu_percent)
+        )
+    except ValueError as exc:
+        return False, str(exc)
 
     provided_metric_params = (
         metric_params_map if isinstance(metric_params_map, dict) else {}
@@ -109,8 +119,10 @@ def run_build_tensor(
         merged_metric_params_map=merged_metric_params_map,
         policy_n_jobs=policy_n_jobs,
         policy_outer_n_jobs=policy_outer_n_jobs,
+        global_compute_slots=global_compute_slots,
         force_in_process=bool(service_overrides),
     )
+    raise_if_tensor_cancellation_requested()
 
     overall_ok = plan_state.overall_ok
     messages = list(plan_state.messages)
@@ -137,6 +149,9 @@ def run_build_tensor(
             },
             "metric_statuses": metric_statuses,
             "effective_n_jobs": plan_state.effective_n_jobs_map,
+            "cpu_percent": normalized_cpu_percent,
+            "detected_cpu_count": detected_cpu_count,
+            "global_compute_slots": global_compute_slots,
         },
         input_path=str(svc.preproc_step_raw_path(resolver, "finish")),
         output_path=str(resolver.tensor_root),

@@ -10,6 +10,8 @@ from typing import Any
 
 from lfptensorpipe.app.path_resolver import RecordContext
 
+from .cancellation import TENSOR_CANCEL_REQUEST_PATH_ENV
+from .cpu_budget import DEFAULT_TENSOR_CPU_PERCENT
 from .logging import TENSOR_RUN_ID_ENV
 from .orchestration import run_build_tensor
 
@@ -70,16 +72,21 @@ def main(argv: list[str] | None = None) -> int:
     run_id = str(payload.get("run_id", "")).strip()
     if run_id:
         os.environ[TENSOR_RUN_ID_ENV] = run_id
+    cancel_path = str(payload.get("cancel_path", "")).strip()
+    if cancel_path:
+        os.environ[TENSOR_CANCEL_REQUEST_PATH_ENV] = cancel_path
     context = _record_context(payload)
     selected_metrics = [str(item) for item in list(payload.get("selected_metrics", []))]
     metric_params_map = _metric_params_map(payload)
     mask_edge_effects = bool(payload.get("mask_edge_effects", True))
+    cpu_percent = payload.get("cpu_percent", DEFAULT_TENSOR_CPU_PERCENT)
     try:
         ok, message = run_build_tensor(
             context,
             selected_metrics=selected_metrics,
             metric_params_map=metric_params_map,
             mask_edge_effects=mask_edge_effects,
+            cpu_percent=cpu_percent,
         )
     except Exception as exc:  # noqa: BLE001
         _write_json(

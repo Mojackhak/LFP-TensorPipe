@@ -10,6 +10,8 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from typing import Any, Callable, Mapping
 
 from lfptensorpipe.desktop_runtime import (
@@ -19,8 +21,14 @@ from lfptensorpipe.desktop_runtime import (
 )
 from lfptensorpipe.app.path_resolver import RecordContext
 
+from .cancellation import (
+    BuildTensorCancellationRequested,
+    raise_if_tensor_cancellation_requested,
+    tensor_cancellation_requested,
+)
 from .logging import TENSOR_RUN_ID_ENV
 from .runner_dispatch import invoke_runtime_plan_runner
+from .transaction_manifest import recover_tensor_run_transactions
 
 _NATIVE_THREAD_ENV_VARS = (
     "OMP_NUM_THREADS",
@@ -30,6 +38,77 @@ _NATIVE_THREAD_ENV_VARS = (
 )
 RuntimeResult = tuple[bool, str, str]
 ProcessPhaseExecutor = Callable[..., dict[str, RuntimeResult]]
+INDEPENDENT_RUNTIME_PLAN_KEYS = frozenset(
+    {"raw_power", "periodic_aperiodic", "psi", "burst"}
+)
+
+
+class ComputeSlotGate:
+    """Coordinate deterministic independent-plan priority with connectivity tasks."""
+
+    def __init__(self, capacity: int, *, pending_independent: int) -> None:
+        self._capacity = max(int(capacity), 1)
+        self._available = self._capacity
+        self._pending_independent = max(int(pending_independent), 0)
+        self._fatal_error: BaseException | None = None
+        self._condition = threading.Condition()
+
+    def try_acquire_independent(self) -> bool:
+        with self._condition:
+            if self._fatal_error is not None:
+                return False
+            if self._pending_independent <= 0 or self._available <= 0:
+                return False
+            self._pending_independent -= 1
+            self._available -= 1
+            return True
+
+    def discard_pending_independent(self, count: int) -> None:
+        with self._condition:
+            self._pending_independent = max(
+                self._pending_independent - max(int(count), 0), 0
+            )
+            self._condition.notify_all()
+
+    def finish_independent_admission(self) -> None:
+        """Release connectivity priority held by unadmitted independent work."""
+        with self._condition:
+            self._pending_independent = 0
+            self._condition.notify_all()
+
+    def fail_independent_admission(self, error: BaseException) -> None:
+        """Close connectivity admission after a fatal independent scheduler error."""
+        with self._condition:
+            self._pending_independent = 0
+            if self._fatal_error is None:
+                self._fatal_error = error
+            self._condition.notify_all()
+
+    def _raise_if_failed(self) -> None:
+        if self._fatal_error is None:
+            return
+        raise RuntimeError(
+            "Build Tensor connectivity admission stopped because the "
+            "independent scheduler failed."
+        ) from self._fatal_error
+
+    def acquire_connectivity(self) -> None:
+        with self._condition:
+            self._raise_if_failed()
+            while self._pending_independent > 0 or self._available <= 0:
+                self._condition.wait(timeout=0.05)
+                raise_if_tensor_cancellation_requested()
+                self._raise_if_failed()
+            self._available -= 1
+
+    def release(self) -> None:
+        with self._condition:
+            self._available += 1
+            if self._available > self._capacity:
+                raise RuntimeError(
+                    "Build Tensor compute-slot budget was over-released."
+                )
+            self._condition.notify_all()
 
 
 @dataclass(frozen=True)
@@ -94,12 +173,8 @@ def apply_effective_parallel_policy(
     runtime_plans: dict[str, RuntimePlan],
     effective_n_jobs_map: dict[str, dict[str, int]],
 ) -> tuple[int, int]:
-    if len(runtime_plans) == 1:
-        policy_n_jobs = -1
-        policy_outer_n_jobs = -1
-    else:
-        policy_n_jobs = 1
-        policy_outer_n_jobs = 1
+    policy_n_jobs = 1
+    policy_outer_n_jobs = 1
     for metric_key in list(runtime_plans):
         effective_n_jobs_map[metric_key] = {
             "n_jobs": int(policy_n_jobs),
@@ -210,6 +285,8 @@ def run_runtime_plan(
             n_jobs=policy_n_jobs,
             outer_n_jobs=policy_outer_n_jobs,
         )
+    except BuildTensorCancellationRequested:
+        raise
     except Exception as exc:  # noqa: BLE001
         return _runtime_plan_failure_result(
             svc,
@@ -281,6 +358,20 @@ def _serialize_context(context: RecordContext) -> dict[str, str]:
     }
 
 
+def _connectivity_fast_path_eligible(
+    runtime_plans: Mapping[str, RuntimePlan],
+) -> bool:
+    """Return whether the explicit coordinator preserves the plan topology."""
+    for plan in runtime_plans.values():
+        if plan.runner_key == "trgc_finalize":
+            if int(plan.phase) < 1 or not plan.dependencies:
+                return False
+            continue
+        if int(plan.phase) != 0 or plan.dependencies:
+            return False
+    return True
+
+
 def _execute_runtime_plan_phase_in_subprocesses(
     svc: Any,
     resolver: Any,
@@ -291,29 +382,34 @@ def _execute_runtime_plan_phase_in_subprocesses(
     runnable_keys: list[str],
     policy_n_jobs: int,
     policy_outer_n_jobs: int,
+    global_compute_slots: int,
+    slot_gate: ComputeSlotGate | None = None,
 ) -> dict[str, RuntimeResult]:
     runtime_results: dict[str, RuntimeResult] = {}
     process_states: dict[str, dict[str, Any]] = {}
+    pending_keys = list(runnable_keys)
     run_id = os.environ.get(TENSOR_RUN_ID_ENV, "").strip()
 
-    for metric_key in runnable_keys:
+    def _launch(metric_key: str) -> None:
         runtime_plan = runtime_plans[metric_key]
-        request_path = _runtime_plan_temp_json_path(
-            f"runtime_plan_request_{runtime_plan.plan_key}"
-        )
-        result_path = _runtime_plan_temp_json_path(
-            f"runtime_plan_result_{runtime_plan.plan_key}"
-        )
-        request_payload = {
-            "context": _serialize_context(context),
-            "runtime_plan": runtime_plan.to_payload(),
-            "merged_metric_params_map": merged_metric_params_map,
-            "policy_n_jobs": int(policy_n_jobs),
-            "policy_outer_n_jobs": int(policy_outer_n_jobs),
-            "run_id": run_id,
-        }
-        _write_json(request_path, request_payload)
+        request_path: Path | None = None
+        result_path: Path | None = None
         try:
+            request_path = _runtime_plan_temp_json_path(
+                f"runtime_plan_request_{runtime_plan.plan_key}"
+            )
+            result_path = _runtime_plan_temp_json_path(
+                f"runtime_plan_result_{runtime_plan.plan_key}"
+            )
+            request_payload = {
+                "context": _serialize_context(context),
+                "runtime_plan": runtime_plan.to_payload(),
+                "merged_metric_params_map": merged_metric_params_map,
+                "policy_n_jobs": int(policy_n_jobs),
+                "policy_outer_n_jobs": int(policy_outer_n_jobs),
+                "run_id": run_id,
+            }
+            _write_json(request_path, request_payload)
             process = subprocess.Popen(
                 build_worker_command(
                     module_name=RUNTIME_PLAN_WORKER_MODULE,
@@ -333,8 +429,12 @@ def _execute_runtime_plan_phase_in_subprocesses(
                 stderr=subprocess.DEVNULL,
             )
         except Exception as exc:  # noqa: BLE001
-            request_path.unlink(missing_ok=True)
-            result_path.unlink(missing_ok=True)
+            if slot_gate is not None:
+                slot_gate.release()
+            if request_path is not None:
+                request_path.unlink(missing_ok=True)
+            if result_path is not None:
+                result_path.unlink(missing_ok=True)
             runtime_results[metric_key] = _runtime_plan_failure_result(
                 svc,
                 resolver,
@@ -344,10 +444,10 @@ def _execute_runtime_plan_phase_in_subprocesses(
                 policy_outer_n_jobs=policy_outer_n_jobs,
                 failure_message=(
                     "Unexpected runtime failure: "
-                    f"Failed to launch runtime plan worker: {exc}"
+                    f"Failed to prepare or launch runtime plan worker: {exc}"
                 ),
             )
-            continue
+            return
         process_states[metric_key] = {
             "process": process,
             "request_path": request_path,
@@ -355,59 +455,94 @@ def _execute_runtime_plan_phase_in_subprocesses(
         }
 
     try:
-        for metric_key, state in process_states.items():
-            runtime_plan = runtime_plans[metric_key]
-            process = state["process"]
-            request_path = state["request_path"]
-            result_path = state["result_path"]
-            try:
-                exit_code = int(process.wait())
-            except Exception as exc:  # noqa: BLE001
-                runtime_results[metric_key] = _runtime_plan_failure_result(
-                    svc,
-                    resolver,
-                    runtime_plan=runtime_plan,
-                    merged_metric_params_map=merged_metric_params_map,
-                    policy_n_jobs=policy_n_jobs,
-                    policy_outer_n_jobs=policy_outer_n_jobs,
-                    failure_message=(
-                        "Unexpected runtime failure: "
-                        f"Runtime plan worker wait failed: {exc}"
-                    ),
-                )
+        slot_cap = max(int(global_compute_slots), 1)
+        while pending_keys or process_states:
+            cancellation_requested = tensor_cancellation_requested()
+            if cancellation_requested:
+                if slot_gate is not None and pending_keys:
+                    slot_gate.discard_pending_independent(len(pending_keys))
+                pending_keys.clear()
+                if not process_states:
+                    raise_if_tensor_cancellation_requested()
+            while (
+                not cancellation_requested
+                and pending_keys
+                and len(process_states) < slot_cap
+            ):
+                if slot_gate is not None and not slot_gate.try_acquire_independent():
+                    break
+                _launch(pending_keys.pop(0))
+            if not process_states:
                 continue
 
-            result_payload = _read_json(result_path)
-            if isinstance(result_payload, dict):
-                message = str(result_payload.get("message", "")).strip()
-                if not message:
-                    message = (
-                        f"{runtime_plan.metric_label} worker exited without a message."
+            completed_keys: list[tuple[str, int]] = []
+            for metric_key, state in process_states.items():
+                exit_code = state["process"].poll()
+                if exit_code is not None:
+                    completed_keys.append((metric_key, int(exit_code)))
+            if not completed_keys:
+                time.sleep(0.02)
+                continue
+
+            for metric_key, exit_code in completed_keys:
+                state = process_states.pop(metric_key)
+                if slot_gate is not None:
+                    slot_gate.release()
+                runtime_plan = runtime_plans[metric_key]
+                try:
+                    result_payload = _read_json(state["result_path"])
+                finally:
+                    state["request_path"].unlink(missing_ok=True)
+                    state["result_path"].unlink(missing_ok=True)
+                if isinstance(result_payload, dict):
+                    message = str(result_payload.get("message", "")).strip()
+                    if not message:
+                        message = f"{runtime_plan.metric_label} worker exited without a message."
+                    runtime_results[metric_key] = (
+                        bool(result_payload.get("ok", False)),
+                        message,
+                        runtime_plan.metric_label,
                     )
-                runtime_results[metric_key] = (
-                    bool(result_payload.get("ok", False)),
-                    message,
-                    runtime_plan.metric_label,
-                )
-                continue
-
-            runtime_results[metric_key] = _runtime_plan_failure_result(
-                svc,
-                resolver,
-                runtime_plan=runtime_plan,
-                merged_metric_params_map=merged_metric_params_map,
-                policy_n_jobs=policy_n_jobs,
-                policy_outer_n_jobs=policy_outer_n_jobs,
-                failure_message=(
-                    "Unexpected runtime failure: "
-                    f"Runtime plan worker exited unexpectedly (code {exit_code})."
-                ),
-            )
+                else:
+                    raise_if_tensor_cancellation_requested()
+                    if run_id:
+                        metric_key_for_log = _runtime_plan_log_metric_key(runtime_plan)
+                        metric_root = svc.tensor_metric_tensor_path(
+                            resolver,
+                            metric_key_for_log,
+                        ).parent
+                        try:
+                            recover_tensor_run_transactions(
+                                metric_root,
+                                validation_root=resolver.tensor_root,
+                                run_id=run_id,
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            raise RuntimeError(
+                                f"{runtime_plan.metric_label} worker exited "
+                                f"unexpectedly (code {exit_code}); transaction "
+                                f"recovery failed: {exc}"
+                            ) from exc
+                    runtime_results[metric_key] = _runtime_plan_failure_result(
+                        svc,
+                        resolver,
+                        runtime_plan=runtime_plan,
+                        merged_metric_params_map=merged_metric_params_map,
+                        policy_n_jobs=policy_n_jobs,
+                        policy_outer_n_jobs=policy_outer_n_jobs,
+                        failure_message=(
+                            "Unexpected runtime failure: Runtime plan worker "
+                            f"exited unexpectedly (code {exit_code})."
+                        ),
+                    )
     finally:
+        if slot_gate is not None and pending_keys:
+            slot_gate.discard_pending_independent(len(pending_keys))
         for state in process_states.values():
             state["request_path"].unlink(missing_ok=True)
             state["result_path"].unlink(missing_ok=True)
 
+    raise_if_tensor_cancellation_requested()
     return runtime_results
 
 
@@ -420,9 +555,76 @@ def execute_runtime_plans(
     merged_metric_params_map: dict[str, dict[str, Any]],
     policy_n_jobs: int,
     policy_outer_n_jobs: int,
+    global_compute_slots: int = 1,
     force_in_process: bool = False,
     process_phase_executor: ProcessPhaseExecutor | None = None,
 ) -> dict[str, RuntimeResult]:
+    if not force_in_process:
+        from .connectivity_coordinator import (
+            CONNECTIVITY_RUNNER_KEYS,
+            run_connectivity_coordinator,
+        )
+
+        connectivity_plans = {
+            key: plan
+            for key, plan in runtime_plans.items()
+            if plan.runner_key in CONNECTIVITY_RUNNER_KEYS
+        }
+        independent_plans = {
+            key: plan
+            for key, plan in runtime_plans.items()
+            if plan.runner_key not in CONNECTIVITY_RUNNER_KEYS
+        }
+        if connectivity_plans and _connectivity_fast_path_eligible(runtime_plans):
+            slot_gate = ComputeSlotGate(
+                global_compute_slots,
+                pending_independent=len(independent_plans),
+            )
+
+            def _run_connectivity() -> dict[str, RuntimeResult]:
+                return run_connectivity_coordinator(
+                    svc,
+                    resolver,
+                    context,
+                    runtime_plans=connectivity_plans,
+                    global_compute_slots=global_compute_slots,
+                    slot_gate=slot_gate,
+                )
+
+            if not independent_plans:
+                return _run_connectivity()
+
+            process_phase_runner = (
+                process_phase_executor or _execute_runtime_plan_phase_in_subprocesses
+            )
+
+            def _run_independent() -> dict[str, RuntimeResult]:
+                try:
+                    result = process_phase_runner(
+                        svc,
+                        resolver,
+                        context,
+                        runtime_plans=independent_plans,
+                        merged_metric_params_map=merged_metric_params_map,
+                        runnable_keys=list(independent_plans),
+                        policy_n_jobs=policy_n_jobs,
+                        policy_outer_n_jobs=policy_outer_n_jobs,
+                        global_compute_slots=global_compute_slots,
+                        slot_gate=slot_gate,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    slot_gate.fail_independent_admission(exc)
+                    raise
+                slot_gate.finish_independent_admission()
+                return result
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                independent_future = executor.submit(_run_independent)
+                connectivity_future = executor.submit(_run_connectivity)
+                combined = independent_future.result()
+                combined.update(connectivity_future.result())
+                return combined
+
     runtime_results: dict[str, RuntimeResult] = {}
     use_process_backend = (not force_in_process) and len(runtime_plans) >= 2
     process_phase_runner = (
@@ -442,6 +644,7 @@ def execute_runtime_plans(
 
     phase_ids = sorted({int(plan.phase) for plan in runtime_plans.values()})
     for phase_id in phase_ids:
+        raise_if_tensor_cancellation_requested()
         phase_keys = [
             metric_key
             for metric_key, runtime_plan in runtime_plans.items()
@@ -474,6 +677,16 @@ def execute_runtime_plans(
 
         if not runnable_keys:
             continue
+        raise_if_tensor_cancellation_requested()
+        runnable_keys = [
+            metric_key
+            for metric_key in runnable_keys
+            if runtime_plans[metric_key].plan_key in INDEPENDENT_RUNTIME_PLAN_KEYS
+        ] + [
+            metric_key
+            for metric_key in runnable_keys
+            if runtime_plans[metric_key].plan_key not in INDEPENDENT_RUNTIME_PLAN_KEYS
+        ]
         process_runnable_keys = runnable_keys
         in_process_runnable_keys: list[str] = []
         if use_process_backend:
@@ -498,6 +711,7 @@ def execute_runtime_plans(
                     runnable_keys=process_runnable_keys,
                     policy_n_jobs=policy_n_jobs,
                     policy_outer_n_jobs=policy_outer_n_jobs,
+                    global_compute_slots=global_compute_slots,
                 )
             )
         runnable_in_process = (
@@ -506,7 +720,12 @@ def execute_runtime_plans(
         if not runnable_in_process:
             continue
         if len(runnable_in_process) >= 2:
-            with ThreadPoolExecutor(max_workers=len(runnable_in_process)) as executor:
+            with ThreadPoolExecutor(
+                max_workers=min(
+                    max(int(global_compute_slots), 1),
+                    len(runnable_in_process),
+                )
+            ) as executor:
                 future_to_metric = {
                     executor.submit(_run_metric_plan, metric_key): metric_key
                     for metric_key in runnable_in_process
@@ -522,6 +741,7 @@ def execute_runtime_plans(
 
 
 __all__ = [
+    "ComputeSlotGate",
     "RuntimePlan",
     "RuntimeResult",
     "apply_effective_parallel_policy",

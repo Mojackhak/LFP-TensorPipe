@@ -7,6 +7,7 @@ from copy import deepcopy
 import yaml
 
 from lfptensorpipe.app import load_alignment_epoch_picks
+from lfptensorpipe.app.tensor.cpu_budget import DEFAULT_TENSOR_CPU_PERCENT
 from lfptensorpipe.gui.shell.common import (
     Any,
     Path,
@@ -83,6 +84,7 @@ class MainWindowRecordParamsSnapshotLogsMixin:
                     "burst": self._load_tensor_metric_bands_defaults("burst"),
                 },
                 "mask_edge_effects": True,
+                "cpu_percent": DEFAULT_TENSOR_CPU_PERCENT,
             },
             "alignment": {
                 "trial_slug": self._current_alignment_paradigm_slug(),

@@ -241,6 +241,7 @@ class MainWindow(
         self._tensor_metric_title_label: QLabel | None = None
         self._tensor_metric_notice_label: QLabel | None = None
         self._tensor_mask_edge_checkbox: QCheckBox | None = None
+        self._tensor_cpu_percent_edit: QLineEdit | None = None
         self._tensor_import_button: QPushButton | None = None
         self._tensor_export_button: QPushButton | None = None
         self._tensor_run_button: QPushButton | None = None
@@ -444,19 +445,19 @@ class MainWindow(
     def closeEvent(self, event: Any) -> None:
         if self._defer_close_for_active_mne_browsers(event):
             return
+        if not self._shutdown_tensor_run():
+            event.ignore()
+            return
         try:
-            self._shutdown_tensor_run()
+            _window_shutdown.close_auxiliary_windows(self)
         finally:
             try:
-                _window_shutdown.close_auxiliary_windows(self)
+                self._persist_record_params_snapshot_on_close()
             finally:
                 try:
-                    self._persist_record_params_snapshot_on_close()
+                    shutdown_matlab_runtime(timeout_s=5.0)
                 finally:
-                    try:
-                        shutdown_matlab_runtime(timeout_s=5.0)
-                    finally:
-                        super().closeEvent(event)
+                    super().closeEvent(event)
 
     @staticmethod
     def _normalize_feature_axis_rows(

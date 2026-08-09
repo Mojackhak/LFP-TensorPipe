@@ -989,7 +989,7 @@ def run_smoke_numerical_full_pipeline(
             configs_dir / "tensor" / "lfptensorpipe_tensor_config.json",
             warnings,
         )
-        selected_metrics, mask_edge_effects, metric_params_map = (
+        selected_metrics, mask_edge_effects, cpu_percent, metric_params_map = (
             window._collect_tensor_runtime_params(candidate_context)
         )
         ok_tensor, message_tensor = window._run_with_busy(
@@ -999,6 +999,7 @@ def run_smoke_numerical_full_pipeline(
                 selected_metrics=selected_metrics,
                 mask_edge_effects=mask_edge_effects,
                 metric_params_map=metric_params_map,
+                cpu_percent=cpu_percent,
             ),
         )
         window._refresh_stage_states_from_context()

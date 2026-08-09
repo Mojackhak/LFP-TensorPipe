@@ -14,6 +14,7 @@ from lfptensorpipe.app.runlog_store import RunLogRecord, write_run_log
 from .paths import tensor_metric_log_path, tensor_stage_log_path
 
 TENSOR_RUN_ID_ENV = "LFPTENSORPIPE_TENSOR_RUN_ID"
+TENSOR_BENCHMARK_TRACE_PATH_ENV = "LFPTENSORPIPE_TENSOR_BENCHMARK_TRACE_PATH"
 
 
 def _log_params_with_runtime_metadata(params: dict[str, Any]) -> dict[str, Any]:
@@ -152,6 +153,7 @@ def write_metric_config(path: Path, payload: dict[str, Any]) -> None:
 
 
 __all__ = [
+    "TENSOR_BENCHMARK_TRACE_PATH_ENV",
     "TENSOR_RUN_ID_ENV",
     "build_metric_log_record",
     "build_stage_log_record",

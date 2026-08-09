@@ -154,6 +154,7 @@ class MainWindowRecordParamsDirtyMixin:
             "tensor.mask_edge_effects",
             after_change=self._refresh_tensor_metric_indicators_from_draft,
         )
+        bind_line(self._tensor_cpu_percent_edit, "tensor.cpu_percent")
         for checkbox in self._tensor_metric_checks.values():
             checkbox.stateChanged.connect(
                 lambda _state: self._mark_record_param_dirty("tensor.selected_metrics")

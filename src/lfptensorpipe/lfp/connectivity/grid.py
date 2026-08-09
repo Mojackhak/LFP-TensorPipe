@@ -270,7 +270,7 @@ def grid(
     time_resolution_s: float,
     pairs: Sequence[Tuple[str, str]] | None = None,
     groups: Dict[str, Sequence[str]] | None = None,
-    method: str = "coh",
+    method: str | Sequence[str] = "coh",
     multivariate: bool = False,
     hop_s: float | None = None,
     decim: int | None = None,
@@ -305,6 +305,10 @@ def grid(
     return_connectivity_objects: bool = False,
     ordered_pairs: bool = False,
     annotation_skip_radius_s: float | None = None,
+    task_group_id: int | None = None,
+    task_time_indices: Sequence[int] | None = None,
+    return_task_description: bool = False,
+    return_task_blocks: bool = False,
 ) -> Any:
     """Compute time-frequency connectivity aligned to a TFR time grid.
 
@@ -360,18 +364,36 @@ def grid(
 
     # Convenience alias:
     # Users often refer to "gc_tr" as time-reversed Granger causality.
-    method_in = str(method)
-    method_use = method_in
-    output_component: str | None = None
+    method_inputs = (
+        [str(method)] if isinstance(method, str) else [str(item) for item in method]
+    )
+    if not method_inputs:
+        raise ValueError("`method` must contain at least one connectivity estimator.")
+    if len(method_inputs) > 1 and any(
+        item.lower() == "gc_tr" for item in method_inputs
+    ):
+        raise ValueError("`gc_tr` cannot be combined with another estimator call.")
+    method_uses: list[str] = []
+    method_use_by_input: dict[str, str] = {}
+    output_components: dict[str, str | None] = {}
     time_reversed_use = bool(time_reversed)
-    if method_in.lower() == "imcoh_abs":
-        method_use = "cohy"
-        output_component = "absolute_imaginary"
-    elif method_in.lower() == "gc_tr":
-        method_use = "gc"
-        time_reversed_use = True
+    for method_input in method_inputs:
+        method_use = method_input
+        output_component: str | None = None
+        if method_input.lower() == "imcoh_abs":
+            method_use = "cohy"
+            output_component = "absolute_imaginary"
+        elif method_input.lower() == "gc_tr":
+            method_use = "gc"
+            time_reversed_use = True
+        if method_use not in method_uses:
+            method_uses.append(method_use)
+        method_use_by_input[method_input] = method_use
+        output_components[method_input] = output_component
 
-    is_gc_method = method_use.lower() == "gc"
+    if time_reversed_use and any(item.lower() != "gc" for item in method_uses):
+        raise ValueError("Time reversal is supported only for Granger causality.")
+    is_gc_method = any(item.lower() == "gc" for item in method_uses)
     if is_gc_method and not bool(multivariate):
         raise ValueError(
             "For 'gc'/'gc_tr', set multivariate=True (directed connectivity)."
@@ -508,10 +530,7 @@ def grid(
         seeds_idx = seeds_idx.reshape(-1, 1)
         targets_idx = targets_idx.reshape(-1, 1)
 
-    # ----- (D) Output accumulator aligned to TFR -----
     n_times_tfr = int(times_tfr.size)
-    data_accum = np.full((n_times_tfr, n_pairs, freqs.size), np.nan, dtype=float)
-
     con_objs: list[Any] = []
 
     def _run_one_group(
@@ -522,15 +541,15 @@ def grid(
         valid_mask: np.ndarray,
         freqs_sub: np.ndarray,
         n_cycles_sub: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray, Any, np.ndarray]:
+    ) -> tuple[np.ndarray, dict[str, np.ndarray], Any, np.ndarray]:
         """Compute connectivity for one frequency group."""
         if out_idx.size == 0:
-            return out_idx, np.empty((0, n_pairs, 0), dtype=float), None, valid_mask
+            return out_idx, {}, None, valid_mask
 
         if not np.any(valid_mask):
             return (
                 out_idx,
-                np.empty((0, n_pairs, out_idx.size), dtype=float),
+                {},
                 None,
                 valid_mask,
             )
@@ -559,7 +578,7 @@ def grid(
 
         conn_kwargs: Dict[str, Any] = dict(
             freqs=freqs_sub,
-            method=method_use,
+            method=(method_uses[0] if len(method_uses) == 1 else list(method_uses)),
             indices=(seeds_idx, targets_idx),
             average=False,
             sm_times=sm_times,
@@ -584,9 +603,11 @@ def grid(
                 conn_kwargs["mt_low_bias"] = bool(mt_low_bias)
 
         con = spectral_connectivity_time(epochs, **conn_kwargs)
-        D = con.get_data()  # (n_valid, n_pairs, n_freqs_sub)
-        if output_component == "absolute_imaginary":
-            D = np.abs(np.imag(D))
+        con_by_method = (
+            {method_uses[0]: con}
+            if len(method_uses) == 1
+            else dict(zip(method_uses, list(con)))
+        )
 
         keep_pos_i = np.asarray(keep_pos, dtype=int)
         if keep_pos_i.ndim != 1 or keep_pos_i.size != out_idx.size:
@@ -595,8 +616,14 @@ def grid(
                 f"Got keep_pos shape={keep_pos_i.shape}, out_idx size={out_idx.size}."
             )
 
-        D_keep = D[:, :, keep_pos_i]
-        return out_idx, D_keep, con, valid_mask
+        data_keep: dict[str, np.ndarray] = {}
+        for method_input in method_inputs:
+            method_use = method_use_by_input[method_input]
+            values = np.asarray(con_by_method[method_use].get_data())
+            if output_components[method_input] == "absolute_imaginary":
+                values = np.abs(np.imag(values))
+            data_keep[method_input] = values[:, :, keep_pos_i]
+        return out_idx, data_keep, con, valid_mask
 
     # ----- (E) Frequency-dependent grouping (always "per_freq") -----
     if group_by_samples:
@@ -679,8 +706,178 @@ def grid(
 
         return out_idx, call_idx, keep_pos, half, valid_mask, group_counts
 
-    groups_spec = [_make_group_call(g) for g in groups_idx]
-    window_group_counts = [dict(spec[5]) for spec in groups_spec]
+    groups_spec = [
+        (group_id, *_make_group_call(group_idx))
+        for group_id, group_idx in enumerate(groups_idx)
+    ]
+    if task_group_id is not None:
+        group_id_use = int(task_group_id)
+        groups_spec = [spec for spec in groups_spec if int(spec[0]) == group_id_use]
+        if not groups_spec:
+            raise ValueError(f"Unknown connectivity task group id: {group_id_use}.")
+    if task_time_indices is not None:
+        task_time_idx = np.asarray(task_time_indices, dtype=int).ravel()
+        if task_time_idx.size and (
+            np.min(task_time_idx) < 0 or np.max(task_time_idx) >= n_times_tfr
+        ):
+            raise ValueError("Connectivity task time indices are out of range.")
+        allowed_mask = np.zeros(n_times_tfr, dtype=bool)
+        allowed_mask[task_time_idx] = True
+        groups_spec = [
+            (
+                group_id,
+                out_idx,
+                call_idx,
+                keep_pos,
+                half,
+                valid_mask & allowed_mask,
+                group_counts,
+            )
+            for (
+                group_id,
+                out_idx,
+                call_idx,
+                keep_pos,
+                half,
+                valid_mask,
+                group_counts,
+            ) in groups_spec
+        ]
+    window_group_counts = [dict(spec[6]) for spec in groups_spec]
+
+    task_description = {
+        "shape": [1, int(n_pairs), int(freqs.size), int(n_times_tfr)],
+        "pair_names": list(pair_names),
+        "freqs": np.asarray(freqs, dtype=float),
+        "times": np.asarray(times_tfr, dtype=float),
+        "groups": [
+            {
+                "group_id": int(group_id),
+                "output_frequency_indices": np.asarray(out_idx, dtype=int),
+                "call_frequency_indices": np.asarray(call_idx, dtype=int),
+                "valid_time_indices": np.flatnonzero(valid_mask),
+            }
+            for (
+                group_id,
+                out_idx,
+                call_idx,
+                _keep_pos,
+                _half,
+                valid_mask,
+                _group_counts,
+            ) in groups_spec
+        ],
+    }
+
+    def _build_metadata(method_input: str) -> dict[str, Any]:
+        method_use = method_use_by_input[method_input]
+        output_component = output_components[method_input]
+        shape = (1, n_pairs, freqs.size, n_times_tfr)
+        return dict(
+            axes=dict(
+                epoch=np.arange(shape[0]),
+                channel=list(pair_names),
+                freq=freqs,
+                time=times_tfr,
+                shape=shape,
+            ),
+            params=dict(
+                method=str(method_input),
+                method_internal=str(method_use),
+                **(
+                    {"output_component": output_component}
+                    if output_component is not None
+                    else {}
+                ),
+                time_reversed=bool(time_reversed_use),
+                multivariate=bool(multivariate),
+                time_resolution_s=float(time_resolution_s),
+                spectral_mode=str(spectral_mode_use),
+                n_cycles_source=str(n_cycles_source),
+                hop_s=hop_s,
+                decim=int(decim_eff),
+                target_n_times=target_n_times,
+                min_cycles=min_cycles,
+                max_cycles=max_cycles,
+                mt_time_bandwidth_product=(
+                    float(mt_time_bandwidth_product)
+                    if spectral_mode_use == "multitaper"
+                    else None
+                ),
+                mt_min_cycles=(
+                    float(mt_min_cycles) if spectral_mode_use == "multitaper" else None
+                ),
+                mt_effective_window_s=(
+                    np.asarray(window_len_s, dtype=float)
+                    if spectral_mode_use == "multitaper"
+                    else None
+                ),
+                mt_effective_bandwidth_hz=(
+                    np.asarray(mt_effective_bandwidth_hz, dtype=float)
+                    if spectral_mode_use == "multitaper"
+                    else None
+                ),
+                mt_adaptive=(bool(mt_adaptive) if mt_adaptive is not None else None),
+                mt_low_bias=(bool(mt_low_bias) if mt_low_bias is not None else None),
+                window_multiple=float(window_multiple),
+                safety_margin=float(safety_margin),
+                round_ms=float(round_ms),
+                duration_guard_samples=int(duration_guard_samples),
+                group_by_samples=bool(group_by_samples),
+                sm_times=float(sm_times),
+                sm_freqs=int(sm_freqs),
+                sm_kernel=str(sm_kernel),
+                padding=float(padding),
+                decim_internal=int(decim_internal),
+                gc_n_lags=int(gc_n_lags),
+                gc_pad_scale=float(gc_pad_scale),
+                picks=picks,
+                outer_n_jobs=int(outer_n_jobs),
+                outer_backend=str(outer_backend),
+                ordered_pairs=bool(ordered_pairs),
+                annotation_skip_radius_s=(
+                    float(annotation_skip_radius_s)
+                    if annotation_skip_radius_s is not None
+                    else None
+                ),
+                n_columns_total=int(n_columns_total),
+                n_columns_skipped_masked=int(n_columns_skipped_masked),
+                window_group_counts=window_group_counts,
+                gc_min_freqs_base=gc_min_freqs_base,
+                gc_min_freqs_required=gc_min_freqs_required,
+                gc_freq_padding=("neighbors" if is_gc_call else None),
+                **pair_meta,
+            ),
+        )
+
+    metadata_by_method = {
+        method_input: _build_metadata(method_input) for method_input in method_inputs
+    }
+    metadata_out: Any = (
+        metadata_by_method[method_inputs[0]]
+        if len(method_inputs) == 1
+        else metadata_by_method
+    )
+    if return_task_description:
+        return task_description, metadata_out
+
+    # Pool tasks return chunk-sized blocks and never own a full output tensor.
+    # The legacy complete-output path retains the accumulator contract.
+    data_accum = None
+    if not return_task_blocks:
+        data_accum = {
+            method_input: np.full(
+                (n_times_tfr, n_pairs, freqs.size),
+                np.nan,
+                dtype=(
+                    np.complex128
+                    if method_use_by_input[method_input] == "cohy"
+                    and output_components[method_input] is None
+                    else float
+                ),
+            )
+            for method_input in method_inputs
+        }
 
     results = Parallel(n_jobs=int(outer_n_jobs), backend=str(outer_backend))(
         delayed(_run_one_group)(
@@ -691,113 +888,78 @@ def grid(
             freqs_sub=freqs[call_idx],
             n_cycles_sub=n_cycles[call_idx],
         )
-        for out_idx, call_idx, keep_pos, half, valid_mask, _ in groups_spec
+        for _group_id, out_idx, call_idx, keep_pos, half, valid_mask, _ in groups_spec
     )
 
-    for out_idx, D, con, valid_mask in results:
-        if D.size == 0:
+    task_blocks: list[dict[str, Any]] = []
+    for group_spec, result in zip(groups_spec, results):
+        group_id = int(group_spec[0])
+        out_idx, data_by_method, con, valid_mask = result
+        if not data_by_method:
             continue
         time_idx = np.flatnonzero(valid_mask)
-        if D.shape != (time_idx.size, n_pairs, out_idx.size):
-            raise RuntimeError(
-                f"Connectivity data shape mismatch: got {D.shape}, expected "
-                f"({time_idx.size}, {n_pairs}, {out_idx.size})."
-            )
-        data_accum[np.ix_(time_idx, np.arange(n_pairs), out_idx)] = D
+        for method_input, values in data_by_method.items():
+            if values.shape != (time_idx.size, n_pairs, out_idx.size):
+                raise RuntimeError(
+                    f"Connectivity data shape mismatch: got {values.shape}, expected "
+                    f"({time_idx.size}, {n_pairs}, {out_idx.size})."
+                )
+            if data_accum is not None:
+                data_accum[method_input][
+                    np.ix_(time_idx, np.arange(n_pairs), out_idx)
+                ] = values
+        task_blocks.append(
+            {
+                "group_id": group_id,
+                "time_indices": time_idx,
+                "frequency_indices": np.asarray(out_idx, dtype=int),
+                "data": data_by_method,
+            }
+        )
         if return_connectivity_objects and con is not None:
             con_objs.append(con)
 
-    conn = np.transpose(data_accum, (1, 2, 0))[
-        np.newaxis, ...
-    ]  # (1, n_pairs, n_freqs, n_times)
-    fully_unusable = ~np.any(np.isfinite(conn), axis=(0, 1, 3))
-    if bool(np.any(fully_unusable)):
-        warnings.warn(
-            f"Connectivity contains {int(np.sum(fully_unusable))} frequency entries "
-            "with no usable output centers; they remain NaN.",
-            UserWarning,
-            stacklevel=2,
-        )
-    metadata = dict(
-        axes=dict(
-            epoch=np.arange(conn.shape[0]),
-            channel=list(pair_names),
-            freq=freqs,
-            time=times_tfr,
-            shape=conn.shape,
-        ),
-        params=dict(
-            method=str(method_in),
-            method_internal=str(method_use),
-            **(
-                {"output_component": output_component}
-                if output_component is not None
-                else {}
-            ),
-            time_reversed=bool(time_reversed_use),
-            multivariate=bool(multivariate),
-            time_resolution_s=float(time_resolution_s),
-            spectral_mode=str(spectral_mode_use),
-            n_cycles_source=str(n_cycles_source),
-            hop_s=hop_s,
-            decim=int(decim_eff),
-            target_n_times=target_n_times,
-            min_cycles=min_cycles,
-            max_cycles=max_cycles,
-            mt_time_bandwidth_product=(
-                float(mt_time_bandwidth_product)
-                if spectral_mode_use == "multitaper"
-                else None
-            ),
-            mt_min_cycles=(
-                float(mt_min_cycles) if spectral_mode_use == "multitaper" else None
-            ),
-            mt_effective_window_s=(
-                np.asarray(window_len_s, dtype=float)
-                if spectral_mode_use == "multitaper"
-                else None
-            ),
-            mt_effective_bandwidth_hz=(
-                np.asarray(mt_effective_bandwidth_hz, dtype=float)
-                if spectral_mode_use == "multitaper"
-                else None
-            ),
-            mt_adaptive=(bool(mt_adaptive) if mt_adaptive is not None else None),
-            mt_low_bias=(bool(mt_low_bias) if mt_low_bias is not None else None),
-            window_multiple=float(window_multiple),
-            safety_margin=float(safety_margin),
-            round_ms=float(round_ms),
-            duration_guard_samples=int(duration_guard_samples),
-            group_by_samples=bool(group_by_samples),
-            sm_times=float(sm_times),
-            sm_freqs=int(sm_freqs),
-            sm_kernel=str(sm_kernel),
-            padding=float(padding),
-            decim_internal=int(decim_internal),
-            gc_n_lags=int(gc_n_lags),
-            gc_pad_scale=float(gc_pad_scale),
-            picks=picks,
-            outer_n_jobs=int(outer_n_jobs),
-            outer_backend=str(outer_backend),
-            ordered_pairs=bool(ordered_pairs),
-            annotation_skip_radius_s=(
-                float(annotation_skip_radius_s)
-                if annotation_skip_radius_s is not None
-                else None
-            ),
-            n_columns_total=int(n_columns_total),
-            n_columns_skipped_masked=int(n_columns_skipped_masked),
-            window_group_counts=window_group_counts,
-            gc_min_freqs_base=gc_min_freqs_base,
-            gc_min_freqs_required=gc_min_freqs_required,
-            gc_freq_padding=("neighbors" if is_gc_call else None),
-            **pair_meta,
-        ),
+    if return_task_blocks:
+        return task_blocks, metadata_out
+
+    conn_by_method = {
+        method_input: np.transpose(values, (1, 2, 0))[np.newaxis, ...]
+        for method_input, values in data_accum.items()
+    }
+    unusable_counts = {
+        method_input: int(np.sum(~np.any(np.isfinite(values), axis=(0, 1, 3))))
+        for method_input, values in conn_by_method.items()
+    }
+    unusable_counts = {
+        method_input: count
+        for method_input, count in unusable_counts.items()
+        if count > 0
+    }
+    if unusable_counts:
+        if len(method_inputs) == 1:
+            message = (
+                "Connectivity contains "
+                f"{next(iter(unusable_counts.values()))} frequency entries "
+                "with no usable output centers; they remain NaN."
+            )
+        else:
+            summary = ", ".join(
+                f"{method_input}={count}"
+                for method_input, count in unusable_counts.items()
+            )
+            message = (
+                "Connectivity contains frequency entries with no usable output "
+                f"centers by estimator ({summary}); they remain NaN."
+            )
+        warnings.warn(message, UserWarning, stacklevel=2)
+
+    conn_out: Any = (
+        conn_by_method[method_inputs[0]] if len(method_inputs) == 1 else conn_by_method
     )
 
     if return_connectivity_objects:
-        return conn, metadata, con_objs
-    return conn, metadata
+        return conn_out, metadata_out, con_objs
+    return conn_out, metadata_out
 
 
 def n_samples_window_per_freq(

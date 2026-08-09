@@ -6,11 +6,12 @@ import argparse
 import json
 import os
 from pathlib import Path
+import time
 from typing import Any
 
 from lfptensorpipe.app.path_resolver import RecordContext
 
-from .logging import TENSOR_RUN_ID_ENV
+from .logging import TENSOR_BENCHMARK_TRACE_PATH_ENV, TENSOR_RUN_ID_ENV
 from .orchestration_execution import RuntimePlan, run_runtime_plan
 
 
@@ -34,6 +35,27 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+
+def _append_benchmark_trace(payload: dict[str, Any]) -> None:
+    """Append one optional benchmark event without affecting runtime results."""
+    trace_path = os.environ.get(TENSOR_BENCHMARK_TRACE_PATH_ENV, "").strip()
+    if not trace_path:
+        return
+    line = (json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n").encode(
+        "utf-8"
+    )
+    try:
+        fd = os.open(trace_path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
+    except OSError:
+        return
+    try:
+        try:
+            os.write(fd, line)
+        except OSError:
+            return
+    finally:
+        os.close(fd)
 
 
 def _record_context(payload: dict[str, Any]) -> RecordContext:
@@ -68,6 +90,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     request_path = Path(args.request).expanduser().resolve()
     result_path = Path(args.result).expanduser().resolve()
+    runtime_plan: RuntimePlan | None = None
+    start_perf_ns: int | None = None
+    start_cpu_ns: int | None = None
     try:
         payload = _read_json(request_path)
         run_id = str(payload.get("run_id", "")).strip()
@@ -84,6 +109,8 @@ def main(argv: list[str] | None = None) -> int:
 
         resolver = svc.PathResolver(context)
         resolver.ensure_record_roots(include_tensor=False)
+        start_perf_ns = time.perf_counter_ns()
+        start_cpu_ns = time.process_time_ns()
         ok, message, metric_label = run_runtime_plan(
             svc,
             resolver,
@@ -94,6 +121,25 @@ def main(argv: list[str] | None = None) -> int:
             policy_outer_n_jobs=policy_outer_n_jobs,
         )
     except Exception as exc:  # noqa: BLE001
+        if runtime_plan is not None and start_perf_ns is not None:
+            end_perf_ns = time.perf_counter_ns()
+            end_cpu_ns = time.process_time_ns()
+            _append_benchmark_trace(
+                {
+                    "run_id": os.environ.get(TENSOR_RUN_ID_ENV, "").strip(),
+                    "plan_key": runtime_plan.plan_key,
+                    "log_metric_key": (
+                        runtime_plan.log_metric_key or runtime_plan.plan_key
+                    ),
+                    "pid": os.getpid(),
+                    "ok": False,
+                    "start_perf_ns": start_perf_ns,
+                    "end_perf_ns": end_perf_ns,
+                    "elapsed_s": (end_perf_ns - start_perf_ns) / 1e9,
+                    "worker_cpu_s": (end_cpu_ns - int(start_cpu_ns or 0)) / 1e9,
+                    "exception_type": type(exc).__name__,
+                }
+            )
         _write_json(
             result_path,
             {
@@ -103,6 +149,22 @@ def main(argv: list[str] | None = None) -> int:
             },
         )
         return 2
+
+    end_perf_ns = time.perf_counter_ns()
+    end_cpu_ns = time.process_time_ns()
+    _append_benchmark_trace(
+        {
+            "run_id": os.environ.get(TENSOR_RUN_ID_ENV, "").strip(),
+            "plan_key": runtime_plan.plan_key,
+            "log_metric_key": runtime_plan.log_metric_key or runtime_plan.plan_key,
+            "pid": os.getpid(),
+            "ok": bool(ok),
+            "start_perf_ns": int(start_perf_ns),
+            "end_perf_ns": end_perf_ns,
+            "elapsed_s": (end_perf_ns - int(start_perf_ns)) / 1e9,
+            "worker_cpu_s": (end_cpu_ns - int(start_cpu_ns)) / 1e9,
+        }
+    )
 
     _write_json(
         result_path,
@@ -117,3 +179,6 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover - CLI entrypoint guard
     raise SystemExit(main())
+
+
+__all__ = ["TENSOR_BENCHMARK_TRACE_PATH_ENV", "main", "parse_args"]

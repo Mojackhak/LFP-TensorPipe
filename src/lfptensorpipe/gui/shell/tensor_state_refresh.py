@@ -134,6 +134,9 @@ class MainWindowTensorStateRefreshMixin:
             self._tensor_import_button.setEnabled(context is not None)
         if self._tensor_export_button is not None:
             self._tensor_export_button.setEnabled(context is not None)
+        cpu_percent_edit = getattr(self, "_tensor_cpu_percent_edit", None)
+        if cpu_percent_edit is not None:
+            cpu_percent_edit.setEnabled(context is not None)
         if self._tensor_run_button is not None:
             self._tensor_run_button.setText("Build Tensor")
             self._tensor_run_button.setEnabled(editable and bool(selected_metrics))

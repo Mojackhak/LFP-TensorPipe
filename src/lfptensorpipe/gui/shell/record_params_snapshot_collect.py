@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+from lfptensorpipe.app.tensor.cpu_budget import (
+    DEFAULT_TENSOR_CPU_PERCENT,
+    normalize_tensor_cpu_percent,
+)
 from lfptensorpipe.gui.shell.common import (
     Any,
     np,
@@ -138,6 +142,14 @@ class MainWindowRecordParamsSnapshotCollectMixin:
 
     def _collect_tensor_record_params_snapshot(self) -> dict[str, Any]:
         active_metric = self._tensor_active_metric_key
+        try:
+            cpu_percent = normalize_tensor_cpu_percent(
+                self._tensor_cpu_percent_edit.text().strip()
+                if self._tensor_cpu_percent_edit is not None
+                else DEFAULT_TENSOR_CPU_PERCENT
+            )
+        except ValueError:
+            cpu_percent = DEFAULT_TENSOR_CPU_PERCENT
         return {
             "selected_metrics": self._selected_tensor_metrics_snapshot(),
             "active_metric": active_metric,
@@ -150,6 +162,7 @@ class MainWindowRecordParamsSnapshotCollectMixin:
                 if self._tensor_mask_edge_checkbox is not None
                 else True
             ),
+            "cpu_percent": cpu_percent,
         }
 
     def _collect_alignment_record_params_snapshot(self) -> dict[str, Any]:

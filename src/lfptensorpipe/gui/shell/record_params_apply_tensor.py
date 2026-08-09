@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+from lfptensorpipe.app.tensor.cpu_budget import (
+    DEFAULT_TENSOR_CPU_PERCENT,
+    normalize_tensor_cpu_percent,
+)
 from lfptensorpipe.gui.shell.common import (
     Any,
     RecordContext,
@@ -123,6 +127,20 @@ class MainWindowRecordParamsApplyTensorMixin:
                 and self._tensor_mask_edge_checkbox is not None
             ):
                 self._tensor_mask_edge_checkbox.setChecked(mask_edge)
+        else:
+            skipped += 1
+
+        if "tensor.cpu_percent" not in self._record_param_dirty_keys:
+            cpu_percent = _nested_get(snapshot, ("tensor", "cpu_percent"))
+            try:
+                normalized_cpu_percent = normalize_tensor_cpu_percent(
+                    DEFAULT_TENSOR_CPU_PERCENT if cpu_percent is None else cpu_percent
+                )
+            except ValueError:
+                normalized_cpu_percent = DEFAULT_TENSOR_CPU_PERCENT
+            cpu_percent_edit = getattr(self, "_tensor_cpu_percent_edit", None)
+            if cpu_percent_edit is not None:
+                cpu_percent_edit.setText(f"{normalized_cpu_percent:g}")
         else:
             skipped += 1
 

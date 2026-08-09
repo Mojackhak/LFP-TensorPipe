@@ -16,12 +16,24 @@ from lfptensorpipe.desktop_runtime import (
     TENSOR_WORKER_MODULE,
     build_worker_command,
 )
+from lfptensorpipe.app.path_resolver import PathResolver
+from lfptensorpipe.app.tensor.cpu_budget import (
+    DEFAULT_TENSOR_CPU_PERCENT,
+    normalize_tensor_cpu_percent,
+)
 from lfptensorpipe.app.tensor.cancellation import (
     BUILD_TENSOR_CANCELLED_MESSAGE,
     backfill_cancelled_build_tensor_run,
 )
 from lfptensorpipe.app.tensor.frequency import (
     validate_periodic_aperiodic_notch_bounds,
+)
+from lfptensorpipe.app.tensor.process_tree import (
+    BuildTensorProcessTree,
+    build_tensor_popen_kwargs,
+)
+from lfptensorpipe.app.tensor.transaction_manifest import (
+    recover_tensor_run_transactions,
 )
 from lfptensorpipe.gui.shell.common import (
     QAction,
@@ -33,9 +45,12 @@ from lfptensorpipe.gui.shell.common import (
     build_tensor_metric_notch_payload,
 )
 
-TENSOR_RUN_TERMINATE_TIMEOUT_S = 2.0
+TENSOR_RUN_COOPERATIVE_TIMEOUT_S = 5.0
+TENSOR_RUN_TERMINATE_TIMEOUT_S = 5.0
+TENSOR_RUN_DESCENDANT_DRAIN_TIMEOUT_S = 1.0
 TENSOR_RUN_SUCCESS_LABEL = "Build Tensor"
 TENSOR_STOP_LABEL = "Stop"
+TENSOR_RETRY_RECOVERY_LABEL = "Retry Recovery"
 TRGC_BUSY_SUFFIX = "This may take several hours."
 
 
@@ -197,7 +212,7 @@ class MainWindowTensorRunMixin:
     def _collect_tensor_runtime_params(
         self,
         context: RecordContext,
-    ) -> tuple[list[str], bool, dict[str, dict[str, Any]]]:
+    ) -> tuple[list[str], bool, float, dict[str, dict[str, Any]]]:
         selected_metrics = self._selected_tensor_metrics()
         if not selected_metrics:
             raise ValueError("Select at least one metric.")
@@ -209,7 +224,12 @@ class MainWindowTensorRunMixin:
         metric_params_map = self._collect_tensor_runtime_metric_params(
             context, selected_metrics
         )
-        return selected_metrics, mask_edge_effects, metric_params_map
+        cpu_percent = normalize_tensor_cpu_percent(
+            self._tensor_cpu_percent_edit.text().strip()
+            if self._tensor_cpu_percent_edit is not None
+            else DEFAULT_TENSOR_CPU_PERCENT
+        )
+        return selected_metrics, mask_edge_effects, cpu_percent, metric_params_map
 
     def _tensor_run_is_active(self) -> bool:
         return isinstance(self._tensor_run_state, dict)
@@ -233,8 +253,16 @@ class MainWindowTensorRunMixin:
             self._tensor_import_button.setEnabled(False)
         if self._tensor_export_button is not None:
             self._tensor_export_button.setEnabled(False)
+        if self._tensor_cpu_percent_edit is not None:
+            self._tensor_cpu_percent_edit.setEnabled(False)
         if self._tensor_run_button is not None:
-            self._tensor_run_button.setText(TENSOR_STOP_LABEL)
+            label = (
+                TENSOR_RETRY_RECOVERY_LABEL
+                if isinstance(self._tensor_run_state, dict)
+                and self._tensor_run_state.get("recovery_error")
+                else TENSOR_STOP_LABEL
+            )
+            self._tensor_run_button.setText(label)
             self._tensor_run_button.setEnabled(True)
 
     def _start_tensor_run_busy(self, label: str, *, suffix: str | None = None) -> None:
@@ -318,14 +346,17 @@ class MainWindowTensorRunMixin:
 
     def _write_tensor_worker_request(
         self, payload: dict[str, Any]
-    ) -> tuple[Path, Path]:
+    ) -> tuple[Path, Path, Path]:
         request_path = self._tensor_temp_json_path("tensor_request")
         result_path = self._tensor_temp_json_path("tensor_result")
+        cancel_path = self._tensor_temp_json_path("tensor_cancel")
+        payload = dict(payload)
+        payload["cancel_path"] = str(cancel_path)
         request_path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        return request_path, result_path
+        return request_path, result_path, cancel_path
 
     def _read_tensor_worker_result(self, path: Path) -> dict[str, Any] | None:
         if not path.exists():
@@ -339,7 +370,7 @@ class MainWindowTensorRunMixin:
     def _cleanup_tensor_run_files(self, state: dict[str, Any] | None) -> None:
         if not isinstance(state, dict):
             return
-        for key in ("request_path", "result_path"):
+        for key in ("request_path", "result_path", "cancel_path"):
             path = state.get(key)
             if not isinstance(path, Path):
                 continue
@@ -352,6 +383,7 @@ class MainWindowTensorRunMixin:
         selected_metrics: list[str],
         metric_params_map: dict[str, dict[str, Any]],
         mask_edge_effects: bool,
+        cpu_percent: float,
     ) -> None:
         run_id = uuid4().hex
         request_payload = {
@@ -363,9 +395,14 @@ class MainWindowTensorRunMixin:
             "selected_metrics": list(selected_metrics),
             "metric_params_map": metric_params_map,
             "mask_edge_effects": bool(mask_edge_effects),
+            "cpu_percent": float(cpu_percent),
             "run_id": run_id,
         }
-        request_path, result_path = self._write_tensor_worker_request(request_payload)
+        request_path, result_path, cancel_path = self._write_tensor_worker_request(
+            request_payload
+        )
+        process = None
+        process_tree = None
         try:
             process = subprocess.Popen(
                 build_worker_command(
@@ -384,23 +421,42 @@ class MainWindowTensorRunMixin:
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                **build_tensor_popen_kwargs(),
             )
+            process_tree = BuildTensorProcessTree.attach(process)
         except Exception:
+            if process_tree is not None:
+                process_tree.force_kill()
+                process_tree.wait_for_quiescence(TENSOR_RUN_TERMINATE_TIMEOUT_S)
+                process_tree.close()
+            elif process is not None:
+                try:
+                    process.kill()
+                    process.wait(timeout=TENSOR_RUN_TERMINATE_TIMEOUT_S)
+                except Exception:  # noqa: BLE001
+                    pass
             request_path.unlink(missing_ok=True)
             result_path.unlink(missing_ok=True)
+            cancel_path.unlink(missing_ok=True)
             raise
 
         self._tensor_run_state = {
             "process": process,
+            "process_tree": process_tree,
             "request_path": request_path,
             "result_path": result_path,
+            "cancel_path": cancel_path,
             "context": context,
             "selected_metrics": list(selected_metrics),
             "metric_params_map": dict(metric_params_map),
             "mask_edge_effects": bool(mask_edge_effects),
+            "cpu_percent": float(cpu_percent),
             "run_id": run_id,
             "stop_requested": False,
-            "kill_deadline_monotonic": None,
+            "stop_phase": None,
+            "stop_deadline_monotonic": None,
+            "cancelled_by_user": False,
+            "stop_message": BUILD_TENSOR_CANCELLED_MESSAGE,
         }
         self._start_tensor_run_busy(
             TENSOR_RUN_SUCCESS_LABEL,
@@ -421,6 +477,10 @@ class MainWindowTensorRunMixin:
         self._tensor_run_poll_timer.stop()
         self._tensor_run_state = None
         self._cleanup_tensor_run_files(state)
+        if isinstance(state, dict):
+            process_tree = state.get("process_tree")
+            if isinstance(process_tree, BuildTensorProcessTree):
+                process_tree.close()
         self._set_tensor_run_ui_lock(False)
         self._stop_tensor_run_busy()
         self._refresh_stage_states_from_context()
@@ -435,59 +495,91 @@ class MainWindowTensorRunMixin:
         state = self._tensor_run_state
         if not isinstance(state, dict):
             return
-        process = state.get("process")
-        if process is None:
+        process_tree = state.get("process_tree")
+        if not isinstance(process_tree, BuildTensorProcessTree):
             return
-        try:
-            if process.poll() is not None:
-                return
-        except Exception:  # noqa: BLE001
+        if state.get("recovery_error"):
+            state.pop("recovery_error", None)
+            if self._tensor_run_button is not None:
+                self._tensor_run_button.setText(TENSOR_STOP_LABEL)
+            self._start_tensor_run_busy("Recovering Build Tensor")
             return
         if bool(state.get("stop_requested")):
             try:
-                process.kill()
+                process_tree.force_kill()
             except Exception:  # noqa: BLE001
                 pass
+            state["stop_phase"] = "force_killed"
+            state["stop_deadline_monotonic"] = None
+            state.pop("recovery_error", None)
             return
+        cancel_path = state.get("cancel_path")
+        if isinstance(cancel_path, Path):
+            cancel_path.write_text(str(state.get("run_id", "")), encoding="utf-8")
         state["stop_requested"] = True
-        state["kill_deadline_monotonic"] = (
-            time.monotonic() + TENSOR_RUN_TERMINATE_TIMEOUT_S
+        state["cancelled_by_user"] = True
+        state["stop_message"] = BUILD_TENSOR_CANCELLED_MESSAGE
+        state["stop_phase"] = "cooperative"
+        state["stop_deadline_monotonic"] = (
+            time.monotonic() + TENSOR_RUN_COOPERATIVE_TIMEOUT_S
         )
         self._start_tensor_run_busy("Stopping Build Tensor")
-        try:
-            process.terminate()
-        except Exception:  # noqa: BLE001
-            pass
 
-    def _poll_tensor_run_process(self) -> None:
-        state = self._tensor_run_state
-        if not isinstance(state, dict):
-            self._tensor_run_poll_timer.stop()
+    def _recover_reap_and_backfill_tensor_run(
+        self,
+        state: dict[str, Any],
+    ) -> dict[str, str]:
+        context = state["context"]
+        run_id = str(state["run_id"])
+        stop_message = str(state.get("stop_message") or BUILD_TENSOR_CANCELLED_MESSAGE)
+        self._recover_tensor_run_transactions(state)
+        return backfill_cancelled_build_tensor_run(
+            context,
+            selected_metrics=state["selected_metrics"],
+            metric_params_map=state["metric_params_map"],
+            mask_edge_effects=bool(state["mask_edge_effects"]),
+            run_id=run_id,
+            cpu_percent=float(state.get("cpu_percent", DEFAULT_TENSOR_CPU_PERCENT)),
+            message=stop_message,
+        )
+
+    def _recover_tensor_run_transactions(self, state: dict[str, Any]) -> None:
+        if bool(state.get("transactions_recovered")):
             return
+        context = state["context"]
+        tensor_root = PathResolver(context).tensor_root
+        recover_tensor_run_transactions(
+            tensor_root,
+            validation_root=tensor_root,
+            run_id=str(state["run_id"]),
+        )
         process = state.get("process")
-        if process is None:
-            self._finish_tensor_run(
-                ok=False,
-                message="Build Tensor process handle is missing.",
-                cancelled=False,
+        if process is not None:
+            process.wait(timeout=0.0)
+        state["transactions_recovered"] = True
+
+    def _complete_stopped_tensor_run(self, state: dict[str, Any]) -> None:
+        try:
+            metric_statuses = self._recover_reap_and_backfill_tensor_run(state)
+        except Exception as exc:  # noqa: BLE001
+            state["recovery_error"] = str(exc)
+            if self._tensor_run_button is not None:
+                self._tensor_run_button.setText(TENSOR_RETRY_RECOVERY_LABEL)
+            self.statusBar().showMessage(
+                "Stopping Build Tensor: artifact recovery failed; "
+                f"controls remain locked ({exc})"
             )
             return
-        try:
-            exit_code = process.poll()
-        except Exception:  # noqa: BLE001
-            exit_code = None
-        if exit_code is None:
-            deadline = state.get("kill_deadline_monotonic")
-            if (
-                bool(state.get("stop_requested"))
-                and isinstance(deadline, (int, float))
-                and time.monotonic() >= float(deadline)
-            ):
-                try:
-                    process.kill()
-                except Exception:  # noqa: BLE001
-                    pass
-                state["kill_deadline_monotonic"] = None
+
+        if any(status == "cancelled" for status in metric_statuses.values()):
+            stop_message = str(
+                state.get("stop_message") or BUILD_TENSOR_CANCELLED_MESSAGE
+            )
+            self._finish_tensor_run(
+                ok=False,
+                message=stop_message,
+                cancelled=bool(state.get("cancelled_by_user", True)),
+            )
             return
 
         result_path = state.get("result_path")
@@ -496,69 +588,189 @@ class MainWindowTensorRunMixin:
             if isinstance(result_path, Path)
             else None
         )
-        if bool(state.get("stop_requested")):
-            metric_statuses = backfill_cancelled_build_tensor_run(
-                state["context"],
-                selected_metrics=state["selected_metrics"],
-                metric_params_map=state["metric_params_map"],
-                mask_edge_effects=bool(state["mask_edge_effects"]),
-                run_id=str(state["run_id"]),
-                message=BUILD_TENSOR_CANCELLED_MESSAGE,
-            )
-            if any(status == "cancelled" for status in metric_statuses.values()):
-                self._finish_tensor_run(
-                    ok=False,
-                    message=BUILD_TENSOR_CANCELLED_MESSAGE,
-                    cancelled=True,
-                )
-                return
         if isinstance(result_payload, dict):
-            ok = bool(result_payload.get("ok", False))
             message = str(result_payload.get("message", "")).strip()
-            if not message:
-                message = "Build Tensor worker exited without a message."
-            self._finish_tensor_run(ok=ok, message=message, cancelled=False)
+            self._finish_tensor_run(
+                ok=bool(result_payload.get("ok", False)),
+                message=message or "Build Tensor worker exited without a message.",
+                cancelled=False,
+            )
             return
-
         self._finish_tensor_run(
             ok=False,
-            message=f"Build Tensor worker exited unexpectedly (code {exit_code}).",
-            cancelled=False,
+            message=str(state.get("stop_message") or BUILD_TENSOR_CANCELLED_MESSAGE),
+            cancelled=bool(state.get("cancelled_by_user", True)),
         )
 
-    def _shutdown_tensor_run(self) -> None:
+    def _poll_tensor_run_process(self) -> None:
         state = self._tensor_run_state
         if not isinstance(state, dict):
+            self._tensor_run_poll_timer.stop()
             return
         process = state.get("process")
-        self._tensor_run_poll_timer.stop()
-        try:
-            if process is not None and process.poll() is None:
+        process_tree = state.get("process_tree")
+        if process is None or not isinstance(process_tree, BuildTensorProcessTree):
+            self._finish_tensor_run(
+                ok=False,
+                message="Build Tensor process-tree handle is missing.",
+                cancelled=False,
+            )
+            return
+        if state.get("recovery_error"):
+            return
+
+        if bool(state.get("stop_requested")):
+            if process_tree.is_quiescent():
+                self._complete_stopped_tensor_run(state)
+                return
+            deadline = state.get("stop_deadline_monotonic")
+            phase = str(state.get("stop_phase") or "")
+            if not isinstance(deadline, (int, float)) or time.monotonic() < float(
+                deadline
+            ):
+                return
+            if phase == "cooperative":
                 try:
-                    process.terminate()
-                    process.wait(timeout=TENSOR_RUN_TERMINATE_TIMEOUT_S)
+                    process_tree.terminate()
                 except Exception:  # noqa: BLE001
-                    try:
-                        process.kill()
-                    except Exception:  # noqa: BLE001
-                        pass
-                    try:
-                        process.wait(timeout=1.0)
-                    except Exception:  # noqa: BLE001
-                        pass
-                backfill_cancelled_build_tensor_run(
-                    state["context"],
-                    selected_metrics=state["selected_metrics"],
-                    metric_params_map=state["metric_params_map"],
-                    mask_edge_effects=bool(state["mask_edge_effects"]),
-                    run_id=str(state["run_id"]),
-                    message=BUILD_TENSOR_CANCELLED_MESSAGE,
+                    pass
+                state["stop_phase"] = "terminated"
+                state["stop_deadline_monotonic"] = (
+                    time.monotonic() + TENSOR_RUN_TERMINATE_TIMEOUT_S
                 )
-        finally:
+                return
+            if phase == "terminated":
+                try:
+                    process_tree.force_kill()
+                except Exception:  # noqa: BLE001
+                    pass
+                state["stop_phase"] = "force_killed"
+                state["stop_deadline_monotonic"] = None
+            return
+
+        try:
+            exit_code = process.poll()
+        except Exception:  # noqa: BLE001
+            exit_code = None
+        if exit_code is None:
+            return
+
+        if not process_tree.is_quiescent():
+            drain_deadline = state.get("descendant_drain_deadline_monotonic")
+            if not isinstance(drain_deadline, (int, float)):
+                state["descendant_drain_deadline_monotonic"] = (
+                    time.monotonic() + TENSOR_RUN_DESCENDANT_DRAIN_TIMEOUT_S
+                )
+                return
+            if time.monotonic() < float(drain_deadline):
+                return
+            state["stop_requested"] = True
+            state["cancelled_by_user"] = False
+            state["stop_message"] = (
+                f"Build Tensor worker exited unexpectedly (code {exit_code}) "
+                "with active descendants."
+            )
+            state["stop_phase"] = "terminated"
+            state["stop_deadline_monotonic"] = (
+                time.monotonic() + TENSOR_RUN_TERMINATE_TIMEOUT_S
+            )
+            self._start_tensor_run_busy("Stopping Build Tensor")
+            try:
+                process_tree.terminate()
+            except Exception:  # noqa: BLE001
+                pass
+            return
+
+        state.pop("descendant_drain_deadline_monotonic", None)
+
+        try:
+            self._recover_tensor_run_transactions(state)
+        except Exception as exc:  # noqa: BLE001
+            state["recovery_error"] = str(exc)
+            if self._tensor_run_button is not None:
+                self._tensor_run_button.setText(TENSOR_RETRY_RECOVERY_LABEL)
+            self.statusBar().showMessage(
+                "Build Tensor artifact recovery failed; controls remain locked "
+                f"({exc})"
+            )
+            return
+
+        result_path = state.get("result_path")
+        result_payload = (
+            self._read_tensor_worker_result(result_path)
+            if isinstance(result_path, Path)
+            else None
+        )
+        if not isinstance(result_payload, dict):
+            state["stop_requested"] = True
+            state["cancelled_by_user"] = False
+            state["stop_message"] = (
+                f"Build Tensor worker exited unexpectedly (code {exit_code})."
+            )
+            state["stop_phase"] = "force_killed"
+            state["stop_deadline_monotonic"] = None
+            self._complete_stopped_tensor_run(state)
+            return
+        ok = bool(result_payload.get("ok", False))
+        message = str(result_payload.get("message", "")).strip()
+        if not message:
+            message = "Build Tensor worker exited without a message."
+        self._finish_tensor_run(ok=ok, message=message, cancelled=False)
+
+    def _shutdown_tensor_run(self) -> bool:
+        state = self._tensor_run_state
+        if not isinstance(state, dict):
+            return True
+        process = state.get("process")
+        process_tree = state.get("process_tree")
+        self._tensor_run_poll_timer.stop()
+        if process is None or not isinstance(process_tree, BuildTensorProcessTree):
+            self._tensor_run_poll_timer.start()
+            return False
+
+        was_active = process.poll() is None or not process_tree.is_quiescent()
+        try:
+            if was_active:
+                cancel_path = state.get("cancel_path")
+                if isinstance(cancel_path, Path):
+                    cancel_path.write_text(
+                        str(state.get("run_id", "")), encoding="utf-8"
+                    )
+                if not process_tree.wait_for_quiescence(
+                    TENSOR_RUN_COOPERATIVE_TIMEOUT_S
+                ):
+                    process_tree.terminate()
+                if not process_tree.wait_for_quiescence(TENSOR_RUN_TERMINATE_TIMEOUT_S):
+                    process_tree.force_kill()
+                if not process_tree.wait_for_quiescence(1.0):
+                    state["stop_requested"] = True
+                    state["cancelled_by_user"] = True
+                    state["stop_phase"] = "force_killed"
+                    state["stop_deadline_monotonic"] = None
+                    self._start_tensor_run_busy("Stopping Build Tensor")
+                    self._tensor_run_poll_timer.start()
+                    return False
+                self._recover_reap_and_backfill_tensor_run(state)
+            else:
+                self._recover_tensor_run_transactions(state)
+        except Exception as exc:  # noqa: BLE001
+            state["recovery_error"] = str(exc)
+            if self._tensor_run_button is not None:
+                self._tensor_run_button.setText(TENSOR_RETRY_RECOVERY_LABEL)
+            self._start_tensor_run_busy("Stopping Build Tensor")
+            self.statusBar().showMessage(
+                "Stopping Build Tensor: shutdown recovery failed; "
+                f"window remains open ({exc})"
+            )
+            self._tensor_run_poll_timer.start()
+            return False
+        else:
             self._cleanup_tensor_run_files(state)
+            process_tree.close()
             self._tensor_run_state = None
             self._set_tensor_run_ui_lock(False)
             self._stop_tensor_run_busy()
+            return True
 
     def _on_tensor_run(self) -> None:
         if self._tensor_run_is_active():
@@ -587,6 +799,7 @@ class MainWindowTensorRunMixin:
             (
                 selected_metrics,
                 mask_edge_effects,
+                cpu_percent,
                 metric_params_map,
             ) = self._collect_tensor_runtime_params(context)
         except Exception as exc:  # noqa: BLE001
@@ -620,6 +833,7 @@ class MainWindowTensorRunMixin:
                 selected_metrics=selected_metrics,
                 metric_params_map=metric_params_map,
                 mask_edge_effects=mask_edge_effects,
+                cpu_percent=cpu_percent,
             )
         except Exception as exc:  # noqa: BLE001
             self._show_warning(
