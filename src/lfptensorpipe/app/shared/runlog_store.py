@@ -6,7 +6,9 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
+import stat
 import tempfile
 from typing import Any
 
@@ -93,18 +95,67 @@ def validate_run_log(payload: dict[str, Any]) -> list[str]:
     return errors
 
 
+def _json_temporary_pid(path: Path, candidate: Path) -> int | None:
+    prefix = f".{path.name}.pid-"
+    suffix = ".tmp"
+    name = candidate.name
+    if not name.startswith(prefix) or not name.endswith(suffix):
+        return None
+    pid_text, separator, token = name[len(prefix) : -len(suffix)].partition(".")
+    if not separator or not token or not pid_text.isdigit():
+        return None
+    return int(pid_text)
+
+
+def _pid_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except (PermissionError, OSError):
+        return True
+    return True
+
+
+def _cleanup_dead_json_temporaries(path: Path) -> None:
+    pattern = f".{path.name}.pid-*.tmp"
+    for candidate in path.parent.glob(pattern):
+        pid = _json_temporary_pid(path, candidate)
+        if pid is None or _pid_is_alive(pid):
+            continue
+        try:
+            candidate.unlink()
+        except FileNotFoundError:
+            continue
+
+
 def _write_json_payload(path: Path, payload: dict[str, Any]) -> None:
-    with tempfile.NamedTemporaryFile(
-        "w",
-        encoding="utf-8",
-        dir=path.parent,
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        delete=False,
-    ) as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-        temp_path = Path(f.name)
-    temp_path.replace(path)
+    _cleanup_dead_json_temporaries(path)
+    target_mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else None
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.pid-{os.getpid()}.",
+            suffix=".tmp",
+            delete=False,
+        ) as f:
+            temp_path = Path(f.name)
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        if target_mode is not None:
+            temp_path.chmod(target_mode)
+        temp_path.replace(path)
+    except Exception:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
 
 
 def _write_validated_run_log_payload(path: Path, payload: dict[str, Any]) -> None:
@@ -281,6 +332,7 @@ def latest_run_log_entry(
 def read_ui_state(path: str | Path) -> dict[str, Any] | None:
     """Read record-level UI state JSON; return None when missing."""
     in_path = Path(path)
+    _cleanup_dead_json_temporaries(in_path)
     if not in_path.exists():
         return None
     with in_path.open("r", encoding="utf-8") as f:
@@ -291,19 +343,19 @@ def read_ui_state(path: str | Path) -> dict[str, Any] | None:
 
 
 def write_ui_state(path: str | Path, payload: dict[str, Any]) -> Path:
-    """Write record-level UI state JSON."""
+    """Atomically write record-level UI state JSON."""
     if not isinstance(payload, dict):
         raise ValueError("UI state payload must be a dict.")
     out_path = Path(path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    _write_json_payload(out_path, payload)
     return out_path
 
 
 def read_run_log_raw(path: str | Path) -> dict[str, Any] | None:
     """Read a run-log payload from disk without migration or write-back."""
     in_path = Path(path)
+    _cleanup_dead_json_temporaries(in_path)
     if not in_path.exists():
         return None
 

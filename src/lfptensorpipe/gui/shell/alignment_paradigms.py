@@ -102,10 +102,14 @@ class MainWindowAlignmentParadigmsMixin:
         )
 
     def _reload_alignment_paradigms(self, preferred_slug: str | None = None) -> None:
+        recovery_warnings: list[str] = []
         self._alignment_paradigms = self._load_alignment_paradigms_runtime(
             self._config_store,
             context=self._record_context(),
+            recovery_warnings=recovery_warnings,
         )
+        if recovery_warnings:
+            self.statusBar().showMessage(" | ".join(recovery_warnings))
         if self._alignment_paradigm_list is None:
             return
         current_slug = preferred_slug or self._shared_stage_trial_slug()

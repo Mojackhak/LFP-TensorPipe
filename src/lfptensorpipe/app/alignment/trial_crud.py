@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+from pathlib import Path
 import shutil
 from typing import Any
+from uuid import uuid4
 
 from lfptensorpipe.app.config_store import AppConfigStore
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.runlog_store import RunLogRecord, read_ui_state, write_ui_state
+from lfptensorpipe.app.shared.runlog_store import _write_json_payload
 
 from .paths import alignment_paradigm_dir, alignment_paradigm_log_path
 from .validation import ALIGNMENT_METHODS_BY_KEY
+
+_TRIAL_DELETE_MANIFEST_FILENAME = "trial_delete_manifest.json"
 
 
 def _svc():
@@ -106,16 +112,30 @@ def _remove_legacy_trial_entry(
     config_store: AppConfigStore,
     slug: str,
 ) -> bool:
+    _, kept, changed = _prepare_legacy_trial_update(
+        svc,
+        config_store=config_store,
+        slug=slug,
+    )
+    if not changed:
+        return False
+    svc.save_alignment_paradigms(config_store, kept)
+    return True
+
+
+def _prepare_legacy_trial_update(
+    svc: Any,
+    *,
+    config_store: AppConfigStore,
+    slug: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
     paradigms = svc.load_alignment_paradigms(config_store)
     kept = [
         item
         for item in paradigms
         if str(item.get("trial_slug", item.get("slug", ""))) != slug
     ]
-    if len(kept) == len(paradigms):
-        return False
-    svc.save_alignment_paradigms(config_store, kept)
-    return True
+    return paradigms, kept, len(kept) != len(paradigms)
 
 
 def _trial_artifact_dirs(
@@ -134,38 +154,213 @@ def _trial_artifact_dirs(
     ]
 
 
-def _remove_trial_artifacts(
+def _restore_staged_trial_artifacts(
+    *,
+    staged_paths: list[tuple[Path, Path]],
+) -> list[str]:
+    errors: list[str] = []
+    for public_path, staged_path in reversed(staged_paths):
+        if not staged_path.exists():
+            continue
+        try:
+            if public_path.exists():
+                raise FileExistsError(f"Restore target already exists: {public_path}")
+            staged_path.rename(public_path)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{staged_path} -> {public_path}: {exc}")
+    return errors
+
+
+def _trial_delete_manifest_path(quarantine_root: Path) -> Path:
+    return quarantine_root / _TRIAL_DELETE_MANIFEST_FILENAME
+
+
+def _stage_trial_artifacts(
     *,
     resolver: PathResolver,
     slug: str,
-) -> bool:
-    def raise_unless_missing(_function: Any, _path: str, exc_info: Any) -> None:
-        error = exc_info[1]
-        if isinstance(error, FileNotFoundError):
-            return
-        raise error
+    manifest: dict[str, Any],
+) -> tuple[list[tuple[Path, Path]], Path | None]:
+    indexed_public_paths = [
+        (index, path)
+        for index, path in enumerate(_trial_artifact_dirs(resolver=resolver, slug=slug))
+        if path.exists()
+    ]
+    if not indexed_public_paths:
+        return [], None
 
-    removed_any = False
-    for path in _trial_artifact_dirs(resolver=resolver, slug=slug):
-        if not path.exists():
+    quarantine_root = resolver.lfp_root / f".trial-delete-{slug}-{uuid4().hex}"
+    quarantine_root.mkdir(parents=False, exist_ok=False)
+    staged_paths: list[tuple[Path, Path]] = []
+    try:
+        manifest["artifact_indices"] = [
+            index for index, _public_path in indexed_public_paths
+        ]
+        _write_json_payload(_trial_delete_manifest_path(quarantine_root), manifest)
+        for index, public_path in indexed_public_paths:
+            staged_path = quarantine_root / f"{index:02d}-{public_path.name}"
+            public_path.rename(staged_path)
+            staged_paths.append((public_path, staged_path))
+    except Exception as exc:
+        restore_errors = _restore_staged_trial_artifacts(staged_paths=staged_paths)
+        if not restore_errors:
+            try:
+                shutil.rmtree(quarantine_root)
+            except OSError as cleanup_exc:
+                raise RuntimeError(
+                    "Failed to stage trial artifacts; artifacts were restored but "
+                    f"quarantine cleanup failed at {quarantine_root}: {exc}; "
+                    f"cleanup: {cleanup_exc}"
+                ) from exc
+            raise RuntimeError(f"Failed to stage trial artifacts: {exc}") from exc
+        raise RuntimeError(
+            "Failed to stage trial artifacts and rollback was incomplete; "
+            f"recovery retained at {quarantine_root}: {exc}; "
+            f"{'; '.join(restore_errors)}"
+        ) from exc
+    return staged_paths, quarantine_root
+
+
+def _load_trial_delete_manifest(
+    *,
+    resolver: PathResolver,
+    quarantine_root: Path,
+) -> dict[str, Any] | None:
+    manifest_path = _trial_delete_manifest_path(quarantine_root)
+    payload = read_ui_state(manifest_path)
+    if payload is None:
+        return None
+    if payload.get("operation") != "delete_alignment_trial":
+        raise ValueError(f"Invalid trial-delete operation in {manifest_path}")
+
+    phase = payload.get("phase")
+    if phase not in {"prepared", "committed"}:
+        raise ValueError(f"Invalid trial-delete phase in {manifest_path}")
+
+    slug = payload.get("slug")
+    if not isinstance(slug, str) or _svc()._normalize_slug(slug) != slug:
+        raise ValueError(f"Invalid trial-delete slug in {manifest_path}")
+    if not quarantine_root.name.startswith(f".trial-delete-{slug}-"):
+        raise ValueError(f"Trial-delete slug does not match {quarantine_root}")
+
+    artifact_indices = payload.get("artifact_indices")
+    if not isinstance(artifact_indices, list):
+        raise ValueError(f"Invalid trial-delete artifact indices in {manifest_path}")
+    artifact_count = len(_trial_artifact_dirs(resolver=resolver, slug=slug))
+    if any(
+        isinstance(index, bool)
+        or not isinstance(index, int)
+        or index < 0
+        or index >= artifact_count
+        for index in artifact_indices
+    ) or len(set(artifact_indices)) != len(artifact_indices):
+        raise ValueError(f"Invalid trial-delete artifact indices in {manifest_path}")
+
+    legacy_changed = payload.get("legacy_changed")
+    ui_changed = payload.get("ui_changed")
+    if not isinstance(legacy_changed, bool) or not isinstance(ui_changed, bool):
+        raise ValueError(f"Invalid trial-delete metadata flags in {manifest_path}")
+    if legacy_changed and not isinstance(payload.get("original_legacy"), list):
+        raise ValueError(f"Invalid original legacy state in {manifest_path}")
+    if ui_changed and not isinstance(payload.get("original_ui"), dict):
+        raise ValueError(f"Invalid original UI state in {manifest_path}")
+    return payload
+
+
+def _restore_manifest_artifacts(
+    *,
+    resolver: PathResolver,
+    quarantine_root: Path,
+    slug: str,
+    artifact_indices: list[int],
+) -> list[str]:
+    public_paths = _trial_artifact_dirs(resolver=resolver, slug=slug)
+    errors: list[str] = []
+    for index in reversed(artifact_indices):
+        public_path = public_paths[index]
+        staged_path = quarantine_root / f"{index:02d}-{public_path.name}"
+        if staged_path.exists():
+            try:
+                if public_path.exists():
+                    raise FileExistsError(
+                        f"Restore target already exists: {public_path}"
+                    )
+                staged_path.rename(public_path)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{staged_path} -> {public_path}: {exc}")
+        elif not public_path.exists():
+            errors.append(f"Missing both staged and public artifact: {public_path}")
+    return errors
+
+
+def recover_trial_delete_transactions(
+    config_store: AppConfigStore,
+    *,
+    context: RecordContext,
+) -> list[str]:
+    """Recover one record's interrupted deletions and return pending warnings."""
+    resolver = PathResolver(context)
+    recovery_warnings: list[str] = []
+    if not resolver.lfp_root.exists():
+        return recovery_warnings
+
+    for quarantine_root in sorted(resolver.lfp_root.glob(".trial-delete-*")):
+        if not quarantine_root.is_dir():
             continue
-        shutil.rmtree(path, ignore_errors=False, onerror=raise_unless_missing)
-        removed_any = True
-    return removed_any
+        try:
+            manifest = _load_trial_delete_manifest(
+                resolver=resolver,
+                quarantine_root=quarantine_root,
+            )
+            if manifest is None:
+                if any(quarantine_root.iterdir()):
+                    raise RuntimeError("missing trial-delete manifest")
+                quarantine_root.rmdir()
+                continue
+            if manifest["phase"] == "committed":
+                shutil.rmtree(quarantine_root)
+                continue
+
+            svc = _svc()
+            if manifest["legacy_changed"]:
+                svc.save_alignment_paradigms(
+                    config_store,
+                    manifest["original_legacy"],
+                )
+            if manifest["ui_changed"]:
+                write_ui_state(
+                    resolver.record_ui_state_path(create=True),
+                    manifest["original_ui"],
+                )
+            restore_errors = _restore_manifest_artifacts(
+                resolver=resolver,
+                quarantine_root=quarantine_root,
+                slug=manifest["slug"],
+                artifact_indices=manifest["artifact_indices"],
+            )
+            if restore_errors:
+                raise RuntimeError("; ".join(restore_errors))
+            shutil.rmtree(quarantine_root)
+        except Exception as exc:
+            recovery_warnings.append(
+                f"Trial deletion recovery pending at {quarantine_root}: {exc}"
+            )
+    return recovery_warnings
 
 
-def _clear_deleted_trial_from_ui_state(
+def _prepare_deleted_trial_ui_state(
     *,
     context: RecordContext,
     slug: str,
-) -> bool:
+) -> tuple[Path, dict[str, Any] | None, dict[str, Any] | None, bool]:
     resolver = PathResolver(context)
     path = resolver.record_ui_state_path(create=False)
     if not path.is_file():
-        return False
-    payload = read_ui_state(path)
-    if not isinstance(payload, dict):
-        return False
+        return path, None, None, False
+    original_payload = read_ui_state(path)
+    if not isinstance(original_payload, dict):
+        return path, None, None, False
+    payload = deepcopy(original_payload)
 
     changed = False
     alignment_node = payload.get("alignment")
@@ -192,9 +387,7 @@ def _clear_deleted_trial_from_ui_state(
             features_node["trial_slug"] = None
             changed = True
 
-    if changed:
-        write_ui_state(path, payload)
-    return changed
+    return path, original_payload, payload, changed
 
 
 def create_alignment_paradigm(
@@ -211,7 +404,12 @@ def create_alignment_paradigm(
     if not slug_base:
         return False, "Failed to generate trial slug.", None
 
-    paradigms = svc.load_alignment_paradigms(config_store, context=context)
+    recovery_warnings: list[str] = []
+    paradigms = svc.load_alignment_paradigms(
+        config_store,
+        context=context,
+        recovery_warnings=recovery_warnings,
+    )
     existing = {str(item.get("trial_slug", item.get("slug", ""))) for item in paradigms}
     slug = slug_base
     idx = 2
@@ -251,7 +449,10 @@ def create_alignment_paradigm(
         keep_top_level=False,
         trial_config=entry,
     )
-    return True, f"Trial created: {slug}", entry
+    message = f"Trial created: {slug}"
+    if recovery_warnings:
+        message += f" | {' | '.join(recovery_warnings)}"
+    return True, message, entry
 
 
 def delete_alignment_paradigm(
@@ -270,28 +471,101 @@ def delete_alignment_paradigm(
         return True, f"Trial deleted: {target}"
 
     resolver = PathResolver(context)
-    removed_artifacts = False
     try:
-        removed_artifacts = _remove_trial_artifacts(
+        (
+            ui_path,
+            original_ui,
+            updated_ui,
+            removed_ui_state,
+        ) = _prepare_deleted_trial_ui_state(context=context, slug=target)
+        original_legacy, updated_legacy, removed_legacy = _prepare_legacy_trial_update(
+            svc,
+            config_store=config_store,
+            slug=target,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return False, f"Failed to prepare trial deletion: {exc}"
+
+    manifest: dict[str, Any] = {
+        "operation": "delete_alignment_trial",
+        "phase": "prepared",
+        "slug": target,
+        "legacy_changed": removed_legacy,
+        "original_legacy": original_legacy,
+        "ui_changed": removed_ui_state,
+        "original_ui": original_ui,
+    }
+    try:
+        staged_paths, quarantine_root = _stage_trial_artifacts(
             resolver=resolver,
             slug=target,
+            manifest=manifest,
         )
     except Exception as exc:  # noqa: BLE001
         return False, f"Failed to delete trial: {exc}"
+
+    legacy_committed = False
+    ui_committed = False
     try:
-        removed_ui_state = _clear_deleted_trial_from_ui_state(
-            context=context,
-            slug=target,
-        )
+        if removed_legacy:
+            svc.save_alignment_paradigms(config_store, updated_legacy)
+            legacy_committed = True
+        if removed_ui_state and updated_ui is not None:
+            write_ui_state(ui_path, updated_ui)
+            ui_committed = True
+        if quarantine_root is not None:
+            manifest["phase"] = "committed"
+            _write_json_payload(
+                _trial_delete_manifest_path(quarantine_root),
+                manifest,
+            )
     except Exception as exc:  # noqa: BLE001
-        return False, f"Failed to delete trial UI state: {exc}"
-    removed_legacy = _remove_legacy_trial_entry(
-        svc,
-        config_store=config_store,
-        slug=target,
-    )
+        rollback_errors: list[str] = []
+        if ui_committed and original_ui is not None:
+            try:
+                write_ui_state(ui_path, original_ui)
+            except Exception as rollback_exc:  # noqa: BLE001
+                rollback_errors.append(f"UI state: {rollback_exc}")
+        if legacy_committed:
+            try:
+                svc.save_alignment_paradigms(config_store, original_legacy)
+            except Exception as rollback_exc:  # noqa: BLE001
+                rollback_errors.append(f"legacy config: {rollback_exc}")
+        rollback_errors.extend(
+            _restore_staged_trial_artifacts(staged_paths=staged_paths)
+        )
+        if not any(staged_path.exists() for _, staged_path in staged_paths):
+            try:
+                if quarantine_root is not None:
+                    shutil.rmtree(quarantine_root)
+            except OSError as rollback_exc:
+                rollback_errors.append(f"quarantine cleanup: {rollback_exc}")
+        if rollback_errors:
+            recovery_path = (
+                f"; recovery retained at {quarantine_root}"
+                if quarantine_root is not None and quarantine_root.exists()
+                else ""
+            )
+            return (
+                False,
+                "Failed to commit trial deletion and rollback was incomplete"
+                f"{recovery_path}: {exc}; {'; '.join(rollback_errors)}",
+            )
+        return False, f"Failed to commit trial deletion; changes rolled back: {exc}"
+
+    removed_artifacts = bool(staged_paths)
     if not removed_artifacts and not removed_legacy and not removed_ui_state:
         return False, f"Trial not found: {target}"
+
+    if quarantine_root is not None:
+        try:
+            shutil.rmtree(quarantine_root)
+        except Exception as exc:  # noqa: BLE001
+            return (
+                True,
+                f"Trial deleted: {target}; staged cleanup pending at "
+                f"{quarantine_root}: {exc}",
+            )
     return True, f"Trial deleted: {target}"
 
 

@@ -20,12 +20,18 @@ def load_alignment_paradigms(
     config_store: AppConfigStore,
     *,
     context: RecordContext | None = None,
+    recovery_warnings: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     svc = _svc()
     paradigms: list[dict[str, Any]] = []
     seen: set[str] = set()
 
     if context is not None:
+        from .trial_crud import recover_trial_delete_transactions
+
+        pending = recover_trial_delete_transactions(config_store, context=context)
+        if recovery_warnings is not None:
+            recovery_warnings.extend(pending)
         resolver = PathResolver(context)
         root = resolver.alignment_root
         if not root.exists():
