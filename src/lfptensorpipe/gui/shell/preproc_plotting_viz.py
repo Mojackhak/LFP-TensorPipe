@@ -90,7 +90,8 @@ def _on_preproc_viz_psd_plot(self) -> None:
             picks=picks,
             verbose="ERROR",
         )
-        spectrum.plot(average=bool(self._preproc_viz_psd_params["average"]))
+        figure = spectrum.plot(average=bool(self._preproc_viz_psd_params["average"]))
+        self._track_plot_figure(figure)
         if hasattr(raw, "close"):
             raw.close()
     except Exception as exc:
@@ -166,6 +167,7 @@ def _on_preproc_viz_tfr_plot(self) -> None:
         ax.set_title(f"TFR ({raw_path.parent.name})")
         fig.colorbar(image, ax=ax, label="Power (log scale)")
         fig.tight_layout()
+        self._track_plot_figure(fig)
         fig.show()
         if hasattr(raw, "close"):
             raw.close()

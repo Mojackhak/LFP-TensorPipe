@@ -433,6 +433,7 @@ class MainWindowAlignmentRunMixin:
                 colorbar_label=preview_params["colorbar_label"],
             )
             self._tighten_alignment_preview_figure(fig)
+            self._track_plot_figure(fig)
             fig.show()
         except Exception as exc:  # noqa: BLE001
             self._show_warning("Preview", f"Preview failed:\n{exc}")

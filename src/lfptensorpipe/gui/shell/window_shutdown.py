@@ -9,6 +9,48 @@ from lfptensorpipe.gui.shell.preproc_plotting_backend import (
 from lfptensorpipe.gui.shell.common import Any, QApplication, QWidget
 
 
+def track_plot_figure(window: Any, figure: Any) -> None:
+    """Track a persistent read-only plot until its close event completes."""
+    if figure is None:
+        return
+    if isinstance(figure, (list, tuple)):
+        for item in figure:
+            track_plot_figure(window, item)
+        return
+
+    canvas = getattr(figure, "canvas", None)
+    if canvas is None or not hasattr(canvas, "mpl_connect"):
+        return
+    registry = getattr(window, "_active_plot_figures", None)
+    if not isinstance(registry, dict):
+        registry = {}
+        window._active_plot_figures = registry
+    token = id(figure)
+    if token in registry:
+        return
+
+    entry: dict[str, Any] = {"figure": figure, "closed": False}
+    registry[token] = entry
+
+    def _on_close(event: Any | None = None) -> None:
+        _ = event
+        current = registry.get(token)
+        if current is None or bool(current.get("closed", False)):
+            return
+        current["closed"] = True
+        registry.pop(token, None)
+        active_mne = getattr(window, "_active_mne_browsers", None)
+        if not registry and not active_mne:
+            window._set_global_ui_lock("plot", False)
+
+    try:
+        entry["callback_id"] = canvas.mpl_connect("close_event", _on_close)
+    except Exception:
+        registry.pop(token, None)
+        return
+    window._set_global_ui_lock("plot", True)
+
+
 def close_auxiliary_windows(window: Any) -> None:
     """Best-effort close for auxiliary Qt/Matplotlib windows owned by the app."""
     excluded_tokens = active_mne_browser_tracking_tokens(window) | set(

@@ -438,6 +438,7 @@ class MainWindowFeaturesPlottingMixin:
             self._features_last_plot_name = str(path.stem)
             self._tighten_features_plot_figure(fig)
             self._refresh_features_controls()
+            self._track_plot_figure(fig)
             fig.show()
         except Exception as exc:  # noqa: BLE001
             self._show_warning("Plot", f"Plot failed:\n{exc}")

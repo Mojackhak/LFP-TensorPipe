@@ -36,10 +36,8 @@ from lfptensorpipe.app.tensor.transaction_manifest import (
     recover_tensor_run_transactions,
 )
 from lfptensorpipe.gui.shell.common import (
-    QAction,
     Any,
     QApplication,
-    QAbstractButton,
     RecordContext,
     TENSOR_COMMON_BASIC_METRIC_KEYS,
     build_tensor_metric_notch_payload,
@@ -282,44 +280,14 @@ class MainWindowTensorRunMixin:
         self._busy_frame_idx = 0
 
     def _set_tensor_run_ui_lock(self, lock: bool) -> None:
-        if lock:
-            self._tensor_run_locked_buttons = []
-            exempt_buttons = {
-                self._tensor_run_button,
-            }
-            for button in self.findChildren(QAbstractButton):
-                try:
-                    if button in exempt_buttons or not button.isEnabled():
-                        continue
-                    button.setEnabled(False)
-                    self._tensor_run_locked_buttons.append(button)
-                except RuntimeError:
-                    continue
-
-            self._tensor_run_locked_actions = []
-            for action in self.findChildren(QAction):
-                try:
-                    if not action.isEnabled():
-                        continue
-                    action.setEnabled(False)
-                    self._tensor_run_locked_actions.append(action)
-                except RuntimeError:
-                    continue
-            return
-
-        for button in self._tensor_run_locked_buttons:
-            try:
-                button.setEnabled(True)
-            except RuntimeError:
-                continue
-        self._tensor_run_locked_buttons = []
-
-        for action in self._tensor_run_locked_actions:
-            try:
-                action.setEnabled(True)
-            except RuntimeError:
-                continue
-        self._tensor_run_locked_actions = []
+        exempt_widgets = (
+            (self._tensor_run_button,) if self._tensor_run_button is not None else ()
+        )
+        self._set_global_ui_lock(
+            "tensor",
+            lock,
+            exempt_widgets=exempt_widgets,
+        )
 
     def _tensor_worker_env(self) -> dict[str, str]:
         env = dict(os.environ)
@@ -458,11 +426,11 @@ class MainWindowTensorRunMixin:
             "cancelled_by_user": False,
             "stop_message": BUILD_TENSOR_CANCELLED_MESSAGE,
         }
+        self._set_tensor_run_ui_lock(True)
         self._start_tensor_run_busy(
             TENSOR_RUN_SUCCESS_LABEL,
             suffix=self._tensor_run_busy_suffix(selected_metrics),
         )
-        self._set_tensor_run_ui_lock(True)
         self._refresh_tensor_controls()
         self._tensor_run_poll_timer.start()
 
@@ -775,6 +743,11 @@ class MainWindowTensorRunMixin:
     def _on_tensor_run(self) -> None:
         if self._tensor_run_is_active():
             self._request_stop_tensor_run()
+            return
+        if self._global_ui_lock_owner is not None:
+            self.statusBar().showMessage(
+                f"{self._global_ui_lock_owner} lock is active; Build Tensor ignored."
+            )
             return
         if self._busy_label is not None:
             self.statusBar().showMessage(

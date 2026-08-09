@@ -96,6 +96,17 @@ def _preproc_plot_raw_signature(raw: Any) -> dict[str, Any]:
     }
 
 
+def _preproc_plot_disk_state(raw_path: Any) -> tuple[int, int] | None:
+    """Return (size, mtime_ns) of the on-disk artifact, or None when unreadable."""
+    if not isinstance(raw_path, Path):
+        return None
+    try:
+        stat_result = raw_path.stat()
+    except OSError:
+        return None
+    return (int(stat_result.st_size), int(stat_result.st_mtime_ns))
+
+
 def _preproc_plot_figsize_env_value(owner: Any) -> str:
     dpi_x = _PREPROC_PLOT_DPI_FALLBACK
     dpi_y = _PREPROC_PLOT_DPI_FALLBACK
@@ -196,6 +207,27 @@ def _finalize_app_shutdown(self) -> None:
     QTimer.singleShot(0, _close_main_window)
 
 
+def _preproc_plot_stale_target_reason(
+    raw_path: Any,
+    *,
+    opened_disk_state: tuple[int, int] | None,
+) -> str | None:
+    """Explain why the plotted artifact must not be written back, or None if safe.
+
+    The plot window outlives the main-window action that opened it, so the record
+    can be deleted, renamed, or regenerated behind it. Writing back in those cases
+    resurrects a removed record or clobbers a fresher rerun.
+    """
+    current_disk_state = _preproc_plot_disk_state(raw_path)
+    if current_disk_state is None:
+        return "no longer exists (record deleted or renamed)"
+    if opened_disk_state is None:
+        return "could not be verified against the version opened by this plot"
+    if current_disk_state != opened_disk_state:
+        return "was regenerated on disk after this plot was opened"
+    return None
+
+
 def _finalize_tracked_browser_close(self, token: int, event: Any | None = None) -> None:
     _ = event
     registry = getattr(self, "_active_mne_browsers", None)
@@ -223,17 +255,28 @@ def _finalize_tracked_browser_close(self, token: int, event: Any | None = None) 
         ):
             opened_signature = entry.get("opened_signature")
             closed_signature = _preproc_plot_raw_signature(raw)
-            if opened_signature != closed_signature:
-                raw_path.parent.mkdir(parents=True, exist_ok=True)
-                raw.save(str(raw_path), overwrite=True)
-                invalidate_downstream_preproc_steps(context, step)
-                self._refresh_stage_states_from_context()
-                self._refresh_preproc_controls()
-                self.statusBar().showMessage(
-                    f"{title_prefix} plot closed: saved edited {raw_path.name}; downstream invalidated."
-                )
-            else:
+            if opened_signature == closed_signature:
                 self.statusBar().showMessage(f"{title_prefix} plot closed.")
+            else:
+                stale_reason = _preproc_plot_stale_target_reason(
+                    raw_path,
+                    opened_disk_state=entry.get("opened_disk_state"),
+                )
+                if stale_reason is not None:
+                    message = (
+                        f"{title_prefix} plot closed: edits discarded because "
+                        f"{raw_path.name} {stale_reason}."
+                    )
+                    self.statusBar().showMessage(message)
+                    self._show_warning(f"{title_prefix} Plot", message)
+                else:
+                    raw.save(str(raw_path), overwrite=True)
+                    invalidate_downstream_preproc_steps(context, step)
+                    self._refresh_stage_states_from_context()
+                    self._refresh_preproc_controls()
+                    self.statusBar().showMessage(
+                        f"{title_prefix} plot closed: saved edited {raw_path.name}; downstream invalidated."
+                    )
         elif step is None:
             self.statusBar().showMessage(f"{title_prefix} plot closed.")
     except Exception as exc:  # noqa: BLE001
@@ -248,6 +291,9 @@ def _finalize_tracked_browser_close(self, token: int, event: Any | None = None) 
                 raw_close()
             except Exception:
                 pass
+        active_figures = getattr(self, "_active_plot_figures", None)
+        if not registry and not active_figures:
+            self._set_global_ui_lock("plot", False)
         if getattr(self, "_mne_browser_shutdown_pending", False) and not registry:
             QTimer.singleShot(0, self._finalize_app_shutdown)
 
@@ -361,6 +407,11 @@ def _track_mne_browser(
             if step in _PLOT_CHANGE_TRACKED_STEPS
             else None
         ),
+        "opened_disk_state": (
+            _preproc_plot_disk_state(raw_path)
+            if step in _PLOT_CHANGE_TRACKED_STEPS
+            else None
+        ),
         "close_requested": False,
         "closed": False,
     }
@@ -378,13 +429,20 @@ def _track_mne_browser(
         except Exception:
             used_mne_closed_signal = False
 
+    close_hook_attached = used_mne_closed_signal
+
     if qt_object is not None and not used_mne_closed_signal:
-        close_filter_cls = self._close_autosave_filter_class()
-        close_filter = close_filter_cls(_on_close, qt_object)
-        entry["close_filter"] = close_filter
-        qt_object.installEventFilter(close_filter)
+        try:
+            close_filter_cls = self._close_autosave_filter_class()
+            close_filter = close_filter_cls(_on_close, qt_object)
+            entry["close_filter"] = close_filter
+            qt_object.installEventFilter(close_filter)
+            close_hook_attached = True
+        except Exception:
+            entry.pop("close_filter", None)
         try:
             qt_object.destroyed.connect(_on_close)
+            close_hook_attached = True
         except Exception:
             pass
 
@@ -397,8 +455,21 @@ def _track_mne_browser(
         try:
             callback_id = figure.canvas.mpl_connect("close_event", _on_close)
             entry["mpl_close_callback_id"] = callback_id
+            close_hook_attached = True
         except Exception:
             pass
+
+    if not close_hook_attached:
+        # Without a close hook the entry would never leave the registry, which
+        # would hold the plot lock (and block app shutdown) forever.
+        registry.pop(token, None)
+        self.statusBar().showMessage(
+            f"{title_prefix} plot is untracked: no close signal is available, "
+            "so edits made in this window will not be saved."
+        )
+        return
+
+    self._set_global_ui_lock("plot", True)
 
 
 def _open_mne_raw_plot(

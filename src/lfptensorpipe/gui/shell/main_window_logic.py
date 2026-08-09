@@ -16,7 +16,6 @@ from lfptensorpipe.gui.shell.common import (
     LEFT_WIDTH_MIN,
     LEFT_WIDTH_RATIO,
     Path,
-    QAbstractButton,
     QAction,
     QApplication,
     QCheckBox,
@@ -335,6 +334,7 @@ class MainWindow(
         self._preproc_viz_tfr_params = self._load_preproc_viz_tfr_defaults()
         self._preproc_viz_last_step: str | None = None
         self._plot_close_hooks: list[tuple[Any, Any]] = []
+        self._active_plot_figures: dict[int, dict[str, Any]] = {}
         self._active_mne_browsers: dict[int, dict[str, Any]] = {}
         self._mne_browser_shutdown_pending = False
         self._mne_browser_shutdown_prev_quit_on_last_window_closed: bool | None = None
@@ -346,11 +346,11 @@ class MainWindow(
         self._busy_label: str | None = None
         self._busy_suffix: str | None = None
         self._busy_frame_idx = 0
-        self._busy_locked_buttons: list[QAbstractButton] = []
-        self._busy_locked_actions: list[QAction] = []
+        self._global_ui_lock_owner: str | None = None
+        self._global_ui_lock_parent_states: list[tuple[QWidget, bool]] = []
+        self._global_ui_lock_widgets: list[QWidget] = []
+        self._global_ui_lock_actions: list[QAction] = []
         self._tensor_run_state: dict[str, Any] | None = None
-        self._tensor_run_locked_buttons: list[QAbstractButton] = []
-        self._tensor_run_locked_actions: list[QAction] = []
         self._tensor_run_poll_timer = QTimer(self)
         self._tensor_run_poll_timer.setInterval(150)
         self._tensor_run_poll_timer.timeout.connect(self._poll_tensor_run_process)
@@ -431,6 +431,23 @@ class MainWindow(
     def _set_busy_ui_lock(self, lock: bool) -> None:
         _shell_busy_state.set_busy_ui_lock(self, lock=lock)
 
+    def _set_global_ui_lock(
+        self,
+        owner: str,
+        lock: bool,
+        *,
+        exempt_widgets: tuple[QWidget, ...] = (),
+    ) -> None:
+        _shell_busy_state.set_global_ui_lock(
+            self,
+            owner=owner,
+            lock=lock,
+            exempt_widgets=exempt_widgets,
+        )
+
+    def _track_plot_figure(self, figure: Any) -> None:
+        _window_shutdown.track_plot_figure(self, figure)
+
     def _run_with_busy(
         self, label: str, work: Callable[[], T], *, suffix: str | None = None
     ) -> T:
@@ -444,6 +461,12 @@ class MainWindow(
 
     def closeEvent(self, event: Any) -> None:
         if self._defer_close_for_active_mne_browsers(event):
+            return
+        if _shell_busy_state.global_ui_lock_owner(self) == "busy":
+            event.ignore()
+            self.statusBar().showMessage(
+                "Close unavailable while an operation is running."
+            )
             return
         if not self._shutdown_tensor_run():
             event.ignore()
