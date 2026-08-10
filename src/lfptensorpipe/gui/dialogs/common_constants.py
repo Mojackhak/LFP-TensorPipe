@@ -38,8 +38,6 @@ FEATURES_AXES_DEFAULTS_KEY = "features_axes_defaults"
 TENSOR_SELECTOR_DEFAULTS_KEY = "selector_defaults"
 TENSOR_BANDS_DEFAULTS_KEY = "bands_defaults"
 TENSOR_METRIC_DEFAULTS_KEY = "metric_defaults"
-TENSOR_PSI_BANDS_DEFAULTS_KEY = "psi_bands_defaults"
-TENSOR_BURST_BANDS_DEFAULTS_KEY = "burst_bands_defaults"
 PREPROC_VIZ_STEP_ORDER = (
     "raw",
     "filter",

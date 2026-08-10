@@ -6,7 +6,6 @@ from .tensor_defaults_bands import (
     _load_tensor_bands_defaults as _load_tensor_bands_defaults_impl,
     _load_tensor_metric_bands_defaults as _load_tensor_metric_bands_defaults_impl,
     _normalize_tensor_bands_rows as _normalize_tensor_bands_rows_impl,
-    _save_tensor_metric_bands_defaults as _save_tensor_metric_bands_defaults_impl,
 )
 from .tensor_defaults_metric import (
     _default_tensor_metric_params as _default_tensor_metric_params_impl,
@@ -39,9 +38,6 @@ class MainWindowTensorDefaultsMixin:
 
     def _load_tensor_metric_bands_defaults(self, metric_key: str):
         return _load_tensor_metric_bands_defaults_impl(self, metric_key)
-
-    def _save_tensor_metric_bands_defaults(self, metric_key: str, bands):
-        _save_tensor_metric_bands_defaults_impl(self, metric_key, bands)
 
     @staticmethod
     def _tensor_supported_methods():

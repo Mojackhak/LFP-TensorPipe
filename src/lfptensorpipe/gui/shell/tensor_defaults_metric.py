@@ -275,8 +275,6 @@ def _save_tensor_metric_default_params(
         serialized.pop("kernel_size", None)
     defaults[metric_key] = serialized
     payload[TENSOR_METRIC_DEFAULTS_KEY] = defaults
-    if metric_key in {"psi", "burst"}:
-        self._save_tensor_metric_bands_defaults(metric_key, serialized.get("bands"))
     self._config_store.write_yaml("tensor.yml", payload)
 
 

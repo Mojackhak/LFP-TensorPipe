@@ -7,6 +7,7 @@ from importlib import resources
 import os
 from pathlib import Path
 import sys
+from tempfile import NamedTemporaryFile
 from typing import Any
 
 import yaml
@@ -130,10 +131,22 @@ class AppConfigStore:
         """Persist YAML data using UTF-8 encoding and atomic replacement."""
         path = self.path_for(filename)
         path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = path.with_name(f"{path.name}.tmp")
-        with temp_path.open("w", encoding="utf-8") as f:
-            yaml.safe_dump(data, f, sort_keys=False, allow_unicode=False)
-        temp_path.replace(path)
+        temp_path: Path | None = None
+        try:
+            with NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as f:
+                temp_path = Path(f.name)
+                yaml.safe_dump(data, f, sort_keys=False, allow_unicode=False)
+            temp_path.replace(path)
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
         return path
 
     def _resolve_recent_project_path(self, value: str | Path) -> Path:

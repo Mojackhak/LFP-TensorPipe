@@ -17,44 +17,6 @@ bands_defaults:
 - name: gamma
   start: 35.0
   end: 100.0
-psi_bands_defaults:
-- name: delta
-  start: 1.0
-  end: 4.0
-- name: theta
-  start: 4.0
-  end: 8.0
-- name: alpha
-  start: 8.0
-  end: 13.0
-- name: beta_low
-  start: 13.0
-  end: 20.0
-- name: beta_high
-  start: 20.0
-  end: 35.0
-- name: gamma
-  start: 35.0
-  end: 100.0
-burst_bands_defaults:
-- name: delta
-  start: 1.0
-  end: 4.0
-- name: theta
-  start: 4.0
-  end: 8.0
-- name: alpha
-  start: 8.0
-  end: 13.0
-- name: beta_low
-  start: 13.0
-  end: 20.0
-- name: beta_high
-  start: 20.0
-  end: 35.0
-- name: gamma
-  start: 35.0
-  end: 100.0
 metric_defaults:
   periodic_aperiodic:
     low_freq_hz: 1.0
