@@ -11,6 +11,17 @@ from lfptensorpipe.gui.shell.common import (
     scan_stage_states,
 )
 
+SOURCEDATA_ONLY_RECORD_ROLE = Qt.UserRole + 1
+SOURCEDATA_ONLY_RECORD_WARNING = """This record contains Sourcedata only and cannot be processed.
+
+To recreate it as a usable record:
+1. Create and successfully import a new record using a different name.
+2. Select this source-only record and delete it.
+3. Select the newly imported record.
+4. Rename the new record to the original record name.
+
+Deleting Sourcedata is permanent. Preserve a separate copy first if needed."""
+
 
 class MainWindowDatasetContextSelectionMixin:
     def _autosave_outgoing_record_snapshot(
@@ -77,6 +88,21 @@ class MainWindowDatasetContextSelectionMixin:
         for record in records:
             item = QListWidgetItem(record)
             item.setData(Qt.UserRole, record)
+            is_sourcedata_only = False
+            if self._current_project is not None and self._current_subject is not None:
+                scope_paths = self._record_delete_scope_paths_runtime(
+                    self._current_project,
+                    self._current_subject,
+                    record,
+                )
+                is_sourcedata_only = (
+                    scope_paths["sourcedata"].exists()
+                    and not scope_paths["rawdata"].exists()
+                    and not scope_paths["derivatives"].exists()
+                )
+            item.setData(SOURCEDATA_ONLY_RECORD_ROLE, is_sourcedata_only)
+            if is_sourcedata_only:
+                item.setForeground(Qt.red)
             self._record_list.addItem(item)
         self._record_list.blockSignals(False)
 
@@ -88,9 +114,33 @@ class MainWindowDatasetContextSelectionMixin:
             if item is None:
                 continue
             if str(item.data(Qt.UserRole) or item.text()) == record:
-                self._record_list.setCurrentRow(idx)
+                previous_suppression = bool(
+                    getattr(
+                        self,
+                        "_suppress_sourcedata_only_record_warning",
+                        False,
+                    )
+                )
+                self._suppress_sourcedata_only_record_warning = True
+                try:
+                    self._record_list.setCurrentRow(idx)
+                finally:
+                    self._suppress_sourcedata_only_record_warning = previous_suppression
                 return True
         return False
+
+    def _show_sourcedata_only_record_warning(self) -> None:
+        if bool(getattr(self, "_suppress_sourcedata_only_record_warning", False)):
+            return
+        if self._record_list is None:
+            return
+        item = self._record_list.currentItem()
+        if item is None or not bool(item.data(SOURCEDATA_ONLY_RECORD_ROLE)):
+            return
+        self._show_warning(
+            "Source-only Record",
+            SOURCEDATA_ONLY_RECORD_WARNING,
+        )
 
     def _selected_record_value(self) -> str | None:
         if self._record_list is None:
@@ -199,6 +249,7 @@ class MainWindowDatasetContextSelectionMixin:
             return
 
         self._current_record = str(record)
+        self._show_sourcedata_only_record_warning()
         self._shared_stage_trial_slug_value = None
         self._features_trial_params_by_slug = {}
         self._preproc_viz_last_step = None

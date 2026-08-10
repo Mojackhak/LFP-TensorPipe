@@ -155,6 +155,7 @@ class MainWindow(
         self._current_project: Path | None = None
         self._current_subject: str | None = None
         self._current_record: str | None = None
+        self._suppress_sourcedata_only_record_warning = False
         self._enable_plots = enable_plots
         self._annotations_edit_mode = False
 

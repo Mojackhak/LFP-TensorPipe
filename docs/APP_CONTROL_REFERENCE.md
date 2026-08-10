@@ -43,7 +43,7 @@ on the selected project, subject, and record.
 | `Project +` | Adds an existing project path to recent project history. | Available project choices. | Always available. |
 | `Subject` | Selects the active subject under the current project. | Record list and all record-scoped panels. | Requires a selected project. |
 | `Subject +` | Creates a new subject folder under the current project. | Subject inventory. | Requires a selected project. |
-| `Record` | Selects the active record under the current subject. Records are listed when any standard Derivatives, Rawdata, or Sourcedata record root exists. | Localize and all stage pages. | Requires a selected subject. A record with no canonical Rawdata input remains manageable but is not runnable. |
+| `Record` | Selects the active record under the current subject. Records are listed when any standard Derivatives, Rawdata, or Sourcedata record root exists. A record with only its Sourcedata root is shown in red. | Localize and all stage pages. | Requires a selected subject. A record with no canonical Rawdata input remains manageable but is not runnable. |
 | `Record +` | Opens the record import dialog. | Creates a new record when the import completes successfully. | Requires a selected subject. A name already occupied by any standard record root cannot be imported. |
 | `Record R` | Renames the selected record while preserving compatible downstream artifacts. | Record name and artifact paths that track that name. | Requires exactly one selected record. |
 | `Record -` | Opens a permanent-delete dialog for the selected record. | The selected standard `Derivatives`, `Rawdata`, and/or `Sourcedata` record roots. | Requires exactly one selected record. Missing scopes are disabled; the first existing scope in Derivatives, Rawdata, Sourcedata order is selected by default. |
@@ -61,6 +61,22 @@ Sourcedata. A Rawdata-only record starts with gray processing state; the existin
 Raw Plot action can bootstrap its preprocessing input from the canonical
 `raw.fif`. A Sourcedata-only record can be renamed or deleted but is not runnable
 because it has no canonical Rawdata input.
+
+When Sourcedata is the record's only existing standard root, the Record list
+shows the record name in red. Selecting that record from another selection opens
+a warning that describes the existing manual replacement path:
+
+1. Create and successfully import a new record under a different name with the
+   ordinary `Record +` workflow.
+2. Select and delete the original Sourcedata-only record with `Record -`.
+3. Select the newly imported record.
+4. Rename it to the original record name with `Record R`.
+
+The warning is guidance only. It has one `OK` action and does not alter Record
+Import, Delete, Rename, stage routing, or stage dependency behavior. Repeated
+clicks on the already-selected row and programmatic list refreshes do not reopen
+the warning. Sourcedata deletion remains permanent, so the warning tells the
+user to preserve a separate source copy first when needed.
 
 The Delete dialog disables scopes whose standard roots do not exist. It selects
 only the first existing scope in Derivatives, Rawdata, Sourcedata order and
