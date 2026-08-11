@@ -12,6 +12,7 @@ from lfptensorpipe.gui.shell.common import (
     default_tensor_metric_notch_params,
     load_tensor_frequency_defaults,
 )
+from lfptensorpipe.io.burst_thresholds import normalize_burst_threshold_payload
 
 
 def _tensor_supported_methods() -> tuple[str, ...]:
@@ -131,7 +132,7 @@ def _default_tensor_metric_params(
             "max_cycles": None,
             "hop_s": None,
             "decim": 1,
-            "thresholds_path": None,
+            "thresholds_source_path": None,
             "thresholds": None,
         }
     return dict(common)
@@ -180,6 +181,20 @@ def _load_tensor_metric_default_params(
                 dict(item)
                 for item in self._load_tensor_metric_bands_defaults(metric_key)
             ]
+    if metric_key == "burst":
+        base.pop("thresholds_path", None)
+        base.pop("thresholds_artifact_path", None)
+        try:
+            if base.get("thresholds") is not None:
+                base["thresholds"] = normalize_burst_threshold_payload(
+                    base.get("thresholds")
+                )
+        except ValueError as exc:
+            base["thresholds"] = None
+            base["thresholds_source_path"] = None
+            self.statusBar().showMessage(
+                "Ignored invalid saved Burst thresholds: " + str(exc)
+            )
     if metric_key == "periodic_aperiodic":
         base.pop("smooth_enabled", None)
         base.pop("kernel_size", None)
@@ -270,6 +285,14 @@ def _save_tensor_metric_default_params(
             dict(item)
             for item in self._normalize_tensor_bands_rows(serialized.get("bands"))
         ]
+    if metric_key == "burst":
+        serialized.pop("thresholds_path", None)
+        serialized.pop("thresholds_source_path", None)
+        serialized.pop("thresholds_artifact_path", None)
+        if serialized.get("thresholds") is not None:
+            serialized["thresholds"] = normalize_burst_threshold_payload(
+                serialized.get("thresholds")
+            )
     if metric_key == "periodic_aperiodic":
         serialized.pop("smooth_enabled", None)
         serialized.pop("kernel_size", None)

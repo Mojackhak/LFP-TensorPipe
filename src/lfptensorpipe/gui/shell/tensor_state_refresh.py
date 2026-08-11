@@ -95,6 +95,18 @@ class MainWindowTensorStateRefreshMixin:
         selected_metrics = self._selected_tensor_metrics()
         for row_key, widget in self._tensor_basic_param_widgets.items():
             enabled = editable and row_key in visible_basic_rows
+            if (
+                row_key == "percentile"
+                and metric_key == "burst"
+                and self._tensor_metric_params.get("burst", {}).get("thresholds")
+                is not None
+            ):
+                enabled = False
+                widget.setToolTip(
+                    "Disabled while a reusable Burst threshold snapshot is loaded."
+                )
+            elif row_key == "percentile":
+                widget.setToolTip("Burst threshold percentile.")
             if row_key == "freq_step_hz":
                 method = (
                     str(

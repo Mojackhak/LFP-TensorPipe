@@ -344,7 +344,7 @@ def grid(
     *,
     bands: BandSpec,
     thresholds: Sequence | None = None,
-    percentile: float = 75.0,
+    percentile: float | None = 75.0,
     min_cycles: float = 2.0,
     max_cycles: float | None = None,
     hop_s: float | None = None,
@@ -436,8 +436,13 @@ def grid(
         raise TypeError("raw must be an instance of mne.io.BaseRaw.")
     if not bands:
         raise ValueError("bands must be a non-empty mapping.")
-    if thresholds is None and not (0.0 < float(percentile) < 100.0):
-        raise ValueError("percentile must be in (0, 100).")
+    percentile_eff: float | None = None
+    if thresholds is None:
+        if percentile is None:
+            raise ValueError("percentile is required when thresholds are not provided.")
+        percentile_eff = float(percentile)
+        if not (0.0 < percentile_eff < 100.0):
+            raise ValueError("percentile must be in (0, 100).")
     if float(min_cycles) <= 0:
         raise ValueError("min_cycles must be > 0.")
     max_cycles_eff: float | None = None
@@ -666,7 +671,7 @@ def grid(
             thr = thresholds_by_band[bi]
         else:
             env_base = env[:, baseline_mask_band]
-            thr = np.nanpercentile(env_base, float(percentile), axis=1).astype(
+            thr = np.nanpercentile(env_base, percentile_eff, axis=1).astype(
                 np.float64, copy=False
             )
         thresholds_used.append(thr)
@@ -749,7 +754,7 @@ def grid(
             band_names=list(band_names),
             band_union_edges_hz=np.asarray(band_union_edges, dtype=float).tolist(),
             thresholds_provided=(thresholds is not None),
-            percentile=float(percentile),
+            percentile=percentile_eff,
             min_cycles=float(min_cycles),
             max_cycles=max_cycles_eff,
             min_run_samples_by_band=[int(x) for x in min_run_samples_by_band],

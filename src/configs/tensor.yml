@@ -301,7 +301,7 @@ metric_defaults:
     max_cycles: null
     hop_s: null
     decim: 1
-    thresholds_path: null
+    thresholds_source_path: null
     thresholds: null
     selected_channels:
     - '0_1'

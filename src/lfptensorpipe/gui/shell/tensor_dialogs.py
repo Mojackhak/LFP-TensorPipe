@@ -281,7 +281,7 @@ class MainWindowTensorDialogsMixin:
             )
         if metric_key == "burst":
             return (
-                "thresholds_path",
+                "thresholds_source_path",
                 "thresholds",
                 "min_cycles",
                 "max_cycles",

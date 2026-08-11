@@ -6,9 +6,15 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import yaml
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.runlog_store import read_run_log
+from lfptensorpipe.io.burst_thresholds import (
+    load_burst_threshold_json,
+    normalize_burst_threshold_payload,
+    select_burst_threshold_subset,
+)
 
 from .coercion import _as_float, _as_int, _as_optional_float, _as_optional_int
 from .frequency import (
@@ -28,7 +34,7 @@ from .params import (
     TENSOR_METRICS_BY_KEY,
     TENSOR_UNDIRECTED_SELECTOR_KEYS,
 )
-from .paths import tensor_metric_log_path
+from .paths import tensor_metric_config_path, tensor_metric_log_path
 from .runners.burst import (
     BURST_BASELINE_FALLBACK,
     _build_runtime_bands as _build_burst_runtime_bands,
@@ -207,6 +213,31 @@ def _normalize_runtime_bands_signature(
             segments.append([float(segment[0]), float(segment[1])])
         normalized[name] = segments
     return normalized
+
+
+def _burst_threshold_outputs_match(
+    resolver: PathResolver,
+    log_params: dict[str, Any],
+) -> bool:
+    try:
+        artifact_payload = load_burst_threshold_json(
+            resolver.tensor_metric_dir("burst") / "thresholds.json"
+        )
+        with tensor_metric_config_path(resolver, "burst").open(
+            "r", encoding="utf-8"
+        ) as handle:
+            config_payload = yaml.safe_load(handle)
+        if not isinstance(config_payload, dict):
+            return False
+        config_thresholds = normalize_burst_threshold_payload(
+            config_payload.get("thresholds_used")
+        )
+        log_thresholds = normalize_burst_threshold_payload(
+            log_params.get("thresholds_used")
+        )
+    except Exception:
+        return False
+    return artifact_payload == config_thresholds == log_thresholds
 
 
 def _max_n_peaks_signature(value: Any) -> str | float:
@@ -406,6 +437,35 @@ def _metric_log_signature(
         bands_used = _normalize_runtime_bands_signature(params.get("bands_used"))
         if channels is None or bands_used is None:
             return None
+        threshold_mode = params.get("threshold_mode")
+        if threshold_mode not in {"computed", "provided"}:
+            return None
+        hop_s, decim = _resolve_burst_time_grid(
+            hop_s=_as_optional_float(params.get("hop_s")),
+            decim=_as_optional_int(params.get("decim")),
+        )
+        signature = {
+            "low_freq": float(params.get("low_freq")),
+            "high_freq": float(params.get("high_freq")),
+            "step_hz": float(params.get("step_hz")),
+            "min_cycles": _as_float(params.get("min_cycles"), 2.0),
+            "max_cycles": _as_optional_float(params.get("max_cycles")),
+            "hop_s": hop_s,
+            "decim": decim,
+            "mask_edge_effects": bool(params.get("mask_edge_effects", True)),
+            "threshold_mode": threshold_mode,
+            "notch_intervals_hz": notch_intervals,
+            "bands_used": bands_used,
+            "selected_channels": channels,
+        }
+        if threshold_mode == "provided":
+            try:
+                signature["thresholds_used"] = normalize_burst_threshold_payload(
+                    params.get("thresholds_used")
+                )
+            except ValueError:
+                return None
+            return signature
         baseline_keep = (
             sorted(
                 {
@@ -416,39 +476,19 @@ def _metric_log_signature(
             )
             or None
         )
-        thresholds_source_value = params.get("thresholds_source_path")
-        thresholds_source_path = (
-            str(thresholds_source_value).strip()
-            if thresholds_source_value is not None
-            and str(thresholds_source_value).strip()
-            else None
+        signature.update(
+            {
+                "percentile": _as_float(params.get("percentile"), 75.0),
+                "baseline_keep": baseline_keep,
+                "baseline_match": "exact",
+                "baseline_fallback": (
+                    str(params.get("baseline_fallback", "full")).strip().lower()
+                    if baseline_keep is not None
+                    else None
+                ),
+            }
         )
-        hop_s, decim = _resolve_burst_time_grid(
-            hop_s=_as_optional_float(params.get("hop_s")),
-            decim=_as_optional_int(params.get("decim")),
-        )
-        return {
-            "low_freq": float(params.get("low_freq")),
-            "high_freq": float(params.get("high_freq")),
-            "step_hz": float(params.get("step_hz")),
-            "percentile": _as_float(params.get("percentile"), 75.0),
-            "baseline_keep": baseline_keep,
-            "baseline_match": "exact",
-            "baseline_fallback": (
-                str(params.get("baseline_fallback", "full")).strip().lower()
-                if baseline_keep is not None and thresholds_source_path is None
-                else None
-            ),
-            "min_cycles": _as_float(params.get("min_cycles"), 2.0),
-            "max_cycles": _as_optional_float(params.get("max_cycles")),
-            "hop_s": hop_s,
-            "decim": decim,
-            "mask_edge_effects": bool(params.get("mask_edge_effects", True)),
-            "thresholds_source_path": thresholds_source_path,
-            "notch_intervals_hz": notch_intervals,
-            "bands_used": bands_used,
-            "selected_channels": channels,
-        }
+        return signature
     return None
 
 
@@ -646,13 +686,16 @@ def _current_metric_signature(
     if metric_key == "burst":
         channels = _normalize_channels(prepared.metric_channels)
         bands = normalize_metric_bands(metric_params.get("bands"))
-        bands_used = _psi_or_burst_bands_signature(
-            metric_key=metric_key,
-            metric_low=prepared.metric_low,
-            metric_high=prepared.metric_high,
+        runtime_bands = _build_burst_runtime_bands(
             bands=bands,
-            notches=notches,
-            notch_radii=notch_radii,
+            low_freq=prepared.metric_low,
+            high_freq=prepared.metric_high,
+            notch_intervals=[
+                (float(segment[0]), float(segment[1])) for segment in notch_intervals
+            ],
+        )
+        bands_used = _normalize_runtime_bands_signature(
+            _serialize_burst_runtime_bands(runtime_bands)
         )
         if channels is None or bands_used is None:
             return None
@@ -660,6 +703,30 @@ def _current_metric_signature(
             hop_s=_as_optional_float(metric_params.get("hop_s")),
             decim=_as_optional_int(metric_params.get("decim")),
         )
+        thresholds_payload = metric_params.get("thresholds")
+        threshold_mode = "provided" if thresholds_payload is not None else "computed"
+        signature = {
+            "low_freq": prepared.metric_low,
+            "high_freq": prepared.metric_high,
+            "step_hz": prepared.metric_step,
+            "min_cycles": _as_float(metric_params.get("min_cycles"), 2.0),
+            "max_cycles": _as_optional_float(metric_params.get("max_cycles")),
+            "hop_s": hop_s,
+            "decim": decim,
+            "mask_edge_effects": bool(mask_edge_effects),
+            "threshold_mode": threshold_mode,
+            "notch_intervals_hz": notch_intervals,
+            "bands_used": bands_used,
+            "selected_channels": channels,
+        }
+        if threshold_mode == "provided":
+            _, thresholds_used = select_burst_threshold_subset(
+                thresholds_payload,
+                channels=channels,
+                bands=runtime_bands,
+            )
+            signature["thresholds_used"] = thresholds_used
+            return signature
         baseline_keep = (
             sorted(
                 {
@@ -670,34 +737,17 @@ def _current_metric_signature(
             )
             or None
         )
-        thresholds_value = metric_params.get("thresholds_path")
-        thresholds_path = (
-            str(thresholds_value).strip()
-            if thresholds_value is not None and str(thresholds_value).strip()
-            else None
+        signature.update(
+            {
+                "percentile": _as_float(metric_params.get("percentile"), 75.0),
+                "baseline_keep": baseline_keep,
+                "baseline_match": "exact",
+                "baseline_fallback": (
+                    BURST_BASELINE_FALLBACK if baseline_keep is not None else None
+                ),
+            }
         )
-        return {
-            "low_freq": prepared.metric_low,
-            "high_freq": prepared.metric_high,
-            "step_hz": prepared.metric_step,
-            "percentile": _as_float(metric_params.get("percentile"), 75.0),
-            "baseline_keep": baseline_keep,
-            "baseline_match": "exact",
-            "baseline_fallback": (
-                BURST_BASELINE_FALLBACK
-                if baseline_keep is not None and thresholds_path is None
-                else None
-            ),
-            "min_cycles": _as_float(metric_params.get("min_cycles"), 2.0),
-            "max_cycles": _as_optional_float(metric_params.get("max_cycles")),
-            "hop_s": hop_s,
-            "decim": decim,
-            "mask_edge_effects": bool(mask_edge_effects),
-            "thresholds_source_path": thresholds_path,
-            "notch_intervals_hz": notch_intervals,
-            "bands_used": bands_used,
-            "selected_channels": channels,
-        }
+        return signature
     return None
 
 
@@ -721,11 +771,21 @@ def tensor_metric_panel_state(
     if completed is not True:
         return "gray"
     params = payload.get("params")
-    completed_signature = (
-        _metric_log_signature(metric_key, params) if isinstance(params, dict) else None
-    )
+    if metric_key == "burst" and isinstance(params, dict):
+        try:
+            completed_signature = _metric_log_signature(metric_key, params)
+        except Exception:
+            completed_signature = None
+    else:
+        completed_signature = (
+            _metric_log_signature(metric_key, params)
+            if isinstance(params, dict)
+            else None
+        )
     if completed_signature is None:
-        return "green"
+        return "yellow" if metric_key == "burst" else "green"
+    if metric_key == "burst" and not _burst_threshold_outputs_match(resolver, params):
+        return "yellow"
     current_params = dict(metric_params) if isinstance(metric_params, dict) else {}
     try:
         current_signature = _current_metric_signature(

@@ -5,6 +5,10 @@ from __future__ import annotations
 from lfptensorpipe.app.tensor.frequency import (
     validate_periodic_aperiodic_notch_bounds,
 )
+from lfptensorpipe.io.burst_thresholds import (
+    load_burst_threshold_json,
+    normalize_burst_threshold_payload,
+)
 
 from .common import *  # noqa: F403
 
@@ -383,12 +387,13 @@ class TensorMetricAdvanceDialog(QDialog):
             self._thresholds_path_label.setToolTip(
                 "Currently loaded burst thresholds file."
             )
-            load_button = QPushButton("Load thresholds.pkl")
+            load_button = QPushButton("Load thresholds.json")
             clear_button = QPushButton("Clear thresholds")
             load_button.clicked.connect(self._on_load_thresholds)
             clear_button.clicked.connect(self._on_clear_thresholds)
             load_button.setToolTip(
-                "Load precomputed burst thresholds from a pickle file."
+                "Load a validated Burst threshold JSON snapshot. Compatibility "
+                "with the current channels and bands is checked when Burst runs."
             )
             clear_button.setToolTip("Remove the loaded burst thresholds file.")
             thresholds_layout.addWidget(self._thresholds_path_label, stretch=1)
@@ -494,19 +499,12 @@ class TensorMetricAdvanceDialog(QDialog):
                 else:
                     self._baseline_annotations_combo.setCurrentIndex(0)
             self._loaded_thresholds = params.get("thresholds")
-            path = params.get("thresholds_path")
+            path = params.get("thresholds_source_path")
             if isinstance(path, str) and path.strip():
                 self._loaded_thresholds_path = path
-                self._thresholds_path_label.setText(path)
-                self._thresholds_path_label.setToolTip(
-                    "Currently loaded burst thresholds file. " f"Loaded: {path}."
-                )
             else:
                 self._loaded_thresholds_path = None
-                self._thresholds_path_label.setText("No file loaded")
-                self._thresholds_path_label.setToolTip(
-                    "Currently loaded burst thresholds file. Loaded: none."
-                )
+            self._sync_burst_threshold_controls()
 
     def _sync_trgc_round_ms_enabled(self) -> None:
         if (
@@ -548,35 +546,45 @@ class TensorMetricAdvanceDialog(QDialog):
             if widget is not None:
                 widget.setEnabled(not is_multitaper)
 
-    @staticmethod
-    def _normalize_burst_thresholds(value: Any) -> Any:
-        if value is None:
-            return None
-        arr = np.asarray(value, dtype=float)
-        if arr.ndim == 0:
-            if not np.isfinite(float(arr)):
-                raise ValueError("Invalid thresholds value.")
-            return [float(arr)]
-        if not np.all(np.isfinite(arr)):
-            raise ValueError("Thresholds contain non-finite values.")
-        if arr.ndim == 1:
-            return [float(item) for item in arr.tolist()]
-        if arr.ndim == 2:
-            return [[float(item) for item in row] for row in arr.tolist()]
-        raise ValueError("Thresholds must be scalar, 1D, or 2D.")
+    def _sync_burst_threshold_controls(self) -> None:
+        if self._metric_key != "burst":
+            return
+        provided = self._loaded_thresholds is not None
+        if self._baseline_annotations_combo is not None:
+            self._baseline_annotations_combo.setEnabled(not provided)
+        if not provided:
+            self._thresholds_path_label.setText("No file loaded")
+            self._thresholds_path_label.setToolTip(
+                "Currently loaded Burst thresholds file. Loaded: none."
+            )
+            return
+        payload = normalize_burst_threshold_payload(self._loaded_thresholds)
+        source_name = (
+            Path(self._loaded_thresholds_path).name
+            if self._loaded_thresholds_path
+            else "Stored thresholds"
+        )
+        summary = (
+            f"{source_name} — {len(payload['bands'])} bands × "
+            f"{len(payload['channels'])} channels"
+        )
+        self._thresholds_path_label.setText(summary)
+        source_detail = self._loaded_thresholds_path or "stored payload"
+        self._thresholds_path_label.setToolTip(
+            f"Loaded: {source_detail}. Compatibility is checked when Burst runs."
+        )
 
     def _on_load_thresholds(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Load thresholds.pkl",
+            "Load thresholds.json",
             "",
-            "Pickle files (*.pkl);;All files (*)",
+            "JSON files (*.json)",
         )
         if not file_path:
             return
         try:
-            payload = load_pkl(Path(file_path))
-            normalized = self._normalize_burst_thresholds(payload)
+            normalized = load_burst_threshold_json(Path(file_path))
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(
                 self, "Burst Advance", f"Invalid thresholds file:\n{exc}"
@@ -584,18 +592,12 @@ class TensorMetricAdvanceDialog(QDialog):
             return
         self._loaded_thresholds = normalized
         self._loaded_thresholds_path = file_path
-        self._thresholds_path_label.setText(file_path)
-        self._thresholds_path_label.setToolTip(
-            "Currently loaded burst thresholds file. " f"Loaded: {file_path}."
-        )
+        self._sync_burst_threshold_controls()
 
     def _on_clear_thresholds(self) -> None:
         self._loaded_thresholds = None
         self._loaded_thresholds_path = None
-        self._thresholds_path_label.setText("No file loaded")
-        self._thresholds_path_label.setToolTip(
-            "Currently loaded burst thresholds file. Loaded: none."
-        )
+        self._sync_burst_threshold_controls()
 
     def _on_restore_defaults(self) -> None:
         self._working_base_params = dict(self._default_params)
@@ -671,7 +673,7 @@ class TensorMetricAdvanceDialog(QDialog):
                 else:
                     out["baseline_keep"] = None
             out["thresholds"] = self._loaded_thresholds
-            out["thresholds_path"] = self._loaded_thresholds_path
+            out["thresholds_source_path"] = self._loaded_thresholds_path
         return out
 
     def _on_submit(self, action: str) -> None:
@@ -713,7 +715,10 @@ class TensorMetricAdvanceDialog(QDialog):
                         self, self.windowTitle(), f"Set as default failed:\n{exc}"
                     )
                     return
-            self._default_params = dict(payload)
+            default_payload = dict(payload)
+            if self._metric_key == "burst":
+                default_payload.pop("thresholds_source_path", None)
+            self._default_params = default_payload
             self._working_base_params = dict(payload)
             self._selected_action = action
             self._selected_params = payload

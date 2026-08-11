@@ -21,6 +21,7 @@ from lfptensorpipe.gui.shell.common import (
     TENSOR_METRICS,
     build_tensor_metric_notch_payload,
 )
+from lfptensorpipe.io.burst_thresholds import normalize_burst_threshold_payload
 
 TENSOR_CONFIG_SCHEMA = "lfptensorpipe.tensor-config"
 TENSOR_CONFIG_VERSION = 4
@@ -311,6 +312,13 @@ class MainWindowTensorConfigMixin:
                     dict(item) for item in self._normalize_tensor_bands_rows(value)
                 ]
                 continue
+            if key == "thresholds":
+                out[key] = (
+                    normalize_burst_threshold_payload(value)
+                    if value is not None
+                    else None
+                )
+                continue
             out[key] = self._tensor_config_json_value(value)
         return out
 
@@ -453,11 +461,16 @@ class MainWindowTensorConfigMixin:
                 )["notch_radii"]
                 continue
             if key == "thresholds":
-                if value is not None and not isinstance(value, list):
-                    raise ValueError(
-                        f"tensor.metric_params.{metric_key}.thresholds must be a list or null."
-                    )
-                out[key] = self._tensor_config_json_value(value)
+                if value is None:
+                    out[key] = None
+                else:
+                    try:
+                        out[key] = normalize_burst_threshold_payload(value)
+                    except ValueError as exc:
+                        raise ValueError(
+                            "tensor.metric_params.burst.thresholds is invalid: "
+                            + str(exc)
+                        ) from exc
                 continue
             if key == "baseline_keep":
                 if value is None:

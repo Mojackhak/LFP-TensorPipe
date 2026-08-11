@@ -7,6 +7,11 @@ from typing import Any
 import numpy as np
 
 from lfptensorpipe.app.path_resolver import RecordContext
+from lfptensorpipe.io.burst_thresholds import (
+    build_burst_threshold_payload,
+    select_burst_threshold_subset,
+    write_burst_threshold_json,
+)
 from lfptensorpipe.utils.freqs import split_bands_by_intervals
 
 from .. import service as svc
@@ -127,7 +132,24 @@ def run_burst_metric(
     output_path = tensor_metric_tensor_path(resolver, metric_key, create=True)
     config_path = tensor_metric_config_path(resolver, metric_key, create=True)
     log_path = tensor_metric_log_path(resolver, metric_key, create=True)
-    thresholds_artifact_path = metric_dir / "thresholds.pkl"
+    thresholds_artifact_path = metric_dir / "thresholds.json"
+    threshold_mode = "provided" if thresholds is not None else "computed"
+    normalized_source_path = (
+        str(thresholds_source_path).strip()
+        if threshold_mode == "provided"
+        and isinstance(thresholds_source_path, str)
+        and thresholds_source_path.strip()
+        else None
+    )
+    effective_baseline_keep = (
+        None
+        if threshold_mode == "provided"
+        else (list(baseline_keep) if baseline_keep is not None else None)
+    )
+    effective_baseline_match = None if threshold_mode == "provided" else "exact"
+    effective_baseline_fallback = (
+        None if threshold_mode == "provided" else BURST_BASELINE_FALLBACK
+    )
     inheritance = load_tensor_filter_inheritance(context)
     runtime_notch_payload = svc.build_tensor_metric_notch_payload(notches, notch_radii)
     runtime_notches = tuple(float(item) for item in runtime_notch_payload["notches"])
@@ -199,12 +221,26 @@ def run_burst_metric(
                 "Adjust bands or low/high frequency limits."
             )
 
+        selected_thresholds = None
+        selected_thresholds_payload = None
+        if threshold_mode == "provided":
+            selected_thresholds, selected_thresholds_payload = (
+                select_burst_threshold_subset(
+                    thresholds,
+                    channels=picks,
+                    bands=burst_bands,
+                )
+            )
+        effective_percentile = (
+            None if threshold_mode == "provided" else float(percentile)
+        )
+
         tensor, metadata = burst_grid(
             raw,
             bands=burst_bands,
-            thresholds=thresholds,
-            percentile=float(percentile),
-            baseline_keep=baseline_keep,
+            thresholds=selected_thresholds,
+            percentile=effective_percentile,
+            baseline_keep=effective_baseline_keep,
             baseline_match="exact",
             baseline_fallback=BURST_BASELINE_FALLBACK,
             min_cycles=float(min_cycles),
@@ -243,12 +279,20 @@ def run_burst_metric(
             qc = metadata.get("qc", {})
             if isinstance(qc, dict):
                 written_thresholds = qc.get("thresholds")
-
-        thresholds_payload_path: str | None = None
-        if written_thresholds is not None:
-            thresholds_payload_path = str(thresholds_artifact_path)
-        elif isinstance(thresholds_source_path, str) and thresholds_source_path.strip():
-            thresholds_payload_path = thresholds_source_path.strip()
+        if written_thresholds is None:
+            raise ValueError("Burst did not return required threshold values.")
+        thresholds_used = build_burst_threshold_payload(
+            channels=picks,
+            bands=burst_bands,
+            values=written_thresholds,
+        )
+        if (
+            selected_thresholds_payload is not None
+            and thresholds_used != selected_thresholds_payload
+        ):
+            raise ValueError(
+                "Burst returned thresholds that differ from the selected payload."
+            )
 
         config_payload = {
             "metric_key": metric_key,
@@ -257,10 +301,10 @@ def run_burst_metric(
             "low_freq": float(low_freq),
             "high_freq": float(high_freq),
             "step_hz": float(step_hz),
-            "percentile": float(percentile),
-            "baseline_keep": list(baseline_keep) if baseline_keep is not None else None,
-            "baseline_match": "exact",
-            "baseline_fallback": BURST_BASELINE_FALLBACK,
+            "percentile": effective_percentile,
+            "baseline_keep": effective_baseline_keep,
+            "baseline_match": effective_baseline_match,
+            "baseline_fallback": effective_baseline_fallback,
             "min_cycles": float(min_cycles),
             "max_cycles": (float(max_cycles) if max_cycles is not None else None),
             "hop_s": hop_s_use,
@@ -270,12 +314,10 @@ def run_burst_metric(
             "bands_used": _serialize_runtime_bands(burst_bands),
             "channels": picks,
             "selected_channels": picks,
-            "thresholds_source_path": (
-                str(thresholds_source_path).strip()
-                if isinstance(thresholds_source_path, str)
-                and thresholds_source_path.strip()
-                else None
-            ),
+            "threshold_mode": threshold_mode,
+            "thresholds_source_path": normalized_source_path,
+            "thresholds_artifact_path": str(thresholds_artifact_path),
+            "thresholds_used": thresholds_used,
             "notches": [float(item) for item in runtime_notches],
             "notch_radii": [float(item) for item in runtime_notch_radii],
             "inherited_filter_notches": [float(item) for item in inheritance.notches],
@@ -286,7 +328,6 @@ def run_burst_metric(
                 [float(lo), float(hi)] for lo, hi in notch_intervals
             ],
             "interpolation_applied": False,
-            "thresholds_path": thresholds_payload_path,
             "tensor_shape": [int(item) for item in tensor4d.shape],
             **_effective_n_jobs_payload(
                 n_jobs=int(n_jobs),
@@ -298,21 +339,19 @@ def run_burst_metric(
             "low_freq": float(low_freq),
             "high_freq": float(high_freq),
             "step_hz": float(step_hz),
-            "percentile": float(percentile),
-            "baseline_keep": list(baseline_keep) if baseline_keep is not None else None,
-            "baseline_match": "exact",
-            "baseline_fallback": BURST_BASELINE_FALLBACK,
+            "percentile": effective_percentile,
+            "baseline_keep": effective_baseline_keep,
+            "baseline_match": effective_baseline_match,
+            "baseline_fallback": effective_baseline_fallback,
             "min_cycles": float(min_cycles),
             "max_cycles": (float(max_cycles) if max_cycles is not None else None),
             "hop_s": hop_s_use,
             "decim": decim_use,
             "mask_edge_effects": bool(mask_edge_effects),
-            "thresholds_source_path": (
-                str(thresholds_source_path).strip()
-                if isinstance(thresholds_source_path, str)
-                and thresholds_source_path.strip()
-                else None
-            ),
+            "threshold_mode": threshold_mode,
+            "thresholds_source_path": normalized_source_path,
+            "thresholds_artifact_path": str(thresholds_artifact_path),
+            "thresholds_used": thresholds_used,
             "notches": [float(item) for item in runtime_notches],
             "notch_radii": [float(item) for item in runtime_notch_radii],
             "inherited_filter_notches": [float(item) for item in inheritance.notches],
@@ -325,7 +364,7 @@ def run_burst_metric(
             "selected_channels": picks,
             "n_bands": int(tensor4d.shape[2]),
             "n_times": int(tensor4d.shape[3]),
-            "thresholds_written": bool(written_thresholds is not None),
+            "thresholds_written": True,
             **_effective_n_jobs_payload(
                 n_jobs=int(n_jobs),
                 outer_n_jobs=int(outer_n_jobs),
@@ -349,17 +388,11 @@ def run_burst_metric(
                     message=success_message,
                 ),
             ),
+            (
+                thresholds_artifact_path,
+                lambda path: write_burst_threshold_json(thresholds_used, path),
+            ),
         ]
-        if written_thresholds is not None:
-            outputs.append(
-                (
-                    thresholds_artifact_path,
-                    lambda path: save_pkl(
-                        np.asarray(written_thresholds, dtype=float),
-                        path,
-                    ),
-                )
-            )
         _write_outputs_atomically(outputs)
         return True, f"{metric_label} tensor computed."
     except Exception as exc:  # noqa: BLE001
@@ -371,23 +404,20 @@ def run_burst_metric(
                 "low_freq": float(low_freq),
                 "high_freq": float(high_freq),
                 "step_hz": float(step_hz),
-                "percentile": float(percentile),
-                "baseline_keep": (
-                    list(baseline_keep) if baseline_keep is not None else None
+                "threshold_mode": threshold_mode,
+                "percentile": (
+                    None if threshold_mode == "provided" else float(percentile)
                 ),
-                "baseline_match": "exact",
-                "baseline_fallback": BURST_BASELINE_FALLBACK,
+                "baseline_keep": effective_baseline_keep,
+                "baseline_match": effective_baseline_match,
+                "baseline_fallback": effective_baseline_fallback,
                 "min_cycles": float(min_cycles),
                 "max_cycles": (float(max_cycles) if max_cycles is not None else None),
                 "hop_s": hop_s_use,
                 "decim": decim_use,
                 "mask_edge_effects": bool(mask_edge_effects),
-                "thresholds_source_path": (
-                    str(thresholds_source_path).strip()
-                    if isinstance(thresholds_source_path, str)
-                    and thresholds_source_path.strip()
-                    else None
-                ),
+                "thresholds_source_path": normalized_source_path,
+                "thresholds_artifact_path": str(thresholds_artifact_path),
                 "notches": [float(item) for item in runtime_notches],
                 "notch_radii": [float(item) for item in runtime_notch_radii],
                 "inherited_filter_notches": [

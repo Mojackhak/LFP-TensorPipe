@@ -60,8 +60,8 @@ def plan_burst(
                 svc.DEFAULT_TENSOR_NOTCH_RADIUS,
             ),
             "thresholds_source_path": (
-                str(metric_params.get("thresholds_path"))
-                if metric_params.get("thresholds_path") is not None
+                str(metric_params.get("thresholds_source_path"))
+                if metric_params.get("thresholds_source_path") is not None
                 else None
             ),
         },

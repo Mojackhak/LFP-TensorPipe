@@ -19,6 +19,7 @@ from lfptensorpipe.gui.shell.common import (
     _nested_get,
     build_tensor_metric_notch_payload,
 )
+from lfptensorpipe.io.burst_thresholds import normalize_burst_threshold_payload
 
 
 class MainWindowRecordParamsApplyTensorMixin:
@@ -66,6 +67,23 @@ class MainWindowRecordParamsApplyTensorMixin:
                     if spec.key == "periodic_aperiodic":
                         merged.pop("smooth_enabled", None)
                         merged.pop("kernel_size", None)
+                    if spec.key == "burst":
+                        merged.pop("thresholds_path", None)
+                        merged.pop("thresholds_artifact_path", None)
+                        try:
+                            if merged.get("thresholds") is not None:
+                                merged["thresholds"] = (
+                                    normalize_burst_threshold_payload(
+                                        merged.get("thresholds")
+                                    )
+                                )
+                        except ValueError as exc:
+                            merged["thresholds"] = None
+                            merged["thresholds_source_path"] = None
+                            self._show_warning(
+                                "Burst Thresholds",
+                                "Ignored invalid saved Burst thresholds:\n" + str(exc),
+                            )
                     merged.update(
                         build_tensor_metric_notch_payload(
                             merged.get("notches"),

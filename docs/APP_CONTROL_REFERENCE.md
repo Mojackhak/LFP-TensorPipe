@@ -556,7 +556,7 @@ and the execution of tensor generation.
 | `Time resolution` | Sets the target Morlet time scale or the minimum Multitaper window. With Multitaper, low frequencies use a longer window when required by `MT minimum cycles`. | Active metric configuration. | Shown only for metrics that expose it. |
 | `Hop` | Sets the shift between adjacent analysis windows. Smaller hops make the time axis denser and smoother, but they also increase overlap and compute cost. | Active metric configuration. | Shown only for metrics that expose it. |
 | `SpecParam freq range` | Sets the fitting range used by the SpecParam model, not the final display or export range. In practice, it is usually safer to keep this range slightly wider than the final `Low freq` and `High freq` bounds, allowing boundary frequencies to be trimmed using the final `Low freq` and `High freq` bounds because they are often not modeled reliably as oscillatory peaks. | Visible for periodic/aperiodic metrics. |
-| `Percentile` | Sets the percentile used to convert the burst baseline into a burst-detection threshold. Higher percentiles make burst calls more conservative, while lower percentiles admit more candidate bursts. | Burst metric configuration. | Visible for burst metrics. |
+| `Percentile` | Sets the percentile used to convert the burst baseline into a burst-detection threshold. Higher percentiles make burst calls more conservative, while lower percentiles admit more candidate bursts. | Burst metric configuration. | Visible for burst metrics. Disabled while a structured external threshold snapshot is loaded because supplied thresholds replace percentile estimation. |
 | `Bands Configure...` | Opens the named-band editor used by metrics that summarize results over frequency bands. Those named bands become part of the metric-specific aggregation or feature definition. | Active metric axis configuration. | Visible only for metrics that expose bands. |
 | `Select Channels` | Opens the active metric's channel selector. Use it to limit computation to the channels that matter for that metric instead of computing every available channel. | Active metric channel subset. | Visible for channel-based metrics. |
 | `Select Pairs` | Opens the active metric's pair selector. Use it when the metric is defined on channel pairs rather than on single channels. | Active metric pair subset. | Visible for pair-based metrics. |
@@ -777,10 +777,10 @@ tensor frequency and time grid.
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
-| `Thresholds` label | Shows whether a precomputed thresholds file is currently loaded. Use it to verify whether burst thresholds are coming from an external file or from the current session configuration. | Burst threshold source context. | Burst dialog only. |
-| `Load thresholds.pkl` | Loads precomputed burst thresholds from a pickle file. This is useful when you want to reuse a threshold definition instead of deriving it again in the current session. | Burst threshold source context. | Burst dialog only. |
-| `Clear thresholds` | Removes the loaded thresholds file and returns threshold handling to the remaining burst settings. | Burst threshold source context. | Burst dialog only. |
-| `Baseline annotations` | Chooses which finished annotation label should define the baseline segments used for burst thresholding. Pick a label that represents the reference state you want burst thresholds to reflect. | Burst threshold derivation. | Burst dialog only. When deriving thresholds from data, the run fails if the exact selected label is absent or has no samples remaining after BAD/EDGE exclusion. |
+| `Thresholds` label | Shows the loaded JSON filename and its band-by-channel coverage. Loading validates the file structure; compatibility with the final channel and effective-band selection is checked when Burst runs. | Burst threshold source context. | Burst dialog only. |
+| `Load thresholds.json` | Loads a non-executable structured Burst threshold snapshot. The JSON may cover a superset of channels and bands; the run extracts and reorders the requested subset by identity. Legacy threshold Pickle files are not opened or converted. | Burst threshold source context. | Burst dialog only; accepts `.json` files. |
+| `Clear thresholds` | Clears the loaded threshold snapshot and source path, returns Burst to data-derived threshold estimation, and re-enables the saved Percentile/Baseline values. | Burst threshold source context. | Burst dialog only. |
+| `Baseline annotations` | Chooses which finished annotation label should define the baseline segments used for burst thresholding. Pick a label that represents the reference state you want burst thresholds to reflect. | Burst threshold derivation. | Burst dialog only. Disabled while a structured threshold snapshot is loaded. When deriving thresholds from data, the run fails if the exact selected label is absent or has no samples remaining after BAD/EDGE exclusion. |
 | `Min cycles` | Sets the minimum cycles used for burst detection. Lower values allow shorter events to qualify; higher values demand more sustained oscillatory content. | Burst duration sensitivity. | Burst dialog only. |
 | `Max cycles` | Sets an optional ceiling on burst cycle count. Use it when you want to stop very long cycle assumptions from oversmoothing burst detection. | Burst duration sensitivity. | Burst dialog only. |
 | `Notches` | Adds metric-local notch exclusions before burst detection is computed. | Metric-local runtime filtering. | Supported tensor metrics only. |
@@ -792,7 +792,15 @@ tensor frequency and time grid.
 
 **Notes**
 
-- A loaded thresholds file can replace threshold estimation work that would otherwise happen inside the current session.
+- A loaded threshold snapshot replaces threshold estimation. Percentile and
+  Baseline values remain dormant until `Clear thresholds` is selected.
+- The JSON must contain non-negative finite values plus unique channel and band
+  identities. A run accepts a requested channel/band subset, reorders values to
+  the runtime order, and fails Burst before numerical computation if any
+  requested identity is absent or a band's effective notch-split segments do
+  not match.
+- Successful Burst runs write `thresholds.json` for the actual runtime subset.
+  The source file path is provenance only and is never reopened for the run.
 - `Baseline annotations` determines which labeled baseline periods define the burst threshold context when thresholds are derived from data rather than loaded from file. Missing or wholly excluded baseline data blocks the run; Burst does not fall back to the full recording.
 
 ### 7.13 Undirected Tensor Pairs

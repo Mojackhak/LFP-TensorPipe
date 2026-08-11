@@ -226,6 +226,26 @@ class MainWindowRecordParamsSnapshotLogsMixin:
                     continue
                 if key == "notch_widths":
                     continue
+                if metric_key == "burst" and key in {
+                    "threshold_mode",
+                    "thresholds_source_path",
+                    "thresholds_artifact_path",
+                    "thresholds_used",
+                    "thresholds_written",
+                }:
+                    continue
+                if (
+                    metric_key == "burst"
+                    and metric_params.get("threshold_mode") == "provided"
+                    and key
+                    in {
+                        "percentile",
+                        "baseline_keep",
+                        "baseline_match",
+                        "baseline_fallback",
+                    }
+                ):
+                    continue
                 current_params[key] = value
             if legacy_notch_widths_present:
                 # Applied after the copy loop: normalization sorts and merges the
