@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, replace
+import multiprocessing
 from pathlib import Path
 from typing import Any
 
@@ -507,7 +508,10 @@ def run_extract_features(
     metric_results_by_key: dict[str, _MetricExtractResult] = {}
     metric_items = list(raw_tables)
     if len(metric_items) >= 2:
-        with ThreadPoolExecutor(max_workers=len(metric_items)) as executor:
+        with ProcessPoolExecutor(
+            max_workers=len(metric_items),
+            mp_context=multiprocessing.get_context("spawn"),
+        ) as executor:
             future_to_metric = {
                 executor.submit(
                     _extract_metric_outputs,
