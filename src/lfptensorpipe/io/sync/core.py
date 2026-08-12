@@ -323,7 +323,7 @@ def build_synced_raw(raw: Any, estimate: SyncEstimate) -> Any:
         raise ValueError("sfreq_after_hz must be > 0.")
 
     data = np.asarray(raw.get_data(), dtype=float)
-    shift_samples = int(round(float(estimate.lag_s) * sfreq_after_hz))
+    shift_samples, effective_lag_s = resolve_sync_shift(estimate)
     if shift_samples >= 0:
         if shift_samples >= data.shape[1]:
             raise ValueError("Positive lag trims all samples from the recording.")
@@ -342,9 +342,21 @@ def build_synced_raw(raw: Any, estimate: SyncEstimate) -> Any:
 
     meas_date = raw.info.get("meas_date")
     if meas_date is not None:
-        synced_raw.set_meas_date(meas_date + timedelta(seconds=float(estimate.lag_s)))
+        first_time_s = float(getattr(raw, "first_samp", 0)) / sfreq_before_hz
+        synced_raw.set_meas_date(
+            meas_date + timedelta(seconds=first_time_s + effective_lag_s)
+        )
 
     annotations = getattr(raw, "annotations", None)
+    mapped_onsets: list[float] = []
+    mapped_durations: list[float] = []
+    mapped_descriptions: list[str] = []
+    output_end_s = float(synced_data.shape[1]) / sfreq_after_hz
+    if shift_samples < 0:
+        mapped_onsets.append(0.0)
+        mapped_durations.append(abs(shift_samples) / sfreq_after_hz)
+        mapped_descriptions.append("BAD_sync_padding")
+
     if annotations is not None and len(annotations) > 0:
         # synced_raw restarts at first_samp == 0, so onsets must be pulled back
         # into the record-relative frame before the lag shift is applied.
@@ -355,21 +367,40 @@ def build_synced_raw(raw: Any, estimate: SyncEstimate) -> Any:
             scale = sfreq_before_hz / sfreq_after_hz
             onsets = onsets * scale
             durations = durations * scale
-        onsets = onsets - float(estimate.lag_s)
-        max_time_s = (
-            float(synced_data.shape[1] - 1) / sfreq_after_hz
-            if synced_data.shape[1]
-            else 0.0
-        )
-        keep = (onsets >= 0.0) & (onsets <= max_time_s)
-        if np.any(keep):
-            synced_raw.set_annotations(
-                mne.Annotations(
-                    onset=onsets[keep],
-                    duration=durations[keep],
-                    description=[
-                        desc[index] for index, flag in enumerate(keep.tolist()) if flag
-                    ],
-                )
+        onsets = onsets - effective_lag_s
+        for onset, duration, description in zip(onsets, durations, desc):
+            start_s = float(onset)
+            duration_s = float(duration)
+            if duration_s <= 0.0:
+                if 0.0 <= start_s < output_end_s:
+                    mapped_onsets.append(start_s)
+                    mapped_durations.append(0.0)
+                    mapped_descriptions.append(str(description))
+                continue
+
+            clipped_start_s = max(start_s, 0.0)
+            clipped_end_s = min(start_s + duration_s, output_end_s)
+            if clipped_start_s >= clipped_end_s:
+                continue
+            mapped_onsets.append(clipped_start_s)
+            mapped_durations.append(clipped_end_s - clipped_start_s)
+            mapped_descriptions.append(str(description))
+
+    if mapped_descriptions:
+        synced_raw.set_annotations(
+            mne.Annotations(
+                onset=mapped_onsets,
+                duration=mapped_durations,
+                description=mapped_descriptions,
             )
+        )
     return synced_raw
+
+
+def resolve_sync_shift(estimate: SyncEstimate) -> tuple[int, float]:
+    """Return the integer sample displacement and its effective duration."""
+    sfreq_after_hz = float(estimate.sfreq_after_hz)
+    if sfreq_after_hz <= 0:
+        raise ValueError("sfreq_after_hz must be > 0.")
+    shift_samples = int(round(float(estimate.lag_s) * sfreq_after_hz))
+    return shift_samples, shift_samples / sfreq_after_hz

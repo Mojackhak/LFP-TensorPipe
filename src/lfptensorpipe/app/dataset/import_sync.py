@@ -20,6 +20,7 @@ from lfptensorpipe.io.sync import (
     save_sync_summary_figure,
     seed_lfp_markers_from_raw,
 )
+from lfptensorpipe.io.sync.core import resolve_sync_shift
 
 
 def build_import_sync_seed(raw: Any) -> list[Any]:
@@ -100,6 +101,7 @@ def _config_payload(
     artifacts: PersistedSyncArtifacts,
 ) -> dict[str, Any]:
     estimate = sync_state.estimate
+    shift_samples, effective_lag_s = resolve_sync_shift(estimate)
     return {
         "raw_fif_path": str(raw_fif_path),
         "lfp_source": {
@@ -161,6 +163,9 @@ def _config_payload(
         ],
         "correct_sfreq": estimate.correct_sfreq,
         "lag_s": estimate.lag_s,
+        "requested_lag_s": estimate.lag_s,
+        "effective_lag_s": effective_lag_s,
+        "shift_samples": shift_samples,
         "sfreq_before_hz": estimate.sfreq_before_hz,
         "sfreq_after_hz": estimate.sfreq_after_hz,
         "rmse_ms": estimate.rmse_ms,
@@ -259,6 +264,7 @@ def persist_import_sync_artifacts(
             sort_keys=False,
             allow_unicode=False,
         )
+    shift_samples, effective_lag_s = resolve_sync_shift(sync_state.estimate)
     write_run_log(
         artifacts.log_path,
         RunLogRecord(
@@ -267,6 +273,9 @@ def persist_import_sync_artifacts(
             params={
                 "pair_count": len(sync_state.pairs),
                 "lag_s": sync_state.estimate.lag_s,
+                "requested_lag_s": sync_state.estimate.lag_s,
+                "effective_lag_s": effective_lag_s,
+                "shift_samples": shift_samples,
                 "sfreq_before_hz": sync_state.estimate.sfreq_before_hz,
                 "sfreq_after_hz": sync_state.estimate.sfreq_after_hz,
                 "rmse_ms": sync_state.estimate.rmse_ms,

@@ -17,7 +17,11 @@ import numpy as np
 import mne
 
 from ..mask.annotations import MatchMode
-from .utils import interp_along_last_axis, time_s_to_sample_index
+from .utils import (
+    interp_along_last_axis,
+    intervals_overlap_half_open,
+    time_s_to_sample_index,
+)
 
 
 @dataclass(frozen=True)
@@ -102,10 +106,6 @@ def pad_warper(
                 end0 = float(onset0 + dur0)
                 drop_intervals.append((start0, end0))
 
-    def _intervals_overlap(a0: float, a1: float, b0: float, b1: float) -> bool:
-        """Return True if [a0,a1] overlaps [b0,b1] (inclusive)."""
-        return (float(a0) <= float(b1)) and (float(b0) <= float(a1))
-
     epochs_by_label: Dict[str, List[PadEpoch]] = {lbl: [] for lbl in label_cfg.keys()}
 
     anns = raw.annotations
@@ -147,9 +147,11 @@ def pad_warper(
                 right_seg = (anno_right_start, pad_right_end)
                 has_drop = False
                 for d0, d1 in drop_intervals:
-                    if _intervals_overlap(
+                    if intervals_overlap_half_open(
                         left_seg[0], left_seg[1], d0, d1
-                    ) or _intervals_overlap(right_seg[0], right_seg[1], d0, d1):
+                    ) or intervals_overlap_half_open(
+                        right_seg[0], right_seg[1], d0, d1
+                    ):
                         has_drop = True
                         break
                 if has_drop:

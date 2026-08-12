@@ -19,7 +19,11 @@ import numpy as np
 import mne
 
 from ..mask.annotations import MatchMode
-from .utils import interp_along_last_axis, time_s_to_sample_index
+from .utils import (
+    interp_along_last_axis,
+    intervals_overlap_half_open,
+    time_s_to_sample_index,
+)
 
 
 @dataclass(frozen=True)
@@ -124,9 +128,6 @@ def concat_warper(
                 end0 = float(onset0 + dur0)
                 drop_intervals.append((start0, end0))
 
-    def _intervals_overlap(a0: float, a1: float, b0: float, b1: float) -> bool:
-        return (float(a0) <= float(b1)) and (float(b0) <= float(a1))
-
     t_min = float(raw.times[0])
     t_max = float(raw.times[-1])
 
@@ -147,7 +148,7 @@ def concat_warper(
         if drop_intervals:
             has_drop = False
             for d0, d1 in drop_intervals:
-                if _intervals_overlap(start, end, d0, d1):
+                if intervals_overlap_half_open(start, end, d0, d1):
                     has_drop = True
                     break
             if has_drop:

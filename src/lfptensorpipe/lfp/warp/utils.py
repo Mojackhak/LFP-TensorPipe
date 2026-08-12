@@ -7,6 +7,29 @@ from typing import Sequence
 import numpy as np
 
 
+def intervals_overlap_half_open(
+    left_start: float,
+    left_end: float,
+    right_start: float,
+    right_end: float,
+) -> bool:
+    """Return whether half-open intervals or point markers overlap."""
+    left_start_f = float(left_start)
+    left_end_f = float(left_end)
+    right_start_f = float(right_start)
+    right_end_f = float(right_end)
+    left_is_point = left_end_f <= left_start_f
+    right_is_point = right_end_f <= right_start_f
+
+    if left_is_point and right_is_point:
+        return left_start_f == right_start_f
+    if left_is_point:
+        return right_start_f <= left_start_f < right_end_f
+    if right_is_point:
+        return left_start_f <= right_start_f < left_end_f
+    return left_start_f < right_end_f and right_start_f < left_end_f
+
+
 def segment_lengths_from_anchors_percent(
     anchors_percent: Sequence[float], n_samples: int
 ) -> list[int]:

@@ -14,7 +14,11 @@ import mne
 import numpy as np
 
 from ..mask.annotations import MatchMode
-from .utils import interp_along_last_axis, segment_lengths_from_anchors_percent
+from .utils import (
+    interp_along_last_axis,
+    intervals_overlap_half_open,
+    segment_lengths_from_anchors_percent,
+)
 
 
 @dataclass(frozen=True)
@@ -36,7 +40,7 @@ def has_drop_annotations_between(
     drop_substrings: Sequence[str],
     drop_mode: MatchMode = "substring",
 ) -> bool:
-    """Return True if any drop-annotation overlaps [t0, t1]."""
+    """Return True if a drop annotation overlaps the half-open epoch."""
     if drop_mode not in ("substring", "exact"):
         raise ValueError("`drop_mode` must be 'substring' or 'exact'.")
     drop = tuple(s.lower() for s in drop_substrings)
@@ -49,8 +53,7 @@ def has_drop_annotations_between(
         if not any((d == s) if drop_mode == "exact" else (s in d) for s in drop):
             continue
         a0, a1 = float(onset), float(onset) + float(dur)
-        # Treat point events (dur=0) as [onset, onset].
-        if not (a1 < t0 or a0 > t1):
+        if intervals_overlap_half_open(t0, t1, a0, a1):
             return True
     return False
 
