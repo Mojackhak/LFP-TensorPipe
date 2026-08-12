@@ -1017,7 +1017,7 @@ feature outputs, and controls plotting/export behavior.
 | `Features` indicator | Reports feature-extraction freshness for the selected trial. | User feedback only. | Read-only. |
 | `Metric` | Chooses which metric's feature axes are being edited. | Which bands/phases configuration is active. | Requires a selected trial. |
 | `Bands Configure...` | Opens the band-axis editor for the selected metric. | Feature band definitions for that metric. | Requires a selected metric. |
-| `Phases Configure...` | Opens the phase/time-window editor for the selected metric. | Feature phase definitions for that metric. | Requires a selected metric. |
+| `Phases Configure...` | Opens the phase/time-window editor for the selected metric. `Start (%)` and `End (%)` use the explicit 0-to-100 scale, so `1` means 1%. | Feature phase definitions for that metric. | Requires a selected metric. |
 | `Apply to All Metrics` | Copies the current metric's axes to all metrics in the selected trial. | Trial-wide feature-axis configuration. | Requires a valid source metric axis definition. |
 | `Extract Features` | Runs feature extraction for the selected trial. | Generated feature outputs. | Requires finished alignment outputs and valid axes. |
 | `Import Configs...` | Loads a feature configuration. | Current trial feature config. | Requires a selected trial. |

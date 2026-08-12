@@ -28,8 +28,7 @@ is controlled by API parameters:
 - ``freq_interval_mode`` in :func:`grid_nested_values` / :func:`split_nested_values`
 
 For ``*_interval_mode="percent"``:
-- If both endpoints are in [-1, 1], they are interpreted as fractions (0..1).
-- Otherwise they are interpreted as percentages (0..100).
+- Endpoints are interpreted as percentages on an explicit 0-to-100 scale.
 They are converted to axis coordinates using the span between axis[0] and axis[-1].
 
 Label-group specifications
@@ -249,16 +248,12 @@ def _axis_span(coords: np.ndarray) -> tuple[float, float, float]:
 
 
 def _percent_to_axis(p0: float, p1: float, coords: np.ndarray) -> tuple[float, float]:
-    """Convert percent/fraction endpoints to axis coordinates."""
+    """Convert 0-to-100 percentage endpoints to axis coordinates."""
     lo, _, span = _axis_span(coords)
     if span == 0.0:
         return lo, lo
 
-    # Support both 0-100 (%) and 0-1 (fraction) inputs.
-    if max(abs(p0), abs(p1)) <= 1.0:
-        f0, f1 = p0, p1
-    else:
-        f0, f1 = p0 / 100.0, p1 / 100.0
+    f0, f1 = p0 / 100.0, p1 / 100.0
 
     a = lo + f0 * span
     b = lo + f1 * span
@@ -835,11 +830,11 @@ def grid_nested_values(
     time_interval_mode:
         How to interpret numeric time intervals in ``times``:
         - "absolute": endpoints are axis coordinates
-        - "percent": endpoints are percent/fraction of axis span
+        - "percent": endpoints are percentages from 0 through 100 of axis span
     freq_interval_mode:
         How to interpret numeric frequency intervals in ``bands`` (when interval-based):
         - "absolute": endpoints are axis coordinates
-        - "percent": endpoints are percent/fraction of axis span
+        - "percent": endpoints are percentages from 0 through 100 of axis span
     """
     if value_col not in summary_df.columns:
         raise ValueError(f"Input DataFrame must contain column {value_col!r}.")

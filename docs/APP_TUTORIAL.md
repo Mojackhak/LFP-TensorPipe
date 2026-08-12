@@ -657,8 +657,10 @@ Click `Extract Features` after the import is complete.
 Use `Bands Configure...` to define the frequency bands of interest and
 `Phases Configure...` to define the time windows of interest. The software
 computes feature values for the combinations of those configured bands and time
-windows for each selected metric. The next two figures show the tutorial's
-saved band and phase definitions.
+windows for each selected metric. Phase `Start (%)` and `End (%)` values use an
+explicit 0-to-100 percentage scale: `1` means 1% of the aligned time span, not
+the full span. The next two figures show the tutorial's saved band and phase
+definitions.
 
 ### Feature value transformations
 
