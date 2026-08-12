@@ -219,8 +219,6 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "baseline_keep",
         "min_cycles",
         "max_cycles",
-        "hop_s",
-        "decim",
         "thresholds",
         "notches",
         "notch_radii",

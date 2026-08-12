@@ -17,16 +17,11 @@ DEFAULT_DERIVE_PARAM_CFG: dict[str, dict[str, bool]] = {
 }
 
 DEFAULT_REDUCER_CFG: dict[str, dict[str, list[str]]] = {
-    "burst": {"burst": ["mean", "occupation", "rate", "duration"]},
+    "burst": {"burst": ["mean", "rate", "duration", "occupancy"]},
     "default": {"default": ["mean"]},
 }
 
-DEFAULT_REDUCER_RULE_BY_METHOD: dict[str, dict[str, list[str]]] = {
-    "burst": {
-        "linear_warper": ["mean", "occupation"],
-        "stack_warper": ["mean", "occupation"],
-    }
-}
+DEFAULT_REDUCER_RULE_BY_METHOD: dict[str, dict[str, list[str]]] = {}
 
 DEFAULT_COLLAPSE_BASE_CFG: dict[str, Any] = {
     "value_col": "Value",

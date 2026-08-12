@@ -15,6 +15,12 @@ from lfptensorpipe.io.burst_thresholds import (
     normalize_burst_threshold_payload,
     select_burst_threshold_subset,
 )
+from lfptensorpipe.lfp.burst.semantics import (
+    BURST_NATIVE_DECIM,
+    BURST_NATIVE_HOP_S,
+    burst_value_semantics,
+    has_current_burst_value_semantics,
+)
 
 from .coercion import _as_float, _as_int, _as_optional_float, _as_optional_int
 from .frequency import (
@@ -38,7 +44,6 @@ from .paths import tensor_metric_config_path, tensor_metric_log_path
 from .runners.burst import (
     BURST_BASELINE_FALLBACK,
     _build_runtime_bands as _build_burst_runtime_bands,
-    _resolve_burst_time_grid,
     _serialize_runtime_bands as _serialize_burst_runtime_bands,
 )
 from .runners.connectivity_psi import (
@@ -433,6 +438,8 @@ def _metric_log_signature(
             signature["step_hz"] = float(params.get("step_hz"))
         return signature
     if metric_key == "burst":
+        if not has_current_burst_value_semantics(params.get("value_semantics")):
+            return None
         channels = _normalize_channels(params.get("selected_channels"))
         bands_used = _normalize_runtime_bands_signature(params.get("bands_used"))
         if channels is None or bands_used is None:
@@ -440,23 +447,20 @@ def _metric_log_signature(
         threshold_mode = params.get("threshold_mode")
         if threshold_mode not in {"computed", "provided"}:
             return None
-        hop_s, decim = _resolve_burst_time_grid(
-            hop_s=_as_optional_float(params.get("hop_s")),
-            decim=_as_optional_int(params.get("decim")),
-        )
         signature = {
             "low_freq": float(params.get("low_freq")),
             "high_freq": float(params.get("high_freq")),
             "step_hz": float(params.get("step_hz")),
             "min_cycles": _as_float(params.get("min_cycles"), 2.0),
             "max_cycles": _as_optional_float(params.get("max_cycles")),
-            "hop_s": hop_s,
-            "decim": decim,
+            "hop_s": BURST_NATIVE_HOP_S,
+            "decim": BURST_NATIVE_DECIM,
             "mask_edge_effects": bool(params.get("mask_edge_effects", True)),
             "threshold_mode": threshold_mode,
             "notch_intervals_hz": notch_intervals,
             "bands_used": bands_used,
             "selected_channels": channels,
+            "value_semantics": burst_value_semantics(),
         }
         if threshold_mode == "provided":
             try:
@@ -699,10 +703,6 @@ def _current_metric_signature(
         )
         if channels is None or bands_used is None:
             return None
-        hop_s, decim = _resolve_burst_time_grid(
-            hop_s=_as_optional_float(metric_params.get("hop_s")),
-            decim=_as_optional_int(metric_params.get("decim")),
-        )
         thresholds_payload = metric_params.get("thresholds")
         threshold_mode = "provided" if thresholds_payload is not None else "computed"
         signature = {
@@ -711,13 +711,14 @@ def _current_metric_signature(
             "step_hz": prepared.metric_step,
             "min_cycles": _as_float(metric_params.get("min_cycles"), 2.0),
             "max_cycles": _as_optional_float(metric_params.get("max_cycles")),
-            "hop_s": hop_s,
-            "decim": decim,
+            "hop_s": BURST_NATIVE_HOP_S,
+            "decim": BURST_NATIVE_DECIM,
             "mask_edge_effects": bool(mask_edge_effects),
             "threshold_mode": threshold_mode,
             "notch_intervals_hz": notch_intervals,
             "bands_used": bands_used,
             "selected_channels": channels,
+            "value_semantics": burst_value_semantics(),
         }
         if threshold_mode == "provided":
             _, thresholds_used = select_burst_threshold_subset(

@@ -227,6 +227,8 @@ class MainWindowRecordParamsSnapshotLogsMixin:
                 if key == "notch_widths":
                     continue
                 if metric_key == "burst" and key in {
+                    "hop_s",
+                    "decim",
                     "threshold_mode",
                     "thresholds_source_path",
                     "thresholds_artifact_path",

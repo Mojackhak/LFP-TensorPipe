@@ -11,6 +11,8 @@ from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.shared.downstream_invalidation import (
     invalidate_after_alignment_run,
 )
+from lfptensorpipe.lfp.burst.semantics import has_current_burst_value_semantics
+from lfptensorpipe.lfp.burst.timeline import warp_burst_for_display
 from lfptensorpipe.utils.transforms import (
     convert_transform_domain_array,
     transform_policy_from_metadata,
@@ -188,25 +190,48 @@ def run_align_epochs(
                 raise ValueError(
                     f"Tensor metadata missing time axis for metric: {metric_key}"
                 )
-            sr = infer_sfreq_from_times(axes.get("time"), default=40.0)
-            transform_policy = transform_policy_from_metadata(meta_in)
-            interpolation_input = convert_transform_domain_array(
-                tensor_3d,
-                mode=transform_policy.mode,
-                source_domain=transform_policy.tensor_storage_domain,
-                target_domain=transform_policy.interpolation_domain,
-            )
-            warped, percent_axis, meta_epochs = warp_fn(
-                interpolation_input,
-                sr=float(sr),
-                n_samples=n_samples,
-            )
-            warped_arr = convert_transform_domain_array(
-                np.asarray(warped, dtype=float),
-                mode=transform_policy.mode,
-                source_domain=transform_policy.interpolation_domain,
-                target_domain=transform_policy.tensor_storage_domain,
-            )
+            if metric_key == "burst":
+                if not has_current_burst_value_semantics(
+                    meta_in.get("value_semantics")
+                ):
+                    raise ValueError(
+                        "Legacy Burst tensor detected. Rerun Burst before Alignment."
+                    )
+                params = meta_in.get("params", {})
+                if not isinstance(params, dict) or int(params.get("decim_eff", 0)) != 1:
+                    raise ValueError(
+                        "Burst Alignment requires a native-sampling-rate tensor."
+                    )
+                percent_axis = np.linspace(0.0, 100.0, n_samples, endpoint=True)
+                meta_epochs = list(epochs_by_label.get("ALL", []))
+                warped_arr = warp_burst_for_display(
+                    tensor_3d,
+                    axes.get("time"),
+                    meta_epochs,
+                    method=method,
+                    method_params=method_params,
+                    percent_axis=percent_axis,
+                )
+            else:
+                sr = infer_sfreq_from_times(axes.get("time"), default=40.0)
+                transform_policy = transform_policy_from_metadata(meta_in)
+                interpolation_input = convert_transform_domain_array(
+                    tensor_3d,
+                    mode=transform_policy.mode,
+                    source_domain=transform_policy.tensor_storage_domain,
+                    target_domain=transform_policy.interpolation_domain,
+                )
+                warped, percent_axis, meta_epochs = warp_fn(
+                    interpolation_input,
+                    sr=float(sr),
+                    n_samples=n_samples,
+                )
+                warped_arr = convert_transform_domain_array(
+                    np.asarray(warped, dtype=float),
+                    mode=transform_policy.mode,
+                    source_domain=transform_policy.interpolation_domain,
+                    target_domain=transform_policy.tensor_storage_domain,
+                )
             if warped_arr.ndim != 4:
                 raise ValueError(
                     f"Warped tensor has invalid shape for {metric_key}: {warped_arr.shape}"
@@ -217,6 +242,12 @@ def run_align_epochs(
                 meta_epochs,
                 source_meta=meta_in,
             )
+            if metric_key == "burst":
+                meta_warped["burst_display_aggregation"] = {
+                    "invalid_overlap": "nan",
+                    "non_burst_only": "nan",
+                    "positive": "duration_weighted_envelope",
+                }
             out_path = alignment_metric_tensor_warped_path(resolver, slug, metric_key)
             out_path.parent.mkdir(parents=True, exist_ok=True)
             save_pkl({"tensor": warped_arr, "meta": meta_warped}, out_path)

@@ -5,6 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from lfptensorpipe.app.path_resolver import RecordContext
+from lfptensorpipe.lfp.burst.semantics import (
+    BURST_NATIVE_DECIM,
+    BURST_NATIVE_HOP_S,
+)
 
 
 def merge_metric_params_map(
@@ -54,6 +58,9 @@ def merge_metric_params_map(
             )
         if metric_key in svc.TENSOR_BAND_REQUIRED_KEYS:
             merged.setdefault("bands", [dict(item) for item in legacy_bands])
+        if metric_key == "burst":
+            merged["hop_s"] = BURST_NATIVE_HOP_S
+            merged["decim"] = BURST_NATIVE_DECIM
         if (
             metric_key in svc.TENSOR_CHANNEL_SELECTOR_KEYS
             and "selected_channels" not in merged

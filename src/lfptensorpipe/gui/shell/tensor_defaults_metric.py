@@ -13,6 +13,10 @@ from lfptensorpipe.gui.shell.common import (
     load_tensor_frequency_defaults,
 )
 from lfptensorpipe.io.burst_thresholds import normalize_burst_threshold_payload
+from lfptensorpipe.lfp.burst.semantics import (
+    BURST_NATIVE_DECIM,
+    BURST_NATIVE_HOP_S,
+)
 
 
 def _tensor_supported_methods() -> tuple[str, ...]:
@@ -182,6 +186,8 @@ def _load_tensor_metric_default_params(
                 for item in self._load_tensor_metric_bands_defaults(metric_key)
             ]
     if metric_key == "burst":
+        base["hop_s"] = BURST_NATIVE_HOP_S
+        base["decim"] = BURST_NATIVE_DECIM
         base.pop("thresholds_path", None)
         base.pop("thresholds_artifact_path", None)
         try:
@@ -286,6 +292,8 @@ def _save_tensor_metric_default_params(
             for item in self._normalize_tensor_bands_rows(serialized.get("bands"))
         ]
     if metric_key == "burst":
+        serialized["hop_s"] = BURST_NATIVE_HOP_S
+        serialized["decim"] = BURST_NATIVE_DECIM
         serialized.pop("thresholds_path", None)
         serialized.pop("thresholds_source_path", None)
         serialized.pop("thresholds_artifact_path", None)

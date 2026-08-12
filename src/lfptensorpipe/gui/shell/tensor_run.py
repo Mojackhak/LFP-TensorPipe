@@ -35,6 +35,10 @@ from lfptensorpipe.app.tensor.process_tree import (
 from lfptensorpipe.app.tensor.transaction_manifest import (
     recover_tensor_run_transactions,
 )
+from lfptensorpipe.lfp.burst.semantics import (
+    BURST_NATIVE_DECIM,
+    BURST_NATIVE_HOP_S,
+)
 from lfptensorpipe.gui.shell.common import (
     Any,
     QApplication,
@@ -193,6 +197,9 @@ class MainWindowTensorRunMixin:
                 raise ValueError("PSI requires at least one configured band.")
             if metric_key == "burst" and not params.get("bands"):
                 raise ValueError("Burst requires at least one configured band.")
+            if metric_key == "burst":
+                params["hop_s"] = BURST_NATIVE_HOP_S
+                params["decim"] = BURST_NATIVE_DECIM
             if metric_key in self._tensor_selected_channels_by_metric:
                 params["selected_channels"] = list(
                     self._tensor_selected_channels_by_metric.get(metric_key, ())

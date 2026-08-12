@@ -564,7 +564,7 @@ and the execution of tensor generation.
 | `Status` | Reports the active metric state within the current slice. | User feedback only. | Read-only. |
 | `Import Configs...` | Loads a tensor configuration payload. | Current page configuration. | Requires a selected record. |
 | `Export Configs...` | Saves the current tensor configuration payload. | External tensor config file. | Requires a selected record. |
-| `Mask Edge Effects` | Treats samples within annotations whose labels contain `bad` or `edge` as edge-affected. When checked, these samples are masked for non-burst metrics. Burst always excludes the same annotated intervals internally because they must be removed before threshold estimation and event detection. | Non-burst runtime build behavior. | Always available; does not affect Burst. |
+| `Mask Edge Effects` | Treats samples within annotations whose labels contain `bad` or `edge` as edge-affected. Non-Burst metrics apply their method-specific output mask. Burst applies the toggle before threshold estimation and event detection: checked makes the effective band-specific support invalid, while unchecked leaves annotated support eligible. | Runtime build behavior for every selected metric. | Always available. |
 | `Build Tensor` | Runs tensor generation for all checked metrics. | Tensor outputs for the current record. | Requires preprocess finish outputs and valid metric settings. |
 
 **Parameter meaning**
@@ -1029,11 +1029,20 @@ Extract Features follows the transform policy attached to each metric. Power
 metrics can be interpolated and reduced in a transformed domain such as `dB`,
 but every current Feature output is converted back to its native domain before
 it is saved. This conversion applies to `mean` and `median`. The `count`,
-`occupation`, `rate`, and `duration` reducers return native derived quantities,
+`rate`, `duration`, and the Burst `occupancy` reducer return native derived quantities,
 so they are saved unchanged with an identity transform policy. The assigned
 metric transform remains in mean/median Feature metadata. Plot-time transforms
 selected through `Advance` affect only plotting and export data; they do not
 rewrite the source Feature files.
+
+Burst is handled specially. The aligned Burst raw table is a display artifact,
+and its sampling rate does not define Burst scalar features. For all four
+Alignment methods, percentage phases are mapped back to the original
+full-rate Burst tensor before calculating `mean`, `rate`, `duration`, and
+`occupancy`. Their Unit values are `V`, `bursts/s`, `s`, and `%`.
+Existing Burst tensors or `occupation-*` results are legacy outputs. Rerun
+Burst, Align Run, Finish, and Extract Features to produce the current scalar
+contract; legacy tensor values are never reinterpreted heuristically.
 
 ### 9.2 Available Features, Subset Selection, and Plot Settings
 

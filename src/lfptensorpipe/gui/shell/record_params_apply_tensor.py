@@ -20,6 +20,10 @@ from lfptensorpipe.gui.shell.common import (
     build_tensor_metric_notch_payload,
 )
 from lfptensorpipe.io.burst_thresholds import normalize_burst_threshold_payload
+from lfptensorpipe.lfp.burst.semantics import (
+    BURST_NATIVE_DECIM,
+    BURST_NATIVE_HOP_S,
+)
 
 
 class MainWindowRecordParamsApplyTensorMixin:
@@ -68,6 +72,8 @@ class MainWindowRecordParamsApplyTensorMixin:
                         merged.pop("smooth_enabled", None)
                         merged.pop("kernel_size", None)
                     if spec.key == "burst":
+                        merged["hop_s"] = BURST_NATIVE_HOP_S
+                        merged["decim"] = BURST_NATIVE_DECIM
                         merged.pop("thresholds_path", None)
                         merged.pop("thresholds_artifact_path", None)
                         try:

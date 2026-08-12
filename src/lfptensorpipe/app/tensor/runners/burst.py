@@ -12,6 +12,7 @@ from lfptensorpipe.io.burst_thresholds import (
     select_burst_threshold_subset,
     write_burst_threshold_json,
 )
+from lfptensorpipe.lfp.burst.semantics import burst_value_semantics
 from lfptensorpipe.utils.freqs import split_bands_by_intervals
 
 from .. import service as svc
@@ -248,6 +249,7 @@ def run_burst_metric(
             hop_s=hop_s_use,
             decim=decim_use,
             picks=picks,
+            edge_anno=("bad", "edge") if mask_edge_effects else None,
         )
         tensor4d = np.asarray(tensor, dtype=float)
         if tensor4d.ndim == 3:
@@ -260,6 +262,7 @@ def run_burst_metric(
         metadata = dict(metadata)
         metadata.update(
             {
+                "value_semantics": burst_value_semantics(),
                 "notches": [float(item) for item in runtime_notches],
                 "notch_radii": [float(item) for item in runtime_notch_radii],
                 "notch_intervals_hz": [
@@ -328,6 +331,7 @@ def run_burst_metric(
                 [float(lo), float(hi)] for lo, hi in notch_intervals
             ],
             "interpolation_applied": False,
+            "value_semantics": burst_value_semantics(),
             "tensor_shape": [int(item) for item in tensor4d.shape],
             **_effective_n_jobs_payload(
                 n_jobs=int(n_jobs),
@@ -360,6 +364,7 @@ def run_burst_metric(
             ],
             "bands_used": _serialize_runtime_bands(burst_bands),
             "interpolation_applied": False,
+            "value_semantics": burst_value_semantics(),
             "n_channels": len(picks),
             "selected_channels": picks,
             "n_bands": int(tensor4d.shape[2]),

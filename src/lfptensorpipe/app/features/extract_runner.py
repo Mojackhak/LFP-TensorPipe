@@ -17,6 +17,7 @@ from lfptensorpipe.app.runlog_store import (
     indicator_from_log,
     write_run_log,
 )
+from lfptensorpipe.app.tensor.atomic_io import write_outputs_atomically
 from lfptensorpipe.io.pkl_io import load_pkl, save_pkl
 from lfptensorpipe.stats.preproc.transform import transform_df
 from lfptensorpipe.tabular.grid import (
@@ -33,6 +34,13 @@ from lfptensorpipe.utils.transforms import (
     transform_policy_from_metadata,
 )
 
+from .burst_native import (
+    LEGACY_BURST_REDUCER_WARNING,
+    build_burst_scalar_tables,
+    cleanup_legacy_occupation_outputs,
+    normalize_burst_reducers,
+)
+
 
 @dataclass(frozen=True)
 class _MetricExtractResult:
@@ -44,6 +52,7 @@ class _MetricExtractResult:
     total_targets: int
     errors: tuple[str, ...]
     xlsx_warnings: tuple[str, ...]
+    warnings: tuple[str, ...] = ()
 
 
 _METRIC_VALUE_REDUCERS = frozenset({ReducerKind.MEAN, ReducerKind.MEDIAN})
@@ -142,6 +151,130 @@ def _feature_storage_policy(metadata: Any) -> TransformPolicy:
     )
 
 
+def _extract_burst_outputs(
+    *,
+    payload: pd.DataFrame,
+    transform_policy: TransformPolicy,
+    metric_out_dir: Path,
+    outputs: dict[str, bool],
+    reducers: list[str],
+    time_axis: dict[str, list[list[float]]],
+    axes_signature: dict[str, list[dict[str, Any]]],
+    resolver: PathResolver | None,
+    trial_slug: str,
+) -> _MetricExtractResult:
+    """Write Burst raw/scalar PKLs as one accepted metric-level set."""
+    runtime_warnings = (
+        (LEGACY_BURST_REDUCER_WARNING,)
+        if any(str(value).strip().lower() == "occupation" for value in reducers)
+        else ()
+    )
+    unsupported_outputs = [
+        output_name
+        for output_name in ("spectral", "trace")
+        if outputs.get(output_name, False)
+    ]
+    if unsupported_outputs:
+        names = ", ".join(unsupported_outputs)
+        return _MetricExtractResult(
+            metric_key="burst",
+            axes_signature=axes_signature,
+            saved=0,
+            total_targets=len(unsupported_outputs),
+            errors=(f"burst: unsupported output type(s): {names}",),
+            xlsx_warnings=(),
+            warnings=runtime_warnings,
+        )
+    try:
+        requested_reducers = normalize_burst_reducers(reducers)
+    except Exception as exc:  # noqa: BLE001
+        return _MetricExtractResult(
+            metric_key="burst",
+            axes_signature=axes_signature,
+            saved=0,
+            total_targets=int(outputs.get("raw", False)) + len(reducers),
+            errors=(f"burst: {exc}",),
+            xlsx_warnings=(),
+            warnings=runtime_warnings,
+        )
+    total_targets = int(outputs.get("raw", False)) + (
+        len(requested_reducers) if outputs.get("scalar", False) else 0
+    )
+    if total_targets == 0:
+        return _MetricExtractResult(
+            metric_key="burst",
+            axes_signature=axes_signature,
+            saved=0,
+            total_targets=0,
+            errors=(),
+            xlsx_warnings=(),
+            warnings=runtime_warnings,
+        )
+
+    try:
+        scalar_tables: dict[str, pd.DataFrame] = {}
+        if outputs.get("scalar", False):
+            if resolver is None or not trial_slug:
+                raise ValueError("Burst scalar extraction requires record context.")
+            scalar_tables = build_burst_scalar_tables(
+                resolver,
+                trial_slug=trial_slug,
+                aligned_payload=payload,
+                phases=time_axis,
+                reducers=requested_reducers,
+            )
+        authoritative_outputs: list[tuple[Path, Any]] = []
+        if outputs.get("raw", False):
+            raw_payload = _raw_feature_payload(payload, transform_policy)
+            authoritative_outputs.append(
+                (
+                    metric_out_dir / "na-raw.pkl",
+                    lambda path, value=raw_payload: save_pkl(value, path),
+                )
+            )
+        for reducer, table in scalar_tables.items():
+            authoritative_outputs.append(
+                (
+                    metric_out_dir / f"{reducer}-scalar.pkl",
+                    lambda path, value=table: save_pkl(value, path),
+                )
+            )
+        write_outputs_atomically(authoritative_outputs)
+    except Exception as exc:  # noqa: BLE001
+        return _MetricExtractResult(
+            metric_key="burst",
+            axes_signature=axes_signature,
+            saved=0,
+            total_targets=total_targets,
+            errors=(f"burst: {exc}",),
+            xlsx_warnings=(),
+            warnings=runtime_warnings,
+        )
+
+    xlsx_warnings: list[str] = []
+    if outputs.get("raw", False):
+        _remove_stale_xlsx(metric_out_dir / "na-raw.xlsx")
+    for reducer, table in scalar_tables.items():
+        xlsx_path = metric_out_dir / f"{reducer}-scalar.xlsx"
+        _remove_stale_xlsx(xlsx_path)
+        from . import service as svc
+
+        xlsx_ok, xlsx_message = svc._save_table_xlsx(table, xlsx_path)
+        if not xlsx_ok:
+            xlsx_warnings.append(f"burst/{reducer}-scalar: {xlsx_message}")
+    if "occupancy" in scalar_tables:
+        cleanup_legacy_occupation_outputs(metric_out_dir)
+    return _MetricExtractResult(
+        metric_key="burst",
+        axes_signature=axes_signature,
+        saved=total_targets,
+        total_targets=total_targets,
+        errors=(),
+        xlsx_warnings=tuple(xlsx_warnings),
+        warnings=runtime_warnings,
+    )
+
+
 def _extract_metric_outputs(
     *,
     metric_key: str,
@@ -155,6 +288,8 @@ def _extract_metric_outputs(
     axis_node: dict[str, Any] | None,
     override_outputs: dict[str, bool] | None,
     reducer_override: str,
+    resolver: PathResolver | None = None,
+    trial_slug: str = "",
 ) -> _MetricExtractResult:
     """Build every enabled output for one metric under its own subtree."""
     from . import service as svc
@@ -183,7 +318,11 @@ def _extract_metric_outputs(
     method_rule_node = reducer_rule_by_method.get(metric_key, {})
     if not isinstance(method_rule_node, dict):
         method_rule_node = {}
-    if alignment_method and alignment_method in method_rule_node:
+    if (
+        metric_key != "burst"
+        and alignment_method
+        and alignment_method in method_rule_node
+    ):
         reducers = list(
             svc._normalize_reducer_list(method_rule_node.get(alignment_method))
         )
@@ -213,6 +352,19 @@ def _extract_metric_outputs(
 
     metric_out_dir = deriv_root / metric_key
     metric_out_dir.mkdir(parents=True, exist_ok=True)
+
+    if metric_key == "burst":
+        return _extract_burst_outputs(
+            payload=payload,
+            transform_policy=transform_policy,
+            metric_out_dir=metric_out_dir,
+            outputs=outputs,
+            reducers=reducers,
+            time_axis=time_axis,
+            axes_signature=axes_signature,
+            resolver=resolver,
+            trial_slug=trial_slug,
+        )
 
     saved = 0
     total_targets = 0
@@ -350,6 +502,7 @@ def run_extract_features(
     saved = 0
     total_targets = 0
     errors: list[str] = []
+    warnings: list[str] = []
     xlsx_warnings: list[str] = []
     metric_results_by_key: dict[str, _MetricExtractResult] = {}
     metric_items = list(raw_tables)
@@ -371,6 +524,8 @@ def run_extract_features(
                     reducer_override=str(metric_reducers.get(metric_key, ""))
                     .strip()
                     .lower(),
+                    resolver=resolver,
+                    trial_slug=slug,
                 ): metric_key
                 for metric_key, src_path in metric_items
             }
@@ -403,6 +558,8 @@ def run_extract_features(
                 reducer_override=str(metric_reducers.get(metric_key, ""))
                 .strip()
                 .lower(),
+                resolver=resolver,
+                trial_slug=slug,
             )
 
     for metric_key, _src_path in metric_items:
@@ -412,6 +569,7 @@ def run_extract_features(
         total_targets += result.total_targets
         saved += result.saved
         errors.extend(result.errors)
+        warnings.extend(result.warnings)
         xlsx_warnings.extend(result.xlsx_warnings)
 
     completed = total_targets > 0 and saved == total_targets and not errors
@@ -422,6 +580,7 @@ def run_extract_features(
         "target_outputs": total_targets,
         "saved_outputs": saved,
         "errors": errors,
+        "warnings": warnings,
         "xlsx_warnings": xlsx_warnings,
         "axes_by_metric": axes_signature_by_metric,
     }
@@ -443,9 +602,14 @@ def run_extract_features(
 
     if completed:
         message = f"Extract Features completed. Saved {saved} table(s)."
+        if warnings:
+            message += f" {len(warnings)} warning(s); see run log."
         if xlsx_warnings:
             message += f" XLSX export failed for {len(xlsx_warnings)} table(s)."
         return True, message
     if total_targets == 0:
         return False, "Extract Features failed: no enabled derivation targets."
-    return False, f"Extract Features failed. Saved {saved}, errors={len(errors)}."
+    message = f"Extract Features failed. Saved {saved}, errors={len(errors)}."
+    if warnings:
+        message += f" {len(warnings)} warning(s); see run log."
+    return False, message

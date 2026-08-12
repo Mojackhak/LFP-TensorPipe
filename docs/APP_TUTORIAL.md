@@ -708,10 +708,20 @@ Applying the declared `dB` transform to that stored value recovers the
 transformed-domain reduction exactly, apart from floating-point roundoff.
 
 This domain conversion applies to `mean` and `median`, whose outputs remain
-values of the original metric. The `count`, `occupation`, `rate`, and
-`duration` reducers instead produce new native quantities. Their results are
+values of the original metric. The `count`, `rate`, `duration`, and Burst
+`occupancy` reducers instead produce new native quantities. Their results are
 stored unchanged with an identity (`none`) transform policy; for example, an
 event count is never interpreted as a dB value and inverse-transformed.
+
+Burst scalar features are calculated on the original full-rate Burst tensor,
+not on the resampled Alignment display. The configured Feature phase remains
+a percentage interval; the application maps it back through the saved trial
+geometry before calculating mean Burst amplitude, rate, mean duration, and
+occupancy. Consequently, changing only the Alignment sample rate must not
+change these scalar values.
+If a record contains an older Burst tensor or `occupation-*` output, rerun
+Burst, Align Run, Finish, and Extract Features. The application does not guess
+or migrate the meaning of legacy Burst values.
 
 For metrics using `fisherz`, `fisherz_sqrt`, `logit`, or `asinh`, frequency
 interpolation, time-axis alignment, and feature reduction are performed in the
@@ -748,7 +758,7 @@ metric and output type.
 | PSI | `none` | Native | Native | Native | Native |
 | Burst duration | `none` | Native | Native | Native | Native |
 | Burst rate | `none` | Native | Native | Native | Native |
-| Burst occupation | `none` | Native | Native | Native | Native |
+| Burst occupancy | `none` | Native | Native | Native | Native |
 | Other burst event measurements | `none` | Native | Native | Native | Native |
 
 ![Example imported band definitions.](assets/app-tutorial/figure-29-periodic-bands-dialog.png)

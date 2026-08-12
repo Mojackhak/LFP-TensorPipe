@@ -11,11 +11,11 @@ Algorithm (per channel, per band):
 4) Detect supra-threshold contiguous segments and keep segments whose duration
    is at least `min_cycles` and, when provided, at most `max_cycles` periods of
    the band center frequency. Segments above the maximum are excluded in full.
-5) Return a tensor on the decimated time grid (same decimation rule as `tfr.grid`):
-   values are the envelope amplitude, and non-burst time bins are NaN.
+5) Return a tensor on the native time grid. Accepted burst samples contain the
+   envelope amplitude, valid non-burst samples are zero, and invalid support is NaN.
 
-The output is designed to have the same number of time bins (`target_n_times`) as
-TFR/connectivity/PSI when the same `hop_s/decim/target_n_times` are used.
+This native-rate three-state representation is required for later Burst feature
+extraction. Alignment may derive a separate lower-rate visualization artifact.
 """
 
 from __future__ import annotations
@@ -25,6 +25,8 @@ from typing import Any, Dict, List, Literal, Mapping, Sequence, Tuple
 import numpy as np
 import mne
 from scipy.signal import hilbert
+
+from .semantics import burst_value_semantics
 
 Band = Tuple[float, float]
 BandValueOrSegments = Band | list[Band]
@@ -387,7 +389,8 @@ def grid(
         Optional maximum burst duration in cycles of the band center frequency.
         Supra-threshold segments longer than this limit are excluded in full.
     hop_s, decim:
-        Time grid definition. Use the same settings as `tfr.grid` for alignment.
+        Time-grid controls retained for API compatibility. Their effective
+        decimation must be one because Burst feature extraction uses native samples.
     target_n_times:
         If provided, enforce exact time-axis length (pad/trim with NaNs).
     picks:
@@ -428,7 +431,8 @@ def grid(
     -------
     tensor:
         ndarray with shape (1, n_channels, n_bands, n_times), float64.
-        Non-burst bins are NaN.
+        Accepted burst samples contain envelope amplitude, valid non-burst samples
+        are 0.0, and invalid samples are NaN.
     metadata:
         Dict describing axes and parameters.
     """
@@ -457,6 +461,10 @@ def grid(
 
     sfreq = float(raw.info["sfreq"])
     decim_eff = _compute_decim(sfreq, hop_s, decim)
+    if decim_eff != 1:
+        raise ValueError(
+            "Burst tensors must use the native sampling rate; effective decim must be 1."
+        )
 
     # Pull data
     data = raw.get_data(picks=picks)  # (n_channels, n_times)
@@ -549,6 +557,11 @@ def grid(
             if not np.all(np.isfinite(thr_arr)):
                 raise ValueError(
                     "thresholds contains non-finite values for band index "
+                    f"{bi} ('{band_names[bi]}')."
+                )
+            if np.any(thr_arr < 0.0):
+                raise ValueError(
+                    "thresholds contains negative values for band index "
                     f"{bi} ('{band_names[bi]}')."
                 )
             thresholds_by_band.append(thr_arr)
@@ -694,8 +707,14 @@ def grid(
                 max_len=max_len,
             )
 
-        env_burst = env.astype(np.float64, copy=True)
-        env_burst[~burst_mask] = np.nan
+        invalid_mask = ~np.isfinite(env)
+        if np.any(edge_mask):
+            invalid_mask |= edge_mask[None, :]
+
+        env_burst = np.zeros_like(env, dtype=np.float64)
+        accepted_mask = burst_mask & ~invalid_mask
+        env_burst[accepted_mask] = env[accepted_mask]
+        env_burst[invalid_mask] = np.nan
 
         # Decimate to match TFR time grid
         env_dec = env_burst[:, ::decim_eff]  # (n_channels, n_times_out)
@@ -732,6 +751,7 @@ def grid(
     thresholds_arr = np.stack(thresholds_used, axis=0)  # (n_bands, n_channels)
 
     metadata: Dict[str, Any] = dict(
+        value_semantics=burst_value_semantics(),
         axes=dict(
             epoch=np.array([0], dtype=int),
             channel=np.array(ch_names, dtype=object),

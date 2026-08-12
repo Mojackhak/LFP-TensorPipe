@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from lfptensorpipe.lfp.burst.semantics import (
+    BURST_NATIVE_DECIM,
+    BURST_NATIVE_HOP_S,
+)
+
 from .orchestration_execution import RuntimePlan
 
 
@@ -51,8 +56,8 @@ def plan_burst(
             ),
             "min_cycles": svc._as_float(metric_params.get("min_cycles"), 2.0),
             "max_cycles": svc._as_optional_float(metric_params.get("max_cycles")),
-            "hop_s": svc._as_optional_float(metric_params.get("hop_s")),
-            "decim": svc._as_optional_int(metric_params.get("decim")),
+            "hop_s": BURST_NATIVE_HOP_S,
+            "decim": BURST_NATIVE_DECIM,
             "thresholds": metric_params.get("thresholds"),
             "notches": metric_params.get("notches"),
             "notch_radii": metric_params.get(

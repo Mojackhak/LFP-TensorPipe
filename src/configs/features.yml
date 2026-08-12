@@ -23,20 +23,13 @@ reducer_cfg:
   burst:
     burst:
     - mean
-    - occupation
     - rate
     - duration
+    - occupancy
   default:
     default:
     - mean
-reducer_rule_by_method:
-  burst:
-    linear_warper:
-    - mean
-    - occupation
-    stack_warper:
-    - mean
-    - occupation
+reducer_rule_by_method: {}
 collapse_base_cfg:
   value_col: Value
   time_interval_mode: percent
