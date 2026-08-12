@@ -15,6 +15,7 @@ from lfptensorpipe.lfp.burst.semantics import has_current_burst_value_semantics
 from lfptensorpipe.lfp.burst.timeline import warp_burst_for_display
 from lfptensorpipe.utils.transforms import (
     convert_transform_domain_array,
+    get_transform_policy,
     transform_policy_from_metadata,
 )
 
@@ -202,6 +203,12 @@ def run_align_epochs(
                     raise ValueError(
                         "Burst Alignment requires a native-sampling-rate tensor."
                     )
+                if transform_policy_from_metadata(meta_in) != get_transform_policy(
+                    "log10"
+                ):
+                    raise ValueError(
+                        "Legacy Burst transform policy detected. Rerun Burst before Alignment."
+                    )
                 percent_axis = np.linspace(0.0, 100.0, n_samples, endpoint=True)
                 meta_epochs = list(epochs_by_label.get("ALL", []))
                 warped_arr = warp_burst_for_display(
@@ -246,7 +253,7 @@ def run_align_epochs(
                 meta_warped["burst_display_aggregation"] = {
                     "invalid_overlap": "nan",
                     "non_burst_only": "nan",
-                    "positive": "duration_weighted_envelope",
+                    "positive": "duration_weighted_geometric_envelope",
                 }
             out_path = alignment_metric_tensor_warped_path(resolver, slug, metric_key)
             out_path.parent.mkdir(parents=True, exist_ok=True)

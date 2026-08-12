@@ -14,6 +14,12 @@ from lfptensorpipe.io.burst_thresholds import (
 )
 from lfptensorpipe.lfp.burst.semantics import burst_value_semantics
 from lfptensorpipe.utils.freqs import split_bands_by_intervals
+from lfptensorpipe.utils.transforms import (
+    VALUE_TRANSFORM_POLICY_KEY,
+    attach_transform_policy,
+    get_transform_policy,
+    transform_policy_metadata,
+)
 
 from .. import service as svc
 
@@ -127,7 +133,9 @@ def run_burst_metric(
 
     resolver = PathResolver(context)
     metric_key = "burst"
-    metric_label = TENSOR_METRICS_BY_KEY[metric_key].display_name
+    metric_spec = TENSOR_METRICS_BY_KEY[metric_key]
+    metric_label = metric_spec.display_name
+    transform_policy = get_transform_policy(metric_spec.value_transform_mode)
     metric_dir = resolver.tensor_metric_dir(metric_key, create=True)
     input_path = preproc_step_raw_path(resolver, "finish")
     output_path = tensor_metric_tensor_path(resolver, metric_key, create=True)
@@ -259,7 +267,7 @@ def run_burst_metric(
                 f"Unexpected {metric_label} tensor shape: {tensor4d.shape}"
             )
 
-        metadata = dict(metadata)
+        metadata = attach_transform_policy(metadata, transform_policy)
         metadata.update(
             {
                 "value_semantics": burst_value_semantics(),
@@ -332,6 +340,7 @@ def run_burst_metric(
             ],
             "interpolation_applied": False,
             "value_semantics": burst_value_semantics(),
+            VALUE_TRANSFORM_POLICY_KEY: transform_policy_metadata(transform_policy),
             "tensor_shape": [int(item) for item in tensor4d.shape],
             **_effective_n_jobs_payload(
                 n_jobs=int(n_jobs),
@@ -365,6 +374,7 @@ def run_burst_metric(
             "bands_used": _serialize_runtime_bands(burst_bands),
             "interpolation_applied": False,
             "value_semantics": burst_value_semantics(),
+            VALUE_TRANSFORM_POLICY_KEY: transform_policy_metadata(transform_policy),
             "n_channels": len(picks),
             "selected_channels": picks,
             "n_bands": int(tensor4d.shape[2]),

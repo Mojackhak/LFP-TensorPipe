@@ -322,7 +322,7 @@ def reduce_burst_scalars(
 
     valid_duration = 0.0
     burst_duration = 0.0
-    amplitude_integral = 0.0
+    log_amplitude_integral = 0.0
     identities: set[tuple[int, int]] = set()
     boundary_identities: list[
         tuple[float, float, tuple[int, int] | None, tuple[int, int] | None]
@@ -342,8 +342,8 @@ def reduce_burst_scalars(
         positive = selected_ids >= 0
         valid_duration += float(np.sum(durations[finite]))
         burst_duration += float(np.sum(durations[positive]))
-        amplitude_integral += float(
-            np.sum(selected_values[positive] * durations[positive])
+        log_amplitude_integral += float(
+            np.sum(np.log10(selected_values[positive]) * durations[positive])
         )
         unique_ids = np.unique(selected_ids[positive])
         identities.update(
@@ -408,7 +408,7 @@ def reduce_burst_scalars(
             float("nan"), 0.0, float("nan"), 0.0, valid_duration, 0.0, 0
         )
     return BurstScalarResult(
-        amplitude_integral / burst_duration,
+        float(np.power(10.0, log_amplitude_integral / burst_duration)),
         event_count / valid_duration,
         burst_duration / event_count,
         100.0 * burst_duration / valid_duration,
@@ -435,7 +435,7 @@ def display_bin_value(
     if data.ndim != 1 or data.size + 1 != edges.size:
         raise ValueError("Burst values and source time axis have inconsistent lengths.")
     burst_duration = 0.0
-    amplitude_integral = 0.0
+    log_amplitude_integral = 0.0
     for fragment in fragments:
         if _positive_duration(fragment.source_start, edges[0]) or _positive_duration(
             edges[-1], fragment.source_end
@@ -449,12 +449,12 @@ def display_bin_value(
             return float("nan")
         positive = selected_values > 0.0
         burst_duration += float(np.sum(durations[positive]))
-        amplitude_integral += float(
-            np.sum(selected_values[positive] * durations[positive])
+        log_amplitude_integral += float(
+            np.sum(np.log10(selected_values[positive]) * durations[positive])
         )
     if not _positive_duration(0.0, burst_duration):
         return float("nan")
-    return amplitude_integral / burst_duration
+    return float(np.power(10.0, log_amplitude_integral / burst_duration))
 
 
 def _display_bin_values(
@@ -484,8 +484,9 @@ def _display_bin_values(
     finite = np.all(np.isfinite(selected), axis=1)
     positive = selected > 0.0
     burst_durations = np.sum(positive * durations[None, :], axis=1)
-    amplitude_integrals = np.sum(
-        np.where(positive, selected, 0.0) * durations[None, :],
+    log_amplitudes = np.log10(np.where(positive, selected, 1.0))
+    log_amplitude_integrals = np.sum(
+        log_amplitudes * durations[None, :],
         axis=1,
     )
     duration_tolerances = (
@@ -494,7 +495,10 @@ def _display_bin_values(
         * np.maximum(1.0, np.abs(burst_durations))
     )
     accepted = finite & (burst_durations > duration_tolerances)
-    output[accepted] = amplitude_integrals[accepted] / burst_durations[accepted]
+    output[accepted] = np.power(
+        10.0,
+        log_amplitude_integrals[accepted] / burst_durations[accepted],
+    )
     return output
 
 

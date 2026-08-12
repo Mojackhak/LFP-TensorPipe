@@ -21,6 +21,11 @@ from lfptensorpipe.lfp.burst.semantics import (
     burst_value_semantics,
     has_current_burst_value_semantics,
 )
+from lfptensorpipe.utils.transforms import (
+    VALUE_TRANSFORM_POLICY_KEY,
+    get_transform_policy,
+    transform_policy_metadata,
+)
 
 from .coercion import _as_float, _as_int, _as_optional_float, _as_optional_int
 from .frequency import (
@@ -440,6 +445,11 @@ def _metric_log_signature(
     if metric_key == "burst":
         if not has_current_burst_value_semantics(params.get("value_semantics")):
             return None
+        burst_policy = transform_policy_metadata(
+            get_transform_policy(TENSOR_METRICS_BY_KEY["burst"].value_transform_mode)
+        )
+        if params.get(VALUE_TRANSFORM_POLICY_KEY) != burst_policy:
+            return None
         channels = _normalize_channels(params.get("selected_channels"))
         bands_used = _normalize_runtime_bands_signature(params.get("bands_used"))
         if channels is None or bands_used is None:
@@ -461,6 +471,7 @@ def _metric_log_signature(
             "bands_used": bands_used,
             "selected_channels": channels,
             "value_semantics": burst_value_semantics(),
+            VALUE_TRANSFORM_POLICY_KEY: burst_policy,
         }
         if threshold_mode == "provided":
             try:
@@ -719,6 +730,11 @@ def _current_metric_signature(
             "bands_used": bands_used,
             "selected_channels": channels,
             "value_semantics": burst_value_semantics(),
+            VALUE_TRANSFORM_POLICY_KEY: transform_policy_metadata(
+                get_transform_policy(
+                    TENSOR_METRICS_BY_KEY["burst"].value_transform_mode
+                )
+            ),
         }
         if threshold_mode == "provided":
             _, thresholds_used = select_burst_threshold_subset(

@@ -1039,7 +1039,12 @@ Burst is handled specially. The aligned Burst raw table is a display artifact,
 and its sampling rate does not define Burst scalar features. For all four
 Alignment methods, percentage phases are mapped back to the original
 full-rate Burst tensor before calculating `mean`, `rate`, `duration`, and
-`occupancy`. Their Unit values are `V`, `bursts/s`, `s`, and `%`.
+`occupancy`. Positive amplitudes are averaged in the `log10` domain with source
+cell duration as the weight, then converted back to volts. Therefore Burst
+`mean` is a duration-weighted geometric mean, while zeros continue to mean
+valid non-Burst support and never enter the logarithm. The `mean` output keeps
+the `log10` transform policy; `rate`, `duration`, and `occupancy` keep the
+identity policy. Their Unit values are `V`, `bursts/s`, `s`, and `%`.
 Existing Burst tensors or `occupation-*` results are legacy outputs. Rerun
 Burst, Align Run, Finish, and Extract Features to produce the current scalar
 contract; legacy tensor values are never reinterpreted heuristically.

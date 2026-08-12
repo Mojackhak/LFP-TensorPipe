@@ -77,7 +77,13 @@ TENSOR_METRICS: tuple[TensorMetricSpec, ...] = (
     ),
     TensorMetricSpec("trgc", "TRGC", "Directed Connectivity", supported=True),
     TensorMetricSpec("psi", "PSI", "Directed Connectivity", supported=True),
-    TensorMetricSpec("burst", "Burst", "Temporal Events", supported=True),
+    TensorMetricSpec(
+        "burst",
+        "Burst",
+        "Temporal Events",
+        supported=True,
+        value_transform_mode="log10",
+    ),
 )
 TENSOR_METRICS_BY_KEY = {metric.key: metric for metric in TENSOR_METRICS}
 

@@ -29,6 +29,7 @@ from lfptensorpipe.utils.transforms import (
     VALUE_TRANSFORM_POLICY_KEY,
     get_transform_policy,
     transform_policy_metadata,
+    transform_policy_from_metadata,
 )
 
 BURST_REDUCERS = ("mean", "rate", "duration", "occupancy")
@@ -129,6 +130,10 @@ def _load_native_burst_tensor(
     ):
         raise ValueError(
             "Legacy Burst tensor detected. Rerun Burst, Align Run, Finish, and Extract Features."
+        )
+    if transform_policy_from_metadata(metadata) != get_transform_policy("log10"):
+        raise ValueError(
+            "Legacy Burst transform policy detected. Rerun Burst, Align Run, Finish, and Extract Features."
         )
     params = metadata.get("params")
     if not isinstance(params, dict) or int(params.get("decim_eff", 0)) != 1:
@@ -254,11 +259,13 @@ def build_burst_scalar_tables(
                         record["Phase"] = phase_name
                         record["Unit"] = BURST_UNITS[reducer]
                         records_by_reducer[reducer].append(record)
-    policy = transform_policy_metadata(get_transform_policy("none"))
     tables: dict[str, pd.DataFrame] = {}
     for reducer, records in records_by_reducer.items():
         table = pd.DataFrame.from_records(records)
-        table.attrs[VALUE_TRANSFORM_POLICY_KEY] = policy
+        policy_mode = "log10" if reducer == "mean" else "none"
+        table.attrs[VALUE_TRANSFORM_POLICY_KEY] = transform_policy_metadata(
+            get_transform_policy(policy_mode)
+        )
         tables[reducer] = table
     return tables
 

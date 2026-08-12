@@ -24,6 +24,7 @@ import numpy as np
 TransformMode = Literal[
     "dB",
     "log",
+    "log10",
     "fisherz",
     "fisherz_sqrt",
     "logit",
@@ -57,6 +58,13 @@ _TRANSFORM_POLICIES: dict[TransformMode, TransformPolicy] = {
     ),
     "log": TransformPolicy(
         mode="log",
+        interpolation_domain="transformed",
+        reduction_domain="transformed",
+        tensor_storage_domain="native",
+        feature_storage_domain="native",
+    ),
+    "log10": TransformPolicy(
+        mode="log10",
         interpolation_domain="transformed",
         reduction_domain="transformed",
         tensor_storage_domain="native",
@@ -223,6 +231,22 @@ def get_transform_pair(
         def inverse(y: np.ndarray) -> np.ndarray:
             y = np.asarray(y, dtype=float)
             return np.exp(y)
+
+        return forward, inverse
+
+    if mode == "log10":
+
+        def forward(x: np.ndarray) -> np.ndarray:
+            x = np.asarray(x, dtype=float)
+            out = np.full_like(x, np.nan, dtype=float)
+            valid = np.isfinite(x) & (x > 0.0)
+            if np.any(valid):
+                out[valid] = np.log10(x[valid])
+            return out
+
+        def inverse(y: np.ndarray) -> np.ndarray:
+            y = np.asarray(y, dtype=float)
+            return np.power(10.0, y)
 
         return forward, inverse
 

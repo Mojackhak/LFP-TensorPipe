@@ -31,7 +31,7 @@ from ...utils.transforms import (
     apply_transform_array,
 )
 
-NestedTransformMode = TransformMode | Literal["log10", "zscore"]
+NestedTransformMode = TransformMode | Literal["zscore"]
 
 
 def transform_df(
@@ -65,8 +65,8 @@ def transform_df(
       - "none": identity
 
     Set ``inverse=True`` to apply the inverse registered for a core transform
-    mode. The derived-only ``log10`` and ``zscore`` modes do not define inverse
-    operations in this interface.
+    mode. The derived-only ``zscore`` mode does not define an inverse operation
+    in this interface.
     """
     if value_col not in df.columns:
         raise KeyError(f"Column '{value_col}' not found.")
@@ -76,7 +76,7 @@ def transform_df(
 
     if mode is None:
         return df.copy()
-    if inverse and mode in {"log10", "zscore"}:
+    if inverse and mode == "zscore":
         raise ValueError(f"Transform mode {mode!r} has no inverse operation.")
 
     def coerce_series_to_float_array(s: pd.Series) -> np.ndarray:
@@ -97,14 +97,7 @@ def transform_df(
                 arr,
                 mode=cast(TransformMode, mode),
             )
-        if mode == "log10":
-            x = np.asarray(arr, dtype=float)
-            out = np.full_like(x, np.nan, dtype=float)
-            valid = np.isfinite(x) & (x > 0.0)
-            if np.any(valid):
-                out[valid] = np.log10(x[valid])
-            return out
-        return apply_transform_array(arr, mode=mode)
+        return apply_transform_array(arr, mode=cast(TransformMode, mode))
 
     def zscore_series(arr: np.ndarray) -> np.ndarray:
         x = np.asarray(arr, dtype=float)

@@ -677,14 +677,14 @@ time-axis alignment, feature reduction, tensor storage, and feature storage.
 | Transform | Definition | Frequency and time interpolation | Feature reduction | Tensor storage | Feature storage |
 |---|---|---|---|---|---|
 | `dB` | `10 * log10(x)` | Transformed domain | Transformed domain | Native domain | Native domain |
-| `log` | `ln(x)` | Transformed domain | Transformed domain | Native domain | Native domain |
+| `log10` | `log10(x)` | Transformed domain | Transformed domain | Native domain | Native domain |
 | `fisherz` | `atanh(x)` | Native domain | Native domain | Native domain | Native domain |
 | `fisherz_sqrt` | `atanh(sqrt(x))` | Native domain | Native domain | Native domain | Native domain |
 | `logit` | `ln(x / (1 - x))` | Native domain | Native domain | Native domain | Native domain |
 | `asinh` | `asinh(x)` | Native domain | Native domain | Native domain | Native domain |
 | `none` | No transformation | Native domain | Native domain | Native domain | Native domain |
 
-For metrics using `dB` or `log`, values are transformed before frequency
+For metrics using `dB` or `log10`, values are transformed before frequency
 interpolation, time-axis alignment, and feature reduction. Interpolated tensor
 values are converted back to the native domain before the Tensor artifact is
 saved. During Feature extraction, reduced spectral, trace, and scalar outputs
@@ -707,6 +707,9 @@ The corresponding native value stored in the Feature artifact is:
 Applying the declared `dB` transform to that stored value recovers the
 transformed-domain reduction exactly, apart from floating-point roundoff.
 
+The retained internal `log` mode continues to mean the natural logarithm for
+existing saved configurations. It is not reinterpreted as `log10`.
+
 This domain conversion applies to `mean` and `median`, whose outputs remain
 values of the original metric. The `count`, `rate`, `duration`, and Burst
 `occupancy` reducers instead produce new native quantities. Their results are
@@ -717,8 +720,11 @@ Burst scalar features are calculated on the original full-rate Burst tensor,
 not on the resampled Alignment display. The configured Feature phase remains
 a percentage interval; the application maps it back through the saved trial
 geometry before calculating mean Burst amplitude, rate, mean duration, and
-occupancy. Consequently, changing only the Alignment sample rate must not
-change these scalar values.
+occupancy. Positive Burst amplitudes are reduced in the `log10` domain and
+converted back to volts, so the stored mean is a duration-weighted geometric
+mean. Valid non-Burst zeros remain event-state values and are never passed to
+`log10`. Consequently, changing only the Alignment sample rate must not change
+these scalar values.
 If a record contains an older Burst tensor or `occupation-*` output, rerun
 Burst, Align Run, Finish, and Extract Features. The application does not guess
 or migrate the meaning of legacy Burst values.
@@ -756,6 +762,7 @@ metric and output type.
 | wPLI | `logit` | Native | Native | Native | Native |
 | TRGC | `none` | Native | Native | Native | Native |
 | PSI | `none` | Native | Native | Native | Native |
+| Burst amplitude (`mean`) | `log10` | Transformed | Transformed | Native | Native |
 | Burst duration | `none` | Native | Native | Native | Native |
 | Burst rate | `none` | Native | Native | Native | Native |
 | Burst occupancy | `none` | Native | Native | Native | Native |
