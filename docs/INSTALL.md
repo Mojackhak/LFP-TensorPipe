@@ -73,6 +73,22 @@ The PyInstaller package does not include:
 
 Use this method when you want to run the app from the repository.
 
+### Maintainer Isolation Note
+
+The commands below remain the standard setup for an ordinary checkout. For
+the current local isolated-development arrangement, keep these two repository
+and environment pairs separate:
+
+| Role | Repository | Conda environment | Source baseline |
+|---|---|---|---|
+| Formal runtime | `LFP-TensorPipe` | `lfptp` | `develop@995f993` |
+| Isolated development and testing | `LFP-TensorPipe-isolated` | `lfptp-worktree-test` | `develop@995f993` before local edits |
+
+When working in `LFP-TensorPipe-isolated`, run development commands with
+`conda run -n lfptp-worktree-test ...`. Do not install that checkout into or
+update the formal `lfptp` environment. This keeps the formal runtime on the
+primary checkout while isolated code and dependency changes are validated.
+
 ### 3.1 Create the Environment
 
 Run from the repository root:

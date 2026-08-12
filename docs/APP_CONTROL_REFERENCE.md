@@ -42,7 +42,7 @@ on the selected project, subject, and record.
 | `Project` | Selects the active project workspace. | Subject list, record list, and all stage pages. | Always available when at least one project is registered. |
 | `Project +` | Adds an existing project path to recent project history. | Available project choices. | Always available. |
 | `Subject` | Selects the active subject under the current project. | Record list and all record-scoped panels. | Requires a selected project. |
-| `Subject +` | Creates a new subject folder under the current project. | Subject inventory. | Requires a selected project. |
+| `Subject +` | Creates matching Sourcedata and Rawdata subject folders under the current project. | Subject inventory. | Requires a selected project. If either target cannot be created, the app reports the failure and removes only empty subject folders created by that attempt. |
 | `Record` | Selects the active record under the current subject. Records are listed when any standard Derivatives, Rawdata, or Sourcedata record root exists. A record with only its Sourcedata root is shown in red. | Localize and all stage pages. | Requires a selected subject. A record with no canonical Rawdata input remains manageable but is not runnable. |
 | `Record +` | Opens the record import dialog. | Creates a new record when the import completes successfully. | Requires a selected subject. A name already occupied by any standard record root cannot be imported. |
 | `Record R` | Renames the selected record while preserving compatible downstream artifacts. | Record name and artifact paths that track that name. | Requires exactly one selected record. |

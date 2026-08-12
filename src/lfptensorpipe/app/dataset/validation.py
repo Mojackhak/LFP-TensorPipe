@@ -44,13 +44,33 @@ def create_subject(project_root: Path, subject: str) -> tuple[bool, str]:
         return False, normalized
     if not project_root.exists():
         return False, f"Project path does not exist: {project_root}"
-    if normalized in discover_subjects(project_root):
-        return False, f"Subject already exists: {normalized}"
 
     sourcedata_dir = project_root / "sourcedata" / normalized
     rawdata_dir = project_root / "rawdata" / normalized
-    sourcedata_dir.mkdir(parents=True, exist_ok=True)
-    rawdata_dir.mkdir(parents=True, exist_ok=True)
+    subject_dirs = (sourcedata_dir, rawdata_dir)
+    if normalized in discover_subjects(project_root) or any(
+        path.exists() for path in subject_dirs
+    ):
+        return False, f"Subject already exists: {normalized}"
+
+    created_dirs: list[Path] = []
+    try:
+        for path in subject_dirs:
+            path.mkdir(parents=True, exist_ok=False)
+            created_dirs.append(path)
+    except OSError as exc:
+        rollback_errors: list[str] = []
+        for path in reversed(created_dirs):
+            try:
+                path.rmdir()
+            except OSError as rollback_exc:
+                rollback_errors.append(f"{path}: {rollback_exc}")
+
+        message = f"Failed to create subject {normalized}: {exc}"
+        if rollback_errors:
+            message = f"{message}\nRollback incomplete:\n" + "\n".join(rollback_errors)
+        return False, message
+
     return True, f"Subject created: {normalized}"
 
 
