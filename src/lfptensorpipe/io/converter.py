@@ -31,7 +31,7 @@ import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -581,20 +581,27 @@ def matrix2mne(
     sfreq: float,
     ch_names: list[str] | None = None,
     ch_types: list[str] | None = None,
+    *,
+    channel_axis: Literal["rows", "columns"] | None = None,
 ) -> Any:
     """Convert a 2D matrix to an MNE Raw object.
 
     Parameters
     ----------
     matrix:
-        2D array with shape (n_channels, n_times). If shape looks like (n_times, n_channels),
-        it will be transposed.
+        Two-dimensional signal matrix.
     sfreq:
         Sampling frequency in Hz.
     ch_names:
         Channel names.
     ch_types:
         Channel types (default 'dbs').
+    channel_axis:
+        Explicit channel orientation. ``"rows"`` interprets the matrix as
+        ``(n_channels, n_times)`` and ``"columns"`` as
+        ``(n_times, n_channels)``. ``None`` preserves the compatibility
+        heuristic that treats the shorter dimension as channels; square
+        matrices use rows as channels.
 
     Returns
     -------
@@ -606,18 +613,35 @@ def matrix2mne(
     mat = np.asarray(matrix, dtype=float)
     if mat.ndim != 2:
         raise ValueError(f"matrix must be 2D, got shape={mat.shape}")
+    if channel_axis not in (None, "rows", "columns"):
+        raise ValueError(
+            f"channel_axis must be 'rows', 'columns', or None, got {channel_axis!r}."
+        )
 
-    if mat.shape[0] > mat.shape[1]:
+    if channel_axis == "columns":
+        mat = mat.T
+    elif channel_axis is None and mat.shape[0] > mat.shape[1]:
         logger.warning(
-            "Matrix shape suggests (n_times, n_channels). Transposing to (n_channels, n_times)."
+            "channel_axis=None selected the shorter matrix dimension as channels; "
+            "transposing columns to channel rows."
         )
         mat = mat.T
 
     n_ch = mat.shape[0]
     if ch_names is None:
-        ch_names = [f"CH{i+1}" for i in range(n_ch)]
+        ch_names = [f"CH{i + 1}" for i in range(n_ch)]
+    elif len(ch_names) != n_ch:
+        raise ValueError(
+            f"ch_names has length {len(ch_names)}, but the resolved channel axis "
+            f"contains {n_ch} channels; check channel_axis."
+        )
     if ch_types is None:
         ch_types = ["dbs"] * n_ch
+    elif len(ch_types) != n_ch:
+        raise ValueError(
+            f"ch_types has length {len(ch_types)}, but the resolved channel axis "
+            f"contains {n_ch} channels; check channel_axis."
+        )
 
     info = mne.create_info(ch_names=ch_names, sfreq=float(sfreq), ch_types=ch_types)
     return mne.io.RawArray(mat, info)
