@@ -19,6 +19,7 @@ from ..mask.annotations import MatchMode
 from .utils import (
     interp_along_last_axis,
     intervals_overlap_half_open,
+    raw_sample_time_bounds,
     time_s_to_sample_index,
 )
 
@@ -111,8 +112,7 @@ def stack_warper(
                 end0 = float(onset0 + dur0)
                 drop_intervals.append((start0, end0))
 
-    t_min = float(raw.times[0])
-    t_max = float(raw.times[-1])
+    t_min, t_stop = raw_sample_time_bounds(raw)
 
     epochs_by_label: Dict[str, List[StackEpoch]] = {}
     epochs_all: List[StackEpoch] = []
@@ -133,7 +133,7 @@ def stack_warper(
 
         if clip_to_raw:
             start = max(start, t_min)
-            end = min(end, t_max)
+            end = min(end, t_stop)
 
         if end < start:
             start, end = end, start

@@ -20,6 +20,7 @@ from ..mask.annotations import MatchMode
 from .utils import (
     interp_along_last_axis,
     intervals_overlap_half_open,
+    raw_sample_time_bounds,
     time_s_to_sample_index,
 )
 
@@ -54,8 +55,8 @@ def pad_warper(
         anno_start = onset
         anno_end   = onset + duration
 
-        left  segment: [anno_start - pad_left,   anno_start + anno_left]
-        right segment: [anno_end   - anno_right, anno_end   + pad_right]
+        left  segment: [anno_start - pad_left,   anno_start + anno_left)
+        right segment: [anno_end   - anno_right, anno_end   + pad_right)
 
     Args:
         raw: MNE Raw with annotations.
@@ -79,8 +80,7 @@ def pad_warper(
         - This is **not** a time-scaling warp. It is a crop-and-concatenate construction.
         - If padding goes outside the Raw time range, boundaries are clipped.
     """
-    t_min = float(raw.times[0])
-    t_max = float(raw.times[-1])
+    t_min, t_stop = raw_sample_time_bounds(raw)
 
     label_cfg = {str(k): tuple(map(float, v)) for k, v in anno_allowed.items()}
     labels_lower = {k.lower(): k for k in label_cfg.keys()}
@@ -131,9 +131,9 @@ def pad_warper(
             pad_left, anno_left, anno_right, pad_right = label_cfg[label]
 
             pad_left_start = max(anno_start - pad_left, t_min)
-            anno_left_end = min(anno_start + anno_left, t_max)
+            anno_left_end = min(anno_start + anno_left, t_stop)
             anno_right_start = max(anno_end - anno_right, t_min)
-            pad_right_end = min(anno_end + pad_right, t_max)
+            pad_right_end = min(anno_end + pad_right, t_stop)
 
             if not (
                 pad_left_start <= anno_left_end and anno_right_start <= pad_right_end

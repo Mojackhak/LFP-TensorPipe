@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
+
+
+def raw_sample_time_bounds(raw: Any) -> tuple[float, float]:
+    """Return the half-open time support owned by one MNE Raw object."""
+    start = float(raw.times[0])
+    stop = float(raw.times[-1]) + 1.0 / float(raw.info["sfreq"])
+    return start, stop
 
 
 def intervals_overlap_half_open(
