@@ -558,9 +558,10 @@ an interval that touches or crosses either fitting boundary or has no clean,
 equal-width donor segment.
 
 After reconstruction and the configured smoothing steps, SpecParam estimates
-the aperiodic and periodic components. Periodic power is evaluated over the
-complete frequency grid from the fitted Gaussian center frequency, height, and
-sigma.
+the aperiodic and periodic model components. The Periodic tensor is evaluated
+over the complete frequency grid from the fitted Gaussian center frequency,
+height, and sigma. Its exact stored-value semantics are described in
+"Periodic/Aperiodic stored-value semantics" below.
 
 ## 7. Align Epochs
 
@@ -750,7 +751,7 @@ metric and output type.
 | Metric or output | Transform | Interpolation domain | Reduction domain | Tensor storage domain | Feature storage domain |
 |---|---|---|---|---|---|
 | Raw power | `dB` | Transformed | Transformed | Native linear power | Native linear power |
-| Periodic power from Periodic/Aperiodic decomposition | `dB` | Transformed | Transformed | Native linear power | Native linear power |
+| Periodic model component from Periodic/Aperiodic decomposition | `dB` | Transformed | Transformed | Native unitless factor | Native unitless factor |
 | Aperiodic offset | `none` | Native | Native | Native | Native |
 | Aperiodic exponent | `none` | Native | Native | Native | Native |
 | Aperiodic knee | `none` | Native | Native | Native | Native |
@@ -769,6 +770,39 @@ metric and output type.
 | Burst rate | `none` | Native | Native | Native | Native |
 | Burst occupancy | `none` | Native | Native | Native | Native |
 | Other burst event measurements | `none` | Native | Native | Native | Native |
+
+#### Periodic/Aperiodic stored-value semantics
+
+The names `Periodic` and `Aperiodic` follow the standard SpecParam conceptual
+decomposition. They do not imply that the two persisted artifacts are additive
+linear-power arrays.
+
+SpecParam fits the model additively in the log10-power domain:
+
+```text
+log10(P_full_fit) = L_aperiodic + G_periodic
+```
+
+The persisted Periodic tensor is the exponentiated periodic model component:
+
+```text
+Periodic = 10 ** G_periodic
+         = P_full_fit / P_aperiodic_fit
+```
+
+It is therefore a dimensionless multiplicative factor relative to the fitted
+aperiodic component. `Periodic = 1` means that no periodic elevation was
+modeled at that frequency and time. `Periodic = 2` means that the modeled full
+power is twice the fitted aperiodic level. The value is not the additive
+absolute-power difference `P_full_fit - P_aperiodic_fit` and must not be added
+directly to an aperiodic power spectrum.
+
+The artifact named `tensor/aperiodic/tensor.pkl` stores the time-aligned
+SpecParam parameters and fit statistics, such as offset, exponent, optional
+knee, fit error, and goodness of fit. It does not store a frequency-resolved
+aperiodic power tensor. These representation choices preserve the standard
+Periodic/Aperiodic terminology while making the numerical interpretation
+explicit.
 
 ![Example imported band definitions.](assets/app-tutorial/figure-29-periodic-bands-dialog.png)
 
