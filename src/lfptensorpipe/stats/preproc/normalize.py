@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from typing import (
     Any,
-    Dict,
     List,
     Literal,
     Mapping,
@@ -107,10 +106,11 @@ def normalize_df(
             return np.nanmin(arr_stack, axis=0)
         raise RuntimeError("Unexpected mode_baseline branch")
 
-    normalized: Dict[Any, Any] = {}
-    drop_indices: List[Any] = []
+    work = df.reset_index(drop=True)
+    normalized: List[Any] = [np.nan] * len(work)
+    drop_mask = np.zeros(len(work), dtype=bool)
 
-    for gkey, gdf in df.groupby(group_cols, observed=True, dropna=False):
+    for gkey, gdf in work.groupby(group_cols, observed=True, dropna=False):
         mask = np.ones(len(gdf), dtype=bool)
         for k, v in baseline.items():
             if k not in gdf.columns:
@@ -128,7 +128,7 @@ def normalize_df(
         ]
         if len(base_cells) == 0:
             if on_missing_baseline == "drop":
-                drop_indices.extend(gdf.index.tolist())
+                drop_mask[gdf.index.to_numpy(dtype=int)] = True
                 continue
             raise ValueError(
                 f"Baseline is missing for group {gkey} with baseline {dict(baseline)}."
@@ -145,10 +145,10 @@ def normalize_df(
         base_rep = _aggregate(base_stack, mode_baseline)
         base_sd = np.nanstd(base_stack, axis=0, ddof=0)
 
-        for idx, row in gdf.iterrows():
+        for position, row in gdf.iterrows():
             cell = row[value_col]
             if cell_is_empty_or_all_nan(cell, drop_empty=drop_empty):
-                normalized[idx] = np.nan
+                normalized[int(position)] = np.nan
                 continue
 
             arr = coerce_cell_to_array(
@@ -170,14 +170,13 @@ def normalize_df(
             else:
                 raise RuntimeError("Unexpected mode branch")
 
-            normalized[idx] = rebuild_cell_from_array(nrm, template)
+            normalized[int(position)] = rebuild_cell_from_array(nrm, template)
 
-    out = df.copy()
-    if on_missing_baseline == "drop" and len(drop_indices) > 0:
-        out = out.drop(index=drop_indices)
+    keep_positions = np.flatnonzero(~drop_mask)
+    out = df.iloc[keep_positions].copy()
 
     dest = value_col if out_col is None else out_col
-    out[dest] = out.index.map(lambda i: normalized.get(i, np.nan))
+    out[dest] = [normalized[int(position)] for position in keep_positions]
     return out
 
 
@@ -220,12 +219,10 @@ def _normalize_indices(
         raise ValueError("baseline cannot be empty")
 
     if not np.issubdtype(idx.dtype, np.integer):
-        try:
-            idx = idx.astype(int)
-        except Exception as e:
-            raise TypeError(
-                "baseline must be int indices / slice / boolean mask"
-            ) from e
+        raise TypeError(
+            "baseline must contain integer positional indices, a slice, "
+            "or a boolean mask"
+        )
 
     mn, mx = int(idx.min()), int(idx.max())
     if mn < -n_samples or mx >= n_samples:
