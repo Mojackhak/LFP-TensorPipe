@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from PySide6.QtCore import Qt
@@ -158,7 +159,13 @@ def annotations_table_rows(self) -> tuple[list[dict[str, Any]], list[int]]:
         except Exception:
             invalid_rows.append(row_idx)
             continue
-        if not description or onset_value < 0.0 or duration_value < 0.0:
+        if (
+            not description
+            or not math.isfinite(onset_value)
+            or not math.isfinite(duration_value)
+            or onset_value < 0.0
+            or duration_value < 0.0
+        ):
             invalid_rows.append(row_idx)
     return rows, invalid_rows
 

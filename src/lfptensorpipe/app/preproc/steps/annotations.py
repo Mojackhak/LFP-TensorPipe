@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import csv
+import math
 import shutil
 from typing import Any, Callable
 
@@ -71,7 +72,13 @@ def _normalize_annotation_rows(
         except Exception:
             invalid_rows.append(idx)
             continue
-        if not description or onset < 0.0 or duration < 0.0:
+        if (
+            not description
+            or not math.isfinite(onset)
+            or not math.isfinite(duration)
+            or onset < 0.0
+            or duration < 0.0
+        ):
             invalid_rows.append(idx)
             continue
         normalized.append(

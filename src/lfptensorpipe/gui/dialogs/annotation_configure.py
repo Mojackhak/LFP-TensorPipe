@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 from .common import *  # noqa: F403
 
 
@@ -185,7 +187,13 @@ class AnnotationConfigureDialog(QDialog):
             duration = float(duration_raw)
         except Exception:
             return None
-        if not description or onset < 0.0 or duration < 0.0:
+        if (
+            not description
+            or not math.isfinite(onset)
+            or not math.isfinite(duration)
+            or onset < 0.0
+            or duration < 0.0
+        ):
             return None
         return {
             "row_id": self._allocate_row_id(),
@@ -292,8 +300,11 @@ class AnnotationConfigureDialog(QDialog):
         except Exception:
             self._show_warning("Configure Annotations", "Start must be a valid number.")
             return
-        if start < 0.0:
-            self._show_warning("Configure Annotations", "Start must be >= 0.")
+        if not math.isfinite(start) or start < 0.0:
+            self._show_warning(
+                "Configure Annotations",
+                "Start must be a finite number >= 0.",
+            )
             return
 
         duration: float
@@ -305,8 +316,11 @@ class AnnotationConfigureDialog(QDialog):
                     "Configure Annotations", "Duration must be a valid number."
                 )
                 return
-            if duration < 0.0:
-                self._show_warning("Configure Annotations", "Duration must be >= 0.")
+            if not math.isfinite(duration) or duration < 0.0:
+                self._show_warning(
+                    "Configure Annotations",
+                    "Duration must be a finite number >= 0.",
+                )
                 return
         else:
             if not end_text:
@@ -321,9 +335,10 @@ class AnnotationConfigureDialog(QDialog):
                     "Configure Annotations", "End(optional) must be a valid number."
                 )
                 return
-            if end_value < start:
+            if not math.isfinite(end_value) or end_value < start:
                 self._show_warning(
-                    "Configure Annotations", "End(optional) must be >= Start."
+                    "Configure Annotations",
+                    "End(optional) must be a finite number >= Start.",
                 )
                 return
             duration = end_value - start

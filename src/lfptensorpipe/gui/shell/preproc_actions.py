@@ -130,7 +130,8 @@ class MainWindowPreprocActionsMixin:
             )
             self._show_warning(
                 "Annotations Apply",
-                "Invalid rows highlighted. Ensure description is non-empty, onset is numeric >= 0, and duration is numeric >= 0.",
+                "Invalid rows highlighted. Ensure description is non-empty, "
+                "onset is finite and >= 0, and duration is finite and >= 0.",
             )
             self.statusBar().showMessage(
                 "Annotations Apply failed: invalid rows highlighted."

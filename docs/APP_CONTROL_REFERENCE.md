@@ -380,13 +380,13 @@ log is also shown as yellow when its corresponding output file is missing.
 | `Search` | Filters configured annotation rows. | Table browsing only. | Always available. |
 | Annotation table | Lists the current annotation rows. | Saved annotation payload. | Read-only except for row selection and delete actions. |
 | `Description` | Draft label for a new annotation row. | Draft row. | Required for a valid draft. |
-| `Start` | Draft onset time in seconds. | Draft row. | Must be numeric. |
-| `Duration` | Draft duration in seconds. | Draft row. | Must be numeric. |
-| `End` | Optional end time for the draft row. | Draft row. | Optional. |
+| `Start` | Draft onset time in seconds. | Draft row. | Must be a finite number greater than or equal to zero. |
+| `Duration` | Draft duration in seconds. Zero represents a point annotation. | Draft row. | Must be a finite number greater than or equal to zero. |
+| `End` | Optional end time used to derive duration. | Draft row. | When supplied, it must be finite and greater than or equal to `Start`. |
 | `Apply` | Adds the draft row. | Annotation table rows. | Requires a valid draft. |
 | `Clear Draft` | Clears the current draft row. | Draft fields only. | Always available. |
 | `Clear All` | Removes all configured annotation rows. | Annotation table rows. | Always available. |
-| `Import Annotations` | Imports annotation rows from a CSV file. | Annotation table rows. | Requires a valid CSV file. |
+| `Import Annotations` | Imports annotation rows from a CSV file. | Annotation table rows. | Requires non-empty descriptions and finite, non-negative onset/duration values. |
 | `Save` | Saves the current annotation list back to Preprocess. | Annotation payload. | Blocks on invalid rows. |
 | `Cancel` | Closes the dialog without saving. | No annotation update. | Always available. |
 
