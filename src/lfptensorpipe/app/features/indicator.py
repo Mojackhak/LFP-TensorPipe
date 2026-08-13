@@ -174,16 +174,18 @@ def extract_features_indicator_state(
     state = _aggregate_states([log_path])
     if state != "green":
         return state
-    from .generation import accepted_feature_artifact_paths
-
-    return (
-        "green"
-        if accepted_feature_artifact_paths(
-            resolver,
-            trial_slug=str(trial_slug if trial_slug is not None else paradigm_slug),
-        )
-        else "yellow"
+    from .generation import (
+        accepted_feature_artifact_paths,
+        feature_generation_requires_numeric_mean_rerun,
     )
+
+    slug = str(trial_slug if trial_slug is not None else paradigm_slug)
+    if not accepted_feature_artifact_paths(resolver, trial_slug=slug):
+        return "yellow"
+    payload = _read_payload(log_path)
+    if payload is None or feature_generation_requires_numeric_mean_rerun(payload):
+        return "yellow"
+    return "green"
 
 
 def features_panel_state(
@@ -207,12 +209,17 @@ def features_panel_state(
         return "yellow"
     if completed is not True:
         return "gray"
-    from .generation import accepted_feature_artifact_paths
+    from .generation import (
+        accepted_feature_artifact_paths,
+        feature_generation_requires_numeric_mean_rerun,
+    )
 
     if not accepted_feature_artifact_paths(
         resolver,
         trial_slug=str(trial_slug if trial_slug is not None else paradigm_slug),
     ):
+        return "yellow"
+    if feature_generation_requires_numeric_mean_rerun(payload):
         return "yellow"
     params = payload.get("params")
     logged_axes = None

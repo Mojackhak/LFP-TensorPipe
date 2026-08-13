@@ -14,6 +14,12 @@ FEATURE_MANIFEST_RERUN_MESSAGE = (
     "Latest Extract Features result uses a legacy or incomplete output manifest. "
     "Rerun Extract Features."
 )
+NUMERIC_MEAN_SEMANTICS_KEY = "numeric_mean_semantics"
+NUMERIC_MEAN_SEMANTICS = "continuous_interval_trapezoid"
+NUMERIC_MEAN_RERUN_MESSAGE = (
+    "Latest Extract Features result uses legacy numeric mean interval semantics. "
+    "Rerun Extract Features."
+)
 
 
 def outputs_from_features_entry(
@@ -99,6 +105,28 @@ def accepted_feature_artifact_paths(
     return paths
 
 
+def feature_generation_requires_numeric_mean_rerun(entry: dict[str, Any]) -> bool:
+    """Return whether one accepted generation predates continuous mean support."""
+    outputs = outputs_from_features_entry(entry)
+    if outputs is None:
+        return False
+    affected = any(
+        metric != "burst"
+        and any(
+            path.name in {"mean-spectral.pkl", "mean-trace.pkl", "mean-scalar.pkl"}
+            for path in paths
+        )
+        for metric, paths in outputs.items()
+    )
+    if not affected:
+        return False
+    params = entry.get("params")
+    return not (
+        isinstance(params, dict)
+        and params.get(NUMERIC_MEAN_SEMANTICS_KEY) == NUMERIC_MEAN_SEMANTICS
+    )
+
+
 def feature_generation_rerun_message(
     resolver: PathResolver,
     *,
@@ -113,13 +141,21 @@ def feature_generation_rerun_message(
     if not isinstance(payload, dict) or payload.get("completed") is not True:
         return None
     if outputs_from_features_entry(payload) is not None:
-        return None
+        return (
+            NUMERIC_MEAN_RERUN_MESSAGE
+            if feature_generation_requires_numeric_mean_rerun(payload)
+            else None
+        )
     return FEATURE_MANIFEST_RERUN_MESSAGE
 
 
 __all__ = [
     "FEATURE_MANIFEST_RERUN_MESSAGE",
+    "NUMERIC_MEAN_RERUN_MESSAGE",
+    "NUMERIC_MEAN_SEMANTICS",
+    "NUMERIC_MEAN_SEMANTICS_KEY",
     "accepted_feature_artifact_paths",
+    "feature_generation_requires_numeric_mean_rerun",
     "feature_generation_rerun_message",
     "outputs_from_features_entry",
 ]

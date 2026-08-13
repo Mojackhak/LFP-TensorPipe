@@ -47,6 +47,7 @@ from .burst_native import (
     cleanup_legacy_occupation_outputs,
     normalize_burst_reducers,
 )
+from .generation import NUMERIC_MEAN_SEMANTICS, NUMERIC_MEAN_SEMANTICS_KEY
 
 
 @dataclass(frozen=True)
@@ -754,6 +755,7 @@ def run_extract_features(
                 "warnings": warnings,
                 "xlsx_warnings": [],
                 "axes_by_metric": axes_signature_by_metric,
+                NUMERIC_MEAN_SEMANTICS_KEY: NUMERIC_MEAN_SEMANTICS,
             }
             success_record = RunLogRecord(
                 step="run_extract_features",

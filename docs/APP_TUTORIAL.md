@@ -663,6 +663,13 @@ explicit 0-to-100 percentage scale: `1` means 1% of the aligned time span, not
 the full span. The next two figures show the tutorial's saved band and phase
 definitions.
 
+For numeric axes, the `mean` reducer treats each configured band or phase as a
+continuous interval. It uses trapezoidal integration over the complete interval,
+including the final interval segment. If a requested boundary lies between two
+samples, the boundary value is linearly interpolated. Adjacent phases may share
+their boundary point, but that zero-width point does not duplicate any integrated
+area. Other reducers retain their discrete sample or event-selection semantics.
+
 ### Feature value transformations
 
 Feature processing distinguishes between two numerical domains:

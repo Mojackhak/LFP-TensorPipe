@@ -143,6 +143,7 @@ class AxisSelection:
 
     mask: np.ndarray
     total_length: float
+    intervals: tuple[Interval, ...] | None = None
 
 
 def _trapezoid(y: np.ndarray, *, x: np.ndarray) -> float:
@@ -472,7 +473,11 @@ def parse_axis_selection(
     intervals = resolve_intervals(spec, axis.coords, mode=interval_mode)  # type: ignore[arg-type]
     mask = mask_union_intervals(axis.coords, intervals, inclusive=inclusive)
     total_len = intervals_total_length(intervals)
-    return AxisSelection(mask=mask, total_length=total_len)
+    return AxisSelection(
+        mask=mask,
+        total_length=total_len,
+        intervals=tuple(intervals),
+    )
 
 
 def _make_well_name(labels: Sequence[str]) -> str:
@@ -590,6 +595,96 @@ def _integrate_over_valid_segments(
     return float(num), float(den)
 
 
+def _interval_support_mask(
+    coords: np.ndarray,
+    intervals: Sequence[Interval],
+) -> np.ndarray:
+    """Return interval samples plus the neighbors needed for interpolation."""
+    support = np.zeros(coords.size, dtype=bool)
+    if coords.size == 0:
+        return support
+    for interval_start, interval_end in intervals:
+        left = int(np.searchsorted(coords, interval_start, side="right") - 1)
+        right = int(np.searchsorted(coords, interval_end, side="left"))
+        left = max(0, min(left, coords.size - 1))
+        right = max(0, min(right, coords.size - 1))
+        if left <= right:
+            support[left : right + 1] = True
+    return support
+
+
+def _integrate_over_interval_selection(
+    coords: np.ndarray,
+    y: np.ndarray,
+    selection: AxisSelection,
+    valid_mask: np.ndarray,
+) -> tuple[float, float]:
+    """Integrate finite linear segments over exact numeric interval overlaps."""
+    if selection.intervals is None:
+        return _integrate_over_valid_segments(coords, y, valid_mask)
+
+    runs = _true_runs(valid_mask)
+    if not runs:
+        return 0.0, 0.0
+
+    num = 0.0
+    den = 0.0
+    zero_width_points = {
+        float(interval_start)
+        for interval_start, interval_end in selection.intervals
+        if interval_start == interval_end
+    }
+    for point in zero_width_points:
+        point_mask = selection.mask & np.isclose(
+            coords,
+            point,
+            rtol=1e-9,
+            atol=1e-12,
+        )
+        for point_idx in np.where(point_mask & valid_mask)[0]:
+            num += float(y[point_idx])
+            den += 1.0
+
+    for start_idx, end_idx in runs:
+        if start_idx == end_idx:
+            if selection.mask[start_idx] and not any(
+                np.isclose(
+                    coords[start_idx],
+                    point,
+                    rtol=1e-9,
+                    atol=1e-12,
+                )
+                for point in zero_width_points
+            ):
+                num += float(y[start_idx])
+                den += 1.0
+            continue
+
+        run_x = coords[start_idx : end_idx + 1]
+        run_y = y[start_idx : end_idx + 1]
+        run_start = float(run_x[0])
+        run_end = float(run_x[-1])
+        for interval_start, interval_end in selection.intervals:
+            overlap_start = max(float(interval_start), run_start)
+            overlap_end = min(float(interval_end), run_end)
+            if overlap_end <= overlap_start:
+                continue
+
+            interior = (run_x > overlap_start) & (run_x < overlap_end)
+            integration_x = np.concatenate(
+                (
+                    np.asarray([overlap_start]),
+                    run_x[interior],
+                    np.asarray([overlap_end]),
+                )
+            )
+            integration_y = np.interp(integration_x, run_x, run_y)
+            num += _trapezoid(integration_y, x=integration_x)
+            den += overlap_end - overlap_start
+
+    return float(num), float(den)
+
+
 # -----------------------
 # Scalar reducers
 # -----------------------
@@ -621,7 +716,18 @@ def _reduce_1d_with_mask(
 
     if reducer is ReducerKind.MEAN:
         if axis.is_numeric:
-            num, den = _integrate_over_valid_segments(axis.coords, y, valid)
+            integration_valid = finite if sel.intervals is not None else valid
+            if sel.intervals is not None:
+                integration_valid &= _interval_support_mask(
+                    axis.coords,
+                    sel.intervals,
+                )
+            num, den = _integrate_over_interval_selection(
+                axis.coords,
+                y,
+                sel,
+                integration_valid,
+            )
             return np.nan if den == 0.0 else float(num / den)
         # Categorical axis: fall back to arithmetic mean over finite points in selection.
         vals = y[valid]
@@ -667,7 +773,9 @@ def reduce_2d(
     reducer: ReducerKind,
 ) -> float:
     """Reduce 2D scalogram over a frequency selection and a time selection."""
-    if not f_sel.mask.any() or not t_sel.mask.any():
+    if reducer is not ReducerKind.MEAN and (
+        not f_sel.mask.any() or not t_sel.mask.any()
+    ):
         return np.nan
 
     Z = df_sorted.to_numpy(dtype=float, copy=False)
@@ -718,17 +826,28 @@ def reduce_2d(
     col_num = np.full(n_t, np.nan, dtype=float)
     col_den = np.full(n_t, np.nan, dtype=float)
 
-    t_idxs = np.where(t_sel.mask)[0]
+    t_idxs = (
+        np.where(_interval_support_mask(time_axis.coords, t_sel.intervals))[0]
+        if time_axis.is_numeric and t_sel.intervals is not None
+        else np.where(t_sel.mask)[0]
+    )
     for tj in t_idxs:
         z_col = Z[:, tj]
 
-        valid_f = f_sel.mask & np.isfinite(z_col)
+        valid_f = np.isfinite(z_col)
+        if freq_axis.is_numeric and f_sel.intervals is not None:
+            valid_f &= _interval_support_mask(freq_axis.coords, f_sel.intervals)
+        else:
+            valid_f &= f_sel.mask
         if not valid_f.any():
             continue
 
         if freq_axis.is_numeric:
-            num_f, den_f = _integrate_over_valid_segments(
-                freq_axis.coords, z_col, valid_f
+            num_f, den_f = _integrate_over_interval_selection(
+                freq_axis.coords,
+                z_col,
+                f_sel,
+                valid_f,
             )
         else:
             num_f = float(np.sum(z_col[valid_f]))
@@ -740,16 +859,24 @@ def reduce_2d(
         col_num[tj] = num_f
         col_den[tj] = den_f
 
-    valid_t = t_sel.mask & np.isfinite(col_den) & (col_den > 0.0)
+    valid_t = np.isfinite(col_den) & (col_den > 0.0)
+    if not (time_axis.is_numeric and t_sel.intervals is not None):
+        valid_t &= t_sel.mask
     if not valid_t.any():
         return np.nan
 
     if time_axis.is_numeric:
-        total_num, _ = _integrate_over_valid_segments(
-            time_axis.coords, col_num, valid_t & np.isfinite(col_num)
+        total_num, _ = _integrate_over_interval_selection(
+            time_axis.coords,
+            col_num,
+            t_sel,
+            valid_t & np.isfinite(col_num),
         )
-        total_den, _ = _integrate_over_valid_segments(
-            time_axis.coords, col_den, valid_t
+        total_den, _ = _integrate_over_interval_selection(
+            time_axis.coords,
+            col_den,
+            t_sel,
+            valid_t,
         )
     else:
         total_num = float(np.sum(col_num[valid_t & np.isfinite(col_num)]))
