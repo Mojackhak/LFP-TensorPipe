@@ -16,7 +16,11 @@ from lfptensorpipe.app.shared.downstream_invalidation import (
 from .coercion import _sanitize_metric_params_for_logs
 from .cpu_budget import DEFAULT_TENSOR_CPU_PERCENT, normalize_tensor_cpu_percent
 from .logging import write_metric_log, write_stage_log
-from .paths import tensor_metric_log_path, tensor_metric_tensor_path
+from .paths import (
+    tensor_metric_log_path,
+    tensor_metric_tensor_path,
+    tensor_output_metric_keys,
+)
 
 CANCELLED_RUN_STATUS = "cancelled"
 BUILD_TENSOR_CANCELLED_MESSAGE = "Build Tensor cancelled by user."
@@ -118,10 +122,17 @@ def backfill_cancelled_build_tensor_run(
             output_path=str(resolver.tensor_root),
             message=message,
         )
-    if any(status == "success" for status in metric_statuses.values()):
+    changed_metric_keys = tensor_output_metric_keys(
+        [
+            metric_key
+            for metric_key, status in metric_statuses.items()
+            if status == "success"
+        ]
+    )
+    if changed_metric_keys:
         invalidate_after_tensor_result_change(
             context,
-            metric_keys=selected_metrics,
+            metric_keys=changed_metric_keys,
         )
     return metric_statuses
 

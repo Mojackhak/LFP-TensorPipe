@@ -18,6 +18,7 @@ from .orchestration_execution import (
 )
 from .orchestration_merge import merge_metric_params_map
 from .orchestration_plans import build_runtime_plans
+from .paths import tensor_output_metric_keys
 
 
 def _service_with_overrides(service_overrides: Mapping[str, Any] | None) -> Any:
@@ -157,6 +158,16 @@ def run_build_tensor(
         output_path=str(resolver.tensor_root),
         message=result_message,
     )
-    if any(status == "success" for status in metric_statuses.values()):
-        invalidate_after_tensor_result_change(context, metric_keys=metrics)
+    changed_metric_keys = tensor_output_metric_keys(
+        [
+            metric_key
+            for metric_key, status in metric_statuses.items()
+            if status == "success"
+        ]
+    )
+    if changed_metric_keys:
+        invalidate_after_tensor_result_change(
+            context,
+            metric_keys=changed_metric_keys,
+        )
     return overall_ok, result_message

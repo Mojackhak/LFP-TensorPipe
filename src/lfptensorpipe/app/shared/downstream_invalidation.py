@@ -71,6 +71,29 @@ def _features_log_paths(
     return sorted(resolver.features_root.glob("*/lfptensorpipe_log.json"))
 
 
+def _latest_accepted_alignment_run_metrics(path: Path) -> set[str] | None:
+    from ..alignment.generation import metrics_from_alignment_entry
+
+    try:
+        payload = read_run_log(path)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    history = payload.get("history")
+    entries = history if isinstance(history, list) else [payload]
+    for entry in reversed(entries):
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("step", "")).strip() != "run_align_epochs":
+            continue
+        if entry.get("completed") is not True:
+            return None
+        metrics = metrics_from_alignment_entry(entry)
+        return set(metrics) if metrics is not None else None
+    return None
+
+
 def invalidate_after_preproc_result_change(
     context: RecordContext,
     *,
@@ -135,14 +158,17 @@ def invalidate_after_tensor_result_change(
 ) -> list[Path]:
     """Invalidate alignment/features results after Build Tensor rewrites metrics."""
     resolver = PathResolver(context)
-    metrics_text = ", ".join(
-        sorted({str(item).strip() for item in metric_keys if str(item).strip()})
-    )
-    metrics_suffix = f" ({metrics_text})" if metrics_text else ""
-    message = f"Invalidated by upstream result change: tensor{metrics_suffix}."
+    changed_metrics = {str(item).strip() for item in metric_keys if str(item).strip()}
+    if not changed_metrics:
+        return []
+    metrics_text = ", ".join(sorted(changed_metrics))
+    message = f"Invalidated by upstream result change: tensor ({metrics_text})."
     rewritten: list[Path] = []
 
     for path in _alignment_log_paths(resolver):
+        trial_metrics = _latest_accepted_alignment_run_metrics(path)
+        if trial_metrics is None or changed_metrics.isdisjoint(trial_metrics):
+            continue
         updated = _append_invalidation_event(
             path,
             step="run_align_epochs",
@@ -152,17 +178,20 @@ def invalidate_after_tensor_result_change(
         )
         if updated is not None:
             rewritten.append(updated)
-
-    for path in _features_log_paths(resolver):
-        updated = _append_invalidation_event(
-            path,
-            step="run_extract_features",
-            input_path=str(resolver.alignment_root),
-            output_path=str(path.parent),
-            message=message,
-        )
-        if updated is not None:
-            rewritten.append(updated)
+            slug = path.parent.name
+            for feature_path in _features_log_paths(
+                resolver,
+                paradigm_slug=slug,
+            ):
+                feature_updated = _append_invalidation_event(
+                    feature_path,
+                    step="run_extract_features",
+                    input_path=str(resolver.alignment_root / slug),
+                    output_path=str(feature_path.parent),
+                    message=message,
+                )
+                if feature_updated is not None:
+                    rewritten.append(feature_updated)
     return rewritten
 
 

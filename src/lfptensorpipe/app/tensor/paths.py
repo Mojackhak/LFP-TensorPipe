@@ -16,6 +16,26 @@ TENSOR_TENSOR_STORAGE_KEY_ALIASES: dict[str, str] = {
 TENSOR_CONFIG_STORAGE_KEY_ALIASES: dict[str, str] = {
     "periodic_aperiodic": "periodic",
 }
+_TENSOR_OUTPUT_METRIC_KEYS: dict[str, tuple[str, ...]] = {
+    "periodic_aperiodic": ("periodic", "aperiodic"),
+}
+
+
+def tensor_output_metric_keys(metric_keys: list[str] | tuple[str, ...]) -> list[str]:
+    """Expand Build Tensor selection keys into persisted output metric keys."""
+    outputs: list[str] = []
+    seen: set[str] = set()
+    for raw_key in metric_keys:
+        metric_key = str(raw_key).strip()
+        if not metric_key:
+            continue
+        expanded = _TENSOR_OUTPUT_METRIC_KEYS.get(metric_key, (metric_key,))
+        for output_key in expanded:
+            if output_key in seen:
+                continue
+            seen.add(output_key)
+            outputs.append(output_key)
+    return outputs
 
 
 def tensor_metric_log_path(
@@ -56,6 +76,7 @@ __all__ = [
     "TENSOR_LOG_STORAGE_KEY_ALIASES",
     "TENSOR_TENSOR_STORAGE_KEY_ALIASES",
     "TENSOR_CONFIG_STORAGE_KEY_ALIASES",
+    "tensor_output_metric_keys",
     "tensor_metric_log_path",
     "tensor_metric_tensor_path",
     "tensor_metric_config_path",
