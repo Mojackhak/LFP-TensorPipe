@@ -176,9 +176,6 @@ def pad_warper(
     epochs_by_label["ALL"] = all_epochs
 
     if len(all_epochs) == 0:
-        Warning(
-            "No pad+concat epochs detected; check annotations, anno_allowed, and duration_range."
-        )
         return epochs_by_label, None
 
     def warp_fn(
