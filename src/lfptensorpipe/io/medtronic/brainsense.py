@@ -384,6 +384,7 @@ def _build_raw(
     *,
     sfreq_hz: float,
     ch_type: str,
+    version: str,
 ) -> Any:
     import mne
 
@@ -403,10 +404,12 @@ def _build_raw(
         info = mne.create_info(
             ch_names=channel_order, sfreq=sfreq_hz, ch_types=[ch_type] * n_channels
         )
-    except Exception:
-        info = mne.create_info(
-            ch_names=channel_order, sfreq=sfreq_hz, ch_types=["seeg"] * n_channels
-        )
+    except (KeyError, ValueError) as exc:
+        raise ParseError(
+            code="PARSE_SCHEMA_INVALID",
+            message=f"Unsupported Medtronic ch_type: {ch_type!r}.",
+            version=version,
+        ) from exc
 
     raw = mne.io.RawArray(data, info, verbose=False)
     raw.set_meas_date(runs[0].run_start_utc)
@@ -461,7 +464,13 @@ def parse(
         if options is not None and options.get("ch_type") is not None:
             ch_type = str(options.get("ch_type")).strip() or "dbs"
 
-        raw = _build_raw(runs, channel_order, sfreq_hz=sfreq_hz, ch_type=ch_type)
+        raw = _build_raw(
+            runs,
+            channel_order,
+            sfreq_hz=sfreq_hz,
+            ch_type=ch_type,
+            version=version,
+        )
         _append_gap_annotations(raw, gap_specs)
         report = {"vendor": VENDOR_NAME, "version": version, "status": "ok"}
         return raw, report
