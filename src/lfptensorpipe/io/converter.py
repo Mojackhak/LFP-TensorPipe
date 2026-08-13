@@ -755,7 +755,8 @@ def add_annotations_from_df(raw: Any, df_anno: pd.DataFrame) -> Any:
         MNE Raw-like object to be updated.
     df_anno:
         DataFrame containing annotation rows with columns:
-        ``description``, ``onset`` (seconds), ``duration`` (seconds).
+        ``description``, ``onset`` (seconds from the first retained Raw
+        sample), and ``duration`` (seconds).
 
     Returns
     -------
@@ -783,10 +784,21 @@ def add_annotations_from_df(raw: Any, df_anno: pd.DataFrame) -> Any:
     if anno[["onset", "duration"]].isna().any().any():
         raise ValueError("df_anno columns 'onset' and 'duration' must be numeric.")
 
+    existing = raw.annotations.copy()
+    first_time = float(raw.first_samp) / float(raw.info["sfreq"])
+    new_onsets = anno["onset"].to_numpy(dtype=float)
+    if existing.orig_time is None:
+        existing.onset -= first_time
+        new_orig_time = None
+    else:
+        new_onsets = new_onsets + first_time
+        new_orig_time = existing.orig_time
+
     ann_new = mne.Annotations(
-        onset=anno["onset"].to_numpy(dtype=float),
+        onset=new_onsets,
         duration=anno["duration"].to_numpy(dtype=float),
         description=anno["description"].to_list(),
+        orig_time=new_orig_time,
     )
-    raw.set_annotations(raw.annotations + ann_new)
+    raw.set_annotations(existing + ann_new)
     return raw
