@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional, Sequence, Union
 import numpy as np
 
 import mne
+from mne.epochs import BaseEpochs
 from mne.time_frequency import (
     fwhm as mne_fwhm,
     tfr_array_morlet,
@@ -94,7 +95,7 @@ def _compute_n_cycles(
 
 
 def grid(
-    data: Union[mne.Epochs, mne.io.BaseRaw],
+    data: Union[BaseEpochs, mne.io.BaseRaw],
     *,
     method: str = "morlet",
     freqs: Sequence[float],
@@ -124,7 +125,8 @@ def grid(
         - result: power, or ``(power, itc)`` for averaged Epochs ITC
         - metadata: axes + params
 
-    ``return_itc=True`` requires ``mne.Epochs`` input and ``average=True``.
+    ``return_itc=True`` requires ``mne.epochs.BaseEpochs`` input and
+    ``average=True``.
     """
     legacy_keys = {"fmin", "fmax", "n_freqs", "log_grid"}
     unexpected_keys = sorted(set(legacy_freq_grid_kwargs).difference(legacy_keys))
@@ -146,15 +148,15 @@ def grid(
 
     if isinstance(data, mne.io.BaseRaw):
         sfreq = float(data.info["sfreq"])
-    elif isinstance(data, mne.Epochs):
+    elif isinstance(data, BaseEpochs):
         sfreq = float(data.info["sfreq"])
     else:
-        raise TypeError("`data` must be mne.Epochs or mne.io.BaseRaw.")
+        raise TypeError("`data` must be mne BaseEpochs or mne.io.BaseRaw.")
 
     if return_itc:
         if isinstance(data, mne.io.BaseRaw):
             raise ValueError(
-                "`return_itc=True` requires mne.Epochs input; "
+                "`return_itc=True` requires mne BaseEpochs input; "
                 "ITC is undefined for continuous Raw data."
             )
         if not average:
@@ -206,7 +208,7 @@ def grid(
 
     # --- compute TFR ---
     itc = None
-    if isinstance(data, mne.Epochs):
+    if isinstance(data, BaseEpochs):
         if method_l == "morlet":
             tfr_result = tfr_morlet(
                 data,
