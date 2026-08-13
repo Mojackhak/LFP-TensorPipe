@@ -875,7 +875,7 @@ inspection, and the final finished epoch selection.
 | `Method + Params` indicator | Reports method-config freshness for the current trial. | User feedback only. | Read-only. |
 | `Method` | Chooses the alignment method for the current trial. | Which params dialog shape is used and how alignment runs. | Requires a selected trial. |
 | `Params` | Opens the method-parameter dialog for the selected method. | Saved method parameters. | Requires a selected trial. |
-| `Align Epochs` | Runs alignment for the current trial. | Trial alignment outputs and Epoch Inspector freshness. | Requires valid params and upstream data. |
+| `Align Epochs` | Runs alignment for the current trial. If no usable Tensor result is available, a warning directs the user to run or rerun Build Tensor. | Trial alignment outputs and Epoch Inspector freshness. | Requires valid params and upstream data. |
 | `Import Configs...` | Loads an alignment configuration for the current trial. | Trial configuration payload. | Requires a selected trial. |
 | `Export Configs...` | Saves the current trial configuration. | External alignment config file. | Requires a selected trial. |
 

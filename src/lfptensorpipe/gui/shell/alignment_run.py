@@ -326,6 +326,12 @@ class MainWindowAlignmentRunMixin:
         self._refresh_alignment_controls()
         prefix = "Align Epochs OK" if ok else "Align Epochs failed"
         self.statusBar().showMessage(f"{prefix}: {message}")
+        if not ok and message == "No completed tensor metrics available.":
+            self._show_warning(
+                "Run Align Epochs",
+                "No usable Tensor results are available. Run or rerun Build Tensor, "
+                "then try Align Epochs again.",
+            )
         self._post_step_action_sync(reason="alignment_run")
 
     def _on_alignment_select_all(self) -> None:
