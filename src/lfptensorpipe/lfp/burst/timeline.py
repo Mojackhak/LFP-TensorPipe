@@ -70,6 +70,17 @@ def sample_cell_edges(times: Sequence[float]) -> np.ndarray:
     return edges
 
 
+def _trailing_support_bound(edges: np.ndarray) -> float:
+    """Return the largest fragment end accepted by the sampled cell support.
+
+    Crop warpers own the half-open Raw support `[t_first, t_last + 1 / sfreq)`,
+    whose end reaches half a cell past the final midpoint edge. That overhang
+    holds no sample, so it must not invalidate an otherwise complete display
+    bin. Anything beyond it is a genuinely out-of-range mapping.
+    """
+    return float(edges[-1]) + (float(edges[-1]) - float(edges[-2])) / 2.0
+
+
 def _validated_segment(
     target_start: float,
     target_end: float,
@@ -436,9 +447,10 @@ def display_bin_value(
         raise ValueError("Burst values and source time axis have inconsistent lengths.")
     burst_duration = 0.0
     log_amplitude_integral = 0.0
+    trailing_bound = _trailing_support_bound(edges)
     for fragment in fragments:
         if _positive_duration(fragment.source_start, edges[0]) or _positive_duration(
-            edges[-1], fragment.source_end
+            trailing_bound, fragment.source_end
         ):
             return float("nan")
         indices, durations, _starts, _ends = _cell_overlaps(edges, fragment)
@@ -466,10 +478,11 @@ def _display_bin_values(
     output = np.full(values.shape[0], np.nan, dtype=float)
     index_parts: list[np.ndarray] = []
     duration_parts: list[np.ndarray] = []
+    trailing_bound = _trailing_support_bound(source_edges)
     for fragment in fragments:
         if _positive_duration(
             fragment.source_start, source_edges[0]
-        ) or _positive_duration(source_edges[-1], fragment.source_end):
+        ) or _positive_duration(trailing_bound, fragment.source_end):
             return output
         indices, durations, _starts, _ends = _cell_overlaps(source_edges, fragment)
         if indices.size:
