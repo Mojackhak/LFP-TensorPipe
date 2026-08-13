@@ -14,6 +14,10 @@ Design notes
 - Morlet cycle limits and the Multitaper minimum-cycle rule can impose longer
   low-frequency windows. The resulting lower temporal resolution is the
   intended trade-off for stable low-frequency estimates.
+- Every input epoch contains the retained central analysis interval plus one
+  half-kernel support margin on each side. The same margin is passed to
+  MNE-Connectivity as ``padding`` so edge-contaminated coefficients are
+  discarded before connectivity is aggregated.
 - For multivariate Granger causality (GC), MNE-Connectivity requires a minimum
   number of frequency bins per call relative to `gc_n_lags`. If dynamic windows
   cause each low-frequency bin to become its own window-group, the GC estimator
@@ -42,6 +46,7 @@ from ..common.timefreq import (
     multitaper_fixed_p_parameters,
 )
 from ..runtime.tensor_helpers import build_annotation_skip_time_mask
+from . import CONNECTIVITY_PADDING_MODE
 from .selection import resolve_pairs
 
 
@@ -92,6 +97,55 @@ def _compute_multitaper_window_seconds(
         T(f) = n_cycles(f) / f
     """
     return n_cycles / freqs
+
+
+def _support_window_geometry(
+    *,
+    kernel_support_s: float,
+    analysis_half_s: float,
+    sfreq: float,
+    decim_internal: int,
+    requested_min_padding_s: float,
+) -> dict[str, float | int]:
+    """Resolve an edge-safe connectivity epoch on the raw sample grid.
+
+    The central analysis interval is retained. One half of the longest kernel
+    support used by the estimator call is added to each side, then removed by
+    MNE-Connectivity's ``padding`` crop. Padding is rounded outward to an exact
+    multiple of the internal decimation factor so the crop cannot retain a
+    coefficient without full kernel support.
+    """
+    kernel_support = float(kernel_support_s)
+    analysis_half = float(analysis_half_s)
+    sfreq_use = float(sfreq)
+    decim_use = int(decim_internal)
+    requested_padding = float(requested_min_padding_s)
+
+    if not np.isfinite(kernel_support) or kernel_support <= 0:
+        raise ValueError("`kernel_support_s` must be finite and > 0.")
+    if not np.isfinite(analysis_half) or analysis_half < 0:
+        raise ValueError("`analysis_half_s` must be finite and >= 0.")
+    analysis_radius_samples = int(np.ceil(analysis_half * sfreq_use))
+    required_padding_samples = int(np.ceil(0.5 * kernel_support * sfreq_use))
+    requested_padding_samples = int(np.ceil(requested_padding * sfreq_use))
+    minimum_padding_samples = max(required_padding_samples, requested_padding_samples)
+    padding_output_samples = int(np.ceil(minimum_padding_samples / float(decim_use)))
+    padding_samples = padding_output_samples * decim_use
+    input_epoch_radius_samples = analysis_radius_samples + padding_samples
+    padding_s = padding_samples / sfreq_use
+
+    return {
+        "kernel_support_s": kernel_support,
+        "analysis_radius_samples": analysis_radius_samples,
+        "analysis_span_s": 2.0 * analysis_radius_samples / sfreq_use,
+        "required_padding_samples": required_padding_samples,
+        "padding_samples": padding_samples,
+        "padding_output_samples": padding_output_samples,
+        "padding_s": padding_s,
+        "input_epoch_radius_samples": input_epoch_radius_samples,
+        "input_epoch_span_s": 2.0 * input_epoch_radius_samples / sfreq_use,
+        "input_epoch_n_samples": 2 * input_epoch_radius_samples + 1,
+    }
 
 
 def _normalize_spectral_mode(spectral_mode: str) -> str:
@@ -329,6 +383,11 @@ def grid(
     This implementation always uses frequency-dependent windowing (per-frequency
     or per-frequency-group). There is no "global" window mode.
 
+    ``padding`` is a programmatic minimum per-side crop. The effective padding
+    is always at least one half of the longest spectral-kernel support used by
+    the estimator call; matching raw samples are added to the input epoch before
+    the crop is applied.
+
     For multivariate Granger causality (GC), MNE-Connectivity requires a minimum
     number of frequency bins per call relative to ``gc_n_lags``. Window-grouping
     can produce very small frequency groups (especially at low frequencies when
@@ -361,6 +420,10 @@ def grid(
     sfreq = float(raw.info["sfreq"])
     if sfreq <= 0:
         raise ValueError("Raw sampling rate must be > 0.")
+    if int(decim_internal) <= 0:
+        raise ValueError("`decim_internal` must be > 0.")
+    if not np.isfinite(float(padding)) or float(padding) < 0:
+        raise ValueError("`padding` must be finite and >= 0.")
 
     # Convenience alias:
     # Users often refer to "gc_tr" as time-reversed Granger causality.
@@ -463,7 +526,6 @@ def grid(
         raw, decim=decim_eff, target_n_times=target_n_times
     )
     raw_times = np.asarray(raw.times, dtype=float)
-    t0, t1 = float(raw_times[0]), float(raw_times[-1])
 
     center_samps_full = (times_tfr - raw_times[0]) * sfreq  # float sample indices
     finite_time_mask = np.isfinite(times_tfr)
@@ -538,6 +600,7 @@ def grid(
         out_idx: np.ndarray,
         keep_pos: np.ndarray,
         half_s: float,
+        padding_s: float,
         valid_mask: np.ndarray,
         freqs_sub: np.ndarray,
         n_cycles_sub: np.ndarray,
@@ -584,7 +647,7 @@ def grid(
             sm_times=sm_times,
             sm_freqs=sm_freqs,
             sm_kernel=sm_kernel,
-            padding=padding,
+            padding=np.nextafter(float(padding_s), np.inf),
             decim=int(decim_internal),
             n_jobs=1,
             verbose=False,
@@ -670,7 +733,15 @@ def grid(
 
     def _make_group_call(
         out_idx: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, np.ndarray, dict[str, Any]]:
+    ) -> tuple[
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        float,
+        float,
+        np.ndarray,
+        dict[str, Any],
+    ]:
         """Build a computation spec for one window-group."""
         out_idx = np.asarray(out_idx, dtype=int)
         call_idx = out_idx
@@ -687,11 +758,23 @@ def grid(
             # Map output indices to their positions within the padded call indices.
             keep_pos = np.searchsorted(call_idx, out_idx)
 
-        half = float(np.max(half_per_freq[call_idx]))
+        analysis_half_s = float(np.max(half_per_freq[call_idx]))
+        support_geometry = _support_window_geometry(
+            kernel_support_s=float(np.max(L_wave[call_idx])),
+            analysis_half_s=analysis_half_s,
+            sfreq=sfreq,
+            decim_internal=int(decim_internal),
+            requested_min_padding_s=float(padding),
+        )
+        input_half_s = int(support_geometry["input_epoch_radius_samples"]) / sfreq
+        padding_s = float(support_geometry["padding_s"])
         feasible_mask = np.isfinite(center_samps_full)
         if np.any(feasible_mask):
-            times_valid = times_tfr[feasible_mask]
-            feas = (times_valid - half >= t0) & (times_valid + half <= t1)
+            centers_valid = np.round(center_samps_full[feasible_mask]).astype("int64")
+            radius_samples = int(support_geometry["input_epoch_radius_samples"])
+            feas = (centers_valid - radius_samples >= 0) & (
+                centers_valid + radius_samples < raw.n_times
+            )
             feasible_mask[feasible_mask] &= feas
 
         valid_mask = feasible_mask & ~skip_time_mask
@@ -702,9 +785,18 @@ def grid(
             "n_columns_dropped_infeasible": int(
                 np.sum(finite_time_mask & ~skip_time_mask & ~feasible_mask)
             ),
+            **support_geometry,
         }
 
-        return out_idx, call_idx, keep_pos, half, valid_mask, group_counts
+        return (
+            out_idx,
+            call_idx,
+            keep_pos,
+            input_half_s,
+            padding_s,
+            valid_mask,
+            group_counts,
+        )
 
     groups_spec = [
         (group_id, *_make_group_call(group_idx))
@@ -730,6 +822,7 @@ def grid(
                 call_idx,
                 keep_pos,
                 half,
+                padding_s,
                 valid_mask & allowed_mask,
                 group_counts,
             )
@@ -739,11 +832,12 @@ def grid(
                 call_idx,
                 keep_pos,
                 half,
+                padding_s,
                 valid_mask,
                 group_counts,
             ) in groups_spec
         ]
-    window_group_counts = [dict(spec[6]) for spec in groups_spec]
+    window_group_counts = [dict(spec[7]) for spec in groups_spec]
 
     task_description = {
         "shape": [1, int(n_pairs), int(freqs.size), int(n_times_tfr)],
@@ -756,6 +850,17 @@ def grid(
                 "output_frequency_indices": np.asarray(out_idx, dtype=int),
                 "call_frequency_indices": np.asarray(call_idx, dtype=int),
                 "valid_time_indices": np.flatnonzero(valid_mask),
+                "support_geometry": {
+                    key: value
+                    for key, value in group_counts.items()
+                    if key
+                    not in {
+                        "output_frequency_indices",
+                        "n_columns_total",
+                        "n_columns_skipped_masked",
+                        "n_columns_dropped_infeasible",
+                    }
+                },
             }
             for (
                 group_id,
@@ -763,8 +868,9 @@ def grid(
                 call_idx,
                 _keep_pos,
                 _half,
+                _padding_s,
                 valid_mask,
-                _group_counts,
+                group_counts,
             ) in groups_spec
         ],
     }
@@ -828,6 +934,8 @@ def grid(
                 sm_freqs=int(sm_freqs),
                 sm_kernel=str(sm_kernel),
                 padding=float(padding),
+                padding_mode=CONNECTIVITY_PADDING_MODE,
+                requested_min_padding_s=float(padding),
                 decim_internal=int(decim_internal),
                 gc_n_lags=int(gc_n_lags),
                 gc_pad_scale=float(gc_pad_scale),
@@ -884,11 +992,21 @@ def grid(
             out_idx=out_idx,
             keep_pos=keep_pos,
             half_s=half,
+            padding_s=padding_s,
             valid_mask=valid_mask,
             freqs_sub=freqs[call_idx],
             n_cycles_sub=n_cycles[call_idx],
         )
-        for _group_id, out_idx, call_idx, keep_pos, half, valid_mask, _ in groups_spec
+        for (
+            _group_id,
+            out_idx,
+            call_idx,
+            keep_pos,
+            half,
+            padding_s,
+            valid_mask,
+            _,
+        ) in groups_spec
     )
 
     task_blocks: list[dict[str, Any]] = []

@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from lfptensorpipe.app.path_resolver import RecordContext
+from lfptensorpipe.lfp.connectivity import CONNECTIVITY_PADDING_MODE
 from lfptensorpipe.utils.transforms import attach_transform_policy, get_transform_policy
 
 from .. import service as svc
@@ -275,6 +276,7 @@ def run_undirected_connectivity_metric(
         if not isinstance(grid_params, dict):
             grid_params = {}
         count_payload = {
+            "padding_mode": CONNECTIVITY_PADDING_MODE,
             "n_columns_total": int(grid_params.get("n_columns_total", 0)),
             "n_columns_skipped_masked": int(
                 grid_params.get("n_columns_skipped_masked", 0)

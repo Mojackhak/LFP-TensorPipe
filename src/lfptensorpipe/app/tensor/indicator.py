@@ -21,6 +21,7 @@ from lfptensorpipe.lfp.burst.semantics import (
     burst_value_semantics,
     has_current_burst_value_semantics,
 )
+from lfptensorpipe.lfp.connectivity import CONNECTIVITY_PADDING_MODE
 from lfptensorpipe.utils.transforms import (
     VALUE_TRANSFORM_POLICY_KEY,
     get_transform_policy,
@@ -374,6 +375,8 @@ def _metric_log_signature(
             "selected_channels": channels,
         }
     if metric_key in {"coherence", "imcoh_abs", "plv", "ciplv", "pli", "wpli"}:
+        if params.get("padding_mode") != CONNECTIVITY_PADDING_MODE:
+            return None
         directed = False
         pairs = _normalize_pairs(params.get("selected_pairs"), directed=directed)
         if pairs is None:
@@ -393,12 +396,15 @@ def _metric_log_signature(
             "time_resolution_s": float(params.get("time_resolution_s")),
             "hop_s": float(params.get("hop_s")),
             "connectivity_metric": connectivity_metric_map[metric_key],
+            "padding_mode": CONNECTIVITY_PADDING_MODE,
             **_spectral_method_signature(params, require_multitaper_fields=True),
             "mask_edge_effects": bool(params.get("mask_edge_effects", True)),
             "notch_intervals_hz": notch_intervals,
             "selected_pairs": pairs,
         }
     if metric_key == "trgc":
+        if params.get("padding_mode") != CONNECTIVITY_PADDING_MODE:
+            return None
         pairs = _normalize_pairs(params.get("selected_pairs"), directed=True)
         if pairs is None:
             return None
@@ -409,6 +415,7 @@ def _metric_log_signature(
             "time_resolution_s": float(params.get("time_resolution_s")),
             "hop_s": float(params.get("hop_s")),
             "connectivity_metric": "trgc",
+            "padding_mode": CONNECTIVITY_PADDING_MODE,
             **_spectral_method_signature(params, require_multitaper_fields=True),
             "gc_n_lags": _as_int(params.get("gc_n_lags"), 20),
             "group_by_samples": bool(params.get("group_by_samples", False)),
@@ -645,6 +652,7 @@ def _current_metric_signature(
             "time_resolution_s": _as_float(metric_params.get("time_resolution_s"), 0.5),
             "hop_s": _as_float(metric_params.get("hop_s"), 0.025),
             "connectivity_metric": connectivity_metric_map[metric_key],
+            "padding_mode": CONNECTIVITY_PADDING_MODE,
             **_spectral_method_signature(metric_params),
             "mask_edge_effects": bool(mask_edge_effects),
             "notch_intervals_hz": notch_intervals,
@@ -661,6 +669,7 @@ def _current_metric_signature(
             "time_resolution_s": _as_float(metric_params.get("time_resolution_s"), 0.5),
             "hop_s": _as_float(metric_params.get("hop_s"), 0.025),
             "connectivity_metric": "trgc",
+            "padding_mode": CONNECTIVITY_PADDING_MODE,
             **_spectral_method_signature(metric_params),
             "gc_n_lags": _as_int(metric_params.get("gc_n_lags"), 20),
             "group_by_samples": bool(metric_params.get("group_by_samples", False)),

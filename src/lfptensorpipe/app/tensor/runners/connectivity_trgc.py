@@ -17,6 +17,7 @@ from lfptensorpipe.app.preproc_service import (
 )
 from lfptensorpipe.app.runlog_store import indicator_from_log
 from lfptensorpipe.io.pkl_io import load_pkl, save_pkl
+from lfptensorpipe.lfp.connectivity import CONNECTIVITY_PADDING_MODE
 
 from lfptensorpipe.app.shared.atomic_outputs import (
     write_outputs_atomically as _write_outputs_atomically,
@@ -485,6 +486,7 @@ def _build_trgc_backend_state(
         "metric_key": "trgc",
         "metric_label": prepared["metric_label"],
         "backend_method": str(backend_method),
+        "padding_mode": CONNECTIVITY_PADDING_MODE,
         "connectivity_metric": "trgc",
         "method": str(prepared["method_norm"]),
         "backend_methods": list(TRGC_BACKEND_METHODS),
@@ -872,6 +874,7 @@ def run_trgc_finalize_metric(
             "metric_key": metric_key,
             "metric_label": metric_label,
             "connectivity_metric": "trgc",
+            "padding_mode": CONNECTIVITY_PADDING_MODE,
             "method": str(gc_state["method"]),
             "backend_methods": list(TRGC_BACKEND_METHODS),
             "low_freq": float(gc_state["low_freq"]),
@@ -939,6 +942,7 @@ def run_trgc_finalize_metric(
             "time_resolution_s": float(gc_state["time_resolution_s"]),
             "hop_s": float(gc_state["hop_s"]),
             "connectivity_metric": "trgc",
+            "padding_mode": CONNECTIVITY_PADDING_MODE,
             "method": str(gc_state["method"]),
             "backend_methods": list(TRGC_BACKEND_METHODS),
             "mt_time_bandwidth_product": mt_time_bandwidth_product,
