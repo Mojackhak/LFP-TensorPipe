@@ -332,12 +332,13 @@ def build_synced_raw(raw: Any, estimate: SyncEstimate) -> Any:
         pad = np.zeros((data.shape[0], abs(shift_samples)), dtype=float)
         synced_data = np.concatenate([pad, data], axis=1)
 
-    info = mne.create_info(
-        ch_names=list(raw.ch_names),
-        sfreq=sfreq_after_hz,
-        ch_types=raw.get_channel_types(),
-    )
-    info["bads"] = list(raw.info.get("bads", []))
+    info = raw.info.copy()
+    if sfreq_after_hz != sfreq_before_hz:
+        with info._unlock():
+            info["sfreq"] = sfreq_after_hz
+            lowpass = info.get("lowpass")
+            if lowpass is not None:
+                info["lowpass"] = min(float(lowpass), sfreq_after_hz / 2.0)
     synced_raw = mne.io.RawArray(synced_data, info, verbose="ERROR")
 
     meas_date = raw.info.get("meas_date")

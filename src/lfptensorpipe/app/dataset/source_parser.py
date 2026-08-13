@@ -171,8 +171,16 @@ def apply_reset_reference(
     seen_names: set[str] = set()
 
     out_names: list[str] = []
-    out_types: list[str] = []
     out_data: list[np.ndarray] = []
+    row_raws: list[Any] = []
+    bipolar_row_indices: list[int] = []
+    source_bads = set(str(channel) for channel in raw.info.get("bads", []))
+    out_bads: list[str] = []
+    metadata_template = mne.io.RawArray(
+        np.zeros((len(raw.ch_names), 1), dtype=float),
+        raw.info.copy(),
+        verbose="ERROR",
+    )
 
     for idx, row in enumerate(reset_rows, start=1):
         if len(row) != 3:
@@ -200,25 +208,62 @@ def apply_reset_reference(
         seen_pairs.add(key)
         seen_names.add(name)
 
-        pick_channel = anode or cathode
-        pick_type = str(raw.get_channel_types(picks=[pick_channel])[0])
         if anode and cathode:
             data_anode = raw.get_data(picks=[anode])[0]
             data_cathode = raw.get_data(picks=[cathode])[0]
             data_out = data_anode - data_cathode
+            internal_name = name
+            if internal_name in available:
+                internal_name = f"__lfptensorpipe_reset_reference_{idx}__"
+                while internal_name in available or internal_name in seen_names:
+                    internal_name = f"_{internal_name}"
+            row_raw = mne.set_bipolar_reference(
+                metadata_template,
+                anode=anode,
+                cathode=cathode,
+                ch_name=internal_name,
+                drop_refs=False,
+                copy=True,
+                on_bad="ignore",
+                verbose="ERROR",
+            )
+            row_raw.pick([internal_name])
+            if internal_name != name:
+                row_raw.rename_channels({internal_name: name})
+            bipolar_row_indices.append(len(row_raws))
         elif anode:
             data_out = raw.get_data(picks=[anode])[0].copy()
+            row_raw = metadata_template.copy().pick([anode])
+            if anode != name:
+                row_raw.rename_channels({anode: name})
         else:
             data_out = -raw.get_data(picks=[cathode])[0]
+            row_raw = metadata_template.copy().pick([cathode])
+            if cathode != name:
+                row_raw.rename_channels({cathode: name})
 
         out_names.append(name)
-        out_types.append(pick_type)
         out_data.append(np.asarray(data_out, dtype=float))
+        row_raws.append(row_raw)
+        if anode in source_bads or cathode in source_bads:
+            out_bads.append(name)
 
     mat = np.vstack(out_data)
-    info = mne.create_info(
-        ch_names=out_names, sfreq=float(raw.info["sfreq"]), ch_types=out_types
-    )
+    first_row_index = bipolar_row_indices[0] if bipolar_row_indices else 0
+    merged = row_raws[first_row_index].copy()
+    remaining_rows = [
+        row_raw
+        for row_index, row_raw in enumerate(row_raws)
+        if row_index != first_row_index
+    ]
+    if remaining_rows:
+        merged.add_channels(
+            remaining_rows,
+            force_update_info=bool(bipolar_row_indices),
+        )
+    merged.pick(out_names)
+    info = merged.info.copy()
+    info["bads"] = out_bads
     out = mne.io.RawArray(mat, info, verbose="ERROR")
     out.set_meas_date(raw.info.get("meas_date"))
     # `out` restarts at first_samp == 0, so onsets must be pulled back into the
