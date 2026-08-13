@@ -460,7 +460,6 @@ def _metric_log_signature(
         signature = {
             "low_freq": float(params.get("low_freq")),
             "high_freq": float(params.get("high_freq")),
-            "step_hz": float(params.get("step_hz")),
             "min_cycles": _as_float(params.get("min_cycles"), 2.0),
             "max_cycles": _as_optional_float(params.get("max_cycles")),
             "hop_s": BURST_NATIVE_HOP_S,
@@ -719,7 +718,6 @@ def _current_metric_signature(
         signature = {
             "low_freq": prepared.metric_low,
             "high_freq": prepared.metric_high,
-            "step_hz": prepared.metric_step,
             "min_cycles": _as_float(metric_params.get("min_cycles"), 2.0),
             "max_cycles": _as_optional_float(metric_params.get("max_cycles")),
             "hop_s": BURST_NATIVE_HOP_S,

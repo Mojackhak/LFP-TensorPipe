@@ -33,7 +33,6 @@ def plan_burst(
     *,
     metric_low: float,
     metric_high: float,
-    metric_step: float,
     metric_bands: list[dict[str, Any]],
     metric_channels: list[str] | None,
     metric_params: dict[str, Any],
@@ -46,7 +45,6 @@ def plan_burst(
         runner_kwargs={
             "low_freq": float(metric_low),
             "high_freq": float(metric_high),
-            "step_hz": float(metric_step),
             "mask_edge_effects": mask_edge_effects,
             "bands": metric_bands,
             "selected_channels": metric_channels,

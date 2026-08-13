@@ -421,7 +421,7 @@ def _run_burst_metric(
     *,
     low_freq: float,
     high_freq: float,
-    step_hz: float,
+    step_hz: float | None = None,
     mask_edge_effects: bool,
     bands: list[dict[str, Any]],
     selected_channels: list[str] | None,
@@ -441,13 +441,14 @@ def _run_burst_metric(
     burst_grid_fn=None,
     compute_notch_intervals_fn=None,
 ) -> tuple[bool, str]:
+    """Dispatch Burst while accepting the ignored legacy Step keyword."""
+    _ = step_hz
     from .runners.burst import run_burst_metric
 
     return run_burst_metric(
         context,
         low_freq=low_freq,
         high_freq=high_freq,
-        step_hz=step_hz,
         mask_edge_effects=mask_edge_effects,
         bands=bands,
         selected_channels=selected_channels,

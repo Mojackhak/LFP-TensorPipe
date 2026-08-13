@@ -602,8 +602,11 @@ configuration instead of single-channel configuration.
 
 ![Burst parameter panel.](assets/app-control-reference/controlref-advance-tensor-burst-panel.png)
 
-This panel shows the burst-specific controls that sit on top of the shared
-tensor frequency and time grid.
+This panel shows the Burst-specific controls. Burst uses the configured band
+boundaries directly and does not consume `Step (Hz)` as a frequency-grid input.
+The Step row is therefore not shown for Burst. A legacy Burst configuration or
+Python call may still contain a Step value, but the value is ignored and does
+not make an otherwise current Burst result stale.
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |

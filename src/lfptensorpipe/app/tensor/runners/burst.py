@@ -87,7 +87,7 @@ def run_burst_metric(
     *,
     low_freq: float,
     high_freq: float,
-    step_hz: float,
+    step_hz: float | None = None,
     mask_edge_effects: bool,
     bands: list[dict[str, Any]],
     selected_channels: list[str] | None,
@@ -107,6 +107,8 @@ def run_burst_metric(
     burst_grid_fn=None,
     compute_notch_intervals_fn=None,
 ) -> tuple[bool, str]:
+    """Build Burst outputs; ``step_hz`` is accepted only for legacy callers."""
+    _ = step_hz
     if burst_grid_fn is None:
         from lfptensorpipe.lfp.burst.grid import grid as burst_grid
     else:
@@ -311,7 +313,6 @@ def run_burst_metric(
             "method": "burst_grid",
             "low_freq": float(low_freq),
             "high_freq": float(high_freq),
-            "step_hz": float(step_hz),
             "percentile": effective_percentile,
             "baseline_keep": effective_baseline_keep,
             "baseline_match": effective_baseline_match,
@@ -351,7 +352,6 @@ def run_burst_metric(
         log_params = {
             "low_freq": float(low_freq),
             "high_freq": float(high_freq),
-            "step_hz": float(step_hz),
             "percentile": effective_percentile,
             "baseline_keep": effective_baseline_keep,
             "baseline_match": effective_baseline_match,
@@ -418,7 +418,6 @@ def run_burst_metric(
             params={
                 "low_freq": float(low_freq),
                 "high_freq": float(high_freq),
-                "step_hz": float(step_hz),
                 "threshold_mode": threshold_mode,
                 "percentile": (
                     None if threshold_mode == "provided" else float(percentile)
