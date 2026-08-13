@@ -26,6 +26,7 @@ def build_runtime_plan(
                 context,
                 metric_low=prepared.metric_low,
                 metric_high=prepared.metric_high,
+                metric_step=prepared.metric_step,
                 metric_bands=prepared.metric_bands,
                 metric_channels=prepared.metric_channels,
                 metric_params=prepared.metric_params,
