@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 
@@ -28,6 +29,8 @@ def _normalize_axis_rows(
             start = float(item.get("start"))
             end = float(item.get("end"))
         except Exception:
+            continue
+        if not np.isfinite(start) or not np.isfinite(end):
             continue
         if end <= start:
             continue

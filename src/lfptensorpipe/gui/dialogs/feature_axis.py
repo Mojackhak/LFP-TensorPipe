@@ -208,6 +208,8 @@ class FeatureAxisConfigureDialog(QDialog):
                 end = float(row.get("end"))
             except Exception:
                 return False, [], "Start/End must be numeric."
+            if not np.isfinite(start) or not np.isfinite(end):
+                return False, [], "Start/End must be finite numbers."
             if start < self._min_start:
                 return (
                     False,
