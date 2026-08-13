@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from lfptensorpipe.app.runlog_store import indicator_from_log
+from .runlog_store import indicator_from_log
 
 DEFAULT_DEMO_DATA_ROOT = Path(__file__).resolve().parents[4] / "demo"
 DEMO_DATA_ROOT_KEY = "DEMO_DATA_ROOT"
