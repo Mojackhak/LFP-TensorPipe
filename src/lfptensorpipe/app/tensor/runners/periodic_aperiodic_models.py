@@ -16,6 +16,7 @@ from ..frequency import TensorFilterInheritance
 
 NOTCH_INTERPOLATION_METHOD = "empirical_residual.local_stratified"
 NOTCH_INTERPOLATION_SEED = 42
+MASK_SUPPORT_SEMANTICS = "joint_fit_consumed_tfr_max_plus_time_smoothing"
 
 
 def derive_notch_interpolation_seed(context: RecordContext) -> int:

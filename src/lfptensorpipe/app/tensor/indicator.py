@@ -55,6 +55,7 @@ from .runners.connectivity_psi import (
     _build_runtime_bands as _build_psi_runtime_bands,
     _serialize_runtime_bands as _serialize_psi_runtime_bands,
 )
+from .runners.periodic_aperiodic_models import MASK_SUPPORT_SEMANTICS
 from .selectors import (
     normalize_metric_bands,
     normalize_metric_channels,
@@ -368,6 +369,7 @@ def _metric_log_signature(
             "peak_threshold": _as_float(params.get("peak_threshold"), 2.0),
             "fit_qc_threshold": _as_float(params.get("fit_qc_threshold"), 0.6),
             "mask_edge_effects": bool(params.get("mask_edge_effects", True)),
+            "mask_support_semantics": params.get("mask_support_semantics"),
             "notch_intervals_hz": notch_intervals,
             "selected_channels": channels,
         }
@@ -620,6 +622,7 @@ def _current_metric_signature(
             "peak_threshold": _as_float(metric_params.get("peak_threshold"), 2.0),
             "fit_qc_threshold": _as_float(metric_params.get("fit_qc_threshold"), 0.6),
             "mask_edge_effects": bool(mask_edge_effects),
+            "mask_support_semantics": MASK_SUPPORT_SEMANTICS,
             "notch_intervals_hz": notch_intervals,
             "selected_channels": channels,
         }

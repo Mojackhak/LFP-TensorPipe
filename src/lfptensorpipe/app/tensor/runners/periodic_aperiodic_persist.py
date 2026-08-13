@@ -151,6 +151,29 @@ def write_periodic_aperiodic_success(
             runtime_params.get("n_spectra_unsupported_masked", 0)
         ),
     }
+    support_payload = {
+        "mask_support_semantics": str(runtime_params["mask_support_semantics"]),
+        "annotation_estimator_support_radius_s": runtime_params.get(
+            "annotation_estimator_support_radius_s"
+        ),
+        "annotation_time_smoothing_radius_s": runtime_params.get(
+            "annotation_time_smoothing_radius_s"
+        ),
+        "annotation_skip_radius_s": runtime_params.get("annotation_skip_radius_s"),
+        "consumed_tfr_frequency_min_hz": runtime_params.get(
+            "consumed_tfr_frequency_min_hz"
+        ),
+        "consumed_tfr_frequency_max_hz": runtime_params.get(
+            "consumed_tfr_frequency_max_hz"
+        ),
+        "consumed_tfr_frequency_count": runtime_params.get(
+            "consumed_tfr_frequency_count"
+        ),
+        "time_smoothing_kernel_size_eff": runtime_params.get(
+            "time_smoothing_kernel_size_eff"
+        ),
+        "hop_s_eff": runtime_params.get("hop_s_eff"),
+    }
     config_payload = {
         "metric_key": METRIC_KEY,
         "metric_label": svc.TENSOR_METRICS_BY_KEY[METRIC_KEY].display_name,
@@ -228,6 +251,7 @@ def write_periodic_aperiodic_success(
         ),
         "tensor_shape": [int(item) for item in outputs.tensor.shape],
         "params_tensor_shape": [int(item) for item in outputs.params_tensor.shape],
+        **support_payload,
         **count_payload,
         **svc._effective_n_jobs_payload(
             n_jobs=int(options.n_jobs),
@@ -343,6 +367,7 @@ def write_periodic_aperiodic_success(
                         "aperiodic_tensor_path": str(paths.aperiodic_output_path),
                         "specparam_report_dir": str(paths.report_dir),
                         "n_params": int(outputs.params_tensor.shape[2]),
+                        **support_payload,
                         **count_payload,
                         **svc._effective_n_jobs_payload(
                             n_jobs=int(options.n_jobs),

@@ -18,11 +18,17 @@ All code comments and docstrings are in English (per project rules).
 
 from __future__ import annotations
 
+import warnings
 from typing import Literal
 
 import numpy as np
 
-from scipy.ndimage import convolve1d, gaussian_filter1d, median_filter
+from scipy.ndimage import (
+    convolve1d,
+    gaussian_filter1d,
+    median_filter,
+    vectorized_filter,
+)
 
 from ...utils.transforms import (
     TransformMode,
@@ -33,6 +39,8 @@ from ...utils.transforms import (
 SmoothMethod = Literal["median", "mean", "gaussian"]
 NanPolicy = Literal["omit", "propagate"]
 PadMode = Literal["nearest", "reflect", "mirror", "constant", "wrap"]
+
+_MEDIAN_OMIT_BATCH_MEMORY_BYTES = 256 * 1024 * 1024
 
 
 def _normalize_kernel_size(kernel_size: int, *, enforce_odd: bool = True) -> int:
@@ -103,8 +111,8 @@ def smooth_axis(
         pad_mode: Boundary handling mode passed to SciPy.
         cval: Constant value used when `pad_mode == 'constant'`.
         nan_policy:
-            - `omit`: ignore NaNs using weighted normalization for `mean` and
-              `gaussian`
+            - `omit`: ignore non-finite values; an all-invalid window returns
+              `NaN`
             - `propagate`: keep SciPy default NaN propagation behavior
         enforce_odd_kernel: If True, even kernel sizes are rounded up to the
             next odd integer for methods that use `kernel_size`.
@@ -118,6 +126,8 @@ def smooth_axis(
 
     ax = _axis_to_positive(axis, x_in.ndim)
     method_l = str(method).lower()
+    if nan_policy not in {"omit", "propagate"}:
+        raise ValueError("nan_policy must be 'omit' or 'propagate'")
 
     if method_l in {"median", "mean"}:
         if kernel_size is None:
@@ -126,6 +136,12 @@ def smooth_axis(
             )
         k = _normalize_kernel_size(kernel_size, enforce_odd=enforce_odd_kernel)
         if k == 1:
+            if (
+                method_l == "median"
+                and nan_policy == "omit"
+                and not np.all(np.isfinite(x_in))
+            ):
+                return np.where(np.isfinite(x_in), x_in, np.nan)
             return np.array(x_in, copy=True)
     elif method_l == "gaussian":
         sigma_f = _validate_sigma(sigma)
@@ -142,7 +158,45 @@ def smooth_axis(
     if method_l == "median":
         size = [1] * x.ndim
         size[ax] = k
-        x_smooth = median_filter(x, size=tuple(size), mode=pad_mode, cval=float(cval))
+        if nan_policy == "omit":
+            cval_finite = float(cval) if np.isfinite(float(cval)) else np.nan
+            if np.all(np.isfinite(x)) and (
+                pad_mode != "constant" or np.isfinite(cval_finite)
+            ):
+                x_smooth = median_filter(
+                    x,
+                    size=tuple(size),
+                    mode=pad_mode,
+                    cval=float(cval),
+                )
+            else:
+                finite_only = np.where(np.isfinite(x), x, np.nan)
+                vectorized_kwargs = {
+                    "size": k,
+                    "axes": (ax,),
+                    "mode": pad_mode,
+                    "batch_memory": _MEDIAN_OMIT_BATCH_MEMORY_BYTES,
+                }
+                if pad_mode == "constant":
+                    vectorized_kwargs["cval"] = cval_finite
+                with warnings.catch_warnings():
+                    warnings.filterwarnings(
+                        "ignore",
+                        message="All-NaN slice encountered",
+                        category=RuntimeWarning,
+                    )
+                    x_smooth = vectorized_filter(
+                        finite_only,
+                        np.nanmedian,
+                        **vectorized_kwargs,
+                    )
+        elif nan_policy == "propagate":
+            x_smooth = median_filter(
+                x,
+                size=tuple(size),
+                mode=pad_mode,
+                cval=float(cval),
+            )
 
     elif method_l == "mean":
         if nan_policy == "omit":
@@ -163,8 +217,6 @@ def smooth_axis(
         elif nan_policy == "propagate":
             w = np.ones(k, dtype=float) / float(k)
             x_smooth = convolve1d(x, w, axis=ax, mode=pad_mode, cval=float(cval))
-        else:
-            raise ValueError("nan_policy must be 'omit' or 'propagate'")
 
     else:
         gaussian_kwargs = {
@@ -186,8 +238,6 @@ def smooth_axis(
             x_smooth = np.where(den > 0, x_smooth, np.nan)
         elif nan_policy == "propagate":
             x_smooth = gaussian_filter1d(x, **gaussian_kwargs)
-        else:
-            raise ValueError("nan_policy must be 'omit' or 'propagate'")
 
     if transform_mode is not None and return_in_original_domain:
         x_smooth = apply_inverse_transform_array(x_smooth, mode=transform_mode)

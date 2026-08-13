@@ -15,6 +15,7 @@ from lfptensorpipe.utils.transforms import (
 
 from .. import service as svc
 from .periodic_aperiodic_models import (
+    MASK_SUPPORT_SEMANTICS,
     NOTCH_INTERPOLATION_METHOD,
     NOTCH_INTERPOLATION_SEED,
     PeriodicAperiodicOptions,
@@ -22,6 +23,109 @@ from .periodic_aperiodic_models import (
     PeriodicAperiodicPreparedInput,
     derive_notch_interpolation_seed,
 )
+
+
+def _effective_time_smoothing_kernel_size(
+    options: PeriodicAperiodicOptions,
+) -> int | None:
+    if not bool(options.time_smooth_enabled):
+        return None
+    kernel = (
+        int(options.time_smooth_kernel_size)
+        if options.time_smooth_kernel_size is not None
+        else max(
+            1,
+            int(round(float(options.time_resolution_s) / float(options.hop_s))),
+        )
+    )
+    kernel = max(1, kernel)
+    return kernel + 1 if kernel % 2 == 0 else kernel
+
+
+def _effective_tfr_hop_seconds(
+    metadata: dict[str, Any],
+    prepared: PeriodicAperiodicPreparedInput,
+) -> float:
+    params = metadata.get("params", {}) if isinstance(metadata, dict) else {}
+    if not isinstance(params, dict):
+        params = {}
+    hop_s_eff = params.get("hop_s_eff")
+    try:
+        hop_s_eff_float = float(hop_s_eff)
+    except (TypeError, ValueError):
+        hop_s_eff_float = float("nan")
+    if np.isfinite(hop_s_eff_float) and hop_s_eff_float > 0.0:
+        return hop_s_eff_float
+
+    try:
+        decim_eff = int(params.get("decim_eff"))
+        sfreq = float(prepared.raw.info["sfreq"])
+    except (KeyError, TypeError, ValueError):
+        decim_eff = 0
+        sfreq = float("nan")
+    if decim_eff > 0 and np.isfinite(sfreq) and sfreq > 0.0:
+        return float(decim_eff / sfreq)
+
+    axes = metadata.get("axes", {}) if isinstance(metadata, dict) else {}
+    times = np.asarray(axes.get("time", []), dtype=float).ravel()
+    finite_diffs = np.diff(times)
+    finite_diffs = finite_diffs[np.isfinite(finite_diffs) & (finite_diffs > 0.0)]
+    if finite_diffs.size > 0:
+        return float(np.median(finite_diffs))
+    raise ValueError("Periodic/Aperiodic TFR metadata is missing its effective hop.")
+
+
+def _periodic_annotation_support(
+    prepared: PeriodicAperiodicPreparedInput,
+    options: PeriodicAperiodicOptions,
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    consumed_freqs = np.asarray(prepared.freqs_compute, dtype=float).ravel()
+    if consumed_freqs.size < 1 or not np.all(np.isfinite(consumed_freqs)):
+        raise ValueError(
+            "Periodic/Aperiodic consumed TFR frequencies must be finite and non-empty."
+        )
+    hop_s_eff = _effective_tfr_hop_seconds(metadata, prepared)
+    kernel_eff = _effective_time_smoothing_kernel_size(options)
+    support: dict[str, Any] = {
+        "mask_support_semantics": MASK_SUPPORT_SEMANTICS,
+        "consumed_tfr_frequency_min_hz": float(np.min(consumed_freqs)),
+        "consumed_tfr_frequency_max_hz": float(np.max(consumed_freqs)),
+        "consumed_tfr_frequency_count": int(consumed_freqs.size),
+        "time_smoothing_kernel_size_eff": kernel_eff,
+        "hop_s_eff": float(hop_s_eff),
+    }
+    if not bool(options.mask_edge_effects):
+        support.update(
+            {
+                "annotation_estimator_support_radius_s": None,
+                "annotation_time_smoothing_radius_s": None,
+                "annotation_skip_radius_s": None,
+            }
+        )
+        return support
+
+    estimator_radii = svc._compute_mask_radii_seconds(
+        consumed_freqs,
+        method=prepared.method_norm,
+        time_resolution_s=float(options.time_resolution_s),
+        min_cycles=options.min_cycles,
+        max_cycles=options.max_cycles,
+        mt_time_bandwidth_product=float(options.mt_time_bandwidth_product),
+        mt_min_cycles=float(options.mt_min_cycles),
+    )
+    estimator_radius_s = float(np.max(estimator_radii))
+    time_smoothing_radius_s = (
+        float((kernel_eff // 2) * hop_s_eff) if kernel_eff is not None else 0.0
+    )
+    support.update(
+        {
+            "annotation_estimator_support_radius_s": estimator_radius_s,
+            "annotation_time_smoothing_radius_s": time_smoothing_radius_s,
+            "annotation_skip_radius_s": (estimator_radius_s + time_smoothing_radius_s),
+        }
+    )
+    return support
 
 
 def _normalize_power_tensor(power: Any) -> np.ndarray:
@@ -260,18 +364,13 @@ def _run_tfr_grid(
         )
 
     if bool(options.time_smooth_enabled):
-        kernel = (
-            int(options.time_smooth_kernel_size)
-            if options.time_smooth_kernel_size is not None
-            else max(
-                1,
-                int(round(float(options.time_resolution_s) / float(options.hop_s))),
-            )
-        )
+        kernel = _effective_time_smoothing_kernel_size(options)
+        if kernel is None:
+            raise RuntimeError("Time smoothing kernel resolution failed.")
         power_tensor = np.asarray(
             smooth_axis(
                 power_tensor,
-                kernel_size=max(1, kernel),
+                kernel_size=kernel,
                 method="median",
                 axis=-1,
                 transform_mode=transform_policy.mode,
@@ -314,17 +413,9 @@ def _run_decomposition(
             make_gof_rsquared_masker_fn = make_gof_rsquared_masker
 
     freqs_meta, times_meta, channel_meta = _axes_from_metadata(metadata, power_tensor)
+    annotation_support = _periodic_annotation_support(prepared, options, metadata)
     if options.mask_edge_effects:
-        final_radii = svc._compute_mask_radii_seconds(
-            prepared.freqs_final,
-            method=prepared.method_norm,
-            time_resolution_s=float(options.time_resolution_s),
-            min_cycles=options.min_cycles,
-            max_cycles=options.max_cycles,
-            mt_time_bandwidth_product=float(options.mt_time_bandwidth_product),
-            mt_min_cycles=float(options.mt_min_cycles),
-        )
-        annotation_skip_radius_s = float(np.min(final_radii))
+        annotation_skip_radius_s = float(annotation_support["annotation_skip_radius_s"])
         skip_time_mask = build_annotation_skip_time_mask(
             prepared.raw,
             times_s=times_meta,
@@ -423,7 +514,7 @@ def _run_decomposition(
     metadata_params = dict(metadata.get("params", {}) or {})
     metadata_params.update(
         {
-            "annotation_skip_radius_s": annotation_skip_radius_s,
+            **annotation_support,
             "n_columns_total": n_columns_total,
             "n_columns_skipped_masked": n_columns_skipped_masked,
             "n_spectra_unsupported_masked": n_spectra_unsupported_masked,
@@ -433,7 +524,7 @@ def _run_decomposition(
     params_runtime = dict(params_meta_dict.get("params", {}) or {})
     params_runtime.update(
         {
-            "annotation_skip_radius_s": annotation_skip_radius_s,
+            **annotation_support,
             "n_columns_total": n_columns_total,
             "n_columns_skipped_masked": n_columns_skipped_masked,
             "n_spectra_unsupported_masked": n_spectra_unsupported_masked,
