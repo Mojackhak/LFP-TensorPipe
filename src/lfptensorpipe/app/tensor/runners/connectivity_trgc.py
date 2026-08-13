@@ -18,7 +18,9 @@ from lfptensorpipe.app.preproc_service import (
 from lfptensorpipe.app.runlog_store import indicator_from_log
 from lfptensorpipe.io.pkl_io import load_pkl, save_pkl
 
-from ..atomic_io import write_outputs_atomically as _write_outputs_atomically
+from lfptensorpipe.app.shared.atomic_outputs import (
+    write_outputs_atomically as _write_outputs_atomically,
+)
 from ..coercion import _normalize_metric_method
 from ..frequency import (
     _apply_dynamic_edge_mask_strict,

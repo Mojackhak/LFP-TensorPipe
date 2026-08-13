@@ -44,10 +44,11 @@ def write_preproc_step_config(
     resolver: PathResolver,
     step: str,
     config: dict[str, Any],
+    path: Path | None = None,
 ) -> Path:
     """Persist one preprocess step config YAML."""
-    path = preproc_step_config_path(resolver, step)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
+    output_path = path or preproc_step_config_path(resolver, step)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as f:
         yaml.safe_dump(config, f, sort_keys=False, allow_unicode=False)
-    return path
+    return output_path

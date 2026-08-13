@@ -8,8 +8,14 @@ import shutil
 from typing import Any, Callable
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
+from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
 
-from ..paths import preproc_step_raw_path, write_preproc_step_config
+from ..paths import (
+    preproc_step_config_path,
+    preproc_step_log_path,
+    preproc_step_raw_path,
+    write_preproc_step_config,
+)
 
 MarkStepFn = Callable[..., Any]
 InvalidateFn = Callable[[RecordContext, str], list[Any]]
@@ -103,6 +109,7 @@ def apply_annotations_step(
             output_path=str(dst),
             message="No valid preprocess input for annotations step.",
         )
+        invalidate_downstream_fn(context, "annotations")
         return False, "No valid preprocess input for annotations step."
 
     source_step, src = source
@@ -117,59 +124,73 @@ def apply_annotations_step(
             output_path=str(dst),
             message=f"Invalid annotation rows: {invalid_rows}",
         )
+        invalidate_downstream_fn(context, "annotations")
         return False, f"Invalid annotation rows: {invalid_rows}"
 
     try:
-        if read_raw_fif_fn is None:
-            import mne
+        import mne
 
+        if read_raw_fif_fn is None:
             read_raw_fif_fn = mne.io.read_raw_fif
         runtime_copy2 = copy2_fn or shutil.copy2
 
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        # Inherit the nearest valid preceding artifact before adding annotations.
-        runtime_copy2(src, dst)
-        raw = read_raw_fif_fn(str(dst), preload=True, verbose="ERROR")
-        annotations = mne.Annotations(
-            onset=[float(item["onset"]) for item in normalized_rows],
-            duration=[float(item["duration"]) for item in normalized_rows],
-            description=[str(item["description"]) for item in normalized_rows],
-            orig_time=raw.annotations.orig_time,
-        )
-        inherited_annotations = raw.annotations.copy()
-        raw.set_annotations(inherited_annotations + annotations)
+        config_path = preproc_step_config_path(resolver, "annotations")
+        log_path = preproc_step_log_path(resolver, "annotations")
+        with AtomicOutputSet([dst, csv_path, config_path, log_path]) as output_set:
+            staged_raw = output_set.staged_path(dst)
+            # Preserve the exact source file before applying annotations.
+            runtime_copy2(src, staged_raw)
+            raw = read_raw_fif_fn(str(staged_raw), preload=True, verbose="ERROR")
+            annotations = mne.Annotations(
+                onset=[float(item["onset"]) for item in normalized_rows],
+                duration=[float(item["duration"]) for item in normalized_rows],
+                description=[str(item["description"]) for item in normalized_rows],
+                orig_time=raw.annotations.orig_time,
+            )
+            inherited_annotations = raw.annotations.copy()
+            raw.set_annotations(inherited_annotations + annotations)
 
-        raw.save(str(dst), overwrite=True)
+            raw.save(str(staged_raw), overwrite=True)
 
-        with csv_path.open("w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=["description", "onset", "duration"])
-            writer.writeheader()
-            for item in normalized_rows:
-                writer.writerow(
-                    {
-                        "description": str(item["description"]),
-                        "onset": float(item["onset"]),
-                        "duration": float(item["duration"]),
-                    }
+            with output_set.staged_path(csv_path).open(
+                "w",
+                encoding="utf-8",
+                newline="",
+            ) as f:
+                writer = csv.DictWriter(
+                    f,
+                    fieldnames=["description", "onset", "duration"],
                 )
+                writer.writeheader()
+                for item in normalized_rows:
+                    writer.writerow(
+                        {
+                            "description": str(item["description"]),
+                            "onset": float(item["onset"]),
+                            "duration": float(item["duration"]),
+                        }
+                    )
 
-        write_preproc_step_config(
-            resolver=resolver,
-            step="annotations",
-            config={
-                "row_count": len(normalized_rows),
-                "csv_path": str(csv_path),
-            },
-        )
-        mark_preproc_step_fn(
-            resolver=resolver,
-            step="annotations",
-            completed=True,
-            params={"row_count": len(normalized_rows)},
-            input_path=str(src),
-            output_path=str(dst),
-            message=f"Annotations step completed using source: {source_step}.",
-        )
+            write_preproc_step_config(
+                resolver=resolver,
+                step="annotations",
+                path=output_set.staged_path(config_path),
+                config={
+                    "row_count": len(normalized_rows),
+                    "csv_path": str(csv_path),
+                },
+            )
+            mark_preproc_step_fn(
+                resolver=resolver,
+                step="annotations",
+                completed=True,
+                params={"row_count": len(normalized_rows)},
+                input_path=str(src),
+                output_path=str(dst),
+                message=f"Annotations step completed using source: {source_step}.",
+                log_path=output_set.staged_path(log_path),
+            )
+            output_set.commit()
         invalidate_downstream_fn(context, "annotations")
     except Exception as exc:
         mark_preproc_step_fn(
@@ -180,6 +201,7 @@ def apply_annotations_step(
             output_path=str(dst),
             message=f"Annotations step failed: {exc}",
         )
+        invalidate_downstream_fn(context, "annotations")
         return False, f"Annotations step failed: {exc}"
 
     return True, "Annotations step completed."

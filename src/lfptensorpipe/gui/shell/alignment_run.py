@@ -11,6 +11,9 @@ from PySide6.QtCore import Qt
 from lfptensorpipe.app import (
     PathResolver,
 )
+from lfptensorpipe.app.alignment.generation import (
+    alignment_generation_rerun_message,
+)
 
 
 class MainWindowAlignmentRunMixin:
@@ -209,6 +212,21 @@ class MainWindowAlignmentRunMixin:
             method_state=method_state,
             epoch_state=epoch_state,
         )
+        if (
+            self._alignment_epoch_inspector_indicator is not None
+            and context is not None
+            and has_paradigm
+        ):
+            rerun_message = alignment_generation_rerun_message(
+                PathResolver(context),
+                trial_slug=str(self._current_alignment_paradigm_slug()),
+                stage="finish",
+            )
+            if rerun_message is not None:
+                self._alignment_epoch_inspector_indicator.setToolTip(
+                    f"{self._alignment_epoch_inspector_indicator.toolTip()} "
+                    f"{rerun_message}"
+                )
         self._refresh_alignment_merge_location_status(context)
 
         if self._alignment_paradigm_add_button is not None:

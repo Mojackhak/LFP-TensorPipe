@@ -160,7 +160,34 @@ def localize_log_path(project_root: Path, subject: str, record: str) -> Path:
 
 def localize_indicator_state(project_root: Path, subject: str, record: str) -> str:
     """Derive Localize indicator state from record-level localize log."""
-    return indicator_from_log(localize_log_path(project_root, subject, record))
+    state = indicator_from_log(localize_log_path(project_root, subject, record))
+    if state != "green":
+        return state
+    required_outputs = (
+        localize_representative_pkl_path(project_root, subject, record),
+        localize_representative_csv_path(project_root, subject, record),
+        localize_ordered_pair_representative_pkl_path(
+            project_root,
+            subject,
+            record,
+        ),
+        localize_ordered_pair_representative_csv_path(
+            project_root,
+            subject,
+            record,
+        ),
+        localize_undirected_pair_representative_pkl_path(
+            project_root,
+            subject,
+            record,
+        ),
+        localize_undirected_pair_representative_csv_path(
+            project_root,
+            subject,
+            record,
+        ),
+    )
+    return "green" if all(path.is_file() for path in required_outputs) else "yellow"
 
 
 def localize_match_signature(

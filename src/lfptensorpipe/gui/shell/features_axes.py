@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.alignment.generation import accepted_alignment_artifact_paths
 from lfptensorpipe.gui.shell.common import (
     Any,
     FEATURE_AUTO_BAND_METRICS,
@@ -23,8 +24,16 @@ class MainWindowFeaturesAxesMixin:
         slug = self._current_features_paradigm_slug()
         if context is None or not isinstance(slug, str):
             return []
-        path = PathResolver(context).alignment_root / slug / metric_key / "na-raw.pkl"
-        if not path.exists():
+        resolver = PathResolver(context)
+        accepted_paths = dict(
+            accepted_alignment_artifact_paths(
+                resolver,
+                trial_slug=slug,
+                stage="finish",
+            )
+        )
+        path = accepted_paths.get(metric_key)
+        if path is None or not path.is_file():
             return []
         try:
             payload = self._load_pickle(path)

@@ -9,6 +9,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QTableWidgetItem
 
 from lfptensorpipe.app import PathResolver
+from lfptensorpipe.app.alignment.generation import (
+    accepted_alignment_artifact_paths,
+)
 
 
 class MainWindowAlignmentEpochsMixin:
@@ -118,13 +121,15 @@ class MainWindowAlignmentEpochsMixin:
         metrics: list[str] = []
         if context is not None and slug:
             resolver = PathResolver(context)
-            paradigm_dir = resolver.alignment_paradigm_dir(slug, create=False)
-            if paradigm_dir.exists():
-                for metric_dir in sorted(
-                    path for path in paradigm_dir.iterdir() if path.is_dir()
-                ):
-                    if (metric_dir / "tensor_warped.pkl").exists():
-                        metrics.append(metric_dir.name)
+            metrics = [
+                metric_key
+                for metric_key, path in accepted_alignment_artifact_paths(
+                    resolver,
+                    trial_slug=slug,
+                    stage="run",
+                )
+                if path.is_file()
+            ]
         self._alignment_epoch_metric_combo.blockSignals(True)
         self._alignment_epoch_metric_combo.clear()
         if not metrics:

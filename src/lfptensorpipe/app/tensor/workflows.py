@@ -14,7 +14,9 @@ from lfptensorpipe.app.preproc_service import (
 from lfptensorpipe.app.runlog_store import indicator_from_log, read_run_log
 from lfptensorpipe.io.pkl_io import save_pkl
 
-from .atomic_io import write_outputs_atomically as _write_outputs_atomically
+from lfptensorpipe.app.shared.atomic_outputs import (
+    write_outputs_atomically as _write_outputs_atomically,
+)
 from .annotation_source import load_burst_baseline_annotation_labels
 from .coercion import (
     _as_bool,

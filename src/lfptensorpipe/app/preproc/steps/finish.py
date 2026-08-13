@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
+from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
+
+from ..paths import preproc_step_log_path
 
 ReadRunLogFn = Callable[[Path], dict[str, Any] | None]
 MarkStepFn = Callable[..., Any]
@@ -86,12 +89,6 @@ def apply_finish_step(
         save_format = source_format if source_format in _SAVE_FORMATS else "single"
         raw_out, edge_report = add_head_tail_annotations_fn(raw)
 
-        finish_raw_path.parent.mkdir(parents=True, exist_ok=True)
-        raw_out.save(
-            str(finish_raw_path),
-            fmt=save_format,
-            overwrite=True,
-        )
         n_added = int(edge_report["n_added"])
         dropped = (
             int(edge_report.get("n_annotations_in", 0))
@@ -101,27 +98,38 @@ def apply_finish_step(
         message = f"Finish raw finalized from {source_step} with physical EDGE markers."
         if dropped:
             message = f"{message} Dropped {dropped} out-of-range annotation(s)."
-        mark_preproc_step_fn(
-            resolver=resolver,
-            step="finish",
-            completed=True,
-            params={
-                "source_step": source_step,
-                "physical_edge_description": str(edge_report["description"]),
-                "physical_edge_count": n_added,
-                "physical_edge_onsets_sec": [
-                    float(item) for item in edge_report["added_onsets_sec"]
-                ],
-                "physical_edge_durations_sec": [
-                    float(item) for item in edge_report["added_durations_sec"]
-                ],
-                "source_first_time_sec": float(edge_report.get("first_time_sec", 0.0)),
-                "dropped_annotations": dropped,
-            },
-            input_path=str(source_path),
-            output_path=str(finish_raw_path),
-            message=message,
-        )
+        log_path = preproc_step_log_path(resolver, "finish")
+        with AtomicOutputSet([finish_raw_path, log_path]) as output_set:
+            raw_out.save(
+                str(output_set.staged_path(finish_raw_path)),
+                fmt=save_format,
+                overwrite=True,
+            )
+            mark_preproc_step_fn(
+                resolver=resolver,
+                step="finish",
+                completed=True,
+                params={
+                    "source_step": source_step,
+                    "physical_edge_description": str(edge_report["description"]),
+                    "physical_edge_count": n_added,
+                    "physical_edge_onsets_sec": [
+                        float(item) for item in edge_report["added_onsets_sec"]
+                    ],
+                    "physical_edge_durations_sec": [
+                        float(item) for item in edge_report["added_durations_sec"]
+                    ],
+                    "source_first_time_sec": float(
+                        edge_report.get("first_time_sec", 0.0)
+                    ),
+                    "dropped_annotations": dropped,
+                },
+                input_path=str(source_path),
+                output_path=str(finish_raw_path),
+                message=message,
+                log_path=output_set.staged_path(log_path),
+            )
+            output_set.commit()
     except Exception as exc:
         mark_preproc_step_fn(
             resolver=resolver,

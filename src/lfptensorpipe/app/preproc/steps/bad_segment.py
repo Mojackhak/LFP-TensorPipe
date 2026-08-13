@@ -6,8 +6,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
+from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
 
-from ..paths import preproc_step_raw_path, write_preproc_step_config
+from ..paths import (
+    preproc_step_config_path,
+    preproc_step_log_path,
+    preproc_step_raw_path,
+    write_preproc_step_config,
+)
 
 MarkStepFn = Callable[..., Any]
 InvalidateFn = Callable[[RecordContext, str], list[Any]]
@@ -70,6 +76,7 @@ def apply_bad_segment_step(
             output_path=str(dst),
             message="No valid preprocess input for bad-segment step.",
         )
+        invalidate_downstream_fn(context, "bad_segment_removal")
         return False, "No valid preprocess input for bad-segment step."
 
     source_step, src = source
@@ -103,27 +110,32 @@ def apply_bad_segment_step(
             raw_good = filtered
             filter_report = {}
 
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        raw_good.save(str(dst), overwrite=True)
-        write_preproc_step_config(
-            resolver=resolver,
-            step="bad_segment_removal",
-            config={
-                "filter_report": filter_report,
-            },
-        )
-        mark_preproc_step_fn(
-            resolver=resolver,
-            step="bad_segment_removal",
-            completed=True,
-            params={"mode": "defaults"},
-            input_path=str(src),
-            output_path=str(dst),
-            message=(
-                f"Bad Segment step completed using source {source_step} with "
-                "filter_lfp_with_bad_annotations defaults."
-            ),
-        )
+        config_path = preproc_step_config_path(resolver, "bad_segment_removal")
+        log_path = preproc_step_log_path(resolver, "bad_segment_removal")
+        with AtomicOutputSet([dst, config_path, log_path]) as output_set:
+            raw_good.save(str(output_set.staged_path(dst)), overwrite=True)
+            write_preproc_step_config(
+                resolver=resolver,
+                step="bad_segment_removal",
+                path=output_set.staged_path(config_path),
+                config={
+                    "filter_report": filter_report,
+                },
+            )
+            mark_preproc_step_fn(
+                resolver=resolver,
+                step="bad_segment_removal",
+                completed=True,
+                params={"mode": "defaults"},
+                input_path=str(src),
+                output_path=str(dst),
+                message=(
+                    f"Bad Segment step completed using source {source_step} with "
+                    "filter_lfp_with_bad_annotations defaults."
+                ),
+                log_path=output_set.staged_path(log_path),
+            )
+            output_set.commit()
         invalidate_downstream_fn(context, "bad_segment_removal")
     except Exception as exc:
         mark_preproc_step_fn(
@@ -134,6 +146,7 @@ def apply_bad_segment_step(
             output_path=str(dst),
             message=f"Bad Segment step failed: {exc}",
         )
+        invalidate_downstream_fn(context, "bad_segment_removal")
         return False, f"Bad Segment step failed: {exc}"
 
     return True, "Bad Segment step completed."

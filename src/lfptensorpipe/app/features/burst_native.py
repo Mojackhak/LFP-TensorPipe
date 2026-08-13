@@ -12,6 +12,10 @@ from lfptensorpipe.app.alignment.paths import (
     alignment_paradigm_log_path,
     alignment_warp_labels_path,
 )
+from lfptensorpipe.app.alignment.generation import (
+    accepted_alignment_metrics,
+    alignment_generation_rerun_message,
+)
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import read_run_log
 from lfptensorpipe.app.tensor.paths import tensor_metric_tensor_path
@@ -80,6 +84,36 @@ def _load_alignment_mapping_state(
     resolver: PathResolver,
     trial_slug: str,
 ) -> tuple[str, dict[str, Any], list[Any], list[int]]:
+    run_metrics = accepted_alignment_metrics(
+        resolver,
+        trial_slug=trial_slug,
+        stage="run",
+    )
+    if run_metrics is None:
+        raise ValueError(
+            alignment_generation_rerun_message(
+                resolver,
+                trial_slug=trial_slug,
+                stage="run",
+            )
+            or "Alignment has no accepted Run metric generation."
+        )
+    finish_metrics = accepted_alignment_metrics(
+        resolver,
+        trial_slug=trial_slug,
+        stage="finish",
+    )
+    if finish_metrics is None:
+        raise ValueError(
+            alignment_generation_rerun_message(
+                resolver,
+                trial_slug=trial_slug,
+                stage="finish",
+            )
+            or "Latest Alignment Run has not been finished."
+        )
+    if "burst" not in finish_metrics:
+        raise ValueError("Accepted Alignment Finish does not include Burst.")
     log_payload = read_run_log(alignment_paradigm_log_path(resolver, trial_slug))
     if not isinstance(log_payload, dict):
         raise ValueError("Alignment log payload is invalid.")

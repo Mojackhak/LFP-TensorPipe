@@ -9,8 +9,14 @@ import shutil
 from typing import Any, Callable
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
+from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
 
-from ..paths import preproc_step_raw_path, write_preproc_step_config
+from ..paths import (
+    preproc_step_config_path,
+    preproc_step_log_path,
+    preproc_step_raw_path,
+    write_preproc_step_config,
+)
 
 MarkStepFn = Callable[..., Any]
 InvalidateFn = Callable[[RecordContext, str], list[Any]]
@@ -317,6 +323,7 @@ def apply_ecg_step(
             output_path=str(dst),
             message=f"Unknown ECG method: {method}",
         )
+        invalidate_downstream_fn(context, "ecg_artifact_removal")
         return False, f"Unknown ECG method: {method}"
 
     if source is None:
@@ -328,6 +335,7 @@ def apply_ecg_step(
             output_path=str(dst),
             message="No valid preprocess input for ECG step.",
         )
+        invalidate_downstream_fn(context, "ecg_artifact_removal")
         return False, "No valid preprocess input for ECG step."
 
     source_step, src = source
@@ -348,35 +356,43 @@ def apply_ecg_step(
 
         selected_picks = list(picks) if picks is not None else None
         if selected_picks is not None and not selected_picks:
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            runtime_copy2(src, dst)
-            write_preproc_step_config(
-                resolver=resolver,
-                step="ecg_artifact_removal",
-                config={
-                    "method": method,
-                    "mode": "passthrough_copy",
-                    "picks": [],
-                    "method_kwargs": runtime_kwargs,
-                    "figure_channels": [],
-                },
+            config_path = preproc_step_config_path(
+                resolver,
+                "ecg_artifact_removal",
             )
-            mark_preproc_step_fn(
-                resolver=resolver,
-                step="ecg_artifact_removal",
-                completed=True,
-                params={
-                    "method": method,
-                    "picks": [],
-                    "method_kwargs": persisted_kwargs,
-                },
-                input_path=str(src),
-                output_path=str(dst),
-                message=(
-                    "ECG step completed without channel picks; "
-                    f"copied {source_step} output unchanged."
-                ),
-            )
+            log_path = preproc_step_log_path(resolver, "ecg_artifact_removal")
+            with AtomicOutputSet([dst, config_path, log_path]) as output_set:
+                runtime_copy2(src, output_set.staged_path(dst))
+                write_preproc_step_config(
+                    resolver=resolver,
+                    step="ecg_artifact_removal",
+                    path=output_set.staged_path(config_path),
+                    config={
+                        "method": method,
+                        "mode": "passthrough_copy",
+                        "picks": [],
+                        "method_kwargs": runtime_kwargs,
+                        "figure_channels": [],
+                    },
+                )
+                mark_preproc_step_fn(
+                    resolver=resolver,
+                    step="ecg_artifact_removal",
+                    completed=True,
+                    params={
+                        "method": method,
+                        "picks": [],
+                        "method_kwargs": persisted_kwargs,
+                    },
+                    input_path=str(src),
+                    output_path=str(dst),
+                    message=(
+                        "ECG step completed without channel picks; "
+                        f"copied {source_step} output unchanged."
+                    ),
+                    log_path=output_set.staged_path(log_path),
+                )
+                output_set.commit()
             invalidate_downstream_fn(context, "ecg_artifact_removal")
             return True, "ECG step completed."
 
@@ -401,34 +417,40 @@ def apply_ecg_step(
             raw_call_kwargs["_diagnostics_out"] = ecg_diagnostics
         raw_clean, figs = runtime_raw_call(raw, **raw_call_kwargs)
 
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        raw_clean.save(str(dst), overwrite=True)
-        write_preproc_step_config(
-            resolver=resolver,
-            step="ecg_artifact_removal",
-            config={
-                "method": method,
-                "picks": selected_picks,
-                "method_kwargs": runtime_kwargs,
-                "figure_channels": sorted(figs.keys()),
-            },
-        )
-        mark_preproc_step_fn(
-            resolver=resolver,
-            step="ecg_artifact_removal",
-            completed=True,
-            params={
-                "method": method,
-                "picks": selected_picks,
-                "method_kwargs": persisted_kwargs,
-                **ecg_diagnostics,
-            },
-            input_path=str(src),
-            output_path=str(dst),
-            message=(
-                f"ECG step completed with method {method} using source: {source_step}."
-            ),
-        )
+        config_path = preproc_step_config_path(resolver, "ecg_artifact_removal")
+        log_path = preproc_step_log_path(resolver, "ecg_artifact_removal")
+        with AtomicOutputSet([dst, config_path, log_path]) as output_set:
+            raw_clean.save(str(output_set.staged_path(dst)), overwrite=True)
+            write_preproc_step_config(
+                resolver=resolver,
+                step="ecg_artifact_removal",
+                path=output_set.staged_path(config_path),
+                config={
+                    "method": method,
+                    "picks": selected_picks,
+                    "method_kwargs": runtime_kwargs,
+                    "figure_channels": sorted(figs.keys()),
+                },
+            )
+            mark_preproc_step_fn(
+                resolver=resolver,
+                step="ecg_artifact_removal",
+                completed=True,
+                params={
+                    "method": method,
+                    "picks": selected_picks,
+                    "method_kwargs": persisted_kwargs,
+                    **ecg_diagnostics,
+                },
+                input_path=str(src),
+                output_path=str(dst),
+                message=(
+                    f"ECG step completed with method {method} using source: "
+                    f"{source_step}."
+                ),
+                log_path=output_set.staged_path(log_path),
+            )
+            output_set.commit()
         invalidate_downstream_fn(context, "ecg_artifact_removal")
     except Exception as exc:
         mark_preproc_step_fn(
@@ -439,6 +461,7 @@ def apply_ecg_step(
             output_path=str(dst),
             message=f"ECG step failed: {exc}",
         )
+        invalidate_downstream_fn(context, "ecg_artifact_removal")
         return False, f"ECG step failed: {exc}"
 
     return True, "ECG step completed."

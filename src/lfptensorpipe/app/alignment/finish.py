@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import numpy as np
 
+from lfptensorpipe.app.alignment.generation import (
+    accepted_alignment_metrics,
+    alignment_generation_rerun_message,
+)
 from lfptensorpipe.app.localize_service import localize_indicator_state
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
+from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
 from lfptensorpipe.app.shared.downstream_invalidation import (
     invalidate_after_alignment_finish,
 )
@@ -63,6 +68,20 @@ def finish_alignment_epochs(
         run_ready = indicator_from_log(log_path) == "green"
     if not run_ready:
         return False, "Run Align Epochs successfully before Finish."
+    run_metrics = accepted_alignment_metrics(
+        resolver,
+        trial_slug=slug,
+        stage="run",
+    )
+    if run_metrics is None:
+        return False, (
+            alignment_generation_rerun_message(
+                resolver,
+                trial_slug=slug,
+                stage="run",
+            )
+            or "Latest Align Run has no accepted metric generation."
+        )
     if not picked_epoch_indices:
         return False, "Select at least one epoch before Finish."
     picked = sorted({int(item) for item in picked_epoch_indices if int(item) >= 0})
@@ -72,138 +91,181 @@ def finish_alignment_epochs(
         trial_cfg.get("method", "") if isinstance(trial_cfg, dict) else ""
     )
 
-    paradigm_dir = alignment_paradigm_dir(resolver, slug)
-    metric_paths = sorted(paradigm_dir.glob("*/tensor_warped.pkl"))
+    required_metrics = list(run_metrics)
     if selected_metrics is not None:
-        requested_metrics = {
+        requested_metrics = [
             str(metric).strip() for metric in selected_metrics if str(metric).strip()
-        }
-        metric_paths = [
-            path for path in metric_paths if path.parent.name in requested_metrics
         ]
-    if not metric_paths:
-        return False, "No warped tensor outputs found for selected trial."
-
-    saved = 0
-    repcoord_warnings: list[str] = []
-    for metric_path in metric_paths:
-        metric_key = metric_path.parent.name
-        payload = load_pkl(metric_path)
-        if not isinstance(payload, dict):
-            continue
-        tensor = np.asarray(payload.get("tensor"), dtype=float)
-        meta = payload.get("meta", {})
-        if tensor.ndim != 4:
-            continue
-        axes = meta.get("axes", {}) if isinstance(meta, dict) else {}
-        if not isinstance(axes, dict):
-            continue
-        epoch_axis_raw = axes.get("epoch")
-        channel_axis_raw = axes.get("channel")
-        freq_axis_raw = axes.get("freq")
-
-        epoch_axis = (
-            list(epoch_axis_raw)
-            if epoch_axis_raw is not None
-            else [f"epoch_{idx:03d}" for idx in range(tensor.shape[0])]
-        )
-        channel_axis = (
-            list(channel_axis_raw)
-            if channel_axis_raw is not None
-            else [f"ch_{idx:03d}" for idx in range(tensor.shape[1])]
-        )
-        freq_axis = (
-            list(freq_axis_raw)
-            if freq_axis_raw is not None
-            else list(np.arange(tensor.shape[2], dtype=float))
-        )
-        time_axis = _finish_time_axis_values(
-            axes,
-            method_key=finish_method,
-            n_time=tensor.shape[3],
-        )
-
-        keep = [idx for idx in picked if idx < tensor.shape[0]]
-        if not keep:
-            continue
-        tensor_keep = tensor[keep, ...]
-        epochs_keep = [epoch_axis[idx] for idx in keep]
-
-        frame = split_tensor4d_to_nested_df(
-            tensor_keep,
-            epoch=epochs_keep,
-            channel=channel_axis,
-            freq=freq_axis,
-            time=time_axis,
-        )
-        frame = frame.rename(
-            columns={"epoch": "Epoch", "channel": "Channel", "value": "Value"}
-        )
-        frame["Subject"] = context.subject
-        frame["Record"] = context.record
-        frame["Trial"] = slug
-        frame["Metric"] = metric_key
-        if merge_location_info_ready:
-            frame, merge_warning = _merge_representative_coords_for_metric(
-                frame,
-                context,
-                metric_key=metric_key,
+        requested_set = set(requested_metrics)
+        unknown = sorted(requested_set.difference(run_metrics))
+        if unknown:
+            return (
+                False,
+                "Selected metrics are not in the accepted Align Run: "
+                + ", ".join(unknown),
             )
-            if merge_warning:
-                repcoord_warnings.append(f"{metric_key}:{merge_warning}")
-        transform_policy = (
-            meta.get(VALUE_TRANSFORM_POLICY_KEY)
-            if isinstance(meta, dict)
-            else None
-        )
-        if isinstance(transform_policy, dict):
-            frame.attrs[VALUE_TRANSFORM_POLICY_KEY] = dict(transform_policy)
+        required_metrics = [metric for metric in run_metrics if metric in requested_set]
+    if not required_metrics:
+        return False, "No accepted warped tensor metrics selected for Finish."
 
-        out_path = alignment_trial_raw_table_path(
+    paradigm_dir = alignment_paradigm_dir(resolver, slug)
+    repcoord_warnings: list[str] = []
+    frames: dict[str, object] = {}
+    output_paths = {
+        metric: alignment_trial_raw_table_path(
             resolver,
             trial_slug=slug,
-            metric_key=metric_key,
+            metric_key=metric,
         )
-        save_pkl(frame, out_path)
-        saved += 1
-
-    if saved == 0:
-        return False, "No raw-table outputs were generated."
-
-    _append_alignment_history(
-        log_path,
-        entry=RunLogRecord(
-            step="build_raw_table",
-            completed=True,
-            params={
-                "trial_slug": slug,
-                "picked_epoch_indices": picked,
-                "merge_location_info_ready": merge_location_info_ready,
-                "merge_location_info_applied": (
-                    merge_location_info_ready and not repcoord_warnings
-                ),
-                "saved_tables": saved,
-                "repcoord_merge_warnings": repcoord_warnings,
-            },
-            input_path=str(paradigm_dir),
-            output_path=str(paradigm_dir),
-            message=(
-                "Raw tables generated from warped tensors and merged representative coords."
-                if merge_location_info_ready and not repcoord_warnings
-                else (
-                    "Raw tables generated from warped tensors; representative-coordinate merge completed with warnings."
-                    if merge_location_info_ready
-                    else "Raw tables generated from warped tensors without representative-coordinate merge."
+        for metric in required_metrics
+    }
+    try:
+        for metric_key in required_metrics:
+            metric_path = paradigm_dir / metric_key / "tensor_warped.pkl"
+            if not metric_path.exists():
+                raise FileNotFoundError(
+                    f"Missing warped tensor for required metric: {metric_key}"
                 )
-            ),
-        ).to_dict(),
-        keep_top_level=True,
-    )
+            payload = load_pkl(metric_path)
+            if not isinstance(payload, dict):
+                raise ValueError(
+                    f"Invalid warped tensor payload for metric: {metric_key}"
+                )
+            tensor = np.asarray(payload.get("tensor"), dtype=float)
+            meta = payload.get("meta")
+            if tensor.ndim != 4:
+                raise ValueError(
+                    f"Warped tensor must be 4D for {metric_key}: {tensor.shape}"
+                )
+            if not isinstance(meta, dict):
+                raise ValueError(f"Warped metadata is invalid for: {metric_key}")
+            axes = meta.get("axes")
+            if not isinstance(axes, dict):
+                raise ValueError(f"Warped axes are invalid for: {metric_key}")
+
+            axis_values: dict[str, list[object]] = {}
+            for axis_name, expected_length in zip(
+                ("epoch", "channel", "freq", "time"),
+                tensor.shape,
+            ):
+                raw_axis = axes.get(axis_name)
+                if raw_axis is None:
+                    raise ValueError(
+                        f"Warped {axis_name} axis is missing for: {metric_key}"
+                    )
+                values = list(raw_axis)
+                if len(values) != expected_length:
+                    raise ValueError(
+                        f"Warped {axis_name} axis length mismatch for {metric_key}: "
+                        f"{len(values)} != {expected_length}"
+                    )
+                axis_values[axis_name] = values
+
+            invalid_picks = [idx for idx in picked if idx >= tensor.shape[0]]
+            if invalid_picks:
+                raise ValueError(
+                    f"Picked epoch indices exceed {metric_key} epoch support: "
+                    + ", ".join(str(index) for index in invalid_picks)
+                )
+            tensor_keep = tensor[picked, ...]
+            epochs_keep = [axis_values["epoch"][idx] for idx in picked]
+            time_axis = _finish_time_axis_values(
+                axes,
+                method_key=finish_method,
+                n_time=tensor.shape[3],
+            )
+            if len(time_axis) != tensor.shape[3]:
+                raise ValueError(f"Finish time axis length mismatch for: {metric_key}")
+
+            frame = split_tensor4d_to_nested_df(
+                tensor_keep,
+                epoch=epochs_keep,
+                channel=axis_values["channel"],
+                freq=axis_values["freq"],
+                time=time_axis,
+            )
+            frame = frame.rename(
+                columns={"epoch": "Epoch", "channel": "Channel", "value": "Value"}
+            )
+            frame["Subject"] = context.subject
+            frame["Record"] = context.record
+            frame["Trial"] = slug
+            frame["Metric"] = metric_key
+            if merge_location_info_ready:
+                frame, merge_warning = _merge_representative_coords_for_metric(
+                    frame,
+                    context,
+                    metric_key=metric_key,
+                )
+                if merge_warning:
+                    repcoord_warnings.append(f"{metric_key}:{merge_warning}")
+            transform_policy = meta.get(VALUE_TRANSFORM_POLICY_KEY)
+            if isinstance(transform_policy, dict):
+                frame.attrs[VALUE_TRANSFORM_POLICY_KEY] = dict(transform_policy)
+            frames[metric_key] = frame
+
+        with AtomicOutputSet([*output_paths.values(), log_path]) as output_set:
+            for metric_key in required_metrics:
+                save_pkl(
+                    frames[metric_key],
+                    output_set.staged_path(output_paths[metric_key]),
+                )
+            _append_alignment_history(
+                output_set.staged_path(log_path),
+                entry=RunLogRecord(
+                    step="build_raw_table",
+                    completed=True,
+                    params={
+                        "trial_slug": slug,
+                        "picked_epoch_indices": picked,
+                        "metrics": required_metrics,
+                        "n_metrics": len(required_metrics),
+                        "merge_location_info_ready": merge_location_info_ready,
+                        "merge_location_info_applied": (
+                            merge_location_info_ready and not repcoord_warnings
+                        ),
+                        "saved_tables": len(frames),
+                        "repcoord_merge_warnings": repcoord_warnings,
+                    },
+                    input_path=str(paradigm_dir),
+                    output_path=str(paradigm_dir),
+                    message=(
+                        "Raw tables generated from warped tensors and merged representative coords."
+                        if merge_location_info_ready and not repcoord_warnings
+                        else (
+                            "Raw tables generated from warped tensors; representative-coordinate merge completed with warnings."
+                            if merge_location_info_ready
+                            else "Raw tables generated from warped tensors without representative-coordinate merge."
+                        )
+                    ),
+                ).to_dict(),
+                keep_top_level=True,
+                source_path=log_path,
+            )
+            output_set.commit()
+    except Exception as exc:  # noqa: BLE001
+        _append_alignment_history(
+            log_path,
+            entry=RunLogRecord(
+                step="build_raw_table",
+                completed=False,
+                params={
+                    "trial_slug": slug,
+                    "picked_epoch_indices": picked,
+                    "metrics": required_metrics,
+                    "n_metrics": len(required_metrics),
+                },
+                input_path=str(paradigm_dir),
+                output_path=str(paradigm_dir),
+                message=f"Finish failed: {exc}",
+            ).to_dict(),
+            keep_top_level=True,
+        )
+        invalidate_after_alignment_finish(context, paradigm_slug=slug)
+        return False, f"Finish failed: {exc}"
+
     invalidate_after_alignment_finish(context, paradigm_slug=slug)
-    return (
-        True,
-        (
-            f"Finish completed. Saved {saved} raw table(s). "
-            f"Merge Location Info: {'Ready' if merge_location_info_ready else 'Not Ready'}."
-        ),
+    return True, (
+        f"Finish completed. Saved {len(frames)} raw table(s). "
+        f"Merge Location Info: {'Ready' if merge_location_info_ready else 'Not Ready'}."
     )

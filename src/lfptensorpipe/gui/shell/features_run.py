@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.alignment.generation import (
+    alignment_generation_rerun_message,
+)
+from lfptensorpipe.app.features.generation import (
+    accepted_feature_artifact_paths,
+)
 from lfptensorpipe.gui.shell.common import (
     Any,
     Path,
@@ -27,12 +33,22 @@ class MainWindowFeaturesRunMixin:
         selected_file = self._selected_features_file()
 
         if self._features_run_extract_button is not None:
+            rerun_message = None
+            if context is not None and isinstance(slug, str) and not metrics_ready:
+                rerun_message = alignment_generation_rerun_message(
+                    PathResolver(context),
+                    trial_slug=slug,
+                    stage="finish",
+                )
             self._features_run_extract_button.setEnabled(
                 has_context
                 and has_slug
                 and alignment_green
                 and metrics_ready
                 and subset_ready
+            )
+            self._features_run_extract_button.setToolTip(
+                rerun_message or "Run feature extraction for the selected trial."
             )
         if self._features_import_button is not None:
             self._features_import_button.setEnabled(has_context and has_slug)
@@ -63,9 +79,15 @@ class MainWindowFeaturesRunMixin:
             return
         metric_keys = self._features_metric_keys_for_selected_trial()
         if not metric_keys:
+            rerun_message = alignment_generation_rerun_message(
+                PathResolver(context),
+                trial_slug=slug,
+                stage="finish",
+            )
             self._show_warning(
                 "Extract Features",
-                "No alignment raw tables found. Run Align Epochs Finish first.",
+                rerun_message
+                or "No alignment raw tables found. Run Align Finish first.",
             )
             return
         ok_axes, message_axes = self._validate_features_axes_for_run(metric_keys)
@@ -108,39 +130,40 @@ class MainWindowFeaturesRunMixin:
         if context is not None and isinstance(slug, str):
             resolver = PathResolver(context)
             root = resolver.features_root / slug
-            if root.exists():
-                dedupe_rows: set[tuple[str, str, str]] = set()
-                for path in sorted(root.glob("**/*.pkl")):
-                    try:
-                        payload = self._load_pickle(path)
-                    except Exception:
-                        continue
-                    if not isinstance(payload, pd.DataFrame):
-                        continue
-                    if "Value" not in payload.columns:
-                        continue
-                    rel = path.relative_to(root)
-                    metric_key = rel.parts[0] if len(rel.parts) > 1 else ""
-                    derived_type = self._parse_derived_type_from_stem(path.stem)
-                    if not derived_type:
-                        continue
-                    reducer = self._parse_reducer_from_stem(path.stem, derived_type)
-                    dedupe_key = (metric_key, derived_type, reducer)
-                    if dedupe_key in dedupe_rows:
-                        continue
-                    dedupe_rows.add(dedupe_key)
-                    files.append(
-                        {
-                            "feature": derived_type,
-                            "property": reducer,
-                            "display_feature": derived_type,
-                            "stem": path.stem,
-                            "relative_stem": str(rel.with_suffix("")),
-                            "derived_type": derived_type,
-                            "metric": metric_key,
-                            "path": path,
-                        }
-                    )
+            dedupe_rows: set[tuple[str, str, str]] = set()
+            for metric_key, path in accepted_feature_artifact_paths(
+                resolver,
+                trial_slug=slug,
+            ):
+                try:
+                    payload = self._load_pickle(path)
+                except Exception:
+                    continue
+                if not isinstance(payload, pd.DataFrame):
+                    continue
+                if "Value" not in payload.columns:
+                    continue
+                rel = path.relative_to(root)
+                derived_type = self._parse_derived_type_from_stem(path.stem)
+                if not derived_type:
+                    continue
+                reducer = self._parse_reducer_from_stem(path.stem, derived_type)
+                dedupe_key = (metric_key, derived_type, reducer)
+                if dedupe_key in dedupe_rows:
+                    continue
+                dedupe_rows.add(dedupe_key)
+                files.append(
+                    {
+                        "feature": derived_type,
+                        "property": reducer,
+                        "display_feature": derived_type,
+                        "stem": path.stem,
+                        "relative_stem": str(rel.with_suffix("")),
+                        "derived_type": derived_type,
+                        "metric": metric_key,
+                        "path": path,
+                    }
+                )
         files.sort(
             key=lambda item: (
                 str(item.get("metric", "")).lower(),

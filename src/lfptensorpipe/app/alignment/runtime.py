@@ -8,6 +8,7 @@ import numpy as np
 
 from lfptensorpipe.app.config_store import AppConfigStore
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
+from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
 from lfptensorpipe.app.shared.downstream_invalidation import (
     invalidate_after_alignment_run,
 )
@@ -160,9 +161,6 @@ def run_align_epochs(
         )
         if hasattr(raw, "close"):
             raw.close()
-        save_pkl(warp_fn, alignment_warp_fn_path(resolver, slug))
-        save_pkl(epochs_by_label, alignment_warp_labels_path(resolver, slug))
-
         epoch_rows: list[dict[str, Any]] = []
         for idx, epoch in enumerate(epochs_by_label.get("ALL", [])):
             start_t = float(getattr(epoch, "start_t", np.nan))
@@ -180,85 +178,6 @@ def run_align_epochs(
         if not epoch_rows:
             raise ValueError("No valid epochs detected for selected trial.")
 
-        for metric_key in metrics:
-            tensor_path = tensor_metric_tensor_path(resolver, metric_key)
-            payload = load_pkl(tensor_path)
-            if not isinstance(payload, dict):
-                raise ValueError(f"Invalid tensor payload for metric: {metric_key}")
-            tensor_3d, meta_in = _coerce_alignment_tensor(payload)
-            axes = meta_in.get("axes", {})
-            if not isinstance(axes, dict) or "time" not in axes:
-                raise ValueError(
-                    f"Tensor metadata missing time axis for metric: {metric_key}"
-                )
-            if metric_key == "burst":
-                if not has_current_burst_value_semantics(
-                    meta_in.get("value_semantics")
-                ):
-                    raise ValueError(
-                        "Legacy Burst tensor detected. Rerun Burst before Alignment."
-                    )
-                params = meta_in.get("params", {})
-                if not isinstance(params, dict) or int(params.get("decim_eff", 0)) != 1:
-                    raise ValueError(
-                        "Burst Alignment requires a native-sampling-rate tensor."
-                    )
-                if transform_policy_from_metadata(meta_in) != get_transform_policy(
-                    "log10"
-                ):
-                    raise ValueError(
-                        "Legacy Burst transform policy detected. Rerun Burst before Alignment."
-                    )
-                percent_axis = np.linspace(0.0, 100.0, n_samples, endpoint=True)
-                meta_epochs = list(epochs_by_label.get("ALL", []))
-                warped_arr = warp_burst_for_display(
-                    tensor_3d,
-                    axes.get("time"),
-                    meta_epochs,
-                    method=method,
-                    method_params=method_params,
-                    percent_axis=percent_axis,
-                )
-            else:
-                sr = infer_sfreq_from_times(axes.get("time"), default=40.0)
-                transform_policy = transform_policy_from_metadata(meta_in)
-                interpolation_input = convert_transform_domain_array(
-                    tensor_3d,
-                    mode=transform_policy.mode,
-                    source_domain=transform_policy.tensor_storage_domain,
-                    target_domain=transform_policy.interpolation_domain,
-                )
-                warped, percent_axis, meta_epochs = warp_fn(
-                    interpolation_input,
-                    sr=float(sr),
-                    n_samples=n_samples,
-                )
-                warped_arr = convert_transform_domain_array(
-                    np.asarray(warped, dtype=float),
-                    mode=transform_policy.mode,
-                    source_domain=transform_policy.interpolation_domain,
-                    target_domain=transform_policy.tensor_storage_domain,
-                )
-            if warped_arr.ndim != 4:
-                raise ValueError(
-                    f"Warped tensor has invalid shape for {metric_key}: {warped_arr.shape}"
-                )
-            meta_warped = build_warped_tensor_metadata(
-                axes,
-                np.asarray(percent_axis, dtype=float),
-                meta_epochs,
-                source_meta=meta_in,
-            )
-            if metric_key == "burst":
-                meta_warped["burst_display_aggregation"] = {
-                    "invalid_overlap": "nan",
-                    "non_burst_only": "nan",
-                    "positive": "duration_weighted_geometric_envelope",
-                }
-            out_path = alignment_metric_tensor_warped_path(resolver, slug, metric_key)
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            save_pkl({"tensor": warped_arr, "meta": meta_warped}, out_path)
-
         trial_config_payload = _normalize_paradigm(
             {
                 "name": paradigm.get("name", slug),
@@ -269,29 +188,138 @@ def run_align_epochs(
                 "annotation_filter": paradigm.get("annotation_filter", {}),
             }
         )
-        _append_alignment_history(
-            alignment_paradigm_log_path(resolver, slug),
-            entry=RunLogRecord(
-                step="run_align_epochs",
-                completed=True,
-                params={
-                    "trial_slug": slug,
-                    "name": trial_config_payload.get("name", slug),
-                    "method": method,
-                    "method_params": method_params,
-                    "sample_rate": sample_rate,
-                    "warped_n_samples": int(n_samples),
-                    "n_metrics": len(metrics),
-                    "n_epochs": len(epoch_rows),
-                    "metrics": metrics,
-                },
-                input_path=str(resolver.tensor_root),
-                output_path=str(alignment_paradigm_dir(resolver, slug)),
-                message="Align Epochs completed.",
-            ).to_dict(),
-            keep_top_level=False,
-            trial_config=trial_config_payload,
-        )
+        warp_fn_path = alignment_warp_fn_path(resolver, slug)
+        warp_labels_path = alignment_warp_labels_path(resolver, slug)
+        metric_output_paths = {
+            metric_key: alignment_metric_tensor_warped_path(
+                resolver,
+                slug,
+                metric_key,
+            )
+            for metric_key in metrics
+        }
+        log_path = alignment_paradigm_log_path(resolver, slug)
+        with AtomicOutputSet(
+            [warp_fn_path, warp_labels_path, *metric_output_paths.values(), log_path]
+        ) as output_set:
+            save_pkl(warp_fn, output_set.staged_path(warp_fn_path))
+            save_pkl(epochs_by_label, output_set.staged_path(warp_labels_path))
+
+            for metric_key in metrics:
+                tensor_path = tensor_metric_tensor_path(resolver, metric_key)
+                payload = load_pkl(tensor_path)
+                if not isinstance(payload, dict):
+                    raise ValueError(f"Invalid tensor payload for metric: {metric_key}")
+                tensor_3d, meta_in = _coerce_alignment_tensor(payload)
+                axes = meta_in.get("axes", {})
+                if not isinstance(axes, dict) or "time" not in axes:
+                    raise ValueError(
+                        f"Tensor metadata missing time axis for metric: {metric_key}"
+                    )
+                if metric_key == "burst":
+                    if not has_current_burst_value_semantics(
+                        meta_in.get("value_semantics")
+                    ):
+                        raise ValueError(
+                            "Legacy Burst tensor detected. Rerun Burst before Alignment."
+                        )
+                    params = meta_in.get("params", {})
+                    if (
+                        not isinstance(params, dict)
+                        or int(params.get("decim_eff", 0)) != 1
+                    ):
+                        raise ValueError(
+                            "Burst Alignment requires a native-sampling-rate tensor."
+                        )
+                    if transform_policy_from_metadata(meta_in) != get_transform_policy(
+                        "log10"
+                    ):
+                        raise ValueError(
+                            "Legacy Burst transform policy detected. Rerun Burst before Alignment."
+                        )
+                    percent_axis = np.linspace(
+                        0.0,
+                        100.0,
+                        n_samples,
+                        endpoint=True,
+                    )
+                    meta_epochs = list(epochs_by_label.get("ALL", []))
+                    warped_arr = warp_burst_for_display(
+                        tensor_3d,
+                        axes.get("time"),
+                        meta_epochs,
+                        method=method,
+                        method_params=method_params,
+                        percent_axis=percent_axis,
+                    )
+                else:
+                    sr = infer_sfreq_from_times(axes.get("time"), default=40.0)
+                    transform_policy = transform_policy_from_metadata(meta_in)
+                    interpolation_input = convert_transform_domain_array(
+                        tensor_3d,
+                        mode=transform_policy.mode,
+                        source_domain=transform_policy.tensor_storage_domain,
+                        target_domain=transform_policy.interpolation_domain,
+                    )
+                    warped, percent_axis, meta_epochs = warp_fn(
+                        interpolation_input,
+                        sr=float(sr),
+                        n_samples=n_samples,
+                    )
+                    warped_arr = convert_transform_domain_array(
+                        np.asarray(warped, dtype=float),
+                        mode=transform_policy.mode,
+                        source_domain=transform_policy.interpolation_domain,
+                        target_domain=transform_policy.tensor_storage_domain,
+                    )
+                if warped_arr.ndim != 4:
+                    raise ValueError(
+                        "Warped tensor has invalid shape for "
+                        f"{metric_key}: {warped_arr.shape}"
+                    )
+                meta_warped = build_warped_tensor_metadata(
+                    axes,
+                    np.asarray(percent_axis, dtype=float),
+                    meta_epochs,
+                    source_meta=meta_in,
+                )
+                if metric_key == "burst":
+                    meta_warped["burst_display_aggregation"] = {
+                        "invalid_overlap": "nan",
+                        "non_burst_only": "nan",
+                        "positive": "duration_weighted_geometric_envelope",
+                    }
+                out_path = metric_output_paths[metric_key]
+                save_pkl(
+                    {"tensor": warped_arr, "meta": meta_warped},
+                    output_set.staged_path(out_path),
+                )
+
+            _append_alignment_history(
+                output_set.staged_path(log_path),
+                entry=RunLogRecord(
+                    step="run_align_epochs",
+                    completed=True,
+                    params={
+                        "trial_slug": slug,
+                        "name": trial_config_payload.get("name", slug),
+                        "method": method,
+                        "method_params": method_params,
+                        "sample_rate": sample_rate,
+                        "warped_n_samples": int(n_samples),
+                        "n_metrics": len(metrics),
+                        "n_epochs": len(epoch_rows),
+                        "metrics": metrics,
+                    },
+                    input_path=str(resolver.tensor_root),
+                    output_path=str(alignment_paradigm_dir(resolver, slug)),
+                    message="Align Epochs completed.",
+                ).to_dict(),
+                keep_top_level=False,
+                trial_config=trial_config_payload,
+                source_path=log_path,
+            )
+            output_set.commit()
         invalidate_after_alignment_run(context, paradigm_slug=slug)
         return True, "Align Epochs completed.", epoch_rows
     except Exception as exc:  # noqa: BLE001
@@ -329,4 +357,5 @@ def run_align_epochs(
             keep_top_level=False,
             trial_config=trial_config_payload,
         )
+        invalidate_after_alignment_run(context, paradigm_slug=slug)
         return False, f"Align Epochs failed: {exc}", []

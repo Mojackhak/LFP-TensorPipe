@@ -9,6 +9,7 @@ from lfptensorpipe.app.localize_service import localize_indicator_state
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import read_run_log
 
+from .generation import metrics_from_alignment_entry
 from .trial_config import _load_trial_config_from_log, _normalize_paradigm
 
 
@@ -120,32 +121,8 @@ def _metric_keys_from_run_entry(
     slug: str,
     entry: dict[str, Any],
 ) -> list[str]:
-    params = entry.get("params")
-    metrics: list[str] = []
-    if isinstance(params, dict):
-        raw_metrics = params.get("metrics")
-        if isinstance(raw_metrics, list):
-            seen: set[str] = set()
-            for item in raw_metrics:
-                metric_key = str(item).strip()
-                if not metric_key or metric_key in seen:
-                    continue
-                seen.add(metric_key)
-                metrics.append(metric_key)
-    if metrics:
-        return metrics
-
-    trial_root = _trial_root(resolver, slug)
-    discovered: list[str] = []
-    seen = set()
-    if trial_root.exists():
-        for path in sorted(trial_root.glob("*/tensor_warped.pkl")):
-            metric_key = path.parent.name.strip()
-            if not metric_key or metric_key in seen:
-                continue
-            seen.add(metric_key)
-            discovered.append(metric_key)
-    return discovered
+    _ = resolver, slug
+    return metrics_from_alignment_entry(entry) or []
 
 
 def _run_artifacts_exist(
@@ -162,30 +139,25 @@ def _run_artifacts_exist(
         return False
 
     metric_keys = _metric_keys_from_run_entry(resolver, slug, entry)
-    if metric_keys:
-        return all(
-            (trial_root / metric_key / "tensor_warped.pkl").exists()
-            for metric_key in metric_keys
-        )
-    return any(trial_root.glob("*/tensor_warped.pkl"))
+    return bool(metric_keys) and all(
+        (trial_root / metric_key / "tensor_warped.pkl").exists()
+        for metric_key in metric_keys
+    )
 
 
 def _raw_table_artifacts_exist(
     resolver: PathResolver,
     slug: str,
-    run_entry: dict[str, Any],
+    finish_entry: dict[str, Any],
 ) -> bool:
     trial_root = _trial_root(resolver, slug)
     if not trial_root.exists():
         return False
 
-    metric_keys = _metric_keys_from_run_entry(resolver, slug, run_entry)
-    if metric_keys:
-        return all(
-            (trial_root / metric_key / "na-raw.pkl").exists()
-            for metric_key in metric_keys
-        )
-    return any(trial_root.glob("*/na-raw.pkl"))
+    metric_keys = metrics_from_alignment_entry(finish_entry) or []
+    return bool(metric_keys) and all(
+        (trial_root / metric_key / "na-raw.pkl").exists() for metric_key in metric_keys
+    )
 
 
 def _normalize_picks(picked_epoch_indices: list[int] | None) -> list[int]:
@@ -332,7 +304,7 @@ def alignment_epoch_inspector_state(
         return "yellow"
     if current_merge_ready != finished_merge_ready:
         return "yellow"
-    if not _raw_table_artifacts_exist(resolver, slug, latest_successful_run[1]):
+    if not _raw_table_artifacts_exist(resolver, slug, latest_successful_finish[1]):
         return "yellow"
     return "green"
 

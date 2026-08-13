@@ -206,6 +206,7 @@ def append_run_log_event(
     record: RunLogRecord | dict[str, Any],
     *,
     state_patch: dict[str, Any] | None = None,
+    source_path: str | Path | None = None,
 ) -> Path:
     """Append one event into `history` and mirror it into top-level summary.
 
@@ -216,9 +217,10 @@ def append_run_log_event(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     entry = _coerce_record_payload(record)
 
+    existing_path = Path(source_path) if source_path is not None else out_path
     existing: dict[str, Any] | None
     try:
-        existing = read_run_log(out_path)
+        existing = read_run_log(existing_path)
     except Exception:
         existing = None
 

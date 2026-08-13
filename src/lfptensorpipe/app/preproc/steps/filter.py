@@ -7,8 +7,14 @@ import threading
 from typing import Any, Callable
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
+from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
 
-from ..paths import preproc_step_raw_path, write_preproc_step_config
+from ..paths import (
+    preproc_step_config_path,
+    preproc_step_log_path,
+    preproc_step_raw_path,
+    write_preproc_step_config,
+)
 
 MarkStepFn = Callable[..., Any]
 InvalidateFn = Callable[[RecordContext, str], list[Any]]
@@ -136,6 +142,7 @@ def apply_filter_step(
             output_path=str(dst),
             message=f"Invalid Filter Advance params: {message}",
         )
+        invalidate_downstream_fn(context, "filter")
         return False, f"Invalid Filter Advance params: {message}"
 
     try:
@@ -150,6 +157,7 @@ def apply_filter_step(
             output_path=str(dst),
             message=f"Invalid Filter freq params: {exc}",
         )
+        invalidate_downstream_fn(context, "filter")
         return False, f"Invalid Filter freq params: {exc}"
     if runtime_l_freq < 0.0 or runtime_h_freq <= runtime_l_freq:
         mark_preproc_step_fn(
@@ -160,6 +168,7 @@ def apply_filter_step(
             output_path=str(dst),
             message="Invalid Filter freq params: require 0 <= low < high.",
         )
+        invalidate_downstream_fn(context, "filter")
         return False, "Invalid Filter freq params: require 0 <= low < high."
 
     runtime_notches: list[float] = []
@@ -175,6 +184,7 @@ def apply_filter_step(
                 output_path=str(dst),
                 message=f"Invalid Filter notches: {exc}",
             )
+            invalidate_downstream_fn(context, "filter")
             return False, f"Invalid Filter notches: {exc}"
         if any(value <= 0.0 for value in runtime_notches):
             mark_preproc_step_fn(
@@ -185,6 +195,7 @@ def apply_filter_step(
                 output_path=str(dst),
                 message="Invalid Filter notches: values must be > 0.",
             )
+            invalidate_downstream_fn(context, "filter")
             return False, "Invalid Filter notches: values must be > 0."
     else:
         runtime_notches = [50.0, 100.0]
@@ -198,6 +209,7 @@ def apply_filter_step(
             output_path=str(dst),
             message="Missing preprocess raw input for filter step.",
         )
+        invalidate_downstream_fn(context, "filter")
         return False, "Missing preprocess raw input for filter step."
 
     try:
@@ -242,40 +254,48 @@ def apply_filter_step(
             cfg,
             reject_plot_path=runtime_reject_plot_path,
         )
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        raw_marked.save(str(dst), overwrite=True)
-        write_preproc_step_config(
-            resolver=resolver,
-            step="filter",
-            config={
-                "low_freq": cfg.l_freq,
-                "high_freq": cfg.h_freq,
-                "notches": list(cfg.notches or []),
-                "dropped_notches": dropped_notches,
-                "bad_annotation_config": asdict(cfg),
-                "summary": summary,
-                "reject_plot_path": str(reject_plot_path),
-            },
-        )
-        mark_preproc_step_fn(
-            resolver=resolver,
-            step="filter",
-            completed=True,
-            params={
-                "low_freq": cfg.l_freq,
-                "high_freq": cfg.h_freq,
-                "notches": list(cfg.notches or []),
-                "dropped_notches": dropped_notches,
-                "notch_widths": cfg.notch_widths,
-                "epoch_dur": cfg.epoch_dur,
-                "p2p_thresh": list(cfg.p2p_thresh),
-                "autoreject_correct_factor": cfg.autoreject_correct_factor,
-                "reject_plot_path": str(reject_plot_path),
-            },
-            input_path=str(src),
-            output_path=str(dst),
-            message="Filter step completed with mark_lfp_bad_segments defaults.",
-        )
+        config_path = preproc_step_config_path(resolver, "filter")
+        log_path = preproc_step_log_path(resolver, "filter")
+        with AtomicOutputSet([dst, config_path, log_path]) as output_set:
+            raw_marked.save(
+                str(output_set.staged_path(dst)),
+                overwrite=True,
+            )
+            write_preproc_step_config(
+                resolver=resolver,
+                step="filter",
+                path=output_set.staged_path(config_path),
+                config={
+                    "low_freq": cfg.l_freq,
+                    "high_freq": cfg.h_freq,
+                    "notches": list(cfg.notches or []),
+                    "dropped_notches": dropped_notches,
+                    "bad_annotation_config": asdict(cfg),
+                    "summary": summary,
+                    "reject_plot_path": str(reject_plot_path),
+                },
+            )
+            mark_preproc_step_fn(
+                resolver=resolver,
+                step="filter",
+                completed=True,
+                params={
+                    "low_freq": cfg.l_freq,
+                    "high_freq": cfg.h_freq,
+                    "notches": list(cfg.notches or []),
+                    "dropped_notches": dropped_notches,
+                    "notch_widths": cfg.notch_widths,
+                    "epoch_dur": cfg.epoch_dur,
+                    "p2p_thresh": list(cfg.p2p_thresh),
+                    "autoreject_correct_factor": cfg.autoreject_correct_factor,
+                    "reject_plot_path": str(reject_plot_path),
+                },
+                input_path=str(src),
+                output_path=str(dst),
+                message="Filter step completed with mark_lfp_bad_segments defaults.",
+                log_path=output_set.staged_path(log_path),
+            )
+            output_set.commit()
         invalidate_downstream_fn(context, "filter")
     except Exception as exc:
         mark_preproc_step_fn(
@@ -286,6 +306,7 @@ def apply_filter_step(
             output_path=str(dst),
             message=f"Filter step failed: {exc}",
         )
+        invalidate_downstream_fn(context, "filter")
         return False, f"Filter step failed: {exc}"
 
     return True, "Filter step completed."

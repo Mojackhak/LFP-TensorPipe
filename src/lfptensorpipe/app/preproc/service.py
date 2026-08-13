@@ -143,8 +143,14 @@ def write_preproc_step_config(
     resolver: PathResolver,
     step: str,
     config: dict[str, Any],
+    path: Path | None = None,
 ) -> Path:
-    return _write_preproc_step_config_impl(resolver=resolver, step=step, config=config)
+    return _write_preproc_step_config_impl(
+        resolver=resolver,
+        step=step,
+        config=config,
+        path=path,
+    )
 
 
 def mark_preproc_step(
@@ -156,11 +162,12 @@ def mark_preproc_step(
     input_path: str = "",
     output_path: str = "",
     message: str = "",
+    log_path: Path | None = None,
 ) -> Path:
     """Write one preprocess step log with schema-compliant payload."""
-    log_path = preproc_step_log_path(resolver, step)
+    destination = log_path or preproc_step_log_path(resolver, step)
     return write_run_log(
-        log_path,
+        destination,
         RunLogRecord(
             step=step,
             completed=completed,
@@ -179,8 +186,7 @@ def bootstrap_raw_step_from_rawdata(context: RecordContext) -> tuple[bool, str]:
         preproc_step_raw_path_fn=preproc_step_raw_path,
         mark_preproc_step_fn=mark_preproc_step,
     )
-    if ok:
-        invalidate_downstream_preproc_steps(context, "raw")
+    invalidate_downstream_preproc_steps(context, "raw")
     return ok, message
 
 
@@ -206,6 +212,12 @@ def invalidate_downstream_preproc_steps(
             message=f"Invalidated by upstream step re-apply: {changed_step}",
         )
         rewritten.append(log_path)
+    rewritten.extend(
+        invalidate_after_preproc_result_change(
+            context,
+            changed_step=changed_step,
+        )
+    )
     return rewritten
 
 
@@ -259,8 +271,7 @@ def apply_finish_step(
         read_raw_fif_fn=read_raw_fif_fn,
         add_head_tail_annotations_fn=add_head_tail_annotations_fn,
     )
-    if ok:
-        invalidate_after_preproc_result_change(context, changed_step="finish")
+    invalidate_after_preproc_result_change(context, changed_step="finish")
     return ok, message
 
 

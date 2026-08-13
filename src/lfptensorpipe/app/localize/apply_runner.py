@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from lfptensorpipe.app.path_resolver import RecordContext
 from lfptensorpipe.app.runlog_store import RunLogRecord, write_run_log
+from lfptensorpipe.app.shared.atomic_outputs import write_outputs_atomically
 from lfptensorpipe.app.shared.downstream_invalidation import (
     invalidate_after_localize_result_change,
 )
@@ -116,41 +117,47 @@ def run_localize_apply(
         ordered_frame = build_ordered_pair_repcoords_frame(frame)
         undirected_frame = build_undirected_pair_repcoords_frame(frame)
 
-        out_csv.parent.mkdir(parents=True, exist_ok=True)
-        save_pkl(frame, out_pkl)
-        frame.to_csv(out_csv, index=False)
-        save_pkl(ordered_frame, ordered_pkl)
-        ordered_frame.to_csv(ordered_csv, index=False)
-        save_pkl(undirected_frame, undirected_pkl)
-        undirected_frame.to_csv(undirected_csv, index=False)
-
-        write_run_log(
-            out_log,
-            RunLogRecord(
-                step="localize_apply",
-                completed=True,
-                params={
-                    "space": space,
-                    "atlas": atlas,
-                    "record": record,
-                    "selected_regions_signature": localize_selected_regions_signature(
-                        list(selected_regions)
-                    ),
-                    "channel_rows": int(frame.shape[0]),
-                    "channel_columns": int(frame.shape[1]),
-                    "ordered_pair_rows": int(ordered_frame.shape[0]),
-                    "ordered_pair_columns": int(ordered_frame.shape[1]),
-                    "undirected_pair_rows": int(undirected_frame.shape[0]),
-                    "undirected_pair_columns": int(undirected_frame.shape[1]),
-                    "match_signature": match_signature,
-                },
-                input_path=str(reconstruction_mat_path(project_root, subject)),
-                output_path=str(out_dir),
-                message=(
-                    "Record-scoped representative localize artifacts generated "
-                    "(channel, ordered pair, undirected pair)."
+        success_record = RunLogRecord(
+            step="localize_apply",
+            completed=True,
+            params={
+                "space": space,
+                "atlas": atlas,
+                "record": record,
+                "selected_regions_signature": localize_selected_regions_signature(
+                    list(selected_regions)
                 ),
+                "channel_rows": int(frame.shape[0]),
+                "channel_columns": int(frame.shape[1]),
+                "ordered_pair_rows": int(ordered_frame.shape[0]),
+                "ordered_pair_columns": int(ordered_frame.shape[1]),
+                "undirected_pair_rows": int(undirected_frame.shape[0]),
+                "undirected_pair_columns": int(undirected_frame.shape[1]),
+                "match_signature": match_signature,
+            },
+            input_path=str(reconstruction_mat_path(project_root, subject)),
+            output_path=str(out_dir),
+            message=(
+                "Record-scoped representative localize artifacts generated "
+                "(channel, ordered pair, undirected pair)."
             ),
+        )
+        write_outputs_atomically(
+            [
+                (out_pkl, lambda path: save_pkl(frame, path)),
+                (out_csv, lambda path: frame.to_csv(path, index=False)),
+                (ordered_pkl, lambda path: save_pkl(ordered_frame, path)),
+                (
+                    ordered_csv,
+                    lambda path: ordered_frame.to_csv(path, index=False),
+                ),
+                (undirected_pkl, lambda path: save_pkl(undirected_frame, path)),
+                (
+                    undirected_csv,
+                    lambda path: undirected_frame.to_csv(path, index=False),
+                ),
+                (out_log, lambda path: write_run_log(path, success_record)),
+            ]
         )
         invalidate_after_localize_result_change(
             RecordContext(project_root=project_root, subject=subject, record=record)
@@ -186,5 +193,8 @@ def run_localize_apply(
                 output_path=str(out_dir),
                 message=message,
             ),
+        )
+        invalidate_after_localize_result_change(
+            RecordContext(project_root=project_root, subject=subject, record=record)
         )
         return False, message

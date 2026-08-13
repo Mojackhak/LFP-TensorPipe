@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.alignment.generation import accepted_alignment_artifact_paths
+from lfptensorpipe.app.features.generation import feature_generation_rerun_message
 from lfptensorpipe.gui.shell.common import (
     Any,
     PathResolver,
@@ -21,13 +23,15 @@ class MainWindowFeaturesTrialsMixin:
         if not token:
             return []
         resolver = PathResolver(context)
-        root = resolver.alignment_root / token
-        if not root.exists():
-            return []
         metrics: list[str] = []
         seen: set[str] = set()
-        for path in sorted(root.glob("*/na-raw.pkl")):
-            metric_key = path.parent.name
+        for metric_key, path in accepted_alignment_artifact_paths(
+            resolver,
+            trial_slug=token,
+            stage="finish",
+        ):
+            if not path.is_file():
+                return []
             if metric_key and metric_key not in seen:
                 seen.add(metric_key)
                 metrics.append(metric_key)
@@ -587,10 +591,18 @@ class MainWindowFeaturesTrialsMixin:
             )
         if self._features_extract_indicator is not None:
             self._set_indicator_color(self._features_extract_indicator, extract_state)
-            self._features_extract_indicator.setToolTip(
+            tooltip = (
                 "Feature extraction state: gray=not run, yellow=stale or failed, "
                 f"green=current axes and trial have successful outputs. Current: {extract_state}."
             )
+            if context is not None and slug is not None:
+                rerun_message = feature_generation_rerun_message(
+                    PathResolver(context),
+                    trial_slug=slug,
+                )
+                if rerun_message is not None:
+                    tooltip = f"{tooltip} {rerun_message}"
+            self._features_extract_indicator.setToolTip(tooltip)
 
     def _features_metric_keys_for_selected_trial(self) -> list[str]:
         return self._features_metric_keys_for_trial_slug(

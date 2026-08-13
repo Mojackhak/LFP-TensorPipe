@@ -186,12 +186,18 @@ def _append_alignment_history(
     entry: dict[str, Any],
     keep_top_level: bool,
     trial_config: dict[str, Any] | None = None,
+    source_path: Path | None = None,
 ) -> None:
     _ = keep_top_level
     state_patch = (
         {"trial_config": dict(trial_config)} if isinstance(trial_config, dict) else None
     )
-    append_run_log_event(path, entry, state_patch=state_patch)
+    append_run_log_event(
+        path,
+        entry,
+        state_patch=state_patch,
+        source_path=source_path,
+    )
 
 
 __all__ = [

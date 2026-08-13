@@ -10,10 +10,11 @@ import yaml
 
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import RunLogRecord, write_run_log
+from lfptensorpipe.app.shared.atomic_outputs import OUTPUT_TRANSACTION_RUN_ID_ENV
 
 from .paths import tensor_metric_log_path, tensor_stage_log_path
 
-TENSOR_RUN_ID_ENV = "LFPTENSORPIPE_TENSOR_RUN_ID"
+TENSOR_RUN_ID_ENV = OUTPUT_TRANSACTION_RUN_ID_ENV
 TENSOR_BENCHMARK_TRACE_PATH_ENV = "LFPTENSORPIPE_TENSOR_BENCHMARK_TRACE_PATH"
 
 

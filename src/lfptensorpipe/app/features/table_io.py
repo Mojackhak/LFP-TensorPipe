@@ -9,10 +9,15 @@ import zipfile
 import numpy as np
 import pandas as pd
 
+from lfptensorpipe.app.alignment.generation import (
+    accepted_alignment_artifact_paths,
+)
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.io.pkl_io import load_pkl
 
+from .generation import outputs_from_features_entry
 from .indicator import _normalize_slug
+from lfptensorpipe.app.runlog_store import read_run_log
 
 
 def _flatten_value_for_xlsx(value: Any) -> str:
@@ -115,11 +120,13 @@ def _iter_raw_tables(
     slug = _normalize_slug(paradigm_slug)
     if not slug:
         return rows
-    root = resolver.alignment_root / slug
-    if not root.exists():
-        return rows
-    for path in sorted(root.glob("*/na-raw.pkl")):
-        metric_key = path.parent.name
+    for metric_key, path in accepted_alignment_artifact_paths(
+        resolver,
+        trial_slug=slug,
+        stage="finish",
+    ):
+        if not path.is_file():
+            return []
         rows.append((metric_key, "default", path))
     return rows
 
@@ -127,23 +134,37 @@ def _iter_raw_tables(
 def _iter_feature_source_tables(
     root: Path,
 ) -> tuple[list[tuple[Path, Path, pd.DataFrame]], list[str]]:
-    """Compatibility helper retained for tests and ad-hoc plotting scans."""
+    """Load only files declared by the accepted Feature generation."""
     tables: list[tuple[Path, Path, pd.DataFrame]] = []
     errors: list[str] = []
     if not root.exists():
         return tables, errors
-    for path in sorted(root.glob("**/*.pkl")):
-        rel = path.relative_to(root)
-        try:
-            payload = load_pkl(path)
-            if not isinstance(payload, pd.DataFrame):
-                continue
-            derived_type = _detect_derived_type(payload)
-            if derived_type == "scalar":
-                continue
-            tables.append((path, rel, payload))
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"{rel}: {exc}")
+    try:
+        log_payload = read_run_log(root / "lfptensorpipe_log.json")
+    except Exception as exc:  # noqa: BLE001
+        return tables, [f"lfptensorpipe_log.json: {exc}"]
+    outputs = (
+        outputs_from_features_entry(log_payload)
+        if isinstance(log_payload, dict)
+        else None
+    )
+    if outputs is None:
+        return tables, errors
+    for relative_paths in outputs.values():
+        for rel in relative_paths:
+            path = root / rel
+            if not path.is_file():
+                return [], [f"{rel}: declared artifact is missing"]
+            try:
+                payload = load_pkl(path)
+                if not isinstance(payload, pd.DataFrame):
+                    continue
+                derived_type = _detect_derived_type(payload)
+                if derived_type == "scalar":
+                    continue
+                tables.append((path, rel, payload))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{rel}: {exc}")
     return tables, errors
 
 
@@ -153,9 +174,12 @@ def _iter_alignment_raw_tables(
     trial_slug: str,
 ) -> list[tuple[str, Path]]:
     rows: list[tuple[str, Path]] = []
-    root = resolver.alignment_root / trial_slug
-    if not root.exists():
-        return rows
-    for path in sorted(root.glob("*/na-raw.pkl")):
-        rows.append((path.parent.name, path))
+    for metric_key, path in accepted_alignment_artifact_paths(
+        resolver,
+        trial_slug=trial_slug,
+        stage="finish",
+    ):
+        if not path.exists():
+            return []
+        rows.append((metric_key, path))
     return rows
