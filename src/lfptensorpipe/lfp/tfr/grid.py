@@ -117,12 +117,14 @@ def grid(
     picks: Sequence[str] | None = None,
     n_jobs: Optional[int] = None,
     **legacy_freq_grid_kwargs: Any,
-) -> tuple[np.ndarray, Dict[str, Any]]:
+) -> tuple[Any, Dict[str, Any]]:
     """Compute TFR on an explicit frequency grid.
 
     Returns:
-        - power: mne.EpochsTFR / AverageTFR / ndarray
+        - result: power, or ``(power, itc)`` for averaged Epochs ITC
         - metadata: axes + params
+
+    ``return_itc=True`` requires ``mne.Epochs`` input and ``average=True``.
     """
     legacy_keys = {"fmin", "fmax", "n_freqs", "log_grid"}
     unexpected_keys = sorted(set(legacy_freq_grid_kwargs).difference(legacy_keys))
@@ -148,6 +150,18 @@ def grid(
         sfreq = float(data.info["sfreq"])
     else:
         raise TypeError("`data` must be mne.Epochs or mne.io.BaseRaw.")
+
+    if return_itc:
+        if isinstance(data, mne.io.BaseRaw):
+            raise ValueError(
+                "`return_itc=True` requires mne.Epochs input; "
+                "ITC is undefined for continuous Raw data."
+            )
+        if not average:
+            raise ValueError(
+                "`return_itc=True` requires `average=True` because ITC is a "
+                "cross-epoch aggregate."
+            )
 
     decim_eff, hop_s_eff = compute_decimation(sfreq, hop_s=hop_s, decim=decim)
 
@@ -191,9 +205,10 @@ def grid(
         pick_indices = mne.pick_channels(data.ch_names, pick_names, ordered=True)
 
     # --- compute TFR ---
+    itc = None
     if isinstance(data, mne.Epochs):
         if method_l == "morlet":
-            power = tfr_morlet(
+            tfr_result = tfr_morlet(
                 data,
                 freqs=freqs_use,
                 n_cycles=n_cycles_vec,
@@ -210,7 +225,7 @@ def grid(
             bandwidth_hz_est = None
             time_window_s = None
         else:
-            power = tfr_multitaper(
+            tfr_result = tfr_multitaper(
                 data,
                 freqs=freqs_use,
                 n_cycles=n_cycles_vec,
@@ -226,6 +241,11 @@ def grid(
             bandwidth_hz_est = float(mt_time_bandwidth_product) / T
             fwhm_time_est = None
             fwhm_power_est = None
+
+        if return_itc:
+            power, itc = tfr_result
+        else:
+            power = tfr_result
 
     else:
         X = data.get_data(picks=pick_names)[None, :, :]  # (1, n_channels, n_times)
@@ -349,4 +369,5 @@ def grid(
         ),
     )
 
-    return power, metadata
+    result = (power, itc) if return_itc else power
+    return result, metadata
