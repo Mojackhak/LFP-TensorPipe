@@ -520,6 +520,17 @@ pairs, frequency range, time settings, spectral method, and notch settings for
 both metrics. `|ImCoh|` is an undirected magnitude and must not be interpreted
 as lead-lag direction or causality.
 
+ciPLV has a formula-defined degeneracy for two perfectly identical signals with
+an exact zero phase difference. In that limiting input, its imaginary phase-locking
+term is `0` while its correction denominator is also `0`, so the stored result is
+`NaN`, not ciPLV `0`. This is an expected mathematical limitation rather than a
+failed estimator implementation. Independently acquired neural channels are not
+expected to be exactly identical sample for sample. If an empirical ciPLV tensor
+is entirely `NaN`, check for a duplicated channel selection, duplicated imported
+data, or channels made identical by re-referencing before interpreting the result.
+A completed Build Tensor state records that the requested computation finished;
+it does not redefine this degenerate ciPLV input as a finite value.
+
 For this walkthrough:
 
 1. import the config
