@@ -789,19 +789,14 @@ def tensor_metric_panel_state(
     if completed is not True:
         return "gray"
     params = payload.get("params")
-    if metric_key == "burst" and isinstance(params, dict):
-        try:
-            completed_signature = _metric_log_signature(metric_key, params)
-        except Exception:
-            completed_signature = None
-    else:
-        completed_signature = (
-            _metric_log_signature(metric_key, params)
-            if isinstance(params, dict)
-            else None
-        )
+    if not isinstance(params, dict):
+        return "yellow"
+    try:
+        completed_signature = _metric_log_signature(metric_key, params)
+    except Exception:
+        return "yellow"
     if completed_signature is None:
-        return "yellow" if metric_key == "burst" else "green"
+        return "yellow"
     if metric_key == "burst" and not _burst_threshold_outputs_match(resolver, params):
         return "yellow"
     current_params = dict(metric_params) if isinstance(metric_params, dict) else {}

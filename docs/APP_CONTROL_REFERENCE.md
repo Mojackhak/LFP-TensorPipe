@@ -542,7 +542,7 @@ and the execution of tensor generation.
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
-| Metric indicators | Show readiness for each metric under the current settings. | User feedback only. | Read-only. |
+| Metric indicators | Show readiness for each metric under the current settings. A completed log whose metric signature is missing or malformed is yellow rather than current. | User feedback only. | Read-only. |
 | Metric checkbox | Includes or excludes the metric from the next tensor build run. | Run payload. | Always available for supported metrics. |
 | Metric name | Selects the active metric shown in the parameter panel. | Which metric is being configured on the right. | Always available for listed metrics. |
 
