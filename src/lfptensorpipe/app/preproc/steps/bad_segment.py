@@ -20,38 +20,6 @@ InvalidateFn = Callable[[RecordContext, str], list[Any]]
 _REMOVAL_PREFIXES = ("BAD", "EDGE")
 
 
-def _select_bad_segment_annotations(annotations: Any) -> Any:
-    """Return only BAD/EDGE annotations used as removal masks."""
-    import mne
-
-    if annotations is None or len(annotations) == 0:
-        return mne.Annotations([], [], [], orig_time=None)
-
-    onsets: list[float] = []
-    durations: list[float] = []
-    descriptions: list[str] = []
-    for onset, duration, description in zip(
-        annotations.onset,
-        annotations.duration,
-        annotations.description,
-    ):
-        label = str(description).strip()
-        if not label:
-            continue
-        if not label.upper().startswith(_REMOVAL_PREFIXES):
-            continue
-        onsets.append(float(onset))
-        durations.append(float(duration))
-        descriptions.append(label)
-
-    return mne.Annotations(
-        onset=onsets,
-        duration=durations,
-        description=descriptions,
-        orig_time=annotations.orig_time,
-    )
-
-
 def apply_bad_segment_step(
     context: RecordContext,
     *,
@@ -91,10 +59,8 @@ def apply_bad_segment_step(
         )
 
         raw = read_raw_fif_fn(str(src), preload=True, verbose="ERROR")
-        removal_annotations = _select_bad_segment_annotations(raw.annotations)
         filtered = runtime_filter(
             raw,
-            bad_annotations=removal_annotations,
             bad_descs=_REMOVAL_PREFIXES,
             do_pre_filter=False,
             do_post_notch=False,

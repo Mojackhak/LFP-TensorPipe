@@ -529,6 +529,17 @@ def grid(
 
     center_samps_full = (times_tfr - raw_times[0]) * sfreq  # float sample indices
     finite_time_mask = np.isfinite(times_tfr)
+
+    # ----- (B) Pair indices -----
+    ch_names = channel_names_after_picks(raw, picks)
+    seeds_idx, targets_idx, pair_names, pair_meta = resolve_pairs(
+        ch_names,
+        pairs=pairs,
+        groups=groups,
+        ordered_pairs=bool(ordered_pairs),
+    )
+    n_pairs = len(pair_names)
+
     if annotation_skip_radius_s is None:
         skip_time_mask = np.zeros(times_tfr.shape, dtype=bool)
     else:
@@ -536,11 +547,12 @@ def grid(
             raw,
             times_s=times_tfr,
             radius_s=float(annotation_skip_radius_s),
+            output_channels=pair_names,
         )
     n_columns_total = int(np.sum(finite_time_mask))
     n_columns_skipped_masked = int(np.sum(finite_time_mask & skip_time_mask))
 
-    # ----- (B) n_cycles + analysis window length per frequency -----
+    # ----- (C) n_cycles + analysis window length per frequency -----
     if spectral_mode_use == "cwt_morlet":
         n_cycles = morlet_n_cycles_from_time_fwhm(
             freqs,
@@ -576,16 +588,6 @@ def grid(
     L_wave = np.maximum(
         window_len_s * float(window_multiple) * float(safety_margin), 1.0 / sfreq
     )
-
-    # ----- (C) Pair indices -----
-    ch_names = channel_names_after_picks(raw, picks)
-    seeds_idx, targets_idx, pair_names, pair_meta = resolve_pairs(
-        ch_names,
-        pairs=pairs,
-        groups=groups,
-        ordered_pairs=bool(ordered_pairs),
-    )
-    n_pairs = len(pair_names)
 
     # MNE-Connectivity expects (n_pairs, 1) indices for multivariate methods.
     if multivariate:

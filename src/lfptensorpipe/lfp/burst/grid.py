@@ -26,6 +26,10 @@ import numpy as np
 import mne
 from scipy.signal import hilbert
 
+from ..mask.annotations import (
+    ANNOTATION_SCOPE_SEMANTICS,
+    output_time_mask_by_annotations,
+)
 from .semantics import burst_value_semantics
 
 Band = Tuple[float, float]
@@ -574,6 +578,7 @@ def grid(
     edge_coverage_by_band: List[float] = []
     baseline_coverage_by_band: List[float] = []
     edge_intervals_dilated_by_band: List[List[Tuple[float, float]]] = []
+    edge_mask_info_by_band: List[Dict[str, Any]] = []
 
     # Band-pass + Hilbert per band.
     # If a band is provided as multiple segments (e.g. split by notch holes),
@@ -589,7 +594,8 @@ def grid(
         edge_guard_samples = 0
         guard_s = 0.0
         edge_intervals_dilated: List[Tuple[float, float]] = []
-        edge_mask = np.zeros(n_times, dtype=bool)
+        edge_mask = np.zeros((n_channels, n_times), dtype=bool)
+        edge_mask_info: Dict[str, Any] = {}
 
         if (
             len(edge_intervals) > 0
@@ -627,23 +633,36 @@ def grid(
                 t_min_s=float(raw_times[0]),
                 t_max_s=float(raw_times[-1]),
             )
-            edge_mask = _intervals_to_sample_mask(
-                edge_intervals_dilated,
-                raw_times_s=raw_times,
-                sfreq_hz=sfreq,
+            edge_mask, edge_mask_info = output_time_mask_by_annotations(
+                raw,
+                times_s=raw_times,
+                output_channels=[(str(channel),) for channel in ch_names],
+                keep=edge_anno_eff,
+                mode=mode,
+                pad_s=guard_s,
+                clip_to_raw=True,
+                require_match=False,
             )
 
         # Baseline samples used for percentile thresholding are restricted to
         # the baseline_keep intervals (if provided) and always exclude edges.
-        baseline_mask_band = baseline_mask_base & ~edge_mask
-        if thresholds_by_band is None and not np.any(baseline_mask_band):
-            if baseline_keep_eff is not None and baseline_fallback == "raise":
+        baseline_mask_band = baseline_mask_base[None, :] & ~edge_mask
+        if thresholds_by_band is None:
+            channels_with_baseline = np.any(baseline_mask_band, axis=1)
+            if (
+                not np.any(channels_with_baseline)
+                and baseline_keep_eff is not None
+                and baseline_fallback == "raise"
+            ):
                 raise ValueError(
                     "No baseline samples remain after excluding edge segments. "
                     "Try changing baseline_keep/baseline_match, disabling edge masking, "
                     "or using baseline_fallback='full'."
                 )
-            baseline_mask_band = ~edge_mask
+            if baseline_fallback == "full":
+                baseline_mask_band[~channels_with_baseline] = ~edge_mask[
+                    ~channels_with_baseline
+                ]
             if not np.any(baseline_mask_band):
                 raise ValueError(
                     "All samples are marked as edge after dilation. "
@@ -655,6 +674,7 @@ def grid(
         edge_coverage_by_band.append(float(np.mean(edge_mask)))
         baseline_coverage_by_band.append(float(np.mean(baseline_mask_band)))
         edge_intervals_dilated_by_band.append(list(edge_intervals_dilated))
+        edge_mask_info_by_band.append(edge_mask_info)
 
         env_sum_sq: np.ndarray | None = None
         for l_freq, h_freq in segs:
@@ -683,17 +703,23 @@ def grid(
         if thresholds_by_band is not None:
             thr = thresholds_by_band[bi]
         else:
-            env_base = env[:, baseline_mask_band]
-            thr = np.nanpercentile(env_base, percentile_eff, axis=1).astype(
-                np.float64, copy=False
-            )
+            thr = np.full(n_channels, np.nan, dtype=np.float64)
+            for channel_index in range(n_channels):
+                channel_baseline = baseline_mask_band[channel_index]
+                if np.any(channel_baseline):
+                    thr[channel_index] = float(
+                        np.nanpercentile(
+                            env[channel_index, channel_baseline],
+                            percentile_eff,
+                        )
+                    )
         thresholds_used.append(thr)
 
         above = env > thr[:, None]
 
         # Edge samples are never considered bursts.
         if np.any(edge_mask):
-            above[:, edge_mask] = False
+            above[edge_mask] = False
 
         # Duration bounds in samples based on band *union* center frequency.
         min_len = min_run_samples_by_band[bi]
@@ -709,7 +735,7 @@ def grid(
 
         invalid_mask = ~np.isfinite(env)
         if np.any(edge_mask):
-            invalid_mask |= edge_mask[None, :]
+            invalid_mask |= edge_mask
 
         env_burst = np.zeros_like(env, dtype=np.float64)
         accepted_mask = burst_mask & ~invalid_mask
@@ -800,6 +826,8 @@ def grid(
             ],
             edge_guard_samples_by_band=[int(x) for x in edge_guard_samples_by_band],
             edge_guard_seconds_by_band=[float(x) for x in edge_guard_seconds_by_band],
+            annotation_scope_semantics=ANNOTATION_SCOPE_SEMANTICS,
+            edge_mask_info_by_band=edge_mask_info_by_band,
         ),
         qc=dict(
             thresholds=thresholds_arr.astype(np.float64),

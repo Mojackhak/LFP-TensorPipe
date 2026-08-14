@@ -603,6 +603,66 @@ def time_mask_by_annotations(
     return keep_mask, info
 
 
+def output_time_mask_by_annotations(
+    raw: "mne.io.BaseRaw",
+    times_s: Sequence[float],
+    output_channels: Sequence[Sequence[str]],
+    keep: Sequence[str],
+    *,
+    mode: MatchMode = "exact",
+    pad_s: float = 0.0,
+    clip_to_raw: bool = True,
+    require_match: bool = False,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Build an annotation mask for local channels or connectivity pairs.
+
+    Rows in ``output_channels`` identify the source channel membership of each
+    output. A global MNE annotation affects every row. A channel-specific
+    annotation affects only rows that contain at least one annotated channel.
+    """
+    times = np.asarray(times_s, dtype=float)
+    if times.ndim != 1:
+        raise ValueError("`times_s` must be 1D.")
+    if keep is None:
+        raise ValueError("`keep` must be a sequence of strings, not None.")
+
+    output_scopes = [tuple(str(name) for name in scope) for scope in output_channels]
+    matched = _iter_matched_intervals(
+        raw,
+        keep=keep,
+        mode=mode,
+        pad_s=pad_s,
+        clip_to_raw=clip_to_raw,
+    )
+    if require_match and not matched:
+        raise ValueError("No Raw annotations matched the requested `keep` labels.")
+
+    finite = np.isfinite(times)
+    output_mask = np.zeros((len(output_scopes), times.size), dtype=bool)
+    for interval in matched:
+        interval_time_mask = (
+            finite
+            & (times >= float(interval["start_s"]))
+            & (times <= float(interval["end_s"]))
+        )
+        for output_index, output_scope in enumerate(output_scopes):
+            if annotation_scope_affects_output(interval["ch_names"], output_scope):
+                output_mask[output_index] |= interval_time_mask
+
+    info: dict[str, Any] = dict(
+        keep=[str(x) for x in keep],
+        mode=str(mode),
+        pad_s=float(pad_s),
+        clip_to_raw=bool(clip_to_raw),
+        matched_intervals=matched,
+        output_channels=[list(scope) for scope in output_scopes],
+        annotation_scope_semantics=ANNOTATION_SCOPE_SEMANTICS,
+        n_times=int(times.size),
+        n_masked_by_output=[int(value) for value in output_mask.sum(axis=1)],
+    )
+    return output_mask, info
+
+
 def mask_by_annotations(
     raw: "mne.io.BaseRaw",
     tensor: np.ndarray,

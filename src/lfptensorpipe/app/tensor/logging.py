@@ -11,6 +11,7 @@ import yaml
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import RunLogRecord, write_run_log
 from lfptensorpipe.app.shared.atomic_outputs import OUTPUT_TRANSACTION_RUN_ID_ENV
+from lfptensorpipe.lfp.mask.annotations import ANNOTATION_SCOPE_SEMANTICS
 
 from .paths import tensor_metric_log_path, tensor_stage_log_path
 
@@ -20,6 +21,8 @@ TENSOR_BENCHMARK_TRACE_PATH_ENV = "LFPTENSORPIPE_TENSOR_BENCHMARK_TRACE_PATH"
 
 def _log_params_with_runtime_metadata(params: dict[str, Any]) -> dict[str, Any]:
     payload = dict(params)
+    if "mask_edge_effects" in payload:
+        payload["annotation_scope_semantics"] = ANNOTATION_SCOPE_SEMANTICS
     run_id = os.environ.get(TENSOR_RUN_ID_ENV, "").strip()
     if run_id:
         payload["run_id"] = run_id

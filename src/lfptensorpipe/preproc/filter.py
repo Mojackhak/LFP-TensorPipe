@@ -181,6 +181,8 @@ def _get_channel_types_map(raw: mne.io.BaseRaw) -> Dict[str, str]:
 def _build_bad_sample_mask(
     raw: mne.io.BaseRaw,
     bad_prefixes: Sequence[str] = ("BAD",),
+    *,
+    channel: str | None = None,
 ) -> np.ndarray:
     """
     Build a boolean mask of bad samples (length = raw.n_times) from annotations.
@@ -188,6 +190,9 @@ def _build_bad_sample_mask(
     IMPORTANT:
         Only annotations with description starting with any of bad_prefixes are treated as bad.
         This prevents accidental masking of task/event annotations (gait/pain).
+        With ``channel=None``, only global annotations are included. With a
+        channel name, global annotations plus annotations assigned to that
+        channel are included.
     """
     sfreq = float(raw.info["sfreq"])
     n_times = int(raw.n_times)
@@ -199,9 +204,19 @@ def _build_bad_sample_mask(
 
     sample_shift = int(raw.first_samp)
 
-    for onset, duration, desc in zip(ann.onset, ann.duration, ann.description):
+    for onset, duration, desc, ch_names in zip(
+        ann.onset,
+        ann.duration,
+        ann.description,
+        ann.ch_names,
+    ):
         desc = str(desc)
         if not _startswith_any(desc, bad_prefixes):
+            continue
+        annotation_scope = tuple(str(name) for name in ch_names)
+        if annotation_scope and (
+            channel is None or str(channel) not in annotation_scope
+        ):
             continue
 
         # Convert absolute onset(sec) -> sample index relative to raw data array
@@ -813,7 +828,9 @@ def filter_lfp_with_bad_annotations(
     End-to-end helper to:
       1) attach BAD annotations onto raw (optional)
       2) apply pre-filtering on the continuous recording (optional)
-      3) remove BAD samples and rebuild a compressed RawArray (no raw.crop used)
+      3) remove globally scoped BAD samples and rebuild a compressed RawArray
+         (no raw.crop used); channel-specific BAD annotations remain scoped on
+         the shared timeline for downstream masks
       4) add annotations at concatenation boundaries (optional)
       5) apply notch and band-pass after extraction (optional)
 
@@ -865,22 +882,26 @@ def filter_lfp_with_bad_annotations(
         filtered_bad_onsets: List[float] = []
         filtered_bad_durs: List[float] = []
         filtered_bad_descs: List[str] = []
-        for onset, duration, desc in zip(
+        filtered_bad_ch_names: List[tuple[str, ...]] = []
+        for onset, duration, desc, ch_names in zip(
             bad_annotations.onset,
             bad_annotations.duration,
             bad_annotations.description,
+            bad_annotations.ch_names,
         ):
             if not is_bad_desc(str(desc)):
                 continue
             filtered_bad_onsets.append(float(onset))
             filtered_bad_durs.append(float(duration))
             filtered_bad_descs.append(str(desc))
+            filtered_bad_ch_names.append(tuple(str(name) for name in ch_names))
         if filtered_bad_descs:
             bad_annotations = mne.Annotations(
                 onset=filtered_bad_onsets,
                 duration=filtered_bad_durs,
                 description=filtered_bad_descs,
                 orig_time=target_orig_time,
+                ch_names=filtered_bad_ch_names,
             )
             raw_labeled.set_annotations(bad_annotations + raw_labeled.annotations)
 
@@ -925,8 +946,15 @@ def filter_lfp_with_bad_annotations(
     bad_mask = np.zeros(n_times, dtype=bool)
     sample_shift = int(getattr(raw_labeled, "first_samp", 0))
 
-    for onset, duration, desc in zip(ann.onset, ann.duration, ann.description):
+    for onset, duration, desc, ch_names in zip(
+        ann.onset,
+        ann.duration,
+        ann.description,
+        ann.ch_names,
+    ):
         if not is_bad_desc(desc):
+            continue
+        if tuple(ch_names):
             continue
         start_samp = int(round(float(onset) * sfreq)) - sample_shift
         stop_samp = int(round((float(onset) + float(duration)) * sfreq)) - sample_shift
@@ -973,6 +1001,7 @@ def filter_lfp_with_bad_annotations(
     new_onsets: List[float] = []
     new_durs: List[float] = []
     new_descs: List[str] = []
+    new_ch_names: List[tuple[str, ...]] = []
 
     def find_containing_segment(sample_idx: int) -> int:
         for i, (s, e) in enumerate(segments):
@@ -980,8 +1009,14 @@ def filter_lfp_with_bad_annotations(
                 return i
         return -1
 
-    for onset, duration, desc in zip(ann.onset, ann.duration, ann.description):
-        if is_bad_desc(desc):
+    for onset, duration, desc, ch_names in zip(
+        ann.onset,
+        ann.duration,
+        ann.description,
+        ann.ch_names,
+    ):
+        annotation_scope = tuple(str(name) for name in ch_names)
+        if is_bad_desc(desc) and not annotation_scope:
             continue
 
         a_start = int(round(float(onset) * sfreq)) - sample_shift
@@ -999,6 +1034,7 @@ def filter_lfp_with_bad_annotations(
             new_onsets.append(new_start_samp / sfreq)
             new_durs.append(0.0)
             new_descs.append(str(desc))
+            new_ch_names.append(annotation_scope)
             continue
 
         if overlap_policy == "drop":
@@ -1009,6 +1045,7 @@ def filter_lfp_with_bad_annotations(
                     new_onsets.append(new_start_samp / sfreq)
                     new_durs.append((a_end - a_start) / sfreq)
                     new_descs.append(str(desc))
+                    new_ch_names.append(annotation_scope)
                     kept = True
                     break
             if not kept:
@@ -1029,6 +1066,7 @@ def filter_lfp_with_bad_annotations(
                     new_onsets.append(chunk_start / sfreq)
                     new_durs.append(chunk_len / sfreq)
                     new_descs.append(str(desc))
+                    new_ch_names.append(annotation_scope)
             else:  # overlap_policy == "compress"
                 if not mapped_chunks:
                     continue
@@ -1037,6 +1075,7 @@ def filter_lfp_with_bad_annotations(
                 new_onsets.append(merged_start / sfreq)
                 new_durs.append(merged_len / sfreq)
                 new_descs.append(str(desc))
+                new_ch_names.append(annotation_scope)
 
     # 6) Build RawArray (compressed timeline is not absolute time)
     # Note: In recent MNE versions, info['meas_date'] cannot be set directly.
@@ -1048,7 +1087,13 @@ def filter_lfp_with_bad_annotations(
     # Set re-mapped non-BAD annotations
     if len(new_onsets) > 0:
         raw_good.set_annotations(
-            mne.Annotations(new_onsets, new_durs, new_descs, orig_time=None)
+            mne.Annotations(
+                new_onsets,
+                new_durs,
+                new_descs,
+                orig_time=None,
+                ch_names=new_ch_names,
+            )
         )
     else:
         raw_good.set_annotations(mne.Annotations([], [], [], orig_time=None))

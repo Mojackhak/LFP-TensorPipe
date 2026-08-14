@@ -675,6 +675,7 @@ def grid(
                     raw,
                     times_s=times,
                     radius_s=float(mt_mask_radius_s[group_band_indices[0]]),
+                    output_channels=pair_names,
                 )
             valid_time_indices = np.flatnonzero(complete_windows & ~skip_time_mask)
             if valid_time_indices.size == 0:

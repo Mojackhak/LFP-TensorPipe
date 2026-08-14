@@ -334,6 +334,15 @@ log is also shown as yellow when its corresponding output file is missing.
 | `Apply` (Annotations) | Writes the configured annotations into the preprocess pipeline. | Annotation output used by downstream steps. | Requires successful Raw and a valid annotation set. |
 | `Plot` (Annotations) | Plots the annotated signal. | QC only. | Requires successful annotation output. |
 
+In any editable MNE Raw plot, press `a` to enter annotation mode and drag across
+the signal to create an all-channel interval. To make the interval
+channel-specific, hold `Shift` and left-click its shaded region over each
+affected trace. A channel-specific interval uses a lighter fill and dashed
+outline. Clicking a channel name instead marks or unmarks the entire channel in
+`raw.info["bads"]`; it does not scope one annotation interval. Global BAD/EDGE
+intervals mask every local channel and connectivity pair. A channel-specific
+interval masks only that local channel and connectivity pairs containing it.
+
 ### 6.3 Bad Segment, ECG, Finish, and Visualization
 
 | Control | What it does | What it affects | Availability / blocking rule |

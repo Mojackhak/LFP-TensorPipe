@@ -7,6 +7,10 @@ from typing import Any
 
 import numpy as np
 
+from lfptensorpipe.lfp.mask.annotations import (
+    has_channel_specific_mask_annotations,
+    output_time_mask_by_annotations,
+)
 from lfptensorpipe.lfp.runtime.tensor_helpers import build_annotation_skip_time_mask
 from lfptensorpipe.utils.transforms import (
     attach_transform_policy,
@@ -416,17 +420,37 @@ def _run_decomposition(
     annotation_support = _periodic_annotation_support(prepared, options, metadata)
     if options.mask_edge_effects:
         annotation_skip_radius_s = float(annotation_support["annotation_skip_radius_s"])
-        skip_time_mask = build_annotation_skip_time_mask(
-            prepared.raw,
-            times_s=times_meta,
-            radius_s=annotation_skip_radius_s,
-        )
+        has_channel_specific_mask = has_channel_specific_mask_annotations(prepared.raw)
+        if has_channel_specific_mask:
+            skip_time_mask, _ = output_time_mask_by_annotations(
+                prepared.raw,
+                times_s=times_meta,
+                output_channels=[(str(channel),) for channel in channel_meta],
+                keep=("bad", "edge"),
+                mode="substring",
+                pad_s=annotation_skip_radius_s,
+                clip_to_raw=True,
+                require_match=False,
+            )
+        else:
+            shared_skip_time_mask = build_annotation_skip_time_mask(
+                prepared.raw,
+                times_s=times_meta,
+                radius_s=annotation_skip_radius_s,
+            )
+            skip_time_mask = np.broadcast_to(
+                shared_skip_time_mask[None, :],
+                (len(channel_meta), times_meta.size),
+            ).copy()
     else:
         annotation_skip_radius_s = None
-        skip_time_mask = np.zeros(times_meta.shape, dtype=bool)
+        skip_time_mask = np.zeros(
+            (len(channel_meta), times_meta.size),
+            dtype=bool,
+        )
     finite_times = np.isfinite(times_meta)
-    valid_time_mask = finite_times & ~skip_time_mask
-    unsupported_retained = unsupported_spectrum_mask & valid_time_mask[None, None, :]
+    valid_time_mask = finite_times[None, :] & ~skip_time_mask
+    unsupported_retained = unsupported_spectrum_mask & valid_time_mask[None, :, :]
     if np.any(unsupported_retained):
         unsupported_count = int(np.sum(unsupported_retained))
         epoch_index, channel_index, time_index = (
@@ -444,7 +468,19 @@ def _run_decomposition(
         )
     n_spectra_unsupported_masked = int(np.sum(unsupported_spectrum_mask))
     n_columns_total = int(np.sum(finite_times))
-    n_columns_skipped_masked = int(np.sum(finite_times & skip_time_mask))
+    n_columns_skipped_masked = int(
+        np.sum(finite_times & np.all(skip_time_mask, axis=0))
+    )
+    n_channel_columns_total = int(len(channel_meta) * np.sum(finite_times))
+    n_channel_columns_skipped_masked = int(
+        np.sum(skip_time_mask & finite_times[None, :])
+    )
+    valid_time_mask_for_decompose = (
+        valid_time_mask[0]
+        if valid_time_mask.shape[0] > 0
+        and np.all(valid_time_mask == valid_time_mask[0])
+        else valid_time_mask
+    )
     _, tfr_periodic, _, params_tensor, params_meta = decompose_fn(
         power_tensor,
         freqs_meta,
@@ -459,7 +495,7 @@ def _run_decomposition(
         n_jobs=int(options.n_jobs),
         report_dir=report_dir,
         verbose=False,
-        valid_time_mask=valid_time_mask,
+        valid_time_mask=valid_time_mask_for_decompose,
     )
     tensor = np.asarray(tfr_periodic, dtype=float)
     if tensor.ndim != 4:
@@ -517,6 +553,8 @@ def _run_decomposition(
             **annotation_support,
             "n_columns_total": n_columns_total,
             "n_columns_skipped_masked": n_columns_skipped_masked,
+            "n_channel_columns_total": n_channel_columns_total,
+            "n_channel_columns_skipped_masked": n_channel_columns_skipped_masked,
             "n_spectra_unsupported_masked": n_spectra_unsupported_masked,
         }
     )
@@ -527,6 +565,8 @@ def _run_decomposition(
             **annotation_support,
             "n_columns_total": n_columns_total,
             "n_columns_skipped_masked": n_columns_skipped_masked,
+            "n_channel_columns_total": n_channel_columns_total,
+            "n_channel_columns_skipped_masked": n_channel_columns_skipped_masked,
             "n_spectra_unsupported_masked": n_spectra_unsupported_masked,
         }
     )

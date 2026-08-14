@@ -1,4 +1,4 @@
-"""Burst baseline-annotation source helpers."""
+"""Tensor annotation-source helpers."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import Any
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.preproc_service import preproc_step_raw_path
+from lfptensorpipe.lfp.mask.annotations import has_channel_specific_mask_annotations
 
 
 def _load_positive_duration_annotation_labels(
@@ -61,7 +62,33 @@ def load_burst_baseline_annotation_labels(
     )
 
 
+def finish_has_channel_specific_mask_annotations(
+    context: RecordContext,
+    *,
+    read_raw_fif_fn: Any | None = None,
+) -> bool:
+    """Return whether the current Finish Raw needs channel-aware masking."""
+    resolver = PathResolver(context)
+    finish_raw = resolver.preproc_step_dir("finish", create=False) / "raw.fif"
+    if not finish_raw.exists():
+        return False
+    raw = None
+    try:
+        if read_raw_fif_fn is None:
+            import mne
+
+            read_raw_fif_fn = mne.io.read_raw_fif
+        raw = read_raw_fif_fn(str(finish_raw), preload=False, verbose="ERROR")
+        return has_channel_specific_mask_annotations(raw)
+    except Exception:
+        return False
+    finally:
+        if raw is not None and hasattr(raw, "close"):
+            raw.close()
+
+
 __all__ = [
     "_load_positive_duration_annotation_labels",
+    "finish_has_channel_specific_mask_annotations",
     "load_burst_baseline_annotation_labels",
 ]

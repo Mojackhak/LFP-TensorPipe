@@ -38,10 +38,14 @@ from typing import TYPE_CHECKING, Any, Mapping, Sequence
 import numpy as np
 
 from ..mask.annotations import (
+    ANNOTATION_SCOPE_SEMANTICS,
     MatchMode,
     OverlapPolicy,
+    annotation_scope_affects_output,
     drop_raw_annotations,
     filter_raw_annotations,
+    normalize_annotation_scope,
+    output_time_mask_by_annotations,
     time_mask_by_annotations,
 )
 from ..mask.mask import apply_time_mask_nan
@@ -155,6 +159,77 @@ def _apply_keep_mask_freq_time(
 
     out0 = np.moveaxis(out, -2, freq_axis) if freq_axis != (x.ndim - 2) else out
     return out0
+
+
+def _output_scopes_from_axes(axes: Mapping[str, Any]) -> list[tuple[str, ...]]:
+    """Return local-channel or pair membership from the tensor channel axis."""
+    channel_axis = axes.get("channel")
+    if channel_axis is None:
+        return []
+    scopes: list[tuple[str, ...]] = []
+    for item in list(channel_axis):
+        if isinstance(item, (list, tuple, np.ndarray)):
+            scopes.append(tuple(str(name) for name in item))
+        else:
+            scopes.append((str(item),))
+    return scopes
+
+
+def _apply_keep_mask_output_freq_time(
+    tensor: np.ndarray,
+    keep_mask_oft: np.ndarray,
+) -> np.ndarray:
+    """Apply an (output, frequency, time) keep-mask to a tensor."""
+    x = np.asarray(tensor)
+    mask = np.asarray(keep_mask_oft, dtype=bool)
+    if mask.ndim != 3:
+        raise ValueError("`keep_mask_oft` must be 3D: (n_outputs, n_freqs, n_times).")
+    if x.ndim < 3 or tuple(x.shape[-3:]) != tuple(mask.shape):
+        raise ValueError(
+            "Tensor output/frequency/time axes do not match keep_mask_oft. "
+            f"Got tensor_shape={x.shape} and mask_shape={mask.shape}."
+        )
+    if np.iscomplexobj(x):
+        out = x.astype(np.complex64, copy=True)
+        fill_value: Any = np.nan + 1j * np.nan
+    else:
+        out = x.astype(np.float64, copy=True)
+        fill_value = np.nan
+    broadcast_shape = (1,) * (out.ndim - 3) + tuple(mask.shape)
+    return np.where(mask.reshape(broadcast_shape), out, fill_value)
+
+
+def _apply_keep_mask_output_time(
+    tensor: np.ndarray,
+    keep_mask_ot: np.ndarray,
+) -> np.ndarray:
+    """Apply an (output, time) keep-mask across intermediate tensor axes."""
+    x = np.asarray(tensor)
+    mask = np.asarray(keep_mask_ot, dtype=bool)
+    if mask.ndim != 2:
+        raise ValueError("`keep_mask_ot` must be 2D: (n_outputs, n_times).")
+    if x.ndim < 3 or int(x.shape[-3]) != int(mask.shape[0]):
+        raise ValueError(
+            "Tensor output axis does not match keep_mask_ot. "
+            f"Got tensor_shape={x.shape} and mask_shape={mask.shape}."
+        )
+    if int(x.shape[-1]) != int(mask.shape[1]):
+        raise ValueError(
+            "Tensor time axis does not match keep_mask_ot. "
+            f"Got tensor_shape={x.shape} and mask_shape={mask.shape}."
+        )
+    if np.iscomplexobj(x):
+        out = x.astype(np.complex64, copy=True)
+        fill_value: Any = np.nan + 1j * np.nan
+    else:
+        out = x.astype(np.float64, copy=True)
+        fill_value = np.nan
+    broadcast_shape = (1,) * (out.ndim - 3) + (
+        int(mask.shape[0]),
+        1,
+        int(mask.shape[1]),
+    )
+    return np.where(mask.reshape(broadcast_shape), out, fill_value)
 
 
 def _coerce_float_or_none(x: Any) -> float | None:
@@ -353,7 +428,10 @@ def mask_tensor_dynamic(
     For each Raw annotation interval ``[onset, onset+duration]`` that matches
     ``drop``, and for each frequency item ``f`` on a tensor's ``axes['freq']``,
     we expand the interval by ``± time_radius_s[f]`` and set tensor values within
-    the expanded window to NaN.
+    the expanded window to NaN. If ``axes['channel']`` contains local channel
+    names or channel-pair tuples, global annotations affect every output and
+    channel-specific annotations affect only outputs containing an assigned
+    channel.
 
     Mapping rule
     ------------
@@ -436,8 +514,11 @@ def mask_tensor_dynamic(
     # Collect base matched intervals (without padding) for provenance.
     drop_lower = [str(x).strip().lower() for x in drop if str(x).strip()]
     matched_base: list[dict[str, Any]] = []
-    for onset, dur, desc in zip(
-        raw.annotations.onset, raw.annotations.duration, raw.annotations.description
+    for onset, dur, desc, ch_names in zip(
+        raw.annotations.onset,
+        raw.annotations.duration,
+        raw.annotations.description,
+        raw.annotations.ch_names,
     ):
         d = str(desc)
         d_l = d.lower()
@@ -453,6 +534,7 @@ def mask_tensor_dynamic(
                 description=d,
                 onset_s=float(onset),
                 duration_s=float(dur),
+                ch_names=list(normalize_annotation_scope(ch_names)),
             )
         )
 
@@ -472,6 +554,7 @@ def mask_tensor_dynamic(
         raise ValueError("`tensor['meta']['axes']['time']` must be 1D.")
 
     finite = np.isfinite(times)
+    output_scopes = _output_scopes_from_axes(axes)
     has_freq_axis = ("freq" in axes) and (axes.get("freq") is not None)
 
     if has_freq_axis:
@@ -487,23 +570,43 @@ def mask_tensor_dynamic(
 
         if len(missing) > 0:
             # Fallback: apply a conservative time-only mask using max radius.
-            drop_mask_t, info0 = time_mask_by_annotations(
-                raw,
-                times_s=times,
-                keep=drop,
-                mode=mode,
-                pad_s=pad_s_max,
-                clip_to_raw=clip_to_raw,
-                require_match=require_match,
-            )
-            keep_mask_t = finite & (~np.asarray(drop_mask_t, dtype=bool))
-
-            tensor_out = _mask_tensor(tensor, keep_mask=keep_mask_t)
+            if output_scopes:
+                drop_mask, info0 = output_time_mask_by_annotations(
+                    raw,
+                    times_s=times,
+                    output_channels=output_scopes,
+                    keep=drop,
+                    mode=mode,
+                    pad_s=pad_s_max,
+                    clip_to_raw=clip_to_raw,
+                    require_match=require_match,
+                )
+                keep_mask = finite[None, :] & (~drop_mask)
+                arr = tensor["tensor"]
+                tensor_masked = (
+                    None
+                    if arr is None
+                    else _apply_keep_mask_output_time(np.asarray(arr), keep_mask)
+                )
+                tensor_out = {"tensor": tensor_masked}
+            else:
+                drop_mask, info0 = time_mask_by_annotations(
+                    raw,
+                    times_s=times,
+                    keep=drop,
+                    mode=mode,
+                    pad_s=pad_s_max,
+                    clip_to_raw=clip_to_raw,
+                    require_match=require_match,
+                )
+                keep_mask = finite & (~np.asarray(drop_mask, dtype=bool))
+                tensor_out = _mask_tensor(tensor, keep_mask=keep_mask)
 
             mask_info = dict(info0)
             mask_info["drop"] = mask_info.pop("keep")
-            mask_info["n_drop"] = int(mask_info.pop("n_keep"))
-            mask_info["n_keep"] = int(np.sum(keep_mask_t))
+            if "n_keep" in mask_info:
+                mask_info["n_drop"] = int(mask_info.pop("n_keep"))
+            mask_info["n_keep"] = int(np.sum(keep_mask))
             mask_info["kind"] = "drop_dynamic_time_only"
             mask_info["pad_s_dynamic_max"] = float(pad_s_max)
             mask_info["freq_axis_mapped"] = False
@@ -520,8 +623,21 @@ def mask_tensor_dynamic(
             [float(time_radius[int(i)]) for i in idx_map if i is not None], dtype=float
         )
 
-        keep_mask_ft = np.ones((int(len(freq_axis_items)), int(times.size)), dtype=bool)
-        keep_mask_ft &= finite[None, :]
+        if output_scopes:
+            keep_mask = np.ones(
+                (
+                    len(output_scopes),
+                    int(len(freq_axis_items)),
+                    int(times.size),
+                ),
+                dtype=bool,
+            )
+            keep_mask &= finite[None, None, :]
+        else:
+            keep_mask = np.ones(
+                (int(len(freq_axis_items)), int(times.size)), dtype=bool
+            )
+            keep_mask &= finite[None, :]
 
         for itv in matched_base:
             onset_s = float(itv["onset_s"])
@@ -529,6 +645,15 @@ def mask_tensor_dynamic(
             base_start = float(onset_s)
             base_end = float(onset_s + dur_s)
 
+            affected_outputs = (
+                [
+                    output_index
+                    for output_index, output_scope in enumerate(output_scopes)
+                    if annotation_scope_affects_output(itv["ch_names"], output_scope)
+                ]
+                if output_scopes
+                else []
+            )
             for fi in range(int(len(freq_axis_items))):
                 pad = float(radii[fi])
                 start = base_start - pad
@@ -538,13 +663,22 @@ def mask_tensor_dynamic(
                     end = min(end, t_max)
                 if end < start:
                     continue
-                keep_mask_ft[fi, :] &= ~(finite & (times >= start) & (times <= end))
+                interval_mask = finite & (times >= start) & (times <= end)
+                if output_scopes:
+                    for output_index in affected_outputs:
+                        keep_mask[output_index, fi, :] &= ~interval_mask
+                else:
+                    keep_mask[fi, :] &= ~interval_mask
 
         arr = tensor["tensor"]
         tensor_masked = (
             None
             if arr is None
-            else _apply_keep_mask_freq_time(np.asarray(arr), keep_mask_ft)
+            else (
+                _apply_keep_mask_output_freq_time(np.asarray(arr), keep_mask)
+                if output_scopes
+                else _apply_keep_mask_freq_time(np.asarray(arr), keep_mask)
+            )
         )
 
         mask_info2: dict[str, Any] = dict(
@@ -569,29 +703,53 @@ def mask_tensor_dynamic(
             radii_s=radii.astype(float).tolist(),
             pad_s_dynamic_max=float(pad_s_max),
             matched_intervals=matched_base,
+            output_channels=[list(scope) for scope in output_scopes],
+            annotation_scope_semantics=(
+                ANNOTATION_SCOPE_SEMANTICS if output_scopes else "global"
+            ),
             raw_annotations=raw_mask_info,
         )
         meta["mask"] = mask_info2
         return raw_masked, {"tensor": tensor_masked, "meta": meta}
 
     # Fallback: apply a conservative time-only mask using the maximum radius.
-    drop_mask_t, info0 = time_mask_by_annotations(
-        raw,
-        times_s=times,
-        keep=drop,
-        mode=mode,
-        pad_s=pad_s_max,
-        clip_to_raw=clip_to_raw,
-        require_match=require_match,
-    )
-    keep_mask_t = finite & (~np.asarray(drop_mask_t, dtype=bool))
-
-    tensor_out = _mask_tensor(tensor, keep_mask=keep_mask_t)
+    if output_scopes:
+        drop_mask, info0 = output_time_mask_by_annotations(
+            raw,
+            times_s=times,
+            output_channels=output_scopes,
+            keep=drop,
+            mode=mode,
+            pad_s=pad_s_max,
+            clip_to_raw=clip_to_raw,
+            require_match=require_match,
+        )
+        keep_mask = finite[None, :] & (~drop_mask)
+        arr = tensor["tensor"]
+        tensor_masked = (
+            None
+            if arr is None
+            else _apply_keep_mask_output_time(np.asarray(arr), keep_mask)
+        )
+        tensor_out = {"tensor": tensor_masked}
+    else:
+        drop_mask, info0 = time_mask_by_annotations(
+            raw,
+            times_s=times,
+            keep=drop,
+            mode=mode,
+            pad_s=pad_s_max,
+            clip_to_raw=clip_to_raw,
+            require_match=require_match,
+        )
+        keep_mask = finite & (~np.asarray(drop_mask, dtype=bool))
+        tensor_out = _mask_tensor(tensor, keep_mask=keep_mask)
 
     mask_info = dict(info0)
     mask_info["drop"] = mask_info.pop("keep")
-    mask_info["n_drop"] = int(mask_info.pop("n_keep"))
-    mask_info["n_keep"] = int(np.sum(keep_mask_t))
+    if "n_keep" in mask_info:
+        mask_info["n_drop"] = int(mask_info.pop("n_keep"))
+    mask_info["n_keep"] = int(np.sum(keep_mask))
     mask_info["kind"] = "drop_dynamic_time_only"
     mask_info["pad_s_dynamic_max"] = float(pad_s_max)
     mask_info["raw_annotations"] = raw_mask_info

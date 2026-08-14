@@ -1981,19 +1981,24 @@ def raw_call_ecgremover(
 
     from lfptensorpipe.preproc.filter import _build_bad_sample_mask
 
-    bad_sample_mask = np.asarray(
-        _build_bad_sample_mask(raw, bad_prefixes=("BAD",)),
-        dtype=bool,
-    )
-    active_bad_mask = bad_sample_mask if bool(np.any(bad_sample_mask)) else None
-
     if verbose:
         logger.info("Running ECG remover '%s' on channels: %s", method_name, picks_list)
 
     cleaned_channels: list[NDArray[np.float64]] = []
     figs: dict[str, Any] = {}
     channel_diagnostics: list[dict[str, Any]] = []
+    bad_masks_by_channel: list[np.ndarray] = []
     for channel, lfp in zip(picks_list, data):
+        bad_sample_mask = np.asarray(
+            _build_bad_sample_mask(
+                raw,
+                bad_prefixes=("BAD",),
+                channel=channel,
+            ),
+            dtype=bool,
+        )
+        active_bad_mask = bad_sample_mask if bool(np.any(bad_sample_mask)) else None
+        bad_masks_by_channel.append(bad_sample_mask)
         if use_builtin_runner and isinstance(method, str):
             run = _run_supported_ecg_method(
                 method,
@@ -2025,7 +2030,9 @@ def raw_call_ecgremover(
 
         cleaned_channels.append(run.cleaned)
         figs[channel] = run.figure
-        channel_diagnostics.append(run.diagnostics(channel))
+        channel_diagnostic = run.diagnostics(channel)
+        channel_diagnostic["n_bad_samples"] = int(np.sum(bad_sample_mask))
+        channel_diagnostics.append(channel_diagnostic)
 
     raw_out = raw if inplace else raw.copy()
     raw_out.load_data()
@@ -2054,12 +2061,17 @@ def raw_call_ecgremover(
             str(description).startswith("BAD")
             for description in raw.annotations.description
         )
+        union_bad_sample_mask = (
+            np.logical_or.reduce(bad_masks_by_channel)
+            if bad_masks_by_channel
+            else np.zeros(int(raw.n_times), dtype=bool)
+        )
         _diagnostics_out.clear()
         _diagnostics_out.update(
             {
                 "n_bad_annotations": int(n_bad_annotations),
-                "n_bad_samples": int(np.sum(bad_sample_mask)),
-                "bad_duration_s": float(np.sum(bad_sample_mask) / fs_local),
+                "n_bad_samples": int(np.sum(union_bad_sample_mask)),
+                "bad_duration_s": float(np.sum(union_bad_sample_mask) / fs_local),
                 "n_channels_selected": int(len(picks_list)),
                 "n_channels_processed": int(
                     sum(

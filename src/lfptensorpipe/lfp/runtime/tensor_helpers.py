@@ -6,7 +6,7 @@ Build Tensor metric runners.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 import warnings
 
 import numpy as np
@@ -17,19 +17,40 @@ def build_annotation_skip_time_mask(
     *,
     times_s: np.ndarray,
     radius_s: float,
+    output_channels: Sequence[Sequence[str]] | None = None,
 ) -> np.ndarray:
-    """Return the BAD/EDGE time mask used to skip fully masked columns."""
-    from lfptensorpipe.lfp.mask.annotations import time_mask_by_annotations
-
-    skip_mask, _ = time_mask_by_annotations(
-        raw,
-        times_s=np.asarray(times_s, dtype=float),
-        keep=("bad", "edge"),
-        mode="substring",
-        pad_s=float(radius_s),
-        clip_to_raw=True,
-        require_match=False,
+    """Return centers where BAD/EDGE masks every requested output."""
+    from lfptensorpipe.lfp.mask.annotations import (
+        output_time_mask_by_annotations,
+        time_mask_by_annotations,
     )
+
+    if output_channels is None:
+        skip_mask, _ = time_mask_by_annotations(
+            raw,
+            times_s=np.asarray(times_s, dtype=float),
+            keep=("bad", "edge"),
+            mode="substring",
+            pad_s=float(radius_s),
+            clip_to_raw=True,
+            require_match=False,
+        )
+    else:
+        output_mask, _ = output_time_mask_by_annotations(
+            raw,
+            times_s=np.asarray(times_s, dtype=float),
+            output_channels=output_channels,
+            keep=("bad", "edge"),
+            mode="substring",
+            pad_s=float(radius_s),
+            clip_to_raw=True,
+            require_match=False,
+        )
+        skip_mask = (
+            np.all(output_mask, axis=0)
+            if output_mask.shape[0] > 0
+            else np.zeros(np.asarray(times_s).shape, dtype=bool)
+        )
     return np.asarray(skip_mask, dtype=bool)
 
 

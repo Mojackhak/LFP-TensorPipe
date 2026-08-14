@@ -22,6 +22,7 @@ from lfptensorpipe.lfp.burst.semantics import (
     has_current_burst_value_semantics,
 )
 from lfptensorpipe.lfp.connectivity import CONNECTIVITY_PADDING_MODE
+from lfptensorpipe.lfp.mask.annotations import ANNOTATION_SCOPE_SEMANTICS
 from lfptensorpipe.utils.transforms import (
     VALUE_TRANSFORM_POLICY_KEY,
     get_transform_policy,
@@ -29,6 +30,7 @@ from lfptensorpipe.utils.transforms import (
 )
 
 from .coercion import _as_float, _as_int, _as_optional_float, _as_optional_int
+from .annotation_source import finish_has_channel_specific_mask_annotations
 from .frequency import (
     DEFAULT_TENSOR_NOTCH_RADIUS,
     TENSOR_NOTCH_TOLERANCE_HZ,
@@ -799,6 +801,12 @@ def tensor_metric_panel_state(
         return "gray"
     params = payload.get("params")
     if not isinstance(params, dict):
+        return "yellow"
+    if (
+        bool(params.get("mask_edge_effects", True))
+        and params.get("annotation_scope_semantics") != ANNOTATION_SCOPE_SEMANTICS
+        and finish_has_channel_specific_mask_annotations(context)
+    ):
         return "yellow"
     try:
         completed_signature = _metric_log_signature(metric_key, params)

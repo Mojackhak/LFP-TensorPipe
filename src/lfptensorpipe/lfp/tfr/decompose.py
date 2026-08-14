@@ -98,7 +98,9 @@ def _fit_one_epoch_channel(
                         {
                             "compressed_time_index": int(compressed_idx),
                             "original_time_index": int(source_idx),
-                            "original_time_seconds": float(original_seconds[compressed_idx]),
+                            "original_time_seconds": float(
+                                original_seconds[compressed_idx]
+                            ),
                         }
                         for compressed_idx, source_idx in enumerate(original_idx)
                     ],
@@ -232,8 +234,10 @@ def decompose(
     verbose
         Verbosity passed to SpecParam.
     valid_time_mask
-        Optional boolean mask selecting time columns to fit. Outputs retain the
-        original time axis and skipped columns remain NaN.
+        Optional boolean mask selecting time columns to fit. It may have shape
+        ``(n_times,)`` for a shared mask or ``(n_channels, n_times)`` for a
+        channel-specific mask. Outputs retain the original time axis and skipped
+        columns remain NaN.
 
     Returns
     -------
@@ -276,14 +280,24 @@ def decompose(
             )
 
     if valid_time_mask is None:
-        valid_mask = np.ones(n_times, dtype=bool)
+        valid_mask_by_channel = np.ones((n_channels, n_times), dtype=bool)
     else:
         valid_mask = np.asarray(valid_time_mask, dtype=bool)
-        if valid_mask.ndim != 1 or valid_mask.size != n_times:
+        if valid_mask.ndim == 1 and valid_mask.size == n_times:
+            valid_mask_by_channel = np.broadcast_to(
+                valid_mask[None, :], (n_channels, n_times)
+            ).copy()
+        elif valid_mask.shape == (n_channels, n_times):
+            valid_mask_by_channel = valid_mask.copy()
+        else:
             raise ValueError(
-                "`valid_time_mask` must be 1D with length equal to tfr.shape[-1]."
+                "`valid_time_mask` must have shape (n_times,) or "
+                "(n_channels, n_times)."
             )
-    fitted_time_indices = np.flatnonzero(valid_mask)
+    fitted_time_indices_by_channel = [
+        np.flatnonzero(valid_mask_by_channel[channel_index])
+        for channel_index in range(n_channels)
+    ]
     time_axis = (
         np.arange(n_times, dtype=float)
         if times is None
@@ -306,15 +320,23 @@ def decompose(
     )
 
     # Prepare tasks across (epoch, channel). Column compression occurs in _job.
-    tasks: list[tuple[int, int, np.ndarray]] = []
+    tasks: list[tuple[int, int, np.ndarray, np.ndarray]] = []
     for e in range(n_epochs):
         for c in range(n_channels):
+            fitted_time_indices = fitted_time_indices_by_channel[c]
+            if fitted_time_indices.size == 0:
+                continue
             psd_ft = np.ascontiguousarray(
                 tfr[e, c, :, :], dtype=float
             )  # (n_freqs, n_times)
-            tasks.append((e, c, psd_ft))
+            tasks.append((e, c, psd_ft, fitted_time_indices))
 
-    def _job(e: int, c: int, psd_ft: np.ndarray):
+    def _job(
+        e: int,
+        c: int,
+        psd_ft: np.ndarray,
+        fitted_time_indices: np.ndarray,
+    ):
         psd_fit = np.ascontiguousarray(psd_ft[:, fitted_time_indices], dtype=float)
         ap, per, full, df = _fit_one_epoch_channel(
             e,
@@ -327,7 +349,7 @@ def decompose(
             original_time_indices=fitted_time_indices,
             original_times_s=time_axis,
         )
-        return e, c, ap, per, full, df
+        return e, c, fitted_time_indices, ap, per, full, df
 
     # Infer parameter columns from the first result.
     def _infer_param_names(df: pd.DataFrame) -> list[str]:
@@ -351,15 +373,16 @@ def decompose(
 
     schema_reference_fit = False
     schema_reference_time_index: int | None = None
-    if fitted_time_indices.size > 0:
+    if tasks:
         results = Parallel(n_jobs=int(n_jobs), backend="loky")(
-            delayed(_job)(e, c, psd) for e, c, psd in tasks
+            delayed(_job)(e, c, psd, fitted_indices)
+            for e, c, psd, fitted_indices in tasks
         )
         if len(results) == 0:
             raise RuntimeError(
                 "No results returned from SpecParam decomposition (unexpected)."
             )
-        param_names = _infer_param_names(results[0][5])
+        param_names = _infer_param_names(results[0][6])
     else:
         if n_epochs < 1 or n_channels < 1 or n_times < 1:
             raise RuntimeError(
@@ -385,7 +408,7 @@ def decompose(
     )
 
     # Collect outputs.
-    for e, c, ap, per, full, df in results:
+    for e, c, fitted_time_indices, ap, per, full, df in results:
         tfr_aperiodic[e, c][:, fitted_time_indices] = ap
         tfr_periodic[e, c][:, fitted_time_indices] = per
         tfr_full[e, c][:, fitted_time_indices] = full
@@ -434,6 +457,25 @@ def decompose(
     else:
         ch_axis = [str(c) for c in ch_names]
 
+    uniform_fitted_indices = (
+        bool(
+            all(
+                np.array_equal(
+                    fitted_time_indices_by_channel[0],
+                    fitted_time_indices_by_channel[channel_index],
+                )
+                for channel_index in range(1, n_channels)
+            )
+        )
+        if n_channels > 0
+        else True
+    )
+    fitted_time_indices_shared = (
+        [int(item) for item in fitted_time_indices_by_channel[0].tolist()]
+        if n_channels > 0 and uniform_fitted_indices
+        else None
+    )
+
     params_meta: Dict[str, Any] = dict(
         axes=dict(
             epoch=np.arange(n_epochs, dtype=int),
@@ -454,7 +496,11 @@ def decompose(
             min_peak_height=float(min_peak_height),
             peak_threshold=float(peak_threshold),
             n_jobs=int(n_jobs),
-            fitted_time_indices=[int(item) for item in fitted_time_indices.tolist()],
+            fitted_time_indices=fitted_time_indices_shared,
+            fitted_time_indices_by_channel=[
+                [int(item) for item in indices.tolist()]
+                for indices in fitted_time_indices_by_channel
+            ],
             schema_reference_fit=bool(schema_reference_fit),
             schema_reference_time_index=schema_reference_time_index,
         ),

@@ -375,6 +375,32 @@ This is the main manual QC step of the preprocess section:
 - adjust the `BAD` spans if the automatically detected windows are not
   acceptable. The modifications are saved automatically upon closing the window.
 
+#### Channel-specific BAD intervals in the MNE browser
+
+Dragging across the signal while annotation mode is active creates an annotation
+for all channels by default. To restrict the new interval to one or more channels:
+
+1. press `a` to enter annotation mode
+2. select or add the required `BAD` description
+3. drag across the required time interval
+4. hold `Shift` and left-click the shaded annotation over each affected channel
+   trace
+5. close the browser to save the edited Raw file
+
+For example, one `Shift`-click over channel `A` assigns the interval to `A` only;
+another `Shift`-click over channel `B` assigns it to both `A` and `B`. A
+channel-specific interval is displayed with a lighter fill and dashed outline.
+Do not click the channel name for this purpose: clicking a channel name marks or
+unmarks that entire channel in `raw.info["bads"]`, rather than limiting one time
+interval. An annotation with no assigned channel remains global and applies to
+the time interval on all channels.
+
+Channel membership is stored in `raw.annotations.ch_names` and is preserved by
+Browser saving, timeline normalization, Sync, filtering, and Reset Reference.
+For local metrics, a channel-specific BAD/EDGE interval masks only that channel.
+For connectivity metrics, it masks only pairs containing that channel. An
+annotation with no channel assignment remains global.
+
 
 ### 5.3 Step 2: Import Annotations
 
