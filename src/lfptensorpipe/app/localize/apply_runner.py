@@ -157,7 +157,8 @@ def run_localize_apply(
                     lambda path: undirected_frame.to_csv(path, index=False),
                 ),
                 (out_log, lambda path: write_run_log(path, success_record)),
-            ]
+            ],
+            cleanup_stale_residues=True,
         )
         invalidate_after_localize_result_change(
             RecordContext(project_root=project_root, subject=subject, record=record)

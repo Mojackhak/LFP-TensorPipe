@@ -200,7 +200,8 @@ def run_align_epochs(
         }
         log_path = alignment_paradigm_log_path(resolver, slug)
         with AtomicOutputSet(
-            [warp_fn_path, warp_labels_path, *metric_output_paths.values(), log_path]
+            [warp_fn_path, warp_labels_path, *metric_output_paths.values(), log_path],
+            cleanup_stale_residues=True,
         ) as output_set:
             save_pkl(warp_fn, output_set.staged_path(warp_fn_path))
             save_pkl(epochs_by_label, output_set.staged_path(warp_labels_path))

@@ -38,7 +38,10 @@ def bootstrap_raw_step_from_rawdata(
 
     log_path = preproc_step_log_path(resolver, "raw")
     try:
-        with AtomicOutputSet([dst, log_path]) as output_set:
+        with AtomicOutputSet(
+            [dst, log_path],
+            cleanup_stale_residues=True,
+        ) as output_set:
             shutil.copy2(src, output_set.staged_path(dst))
             mark_preproc_step_fn(
                 resolver=resolver,

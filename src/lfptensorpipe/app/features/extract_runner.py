@@ -327,7 +327,10 @@ def _extract_burst_outputs(
             (Path(path), writer) for path, writer in authoritative_outputs
         ]
         if output_paths_by_stem is None:
-            write_outputs_atomically(resolved_outputs)
+            write_outputs_atomically(
+                resolved_outputs,
+                cleanup_stale_residues=True,
+            )
         else:
             for path, writer in resolved_outputs:
                 writer(path)
@@ -658,7 +661,10 @@ def run_extract_features(
             for paths_by_stem in final_paths_by_metric.values()
             for path in paths_by_stem.values()
         ]
-        with AtomicOutputSet([*authoritative_paths, log_path]) as output_set:
+        with AtomicOutputSet(
+            [*authoritative_paths, log_path],
+            cleanup_stale_residues=True,
+        ) as output_set:
             staged_paths_by_metric = {
                 metric_key: {
                     stem: output_set.staged_path(path)

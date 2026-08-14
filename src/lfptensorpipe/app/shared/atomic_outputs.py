@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+import logging
 import os
 from pathlib import Path
 import re
@@ -17,6 +18,10 @@ OUTPUT_TRANSACTION_RUN_ID_ENV = "LFPTENSORPIPE_TENSOR_RUN_ID"
 OutputWriter = Callable[[Path], None]
 ReplaceFn = Callable[[Path, Path], Path]
 
+logger = logging.getLogger(__name__)
+
+_TRANSACTION_TOKEN_PATTERN = r"[0-9a-f]{32}"
+
 
 @dataclass(frozen=True)
 class _PreparedOutput:
@@ -28,6 +33,13 @@ class _PreparedOutput:
     staging_directory: Path | None = None
 
 
+@dataclass(frozen=True)
+class _StaleResidueRule:
+    pattern: re.Pattern[str]
+    expected_directory: bool
+    target: Path
+
+
 class AtomicOutputSet:
     """Stage and collectively promote one fixed set of public output files."""
 
@@ -36,6 +48,7 @@ class AtomicOutputSet:
         targets: Iterable[Path],
         *,
         replace_fn: ReplaceFn | None = None,
+        cleanup_stale_residues: bool = False,
     ) -> None:
         token = uuid4().hex
         self._token = token
@@ -71,8 +84,10 @@ class AtomicOutputSet:
             )
 
         self._prepared = tuple(prepared)
+        self._declared_targets = tuple(item.target for item in prepared)
         self._by_target = {item.target: item for item in self._prepared}
         self._replace = replace_fn or (lambda source, target: source.replace(target))
+        self._cleanup_stale_residues_enabled = cleanup_stale_residues
         self._manifest_path: Path | None = None
         self._manifest_payload: dict[str, object] | None = None
         self._obsolete_fif_splits: tuple[Path, ...] = ()
@@ -170,6 +185,8 @@ class AtomicOutputSet:
         self._committed = True
         self._cleanup_accepted_candidate()
         self._cleanup_obsolete_fif_splits()
+        if self._cleanup_stale_residues_enabled:
+            self._cleanup_stale_residues()
 
     def _staging_directories(self) -> tuple[Path, ...]:
         return tuple(
@@ -247,6 +264,125 @@ class AtomicOutputSet:
                 path.unlink(missing_ok=True)
             except OSError:
                 continue
+
+    def _cleanup_stale_residues(self) -> None:
+        rules_by_parent: dict[Path, list[_StaleResidueRule]] = {}
+        for target in self._declared_targets:
+            rules_by_parent.setdefault(target.parent, []).extend(
+                self._stale_residue_rules(target)
+            )
+
+        for parent, rules in rules_by_parent.items():
+            try:
+                candidates = tuple(parent.iterdir())
+            except OSError as exc:
+                logger.warning(
+                    "Atomic output stale-residue scan failed for targets %s "
+                    "in %s: %s",
+                    sorted({str(rule.target) for rule in rules}),
+                    parent,
+                    exc,
+                )
+                continue
+            for candidate in candidates:
+                rule = next(
+                    (item for item in rules if item.pattern.fullmatch(candidate.name)),
+                    None,
+                )
+                if rule is None:
+                    continue
+                self._remove_stale_residue(candidate, rule)
+
+    @staticmethod
+    def _stale_residue_rules(target: Path) -> tuple[_StaleResidueRule, ...]:
+        target_name = re.escape(target.name)
+        backup_pattern = re.compile(
+            rf"\.{target_name}\.bak-{_TRANSACTION_TOKEN_PATTERN}"
+        )
+        if not target.name.endswith((".fif", ".fif.gz")):
+            temporary_pattern = re.compile(
+                rf"\.{target_name}\.tmp-{_TRANSACTION_TOKEN_PATTERN}"
+                rf"{re.escape(target.suffix)}"
+            )
+            return (
+                _StaleResidueRule(backup_pattern, False, target),
+                _StaleResidueRule(temporary_pattern, False, target),
+            )
+
+        if target.name.endswith(".fif.gz"):
+            stem = target.name[: -len(".fif.gz")]
+            suffix = ".fif.gz"
+        else:
+            stem = target.name[: -len(".fif")]
+            suffix = ".fif"
+        split_backup_pattern = re.compile(
+            rf"\.{re.escape(stem)}-[0-9]+{re.escape(suffix)}"
+            rf"\.bak-{_TRANSACTION_TOKEN_PATTERN}"
+        )
+        staging_pattern = re.compile(
+            rf"\.{target_name}\.tmp-{_TRANSACTION_TOKEN_PATTERN}"
+        )
+        return (
+            _StaleResidueRule(backup_pattern, False, target),
+            _StaleResidueRule(split_backup_pattern, False, target),
+            _StaleResidueRule(staging_pattern, True, target),
+        )
+
+    @staticmethod
+    def _remove_stale_residue(candidate: Path, rule: _StaleResidueRule) -> None:
+        try:
+            mode = candidate.lstat().st_mode
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            logger.warning(
+                "Atomic output stale-residue inspection failed for target %s "
+                "at %s: %s",
+                rule.target,
+                candidate,
+                exc,
+            )
+            return
+        try:
+            if stat.S_ISLNK(mode):
+                candidate.unlink()
+                logger.warning(
+                    "Removed symbolic-link atomic output residue for target %s: %s",
+                    rule.target,
+                    candidate,
+                )
+                return
+            if rule.expected_directory:
+                if not stat.S_ISDIR(mode):
+                    logger.warning(
+                        "Skipped atomic output residue with unexpected type for "
+                        "target %s: %s (expected directory, mode=%s)",
+                        rule.target,
+                        candidate,
+                        oct(mode),
+                    )
+                    return
+                shutil.rmtree(candidate)
+                return
+            if not stat.S_ISREG(mode):
+                logger.warning(
+                    "Skipped atomic output residue with unexpected type for "
+                    "target %s: %s (expected regular file, mode=%s)",
+                    rule.target,
+                    candidate,
+                    oct(mode),
+                )
+                return
+            candidate.unlink()
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            logger.warning(
+                "Atomic output stale-residue cleanup failed for target %s at %s: %s",
+                rule.target,
+                candidate,
+                exc,
+            )
 
     def _prepare_manifest(self) -> None:
         run_id = os.environ.get(OUTPUT_TRANSACTION_RUN_ID_ENV, "").strip()
@@ -351,6 +487,7 @@ def write_outputs_atomically(
     outputs: list[tuple[Path, OutputWriter]],
     *,
     replace_fn: ReplaceFn | None = None,
+    cleanup_stale_residues: bool = False,
 ) -> None:
     """Write and promote a complete fixed output set."""
     if not outputs:
@@ -358,6 +495,7 @@ def write_outputs_atomically(
     with AtomicOutputSet(
         [target for target, _writer in outputs],
         replace_fn=replace_fn,
+        cleanup_stale_residues=cleanup_stale_residues,
     ) as output_set:
         for target, writer in outputs:
             writer(output_set.staged_path(target))

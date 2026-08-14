@@ -361,7 +361,10 @@ def apply_ecg_step(
                 "ecg_artifact_removal",
             )
             log_path = preproc_step_log_path(resolver, "ecg_artifact_removal")
-            with AtomicOutputSet([dst, config_path, log_path]) as output_set:
+            with AtomicOutputSet(
+                [dst, config_path, log_path],
+                cleanup_stale_residues=True,
+            ) as output_set:
                 runtime_copy2(src, output_set.staged_path(dst))
                 write_preproc_step_config(
                     resolver=resolver,
@@ -419,7 +422,10 @@ def apply_ecg_step(
 
         config_path = preproc_step_config_path(resolver, "ecg_artifact_removal")
         log_path = preproc_step_log_path(resolver, "ecg_artifact_removal")
-        with AtomicOutputSet([dst, config_path, log_path]) as output_set:
+        with AtomicOutputSet(
+            [dst, config_path, log_path],
+            cleanup_stale_residues=True,
+        ) as output_set:
             raw_clean.save(str(output_set.staged_path(dst)), overwrite=True)
             write_preproc_step_config(
                 resolver=resolver,

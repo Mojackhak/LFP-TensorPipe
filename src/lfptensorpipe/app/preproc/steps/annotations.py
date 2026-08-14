@@ -143,7 +143,10 @@ def apply_annotations_step(
 
         config_path = preproc_step_config_path(resolver, "annotations")
         log_path = preproc_step_log_path(resolver, "annotations")
-        with AtomicOutputSet([dst, csv_path, config_path, log_path]) as output_set:
+        with AtomicOutputSet(
+            [dst, csv_path, config_path, log_path],
+            cleanup_stale_residues=True,
+        ) as output_set:
             staged_raw = output_set.staged_path(dst)
             # Preserve the exact source file before applying annotations.
             runtime_copy2(src, staged_raw)

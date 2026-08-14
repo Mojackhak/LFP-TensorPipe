@@ -204,7 +204,10 @@ def finish_alignment_epochs(
                 frame.attrs[VALUE_TRANSFORM_POLICY_KEY] = dict(transform_policy)
             frames[metric_key] = frame
 
-        with AtomicOutputSet([*output_paths.values(), log_path]) as output_set:
+        with AtomicOutputSet(
+            [*output_paths.values(), log_path],
+            cleanup_stale_residues=True,
+        ) as output_set:
             for metric_key in required_metrics:
                 save_pkl(
                     frames[metric_key],

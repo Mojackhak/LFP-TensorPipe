@@ -78,7 +78,10 @@ def apply_bad_segment_step(
 
         config_path = preproc_step_config_path(resolver, "bad_segment_removal")
         log_path = preproc_step_log_path(resolver, "bad_segment_removal")
-        with AtomicOutputSet([dst, config_path, log_path]) as output_set:
+        with AtomicOutputSet(
+            [dst, config_path, log_path],
+            cleanup_stale_residues=True,
+        ) as output_set:
             raw_good.save(str(output_set.staged_path(dst)), overwrite=True)
             write_preproc_step_config(
                 resolver=resolver,

@@ -99,7 +99,10 @@ def apply_finish_step(
         if dropped:
             message = f"{message} Dropped {dropped} out-of-range annotation(s)."
         log_path = preproc_step_log_path(resolver, "finish")
-        with AtomicOutputSet([finish_raw_path, log_path]) as output_set:
+        with AtomicOutputSet(
+            [finish_raw_path, log_path],
+            cleanup_stale_residues=True,
+        ) as output_set:
             raw_out.save(
                 str(output_set.staged_path(finish_raw_path)),
                 fmt=save_format,
