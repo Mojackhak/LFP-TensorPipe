@@ -172,6 +172,7 @@ def apply_reset_reference(
 
     out_names: list[str] = []
     out_data: list[np.ndarray] = []
+    out_source_channels: list[frozenset[str]] = []
     row_raws: list[Any] = []
     bipolar_row_indices: list[int] = []
     source_bads = set(str(channel) for channel in raw.info.get("bads", []))
@@ -244,6 +245,9 @@ def apply_reset_reference(
 
         out_names.append(name)
         out_data.append(np.asarray(data_out, dtype=float))
+        out_source_channels.append(
+            frozenset(channel for channel in (anode, cathode) if channel)
+        )
         row_raws.append(row_raw)
         if anode in source_bads or cathode in source_bads:
             out_bads.append(name)
@@ -269,12 +273,38 @@ def apply_reset_reference(
     # `out` restarts at first_samp == 0, so onsets must be pulled back into the
     # record-relative frame or set_annotations() would crop them away.
     annotations = raw.annotations
+    mapped_onsets: list[float] = []
+    mapped_durations: list[float] = []
+    mapped_descriptions: list[str] = []
+    mapped_ch_names: list[tuple[str, ...]] = []
+    for onset, duration, description, ch_names in zip(
+        raw_relative_onsets(raw),
+        annotations.duration,
+        annotations.description,
+        annotations.ch_names,
+    ):
+        source_scope = frozenset(str(channel) for channel in ch_names)
+        if source_scope:
+            output_scope = tuple(
+                name
+                for name, source_channels in zip(out_names, out_source_channels)
+                if source_scope.intersection(source_channels)
+            )
+            if not output_scope:
+                continue
+        else:
+            output_scope = ()
+        mapped_onsets.append(float(onset))
+        mapped_durations.append(float(duration))
+        mapped_descriptions.append(str(description))
+        mapped_ch_names.append(output_scope)
     out.set_annotations(
         mne.Annotations(
-            onset=raw_relative_onsets(raw),
-            duration=np.asarray(annotations.duration, dtype=float),
-            description=np.asarray(annotations.description, dtype=object),
+            onset=mapped_onsets,
+            duration=mapped_durations,
+            description=mapped_descriptions,
             orig_time=out.info.get("meas_date"),
+            ch_names=mapped_ch_names,
         )
     )
     return out

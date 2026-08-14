@@ -50,18 +50,20 @@ def _normalize_preproc_plot_orig_time(value: Any) -> Any:
 
 def _normalize_preproc_plot_annotations(
     raw: Any,
-) -> tuple[tuple[str, float, float], ...]:
+) -> tuple[tuple[str, float, float, tuple[str, ...]], ...]:
     annotations = getattr(raw, "annotations", None)
     if annotations is None:
         return ()
-    items: list[tuple[str, float, float]] = []
-    for onset, duration, description in zip(
+    items: list[tuple[str, float, float, tuple[str, ...]]] = []
+    for onset, duration, description, ch_names in zip(
         annotations.onset,
         annotations.duration,
         annotations.description,
+        annotations.ch_names,
     ):
-        items.append((str(description).strip(), float(onset), float(duration)))
-    items.sort(key=lambda item: (item[1], item[2], item[0]))
+        scope = tuple(sorted(str(name) for name in ch_names))
+        items.append((str(description).strip(), float(onset), float(duration), scope))
+    items.sort(key=lambda item: (item[1], item[2], item[0], item[3]))
     return tuple(items)
 
 

@@ -30,6 +30,44 @@ if TYPE_CHECKING:  # pragma: no cover
 
 MatchMode = Literal["substring", "exact"]
 OverlapPolicy = Literal["split", "drop"]
+ANNOTATION_SCOPE_SEMANTICS = "channel_aware"
+
+
+def normalize_annotation_scope(ch_names: Sequence[str]) -> tuple[str, ...]:
+    """Return one annotation's channel scope as stable channel names.
+
+    MNE represents a global annotation with an empty channel tuple.
+    """
+    return tuple(str(name) for name in ch_names)
+
+
+def annotation_scope_affects_output(
+    annotation_channels: Sequence[str],
+    output_channels: Sequence[str],
+) -> bool:
+    """Return whether an annotation applies to one local or paired output."""
+    annotation_scope = normalize_annotation_scope(annotation_channels)
+    if not annotation_scope:
+        return True
+    return not set(annotation_scope).isdisjoint(str(name) for name in output_channels)
+
+
+def has_channel_specific_mask_annotations(raw: "mne.io.BaseRaw") -> bool:
+    """Return whether Raw has a channel-specific BAD/EDGE annotation."""
+    annotations = getattr(raw, "annotations", None)
+    if annotations is None:
+        return False
+    return any(
+        bool(tuple(ch_names))
+        and (
+            "bad" in str(description).strip().lower()
+            or "edge" in str(description).strip().lower()
+        )
+        for description, ch_names in zip(
+            annotations.description,
+            annotations.ch_names,
+        )
+    )
 
 
 def _is_fully_covered_by_union(
@@ -112,7 +150,12 @@ def _iter_matched_intervals(
 
     matched: list[dict[str, Any]] = []
     anns = raw.annotations
-    for onset, dur, desc in zip(anns.onset, anns.duration, anns.description):
+    for onset, dur, desc, ch_names in zip(
+        anns.onset,
+        anns.duration,
+        anns.description,
+        anns.ch_names,
+    ):
         if not _desc_matches(str(desc), keep_lower, mode=mode):
             continue
 
@@ -133,6 +176,7 @@ def _iter_matched_intervals(
                 duration_s=dur_f,
                 start_s=float(start),
                 end_s=float(end),
+                ch_names=list(normalize_annotation_scope(ch_names)),
             )
         )
 
@@ -190,6 +234,7 @@ def filter_raw_annotations(
     new_onset: list[float] = []
     new_duration: list[float] = []
     new_desc: list[str] = []
+    new_ch_names: list[tuple[str, ...]] = []
 
     n_total = int(len(raw.annotations))
     n_kept_exact = 0
@@ -198,14 +243,23 @@ def filter_raw_annotations(
     n_kept_covered = 0
     n_split_segments = 0
 
-    def _add(desc: str, start: float, end: float) -> None:
+    def _add(
+        desc: str,
+        start: float,
+        end: float,
+        ch_names: Sequence[str],
+    ) -> None:
         # Keep MNE conventions: onset in seconds, duration >= 0.
         new_onset.append(float(start))
         new_duration.append(float(max(0.0, end - start)))
         new_desc.append(str(desc))
+        new_ch_names.append(normalize_annotation_scope(ch_names))
 
-    for onset, dur, desc in zip(
-        raw.annotations.onset, raw.annotations.duration, raw.annotations.description
+    for onset, dur, desc, ch_names in zip(
+        raw.annotations.onset,
+        raw.annotations.duration,
+        raw.annotations.description,
+        raw.annotations.ch_names,
     ):
         desc_s = str(desc)
         onset_f = float(onset)
@@ -213,7 +267,7 @@ def filter_raw_annotations(
 
         is_keep = _desc_matches(desc_s, keep_lower, mode=mode)
         if is_keep:
-            _add(desc_s, onset_f, end_f)
+            _add(desc_s, onset_f, end_f, ch_names)
             n_kept_exact += 1
             continue
 
@@ -238,7 +292,7 @@ def filter_raw_annotations(
         # If the annotation is fully covered by the keep-union, keep it unchanged
         # regardless of overlap_policy.
         if _is_fully_covered_by_union(onset_f, end_f, keep_union):
-            _add(desc_s, onset_f, end_f)
+            _add(desc_s, onset_f, end_f, ch_names)
             n_kept_covered += 1
             continue
 
@@ -249,7 +303,7 @@ def filter_raw_annotations(
             raise ValueError("`overlap_policy` must be 'split' or 'drop'.")
 
         for s, e in overlaps:
-            _add(desc_s, s, e)
+            _add(desc_s, s, e, ch_names)
             n_split_segments += 1
 
     # Sort by onset for sanity.
@@ -258,6 +312,7 @@ def filter_raw_annotations(
         new_onset = [new_onset[i] for i in order]
         new_duration = [new_duration[i] for i in order]
         new_desc = [new_desc[i] for i in order]
+        new_ch_names = [new_ch_names[i] for i in order]
 
     info: dict[str, Any] = dict(
         keep=[str(x) for x in keep],
@@ -291,6 +346,7 @@ def filter_raw_annotations(
         duration=np.asarray(new_duration, dtype=float),
         description=[str(d) for d in new_desc],
         orig_time=raw.annotations.orig_time,
+        ch_names=new_ch_names,
     )
     raw_masked.set_annotations(new_ann)
 
@@ -343,6 +399,7 @@ def drop_raw_annotations(
     new_onset: list[float] = []
     new_duration: list[float] = []
     new_desc: list[str] = []
+    new_ch_names: list[tuple[str, ...]] = []
 
     n_total = int(len(raw.annotations))
     n_kept_unchanged = 0
@@ -350,10 +407,16 @@ def drop_raw_annotations(
     n_dropped_overlap = 0
     n_split_segments = 0
 
-    def _add(desc: str, start: float, end: float) -> None:
+    def _add(
+        desc: str,
+        start: float,
+        end: float,
+        ch_names: Sequence[str],
+    ) -> None:
         new_onset.append(float(start))
         new_duration.append(float(max(0.0, end - start)))
         new_desc.append(str(desc))
+        new_ch_names.append(normalize_annotation_scope(ch_names))
 
     def _overlaps_any(t: float, intervals: Sequence[tuple[float, float]]) -> bool:
         for a, b in intervals:
@@ -361,8 +424,11 @@ def drop_raw_annotations(
                 return True
         return False
 
-    for onset, dur, desc in zip(
-        raw.annotations.onset, raw.annotations.duration, raw.annotations.description
+    for onset, dur, desc, ch_names in zip(
+        raw.annotations.onset,
+        raw.annotations.duration,
+        raw.annotations.description,
+        raw.annotations.ch_names,
     ):
         desc_s = str(desc)
         onset_f = float(onset)
@@ -371,7 +437,7 @@ def drop_raw_annotations(
 
         # Fast-path: no drop interval -> keep everything.
         if len(drop_union) == 0:
-            _add(desc_s, onset_f, end_f)
+            _add(desc_s, onset_f, end_f, ch_names)
             n_kept_unchanged += 1
             continue
 
@@ -380,7 +446,7 @@ def drop_raw_annotations(
             if _overlaps_any(onset_f, drop_union):
                 n_dropped_full += 1
             else:
-                _add(desc_s, onset_f, end_f)
+                _add(desc_s, onset_f, end_f, ch_names)
                 n_kept_unchanged += 1
             continue
 
@@ -394,7 +460,7 @@ def drop_raw_annotations(
             overlaps.append((s, e))
 
         if len(overlaps) == 0:
-            _add(desc_s, onset_f, end_f)
+            _add(desc_s, onset_f, end_f, ch_names)
             n_kept_unchanged += 1
             continue
 
@@ -426,7 +492,7 @@ def drop_raw_annotations(
         for s, e in kept_segments:
             if e <= s:
                 continue
-            _add(desc_s, s, e)
+            _add(desc_s, s, e, ch_names)
             n_split_segments += 1
             kept_any = True
 
@@ -439,6 +505,7 @@ def drop_raw_annotations(
         new_onset = [new_onset[i] for i in order]
         new_duration = [new_duration[i] for i in order]
         new_desc = [new_desc[i] for i in order]
+        new_ch_names = [new_ch_names[i] for i in order]
 
     info: dict[str, Any] = dict(
         drop=[str(x) for x in drop],
@@ -470,6 +537,7 @@ def drop_raw_annotations(
         duration=np.asarray(new_duration, dtype=float),
         description=[str(d) for d in new_desc],
         orig_time=raw.annotations.orig_time,
+        ch_names=new_ch_names,
     )
     raw_masked.set_annotations(new_ann)
 

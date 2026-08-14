@@ -73,10 +73,12 @@ def _filter_raw_annotations_by_duration(
     selected_onset: list[float] = []
     selected_duration: list[float] = []
     selected_description: list[str] = []
-    for onset, duration, description in zip(
+    selected_ch_names: list[tuple[str, ...]] = []
+    for onset, duration, description, ch_names in zip(
         annotations.onset,
         annotations.duration,
         annotations.description,
+        annotations.ch_names,
         strict=False,
     ):
         label = str(description).strip()
@@ -90,6 +92,7 @@ def _filter_raw_annotations_by_duration(
         selected_onset.append(float(onset))
         selected_duration.append(duration_f)
         selected_description.append(label)
+        selected_ch_names.append(tuple(str(name) for name in ch_names))
     if not selected_description:
         raise ValueError("No annotations remain after duration-range filtering.")
     filtered = raw.copy()
@@ -99,6 +102,7 @@ def _filter_raw_annotations_by_duration(
             duration=np.asarray(selected_duration, dtype=float),
             description=np.asarray(selected_description, dtype=object),
             orig_time=annotations.orig_time,
+            ch_names=selected_ch_names,
         )
     )
     return filtered

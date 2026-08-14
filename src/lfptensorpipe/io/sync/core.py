@@ -352,11 +352,13 @@ def build_synced_raw(raw: Any, estimate: SyncEstimate) -> Any:
     mapped_onsets: list[float] = []
     mapped_durations: list[float] = []
     mapped_descriptions: list[str] = []
+    mapped_ch_names: list[tuple[str, ...]] = []
     output_end_s = float(synced_data.shape[1]) / sfreq_after_hz
     if shift_samples < 0:
         mapped_onsets.append(0.0)
         mapped_durations.append(abs(shift_samples) / sfreq_after_hz)
         mapped_descriptions.append("BAD_sync_padding")
+        mapped_ch_names.append(())
 
     if annotations is not None and len(annotations) > 0:
         # synced_raw restarts at first_samp == 0, so onsets must be pulled back
@@ -364,12 +366,18 @@ def build_synced_raw(raw: Any, estimate: SyncEstimate) -> Any:
         onsets = raw_relative_onsets(raw)
         durations = np.asarray(annotations.duration, dtype=float)
         desc = list(annotations.description)
+        annotation_ch_names = list(annotations.ch_names)
         if sfreq_after_hz != sfreq_before_hz:
             scale = sfreq_before_hz / sfreq_after_hz
             onsets = onsets * scale
             durations = durations * scale
         onsets = onsets - effective_lag_s
-        for onset, duration, description in zip(onsets, durations, desc):
+        for onset, duration, description, ch_names in zip(
+            onsets,
+            durations,
+            desc,
+            annotation_ch_names,
+        ):
             start_s = float(onset)
             duration_s = float(duration)
             if duration_s <= 0.0:
@@ -377,6 +385,7 @@ def build_synced_raw(raw: Any, estimate: SyncEstimate) -> Any:
                     mapped_onsets.append(start_s)
                     mapped_durations.append(0.0)
                     mapped_descriptions.append(str(description))
+                    mapped_ch_names.append(tuple(str(name) for name in ch_names))
                 continue
 
             clipped_start_s = max(start_s, 0.0)
@@ -386,6 +395,7 @@ def build_synced_raw(raw: Any, estimate: SyncEstimate) -> Any:
             mapped_onsets.append(clipped_start_s)
             mapped_durations.append(clipped_end_s - clipped_start_s)
             mapped_descriptions.append(str(description))
+            mapped_ch_names.append(tuple(str(name) for name in ch_names))
 
     if mapped_descriptions:
         synced_raw.set_annotations(
@@ -393,6 +403,7 @@ def build_synced_raw(raw: Any, estimate: SyncEstimate) -> Any:
                 onset=mapped_onsets,
                 duration=mapped_durations,
                 description=mapped_descriptions,
+                ch_names=mapped_ch_names,
             )
         )
     return synced_raw

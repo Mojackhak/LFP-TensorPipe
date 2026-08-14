@@ -69,6 +69,7 @@ def normalize_raw_timeline(raw: Any) -> tuple[Any, dict[str, Any]]:
                 duration=np.asarray(annotations.duration, dtype=float),
                 description=np.asarray(annotations.description, dtype=object),
                 orig_time=meas_date_after,
+                ch_names=list(annotations.ch_names),
             )
         )
 

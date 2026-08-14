@@ -290,29 +290,36 @@ def merge_contiguous_bad_annotations(
     if ann is None or len(ann) == 0:
         return raw
 
-    # Collect bad spans: (start, end)
-    spans = []
-    for onset, duration, desc in zip(ann.onset, ann.duration, ann.description):
+    # Collect bad spans separately for each MNE annotation channel scope.
+    spans_by_scope: Dict[tuple[str, ...], List[tuple[float, float]]] = {}
+    for onset, duration, desc, ch_names in zip(
+        ann.onset,
+        ann.duration,
+        ann.description,
+        ann.ch_names,
+    ):
         if is_bad_desc(desc):
             start = float(onset)
             end = float(onset) + float(duration)
-            spans.append((start, end))
+            scope = tuple(str(name) for name in ch_names)
+            spans_by_scope.setdefault(scope, []).append((start, end))
 
-    if not spans:
+    if not spans_by_scope:
         return raw
 
-    spans.sort(key=lambda x: x[0])
-
-    # Greedy union with tolerance gap
-    merged = []
-    cur_s, cur_e = spans[0]
-    for s, e in spans[1:]:
-        if s <= cur_e + float(gap):
-            cur_e = max(cur_e, e)
-        else:
-            merged.append((cur_s, cur_e))
-            cur_s, cur_e = s, e
-    merged.append((cur_s, cur_e))
+    # Greedy union with tolerance gap, without merging different scopes.
+    merged: List[tuple[float, float, tuple[str, ...]]] = []
+    for scope, spans in spans_by_scope.items():
+        spans.sort(key=lambda item: item[0])
+        cur_s, cur_e = spans[0]
+        for start, end in spans[1:]:
+            if start <= cur_e + float(gap):
+                cur_e = max(cur_e, end)
+            else:
+                merged.append((cur_s, cur_e, scope))
+                cur_s, cur_e = start, end
+        merged.append((cur_s, cur_e, scope))
+    merged.sort(key=lambda item: (item[0], item[1], item[2]))
 
     # Default merged description compatible with your original version
     if merged_description is None:
@@ -320,10 +327,11 @@ def merge_contiguous_bad_annotations(
         merged_description = f"{base}_merged"
 
     merged_ann = mne.Annotations(
-        onset=[s for s, _ in merged],
-        duration=[e - s for s, e in merged],
+        onset=[start for start, _end, _scope in merged],
+        duration=[end - start for start, end, _scope in merged],
         description=[merged_description] * len(merged),
         orig_time=ann.orig_time,
+        ch_names=[scope for _start, _end, scope in merged],
     )
 
     # Build "other" annotations
@@ -346,6 +354,7 @@ def merge_contiguous_bad_annotations(
             duration=np.asarray(combined.duration, dtype=float)[order],
             description=np.asarray(combined.description, dtype=object)[order].tolist(),
             orig_time=combined.orig_time,
+            ch_names=[combined.ch_names[index] for index in order],
         )
         out = raw.copy()
         out.set_annotations(combined_sorted)
@@ -1221,6 +1230,7 @@ def add_head_tail_annotations(
             duration=np.asarray(ann.duration, dtype=float),
             description=np.asarray(ann.description, dtype=object),
             orig_time=None,
+            ch_names=list(ann.ch_names),
         )
     else:
         rec_start_sec = first_time_sec
@@ -1290,6 +1300,7 @@ def add_head_tail_annotations(
             duration=np.asarray(combined.duration, dtype=float)[order].tolist(),
             description=np.asarray(combined.description, dtype=object)[order].tolist(),
             orig_time=combined.orig_time,
+            ch_names=[combined.ch_names[index] for index in order],
         )
 
     raw_out.set_annotations(combined)
