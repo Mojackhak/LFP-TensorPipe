@@ -10,6 +10,7 @@ from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import read_run_log
 
 from .generation import metrics_from_alignment_entry
+from .method_specs import LINEAR_WARP_GEOMETRY, LINEAR_WARP_GEOMETRY_KEY
 from .trial_config import _load_trial_config_from_log, _normalize_paradigm
 
 
@@ -123,6 +124,26 @@ def _metric_keys_from_run_entry(
 ) -> list[str]:
     _ = resolver, slug
     return metrics_from_alignment_entry(entry) or []
+
+
+def _has_current_linear_warp_geometry(
+    entry: dict[str, Any],
+    *,
+    method: str,
+    method_params: dict[str, Any],
+) -> bool:
+    if method != "linear_warper" or not bool(method_params.get("linear_warp", True)):
+        return True
+    metrics = metrics_from_alignment_entry(entry)
+    if metrics is None:
+        return False
+    if all(metric == "burst" for metric in metrics):
+        return True
+    params = entry.get("params")
+    return (
+        isinstance(params, dict)
+        and params.get(LINEAR_WARP_GEOMETRY_KEY) == LINEAR_WARP_GEOMETRY
+    )
 
 
 def _run_artifacts_exist(
@@ -242,6 +263,12 @@ def alignment_method_panel_state(
         return "yellow"
     run_method, run_params = run_signature
     if run_method != current_method or run_params != current_params:
+        return "yellow"
+    if not _has_current_linear_warp_geometry(
+        latest_successful_run[1],
+        method=run_method,
+        method_params=run_params,
+    ):
         return "yellow"
     if not _run_artifacts_exist(resolver, slug, latest_successful_run[1]):
         return "yellow"

@@ -21,6 +21,7 @@ from lfptensorpipe.utils.transforms import (
 )
 
 from . import service as svc
+from .method_specs import LINEAR_WARP_GEOMETRY, LINEAR_WARP_GEOMETRY_KEY
 from .epoch_view import _epoch_duration_s
 
 
@@ -198,6 +199,11 @@ def run_align_epochs(
             )
             for metric_key in metrics
         }
+        uses_current_linear_warp_geometry = (
+            method == "linear_warper"
+            and bool(method_params.get("linear_warp", True))
+            and any(metric_key != "burst" for metric_key in metrics)
+        )
         log_path = alignment_paradigm_log_path(resolver, slug)
         with AtomicOutputSet(
             [warp_fn_path, warp_labels_path, *metric_output_paths.values(), log_path],
@@ -290,28 +296,33 @@ def run_align_epochs(
                         "non_burst_only": "nan",
                         "positive": "duration_weighted_geometric_envelope",
                     }
+                elif uses_current_linear_warp_geometry:
+                    meta_warped[LINEAR_WARP_GEOMETRY_KEY] = LINEAR_WARP_GEOMETRY
                 out_path = metric_output_paths[metric_key]
                 save_pkl(
                     {"tensor": warped_arr, "meta": meta_warped},
                     output_set.staged_path(out_path),
                 )
 
+            run_params = {
+                "trial_slug": slug,
+                "name": trial_config_payload.get("name", slug),
+                "method": method,
+                "method_params": method_params,
+                "sample_rate": sample_rate,
+                "warped_n_samples": int(n_samples),
+                "n_metrics": len(metrics),
+                "n_epochs": len(epoch_rows),
+                "metrics": metrics,
+            }
+            if uses_current_linear_warp_geometry:
+                run_params[LINEAR_WARP_GEOMETRY_KEY] = LINEAR_WARP_GEOMETRY
             _append_alignment_history(
                 output_set.staged_path(log_path),
                 entry=RunLogRecord(
                     step="run_align_epochs",
                     completed=True,
-                    params={
-                        "trial_slug": slug,
-                        "name": trial_config_payload.get("name", slug),
-                        "method": method,
-                        "method_params": method_params,
-                        "sample_rate": sample_rate,
-                        "warped_n_samples": int(n_samples),
-                        "n_metrics": len(metrics),
-                        "n_epochs": len(epoch_rows),
-                        "metrics": metrics,
-                    },
+                    params=run_params,
                     input_path=str(resolver.tensor_root),
                     output_path=str(alignment_paradigm_dir(resolver, slug)),
                     message="Align Epochs completed.",

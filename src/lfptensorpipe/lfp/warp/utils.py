@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -37,62 +37,6 @@ def intervals_overlap_half_open(
     return left_start_f < right_end_f and right_start_f < left_end_f
 
 
-def segment_lengths_from_anchors_percent(
-    anchors_percent: Sequence[float], n_samples: int
-) -> list[int]:
-    """Compute integer sample counts per segment given anchor percentages.
-
-    Rounding residuals are redistributed across segments so the total sums
-    exactly to `n_samples`, and every segment holds at least one sample.
-
-    Args:
-        anchors_percent: Anchor positions as percentages, e.g. [0, 12, 50, 62, 100].
-        n_samples: Total number of samples in the warped time axis.
-
-    Returns:
-        List of segment lengths (integers), length = len(anchors_percent) - 1.
-    """
-    anchors = np.asarray(list(anchors_percent), dtype=float)
-    if anchors.ndim != 1 or anchors.size < 2:
-        raise ValueError("`anchors_percent` must contain at least 2 values.")
-    if not np.all(np.isfinite(anchors)):
-        raise ValueError("`anchors_percent` must be finite.")
-    if anchors[0] != 0 or anchors[-1] != 100:
-        raise ValueError("`anchors_percent` must start at 0 and end at 100.")
-    if not np.all(np.diff(anchors) > 0):
-        raise ValueError("`anchors_percent` must be strictly increasing.")
-    if not (isinstance(n_samples, int) and n_samples >= 2):
-        raise ValueError("`n_samples` must be an integer >= 2.")
-
-    diffs = np.diff(anchors)  # segments in percent
-    n_seg = int(diffs.size)
-    if n_samples < n_seg:
-        raise ValueError(
-            f"`n_samples` ({n_samples}) must be >= the number of segments "
-            f"({n_seg}) so each segment can contain at least one sample."
-        )
-
-    raw = diffs / 100.0 * float(n_samples)
-    seg = np.rint(raw).astype(int)
-    seg[seg <= 0] = 1  # every segment must contain at least one sample
-
-    # Correct the running total to exactly n_samples while keeping seg >= 1.
-    delta = int(n_samples) - int(seg.sum())
-    if delta > 0:
-        # Adding only grows a segment, so the largest stays the argmax every
-        # step; assigning the whole surplus at once is identical to a loop.
-        seg[int(np.argmax(seg))] += delta
-    elif delta < 0:
-        # Removal must run one sample at a time: taking from the current max can
-        # change which segment is largest, and restricting to segments > 1
-        # guarantees no segment is ever driven below 1.
-        for _ in range(-delta):
-            spare = np.where(seg > 1)[0]
-            seg[int(spare[np.argmax(seg[spare])])] -= 1
-
-    return seg.tolist()
-
-
 def interp_along_last_axis(data: np.ndarray, idx_grid: np.ndarray) -> np.ndarray:
     """Linear interpolation along the last axis using floating point indices.
 
@@ -120,13 +64,18 @@ def interp_along_last_axis(data: np.ndarray, idx_grid: np.ndarray) -> np.ndarray
     idx = np.clip(idx, 0.0, T - 1)
     i0 = np.floor(idx).astype(int)
     i1 = np.minimum(i0 + 1, T - 1)
-    alpha = (idx - i0)[None, :]  # (1, M)
-
     lead = int(np.prod(x.shape[:-1])) if x.ndim > 1 else 1
     X = x.reshape(lead, T)
     v0 = np.take(X, i0, axis=1)  # (lead, M)
     v1 = np.take(X, i1, axis=1)  # (lead, M)
-    Y = (1.0 - alpha) * v0 + alpha * v1
+    exact = (idx == i0) | (i0 == i1)
+    fractional = ~exact
+    Y = np.empty(v0.shape, dtype=np.result_type(x.dtype, np.float64))
+    if np.any(exact):
+        Y[:, exact] = v0[:, exact]
+    if np.any(fractional):
+        alpha = (idx[fractional] - i0[fractional])[None, :]
+        Y[:, fractional] = (1.0 - alpha) * v0[:, fractional] + alpha * v1[:, fractional]
     return Y.reshape((*x.shape[:-1], idx.size))
 
 

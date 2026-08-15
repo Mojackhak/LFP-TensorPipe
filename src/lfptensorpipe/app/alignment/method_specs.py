@@ -24,6 +24,8 @@ ALIGNMENT_METHODS_BY_LABEL = {item.display_name: item for item in ALIGNMENT_METH
 
 DEFAULT_DROP_MODE = "substring"
 DEFAULT_DROP_FIELDS = ("bad", "edge")
+LINEAR_WARP_GEOMETRY_KEY = "linear_warp_geometry"
+LINEAR_WARP_GEOMETRY = "piecewise_target_percent"
 
 
 __all__ = [
@@ -32,5 +34,7 @@ __all__ = [
     "ALIGNMENT_METHODS_BY_LABEL",
     "DEFAULT_DROP_FIELDS",
     "DEFAULT_DROP_MODE",
+    "LINEAR_WARP_GEOMETRY",
+    "LINEAR_WARP_GEOMETRY_KEY",
     "AlignmentMethodSpec",
 ]

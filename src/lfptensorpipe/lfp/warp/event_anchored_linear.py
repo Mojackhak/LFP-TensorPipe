@@ -17,7 +17,6 @@ from ..mask.annotations import MatchMode
 from .utils import (
     interp_along_last_axis,
     intervals_overlap_half_open,
-    segment_lengths_from_anchors_percent,
 )
 
 
@@ -317,12 +316,6 @@ def linear_warper(
         )
         percent_axis = np.linspace(0.0, 100.0, n_samples_use, endpoint=True)
 
-        seg_lengths = (
-            segment_lengths_from_anchors_percent(target_perc, n_samples_use)
-            if linear_warp
-            else None
-        )
-
         for ei, ep in enumerate(epochs_all):
             idx_events = np.asarray(
                 [float(ep.events_t[name]) * float(sr) for name in anchor_keys],
@@ -334,27 +327,11 @@ def linear_warper(
                 )
 
             if linear_warp:
-                seg_grids = []
-                n_seg = len(seg_lengths)
-                for s in range(n_seg):
-                    nseg = int(seg_lengths[s])
-                    start_idx, end_idx = idx_events[s], idx_events[s + 1]
-                    endpoint = s == (n_seg - 1)
-                    seg_grids.append(
-                        np.linspace(
-                            start_idx, end_idx, num=nseg, endpoint=endpoint, dtype=float
-                        )
+                if n_samples_use < target_perc.size:
+                    raise ValueError(
+                        "`n_samples` must be at least the number of target anchors."
                     )
-
-                idx_grid = np.concatenate(seg_grids, axis=0)
-                if idx_grid.size != n_samples_use:
-                    if idx_grid.size > n_samples_use:
-                        idx_grid = idx_grid[:n_samples_use]
-                    else:
-                        pad = np.full(
-                            (n_samples_use - idx_grid.size,), idx_grid[-1], dtype=float
-                        )
-                        idx_grid = np.concatenate([idx_grid, pad], axis=0)
+                idx_grid = np.interp(percent_axis, target_perc, idx_events)
             else:
                 start_idx = float(ep.start_t) * float(sr)
                 end_idx = float(ep.end_t) * float(sr)

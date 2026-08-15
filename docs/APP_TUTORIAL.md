@@ -636,7 +636,14 @@ Use:
 | `Linear warp` | enabled |
 | `Percent tolerance` | `10` |
 | `Drop bad/edge` | enabled |
-| `Sample rate` | `5 Hz` |
+| `Sample rate` | `5 n/%` |
+
+For Line Up Key Events, this value is a sampling density on the normalized
+0-to-100% timeline, not physical Hz. The output grid is uniform, and each grid
+percentage is mapped directly through the configured event anchors to its
+source-signal position. A target anchor is a discrete output sample only when
+its percentage is representable on that grid; otherwise it remains the exact
+continuous breakpoint between neighboring output samples.
 
 ### 7.1 Pick, Preview, and Finish
 

@@ -925,7 +925,7 @@ dialog draft and does not modify the saved app default.
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
-| `sample rate (n/%)` | Sets how many samples are allocated per 1% of the normalized epoch timeline. Higher values preserve more temporal detail after warping, but they also increase output size. | Alignment runtime output grid. | Required. |
+| `sample rate (n/%)` | Sets the output sampling density over the normalized 0-100% timeline. Higher values preserve more temporal detail after warping, but they also increase output size. | Alignment runtime output grid. | Required. |
 | `drop bad/edge` | Drops epochs overlapping annotations containing `bad` or `edge`. | Which epochs remain eligible for alignment. | Always available. |
 | Anchor table | Lists the event-to-target-percent anchors used to warp epochs onto a shared normalized timeline. | Line-up-by-key-events alignment behavior. | Visible for anchor-based methods. |
 | `event name` | Chooses which annotation label should be used as a new anchor. | Anchor draft. | Anchor methods only. |
@@ -944,6 +944,11 @@ dialog draft and does not modify the saved app default.
 
 - `sample rate (n/%)` is a normalized-timeline density, not a real-time Hz value.
 - `target percent` describes where an event should end up after warping, while `percent tolerance` describes how strictly that target should be enforced.
+- The output grid is uniform from 0% through 100%. Line Up Key Events evaluates
+  each output percent directly against the configured target anchors. An anchor
+  is an exact output sample when that percentage is representable on the chosen
+  grid; otherwise it remains the continuous piecewise-warp breakpoint between
+  the two neighboring output samples.
 
 ### 8.4 Clip Around Event Params
 

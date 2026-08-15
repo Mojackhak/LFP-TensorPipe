@@ -64,7 +64,7 @@ def finish_alignment_epochs(
         run_ready = (
             alignment_method_panel_state(resolver, paradigm=trial_cfg) == "green"
         )
-    if not run_ready:
+    else:
         run_ready = indicator_from_log(log_path) == "green"
     if not run_ready:
         return False, "Run Align Epochs successfully before Finish."

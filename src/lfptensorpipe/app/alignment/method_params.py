@@ -106,16 +106,23 @@ def validate_alignment_method_params(
             return False, defaults, "percent_tolerance must be numeric."
         if percent_tolerance < 0.0:
             return False, defaults, "percent_tolerance must be >= 0."
-        if int(round(sample_rate * 100.0)) < 2:
+        linear_warp = bool(candidate.get("linear_warp", defaults["linear_warp"]))
+        n_samples = int(round(sample_rate * 100.0))
+        if n_samples < 2:
             return False, defaults, "sample_rate is too small for linear_warper."
+        if linear_warp and anchors and n_samples < len(anchors):
+            return (
+                False,
+                defaults,
+                "sample_rate must produce at least as many output samples as "
+                "target anchors.",
+            )
         return (
             True,
             {
                 "anchors_percent": anchors,
                 "epoch_duration_range": epoch_duration_range,
-                "linear_warp": bool(
-                    candidate.get("linear_warp", defaults["linear_warp"])
-                ),
+                "linear_warp": linear_warp,
                 "percent_tolerance": percent_tolerance,
                 "drop_bad": drop_bad,
                 "drop_fields": drop_fields,
