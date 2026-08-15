@@ -712,7 +712,12 @@ continuous interval. It uses trapezoidal integration over the complete interval,
 including the final interval segment. If a requested boundary lies between two
 samples, the boundary value is linearly interpolated. Adjacent phases may share
 their boundary point, but that zero-width point does not duplicate any integrated
-area. Other reducers retain their discrete sample or event-selection semantics.
+area. Within a nonzero-width interval, an isolated finite sample separated from
+other finite samples by non-finite values has no continuous trapezoidal support
+and does not contribute to the mean. If no finite segment spans a positive
+coordinate width, the mean is `NaN`. An explicitly configured zero-width
+interval remains a point query. Other reducers retain their discrete sample or
+event-selection semantics.
 
 ### Feature value transformations
 

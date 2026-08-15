@@ -15,7 +15,7 @@ FEATURE_MANIFEST_RERUN_MESSAGE = (
     "Rerun Extract Features."
 )
 NUMERIC_MEAN_SEMANTICS_KEY = "numeric_mean_semantics"
-NUMERIC_MEAN_SEMANTICS = "continuous_interval_trapezoid"
+NUMERIC_MEAN_SEMANTICS = "continuous_interval_trapezoid_positive_width_runs"
 NUMERIC_MEAN_RERUN_MESSAGE = (
     "Latest Extract Features result uses legacy numeric mean interval semantics. "
     "Rerun Extract Features."
@@ -106,7 +106,7 @@ def accepted_feature_artifact_paths(
 
 
 def feature_generation_requires_numeric_mean_rerun(entry: dict[str, Any]) -> bool:
-    """Return whether one accepted generation predates continuous mean support."""
+    """Return whether one accepted generation predates current mean semantics."""
     outputs = outputs_from_features_entry(entry)
     if outputs is None:
         return False

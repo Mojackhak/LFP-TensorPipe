@@ -647,17 +647,7 @@ def _integrate_over_interval_selection(
 
     for start_idx, end_idx in runs:
         if start_idx == end_idx:
-            if selection.mask[start_idx] and not any(
-                np.isclose(
-                    coords[start_idx],
-                    point,
-                    rtol=1e-9,
-                    atol=1e-12,
-                )
-                for point in zero_width_points
-            ):
-                num += float(y[start_idx])
-                den += 1.0
+            # One coordinate cannot define positive-width trapezoidal support.
             continue
 
         run_x = coords[start_idx : end_idx + 1]
