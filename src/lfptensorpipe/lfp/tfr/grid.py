@@ -187,14 +187,18 @@ def grid(
 
     method_l = method.lower()
     if method_l == "multitaper" and mt_effective_window_s is not None:
-        available_duration_s = float(max(0, len(data.times) - 1)) / float(sfreq)
         longest_index = int(np.argmax(mt_effective_window_s))
         longest_window_s = float(mt_effective_window_s[longest_index])
-        if longest_window_s > available_duration_s:
+        required_n_times = int(
+            np.arange(0.0, longest_window_s, 1.0 / float(sfreq)).size
+        )
+        available_n_times = int(len(data.times))
+        if required_n_times > available_n_times:
             raise ValueError(
                 "Effective Multitaper window at "
-                f"{float(freqs_use[longest_index]):g} Hz is {longest_window_s:g} s, "
-                f"longer than the available duration {available_duration_s:g} s."
+                f"{float(freqs_use[longest_index]):g} Hz requires "
+                f"{required_n_times} samples at {float(sfreq):g} Hz, "
+                f"but the input provides {available_n_times} samples."
             )
 
     pick_names: list[str] | None = None
