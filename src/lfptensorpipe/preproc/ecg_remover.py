@@ -1409,16 +1409,15 @@ def _perceive_ecg_remover_core(
 
         interp_end = end + after_samples
         right_slice = x[min(n, end) : min(n, interp_end)]
-        mirror_after = right_slice[::-1]
-        if mirror_after.size < after_samples:
-            pad_len = after_samples - int(mirror_after.size)
-            mirror_after = np.pad(
-                mirror_after,
+        if right_slice.size < after_samples:
+            pad_len = after_samples - int(right_slice.size)
+            right_slice = np.pad(
+                right_slice,
                 (0, pad_len),
                 mode="constant",
                 constant_values=float(x[-1]),
             )
-            mirror_after = mirror_after[::-1]
+        mirror_after = right_slice[::-1]
 
         replacement_full = np.concatenate([mirror_before, mirror_after])
         if replacement_full.size != template_len:
