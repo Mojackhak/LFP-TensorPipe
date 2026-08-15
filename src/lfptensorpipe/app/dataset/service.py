@@ -29,7 +29,9 @@ from .source_parser import (
     parse_record_source as _parse_record_source_impl,
 )
 from .rename_runner import (
+    RecordRenameRecoveryResult,
     RecordRenameResult,
+    recover_record_rename as _recover_record_rename_impl,
     rename_record as _rename_record_impl,
 )
 from .validation import (
@@ -347,7 +349,11 @@ def rename_record(
     read_only_project_root: Path | None = None,
     record_artifact_roots_fn: Any | None = None,
     move_path_fn: Any | None = None,
+    delete_marker_fn: Any | None = None,
 ) -> RecordRenameResult:
+    kwargs: dict[str, Any] = {}
+    if delete_marker_fn is not None:
+        kwargs["delete_marker_fn"] = delete_marker_fn
     return _rename_record_impl(
         project_root=project_root,
         subject=subject,
@@ -359,4 +365,29 @@ def rename_record(
         record_artifact_roots_fn=record_artifact_roots_fn or record_artifact_roots,
         move_path_fn=move_path_fn or Path.rename,
         read_only_project_root=read_only_project_root,
+        **kwargs,
+    )
+
+
+def recover_record_rename(
+    *,
+    project_root: Path,
+    subject: str,
+    read_only_project_root: Path | None = None,
+    record_artifact_roots_fn: Any | None = None,
+    move_path_fn: Any | None = None,
+    delete_marker_fn: Any | None = None,
+) -> RecordRenameRecoveryResult:
+    kwargs: dict[str, Any] = {}
+    if delete_marker_fn is not None:
+        kwargs["delete_marker_fn"] = delete_marker_fn
+    return _recover_record_rename_impl(
+        project_root=project_root,
+        subject=subject,
+        validate_subject_name_fn=validate_subject_name,
+        validate_record_name_fn=validate_record_name,
+        record_artifact_roots_fn=record_artifact_roots_fn or record_artifact_roots,
+        move_path_fn=move_path_fn or Path.rename,
+        read_only_project_root=read_only_project_root,
+        **kwargs,
     )

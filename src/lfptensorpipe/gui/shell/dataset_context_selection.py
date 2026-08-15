@@ -24,6 +24,11 @@ Deleting Sourcedata is permanent. Preserve a separate copy first if needed."""
 
 
 class MainWindowDatasetContextSelectionMixin:
+    def _clear_record_rename_recovery_state(self) -> None:
+        self._record_rename_blocked_records = set()
+        self._record_rename_block_subject = False
+        self._record_rename_recovery_message = ""
+
     def _autosave_outgoing_record_snapshot(
         self,
         *,
@@ -165,6 +170,7 @@ class MainWindowDatasetContextSelectionMixin:
         if not project_value:
             self._current_project = None
             self._current_subject = None
+            self._clear_record_rename_recovery_state()
             self._set_combo_values(self._subject_combo, [], "Select subject")
             self._set_record_values([])
             self._set_empty_record_context()
@@ -177,6 +183,7 @@ class MainWindowDatasetContextSelectionMixin:
             self.statusBar().showMessage(f"Missing project path: {project_root}")
             self._current_project = None
             self._current_subject = None
+            self._clear_record_rename_recovery_state()
             self._set_empty_record_context()
             self._refresh_localize_controls()
             self._refresh_dataset_action_state()
@@ -184,6 +191,7 @@ class MainWindowDatasetContextSelectionMixin:
 
         self._current_project = project_root
         self._current_subject = None
+        self._clear_record_rename_recovery_state()
         self._config_store.append_recent_project(project_root)
         subjects = self._discover_subjects_runtime(project_root)
         self._set_combo_values(self._subject_combo, subjects, "Select subject")
@@ -208,6 +216,7 @@ class MainWindowDatasetContextSelectionMixin:
         )
         if not subject:
             self._current_subject = None
+            self._clear_record_rename_recovery_state()
             self._set_record_values([])
             self._set_empty_record_context()
             self._refresh_localize_controls()
@@ -215,17 +224,39 @@ class MainWindowDatasetContextSelectionMixin:
             return
 
         self._current_subject = str(subject)
+        self._clear_record_rename_recovery_state()
         self._refresh_localize_controls()
+        recovery = self._run_with_busy(
+            "Record Rename Recovery",
+            lambda: self._recover_record_rename_runtime(
+                project_root=self._current_project,
+                subject=self._current_subject,
+                read_only_project_root=self._demo_data_source_readonly,
+            ),
+        )
+        if not recovery.ok:
+            old_record = str(recovery.old_record or "").strip()
+            new_record = str(recovery.new_record or "").strip()
+            if old_record and new_record:
+                self._record_rename_blocked_records = {old_record, new_record}
+            else:
+                self._record_rename_block_subject = True
+            self._record_rename_recovery_message = recovery.message
         records = self._discover_records_runtime(
             self._current_project,
             self._current_subject,
         )
         self._set_record_values(records)
-        self.statusBar().showMessage(
-            f"Project: {self._current_project} | Subject: {self._current_subject}"
-        )
         self._set_empty_record_context()
         self._refresh_dataset_action_state()
+        if not recovery.ok:
+            self._show_warning("Record Rename Recovery", recovery.message)
+        elif recovery.recovered:
+            self.statusBar().showMessage(recovery.message)
+        else:
+            self.statusBar().showMessage(
+                f"Project: {self._current_project} | Subject: {self._current_subject}"
+            )
 
     def _on_record_changed(self) -> None:
         if (
@@ -240,6 +271,17 @@ class MainWindowDatasetContextSelectionMixin:
             next_subject=self._current_subject,
             next_record=record,
         )
+        if record and (
+            bool(getattr(self, "_record_rename_block_subject", False))
+            or record in set(getattr(self, "_record_rename_blocked_records", set()))
+        ):
+            self._set_empty_record_context()
+            message = str(
+                getattr(self, "_record_rename_recovery_message", "")
+                or "Resolve the interrupted record rename before using this record."
+            )
+            self._show_warning("Record Rename Recovery", message)
+            return
         if not record:
             self._current_record = None
             self._reset_annotations_table()

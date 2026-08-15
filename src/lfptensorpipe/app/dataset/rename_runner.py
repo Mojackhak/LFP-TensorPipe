@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import tempfile
 from typing import Any, Callable
@@ -16,6 +17,7 @@ from lfptensorpipe.io.pkl_io import load_pkl, save_pkl
 
 ValidateNameFn = Callable[[str], tuple[bool, str]]
 MovePathFn = Callable[[Path, Path], None]
+DeletePathFn = Callable[[Path], None]
 
 _JSON_CONTRACT_PATTERNS = (
     "**/lfptensorpipe_log.json",
@@ -30,6 +32,12 @@ _LOCALIZE_TABLE_BASENAMES = (
     "channel_pair_ordered_representative_coords",
     "channel_pair_undirected_representative_coords",
 )
+_RECORD_ROOT_ROLES = (
+    "derivatives",
+    "rawdata",
+    "sourcedata",
+)
+_RECORD_RENAME_OPERATION = "record_rename"
 
 
 @dataclass(frozen=True)
@@ -42,9 +50,155 @@ class RecordRenameResult:
     updated_paths: tuple[Path, ...] = ()
 
 
+@dataclass(frozen=True)
+class RecordRenameRecoveryResult:
+    """Result payload for one subject-scoped interrupted rename check."""
+
+    ok: bool
+    recovered: bool
+    message: str
+    marker_path: Path | None = None
+    old_record: str | None = None
+    new_record: str | None = None
+    conflicting_paths: tuple[Path, ...] = ()
+
+
 def _default_move_path(src: Path, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     src.rename(dst)
+
+
+def _default_delete_path(path: Path) -> None:
+    path.unlink()
+
+
+def _record_rename_marker_path(project_root: Path, subject: str) -> Path:
+    return (
+        project_root
+        / "derivatives"
+        / "lfptensorpipe"
+        / f".record-rename-{subject}.json"
+    )
+
+
+def _record_rename_writing_path(marker_path: Path) -> Path:
+    return marker_path.with_name(f"{marker_path.name}.writing")
+
+
+def _cleanup_lone_record_rename_writing(marker_path: Path) -> None:
+    if marker_path.exists():
+        return
+    try:
+        _record_rename_writing_path(marker_path).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _write_record_rename_marker(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    writing_path = _record_rename_writing_path(path)
+    try:
+        with writing_path.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        writing_path.replace(path)
+    except Exception:
+        try:
+            writing_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
+def _roots_by_role(roots: tuple[Path, ...]) -> dict[str, Path]:
+    if len(roots) != len(_RECORD_ROOT_ROLES):
+        raise ValueError(
+            "Record root resolver must return exactly "
+            f"{len(_RECORD_ROOT_ROLES)} paths."
+        )
+    return dict(zip(_RECORD_ROOT_ROLES, roots))
+
+
+def _resolved_record_roots(
+    *,
+    project_root: Path,
+    subject: str,
+    record: str,
+    record_artifact_roots_fn: Callable[[Path, str, str], tuple[Path, ...]],
+) -> tuple[Path, ...]:
+    return tuple(
+        Path(path).expanduser().resolve()
+        for path in record_artifact_roots_fn(project_root, subject, record)
+    )
+
+
+def _record_rename_marker_payload(
+    *,
+    subject: str,
+    old_record: str,
+    new_record: str,
+    roots: tuple[str, ...],
+) -> dict[str, Any]:
+    return {
+        "operation": _RECORD_RENAME_OPERATION,
+        "subject": subject,
+        "old_record": old_record,
+        "new_record": new_record,
+        "roots": list(roots),
+    }
+
+
+def _load_record_rename_marker(
+    path: Path,
+    *,
+    expected_subject: str,
+    validate_subject_name_fn: ValidateNameFn,
+    validate_record_name_fn: ValidateNameFn,
+) -> tuple[str, str, tuple[str, ...]]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Failed to read record rename marker {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"Record rename marker must be an object: {path}")
+    expected_keys = {"operation", "subject", "old_record", "new_record", "roots"}
+    if set(payload) != expected_keys:
+        raise ValueError(f"Record rename marker has invalid fields: {path}")
+    if payload.get("operation") != _RECORD_RENAME_OPERATION:
+        raise ValueError(f"Record rename marker has invalid operation: {path}")
+
+    raw_subject = payload.get("subject")
+    raw_old_record = payload.get("old_record")
+    raw_new_record = payload.get("new_record")
+    if not all(
+        isinstance(value, str)
+        for value in (raw_subject, raw_old_record, raw_new_record)
+    ):
+        raise ValueError(f"Record rename marker names must be strings: {path}")
+
+    ok, subject = validate_subject_name_fn(raw_subject)
+    if not ok or subject != expected_subject:
+        raise ValueError(f"Record rename marker subject mismatch: {path}")
+    ok, old_record = validate_record_name_fn(raw_old_record)
+    if not ok:
+        raise ValueError(f"Record rename marker has invalid old record: {path}")
+    ok, new_record = validate_record_name_fn(raw_new_record)
+    if not ok or new_record == old_record:
+        raise ValueError(f"Record rename marker has invalid new record: {path}")
+
+    raw_roots = payload.get("roots")
+    if not isinstance(raw_roots, list) or not raw_roots:
+        raise ValueError(f"Record rename marker has no root roles: {path}")
+    if not all(isinstance(value, str) for value in raw_roots):
+        raise ValueError(f"Record rename marker root roles must be strings: {path}")
+    roots = tuple(raw_roots)
+    if len(set(roots)) != len(roots) or any(
+        role not in _RECORD_ROOT_ROLES for role in roots
+    ):
+        raise ValueError(f"Record rename marker has invalid root roles: {path}")
+    return old_record, new_record, roots
 
 
 def _is_metadata_sidecar(path: Path) -> bool:
@@ -368,6 +522,170 @@ def _rewrite_derivatives_contracts(
     return tuple(updated_paths)
 
 
+def recover_record_rename(
+    *,
+    project_root: Path,
+    subject: str,
+    validate_subject_name_fn: ValidateNameFn,
+    validate_record_name_fn: ValidateNameFn,
+    record_artifact_roots_fn: Callable[[Path, str, str], tuple[Path, ...]],
+    move_path_fn: MovePathFn = _default_move_path,
+    delete_marker_fn: DeletePathFn = _default_delete_path,
+    read_only_project_root: Path | None = None,
+) -> RecordRenameRecoveryResult:
+    """Roll one interrupted subject-scoped Record Rename back to its old name."""
+
+    project_root = Path(project_root).expanduser().resolve()
+    ok, normalized_subject = validate_subject_name_fn(subject)
+    if not ok:
+        return RecordRenameRecoveryResult(
+            ok=False,
+            recovered=False,
+            message=normalized_subject,
+        )
+
+    marker_path = _record_rename_marker_path(project_root, normalized_subject)
+    _cleanup_lone_record_rename_writing(marker_path)
+    if not marker_path.exists():
+        return RecordRenameRecoveryResult(
+            ok=True,
+            recovered=False,
+            message="No interrupted record rename was found.",
+        )
+
+    try:
+        old_record, new_record, root_roles = _load_record_rename_marker(
+            marker_path,
+            expected_subject=normalized_subject,
+            validate_subject_name_fn=validate_subject_name_fn,
+            validate_record_name_fn=validate_record_name_fn,
+        )
+    except ValueError as exc:
+        return RecordRenameRecoveryResult(
+            ok=False,
+            recovered=False,
+            message=str(exc),
+            marker_path=marker_path,
+        )
+
+    if (
+        read_only_project_root is not None
+        and project_root == Path(read_only_project_root).expanduser().resolve()
+    ):
+        return RecordRenameRecoveryResult(
+            ok=False,
+            recovered=False,
+            message=f"Project is read-only: {project_root}",
+            marker_path=marker_path,
+            old_record=old_record,
+            new_record=new_record,
+        )
+
+    try:
+        old_roots = _resolved_record_roots(
+            project_root=project_root,
+            subject=normalized_subject,
+            record=old_record,
+            record_artifact_roots_fn=record_artifact_roots_fn,
+        )
+        new_roots = _resolved_record_roots(
+            project_root=project_root,
+            subject=normalized_subject,
+            record=new_record,
+            record_artifact_roots_fn=record_artifact_roots_fn,
+        )
+        old_by_role = _roots_by_role(old_roots)
+        new_by_role = _roots_by_role(new_roots)
+    except Exception as exc:
+        return RecordRenameRecoveryResult(
+            ok=False,
+            recovered=False,
+            message=f"Failed to resolve record rename marker roots {marker_path}: {exc}",
+            marker_path=marker_path,
+            old_record=old_record,
+            new_record=new_record,
+        )
+
+    pairs = tuple((role, old_by_role[role], new_by_role[role]) for role in root_roles)
+    conflicts: list[Path] = []
+    conflict_details: list[str] = []
+    moves: list[tuple[Path, Path]] = []
+    for role, old_path, new_path in pairs:
+        old_exists = old_path.exists()
+        new_exists = new_path.exists()
+        if old_exists == new_exists:
+            conflicts.extend((old_path, new_path))
+            state = "both present" if old_exists else "both missing"
+            conflict_details.append(
+                f"{role}: {state}\n  old: {old_path}\n  new: {new_path}"
+            )
+        elif new_exists:
+            moves.append((new_path, old_path))
+
+    if conflicts:
+        paths = tuple(conflicts)
+        detail_text = "\n".join(conflict_details)
+        return RecordRenameRecoveryResult(
+            ok=False,
+            recovered=False,
+            message=(
+                "Interrupted record rename cannot be rolled back because one or "
+                f"more root pairs are ambiguous or missing. Marker: {marker_path}"
+                f"\nConflicting root pairs:\n{detail_text}"
+            ),
+            marker_path=marker_path,
+            old_record=old_record,
+            new_record=new_record,
+            conflicting_paths=paths,
+        )
+
+    try:
+        for new_path, old_path in moves:
+            move_path_fn(new_path, old_path)
+
+        path_replacements = tuple(
+            sorted(
+                (
+                    (str(new_path), str(old_path))
+                    for old_path, new_path in zip(old_roots, new_roots)
+                ),
+                key=lambda item: len(item[0]),
+                reverse=True,
+            )
+        )
+        _rewrite_derivatives_contracts(
+            old_by_role["derivatives"],
+            old_record=new_record,
+            new_record=old_record,
+            path_replacements=path_replacements,
+        )
+        delete_marker_fn(marker_path)
+    except Exception as exc:
+        return RecordRenameRecoveryResult(
+            ok=False,
+            recovered=False,
+            message=(
+                f"Failed to roll back interrupted record rename {old_record} -> "
+                f"{new_record}. Marker retained at {marker_path}: {exc}"
+            ),
+            marker_path=marker_path,
+            old_record=old_record,
+            new_record=new_record,
+        )
+
+    return RecordRenameRecoveryResult(
+        ok=True,
+        recovered=True,
+        message=(
+            f"Interrupted record rename {old_record} -> {new_record} was rolled "
+            "back. Run Rename again."
+        ),
+        marker_path=marker_path,
+        old_record=old_record,
+        new_record=new_record,
+    )
+
+
 def rename_record(
     *,
     project_root: Path,
@@ -379,6 +697,7 @@ def rename_record(
     validate_record_name_fn: ValidateNameFn,
     record_artifact_roots_fn: Callable[[Path, str, str], tuple[Path, ...]],
     move_path_fn: MovePathFn = _default_move_path,
+    delete_marker_fn: DeletePathFn = _default_delete_path,
     read_only_project_root: Path | None = None,
 ):
     """Rename all known record roots and repair known embedded record/path fields."""
@@ -408,18 +727,34 @@ def rename_record(
             message="New record name must be different from the current record.",
         )
 
-    source_roots = tuple(
-        Path(path).expanduser().resolve()
-        for path in record_artifact_roots_fn(
-            project_root, normalized_subject, normalized_record
+    marker_path = _record_rename_marker_path(project_root, normalized_subject)
+    _cleanup_lone_record_rename_writing(marker_path)
+    if marker_path.exists():
+        return result_cls(
+            ok=False,
+            message=(
+                "An interrupted record rename is pending for "
+                f"{normalized_subject}: {marker_path}"
+            ),
         )
+
+    source_roots = _resolved_record_roots(
+        project_root=project_root,
+        subject=normalized_subject,
+        record=normalized_record,
+        record_artifact_roots_fn=record_artifact_roots_fn,
     )
-    target_roots = tuple(
-        Path(path).expanduser().resolve()
-        for path in record_artifact_roots_fn(
-            project_root, normalized_subject, normalized_new_record
-        )
+    target_roots = _resolved_record_roots(
+        project_root=project_root,
+        subject=normalized_subject,
+        record=normalized_new_record,
+        record_artifact_roots_fn=record_artifact_roots_fn,
     )
+    try:
+        _roots_by_role(source_roots)
+        _roots_by_role(target_roots)
+    except ValueError as exc:
+        return result_cls(ok=False, message=str(exc))
 
     for path in target_roots:
         if path.exists():
@@ -429,7 +764,13 @@ def rename_record(
             )
 
     existing_pairs = tuple(
-        (src, dst) for src, dst in zip(source_roots, target_roots) if src.exists()
+        (role, src, dst)
+        for role, src, dst in zip(
+            _RECORD_ROOT_ROLES,
+            source_roots,
+            target_roots,
+        )
+        if src.exists()
     )
     if not existing_pairs:
         return result_cls(
@@ -447,11 +788,18 @@ def rename_record(
             reverse=True,
         )
     )
-    reverse_path_replacements = tuple((new, old) for old, new in path_replacements)
     moved_pairs: list[tuple[Path, Path]] = []
 
     try:
-        for src, dst in existing_pairs:
+        marker_payload = _record_rename_marker_payload(
+            subject=normalized_subject,
+            old_record=normalized_record,
+            new_record=normalized_new_record,
+            roots=tuple(role for role, _src, _dst in existing_pairs),
+        )
+        _write_record_rename_marker(marker_path, marker_payload)
+
+        for _role, src, dst in existing_pairs:
             move_path_fn(src, dst)
             moved_pairs.append((src, dst))
 
@@ -462,31 +810,25 @@ def rename_record(
             new_record=normalized_new_record,
             path_replacements=path_replacements,
         )
+        delete_marker_fn(marker_path)
     except Exception as exc:
-        rollback_errors: list[str] = []
-        for src, dst in reversed(moved_pairs):
-            if not dst.exists():
-                continue
-            try:
-                move_path_fn(dst, src)
-            except Exception as rollback_exc:  # noqa: BLE001
-                rollback_errors.append(f"{dst} -> {src}: {rollback_exc}")
-        derivatives_source_root = source_roots[0]
-        if derivatives_source_root.exists():
-            try:
-                _rewrite_derivatives_contracts(
-                    derivatives_source_root,
-                    old_record=normalized_new_record,
-                    new_record=normalized_record,
-                    path_replacements=reverse_path_replacements,
-                )
-            except Exception as rollback_exc:  # noqa: BLE001
-                rollback_errors.append(f"content rollback: {rollback_exc}")
+        rollback_result = recover_record_rename(
+            project_root=project_root,
+            subject=normalized_subject,
+            validate_subject_name_fn=validate_subject_name_fn,
+            validate_record_name_fn=validate_record_name_fn,
+            record_artifact_roots_fn=record_artifact_roots_fn,
+            move_path_fn=move_path_fn,
+            delete_marker_fn=delete_marker_fn,
+            read_only_project_root=read_only_project_root,
+        )
         message = (
             f"Failed to rename record {normalized_subject}/{normalized_record}: {exc}"
         )
-        if rollback_errors:
-            message += f" Rollback incomplete: {'; '.join(rollback_errors)}"
+        if rollback_result.ok and rollback_result.recovered:
+            message += " Rollback applied."
+        elif marker_path.exists():
+            message += f" Rollback incomplete: {rollback_result.message}"
         else:
             message += " Rollback applied."
         return result_cls(ok=False, message=message)

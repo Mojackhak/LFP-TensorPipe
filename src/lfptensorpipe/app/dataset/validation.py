@@ -77,14 +77,9 @@ def create_subject(project_root: Path, subject: str) -> tuple[bool, str]:
 def record_artifact_roots(
     project_root: Path, subject: str, record: str
 ) -> tuple[Path, ...]:
-    """Return all known record roots for legacy-aware record operations."""
-    return (
-        project_root / "derivatives" / "lfptensorpipe" / subject / record,
-        project_root / "sourcedata" / subject / record,
-        project_root / "sourcedata" / subject / "lfp" / record,
-        project_root / "rawdata" / subject / record,
-        project_root / "rawdata" / subject / "ses-postop" / "lfp" / record,
-    )
+    """Return the three standard record roots for Rename and recovery."""
+    scope_roots = standard_record_scope_roots(project_root, subject)
+    return tuple(scope_roots[scope] / record for scope in RECORD_DELETE_SCOPES)
 
 
 def record_delete_scope_paths(

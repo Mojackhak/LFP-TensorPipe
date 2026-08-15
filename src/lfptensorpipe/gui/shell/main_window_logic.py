@@ -156,6 +156,9 @@ class MainWindow(
         self._current_subject: str | None = None
         self._current_record: str | None = None
         self._suppress_sourcedata_only_record_warning = False
+        self._record_rename_blocked_records: set[str] = set()
+        self._record_rename_block_subject = False
+        self._record_rename_recovery_message = ""
         self._enable_plots = enable_plots
         self._annotations_edit_mode = False
 

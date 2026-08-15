@@ -48,6 +48,7 @@ from lfptensorpipe.app import (
     preproc_ecg_panel_state,
     preproc_filter_panel_state,
     record_delete_scope_paths,
+    recover_record_rename,
     rename_record,
     upgrade_record_run_logs,
     run_align_epochs,
@@ -259,6 +260,9 @@ class MainWindowRuntimeDependenciesMixin:
 
     def _rename_record_runtime(self, **kwargs: Any) -> Any:
         return rename_record(**kwargs)
+
+    def _recover_record_rename_runtime(self, **kwargs: Any) -> Any:
+        return recover_record_rename(**kwargs)
 
     def _load_localize_paths_runtime(self, config_store: Any) -> dict[str, str]:
         return load_localize_paths(config_store)
