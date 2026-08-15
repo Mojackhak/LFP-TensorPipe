@@ -203,8 +203,10 @@ def normalize_ecg_method_params(
         if min_bpm >= max_bpm:
             raise ValueError("min_bpm must be smaller than max_bpm.")
         pass_rate = _finite_float("pass_rate", candidate["pass_rate"])
-        if not 0.0 < pass_rate < 1.0:
-            raise ValueError("pass_rate must be greater than 0 and smaller than 1.")
+        if not 0.0 < pass_rate <= 1.0:
+            raise ValueError(
+                "pass_rate must be greater than 0 and less than or equal to 1."
+            )
 
         normalized = {
             "epoch_length_ms": _positive_float(

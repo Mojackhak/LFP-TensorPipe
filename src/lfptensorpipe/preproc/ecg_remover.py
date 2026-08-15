@@ -1015,7 +1015,7 @@ def adaptive_threshold_peak_detection(
             else:
                 valid = peak_distances >= min_peak_distance
 
-            if float(np.sum(valid)) > float(valid.size) * float(pass_rate):
+            if float(np.sum(valid)) >= float(valid.size) * float(pass_rate):
                 best_peaks = peaks.astype(int)
                 best_threshold = float(threshold)
                 break
@@ -1138,7 +1138,7 @@ def _adaptive_threshold_peak_detection_masked(
 
             n_observed = int(np.sum(interval_is_observed))
             n_plausible = int(np.sum(plausible & interval_is_observed))
-            if n_observed > 0 and float(n_plausible) > float(n_observed) * float(
+            if n_observed > 0 and float(n_plausible) >= float(n_observed) * float(
                 pass_rate
             ):
                 best_peaks = peaks.astype(int)
