@@ -478,29 +478,32 @@ class ImportSyncDialog(QDialog):
         self._refresh_all()
 
     def _on_external_reload(self) -> None:
-        self._reset_estimate()
-        self._pairs = []
         path = self._external_path_edit.text().strip()
         if not path:
             QMessageBox.warning(self, "Sync", "External marker file path is required.")
             return
-        if self._external_source_combo.currentText() == "Audio":
-            markers, figure_data = load_external_markers_from_audio(
-                path,
-                self._build_detect_config("external"),
-            )
-            self._external_markers = list(markers)
-            self._external_figure_data = figure_data
-        else:
-            self._external_markers = list(load_external_markers_from_csv(path))
-            self._external_figure_data = SyncFigureData(
-                kind="events",
-                source_label=Path(path).name,
-                marker_times_s=tuple(
-                    marker.time_s for marker in self._external_markers
-                ),
-                title=f"External Marker Source ({Path(path).name})",
-            )
+        try:
+            if self._external_source_combo.currentText() == "Audio":
+                markers, figure_data = load_external_markers_from_audio(
+                    path,
+                    self._build_detect_config("external"),
+                )
+            else:
+                markers = load_external_markers_from_csv(path)
+                figure_data = SyncFigureData(
+                    kind="events",
+                    source_label=Path(path).name,
+                    marker_times_s=tuple(marker.time_s for marker in markers),
+                    title=f"External Marker Source ({Path(path).name})",
+                )
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Sync", str(exc))
+            return
+
+        self._reset_estimate()
+        self._pairs = []
+        self._external_markers = list(markers)
+        self._external_figure_data = figure_data
         self._refresh_all()
 
     def _on_add_marker(self, side: str) -> None:

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import csv
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-import pandas as pd
 from scipy.signal import find_peaks
 
 from lfptensorpipe.io.timeline import raw_relative_onsets
@@ -215,21 +215,67 @@ def load_external_markers_from_audio(
 
 
 def load_external_markers_from_csv(csv_path: str) -> list[MarkerPoint]:
-    """Load one-column marker times in seconds."""
+    """Load validated one-column marker times in seconds."""
     path = Path(csv_path).expanduser().resolve()
     if not path.exists():
         raise FileNotFoundError(f"CSV marker file not found: {path}")
-    df = pd.read_csv(path, header=None)
-    if df.shape[1] != 1:
-        raise ValueError(
-            "CSV marker file must contain exactly one column of times in seconds."
-        )
-    times = pd.to_numeric(df.iloc[:, 0], errors="coerce").dropna().to_numpy(dtype=float)
-    if times.size == 0:
+
+    accepted: list[float] = []
+    first_line_by_time: dict[float, int] = {}
+    errors: list[str] = []
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.reader(handle)
+        try:
+            for row in reader:
+                line_number = int(reader.line_num)
+                if not row or all(not str(value).strip() for value in row):
+                    continue
+                if len(row) != 1:
+                    errors.append(
+                        f"line {line_number}: expected exactly one column, "
+                        f"found {len(row)}"
+                    )
+                    continue
+
+                raw_value = str(row[0]).strip()
+                try:
+                    value = float(raw_value)
+                except ValueError:
+                    errors.append(
+                        f"line {line_number}: {raw_value!r} - marker time must be "
+                        "numeric"
+                    )
+                    continue
+                if not np.isfinite(value):
+                    errors.append(
+                        f"line {line_number}: {raw_value!r} - marker time must be "
+                        "finite"
+                    )
+                    continue
+                if value < 0.0:
+                    errors.append(
+                        f"line {line_number}: {raw_value!r} - marker time must be "
+                        "nonnegative"
+                    )
+                    continue
+                first_line = first_line_by_time.get(value)
+                if first_line is not None:
+                    errors.append(
+                        f"line {line_number}: marker time {value:g} duplicates "
+                        f"line {first_line}"
+                    )
+                    continue
+                first_line_by_time[value] = line_number
+                accepted.append(value)
+        except csv.Error as exc:
+            errors.append(f"line {int(reader.line_num)}: invalid CSV syntax: {exc}")
+
+    if errors:
+        raise ValueError("External marker CSV is invalid:\n" + "\n".join(errors))
+    if not accepted:
         raise ValueError("CSV marker file does not contain any numeric marker times.")
-    if np.any(times < 0):
-        raise ValueError("CSV marker times must be non-negative.")
-    unique = np.unique(times)
+
+    ordered_times = sorted(accepted)
     return _normalize_markers(
         [
             MarkerPoint(
@@ -238,7 +284,7 @@ def load_external_markers_from_csv(csv_path: str) -> list[MarkerPoint]:
                 label=f"external_csv_{index}",
                 source="external_csv_times",
             )
-            for index, value in enumerate(unique.tolist())
+            for index, value in enumerate(ordered_times)
         ],
         default_label="external_csv",
     )

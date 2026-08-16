@@ -170,6 +170,13 @@ external marker stream.
 | `Delete` | Removes the selected marker row. | Marker table rows. | Requires a selected row. |
 | Marker table | Lists detected or manually added markers. | Pairing and sync estimation inputs. | Read-only except for row selection. |
 
+For `CSV times`, use a headerless single-column file with one marker time in
+seconds per nonblank row. Every value must be finite and nonnegative; duplicate
+times and extra columns are invalid. Blank rows are ignored, and accepted times
+are sorted chronologically. If reload validation fails, the dialog reports the
+original CSV line numbers and preserves the currently loaded markers, pairs,
+and estimate.
+
 #### Pairing and save area
 
 | Control | What it does | What it affects | Availability / blocking rule |
