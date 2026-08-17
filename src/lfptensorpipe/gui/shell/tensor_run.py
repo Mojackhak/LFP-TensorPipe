@@ -25,6 +25,9 @@ from lfptensorpipe.app.tensor.cancellation import (
     BUILD_TENSOR_CANCELLED_MESSAGE,
     backfill_cancelled_build_tensor_run,
 )
+from lfptensorpipe.app.tensor.connectivity_coordinator import (
+    preview_trgc_frequency_group_count,
+)
 from lfptensorpipe.app.tensor.frequency import (
     validate_periodic_aperiodic_notch_bounds,
 )
@@ -806,6 +809,28 @@ class MainWindowTensorRunMixin:
         ):
             self.statusBar().showMessage("Build Tensor cancelled before launch.")
             return
+
+        if "trgc" in selected_metrics:
+            try:
+                trgc_group_count = preview_trgc_frequency_group_count(
+                    context,
+                    metric_params=dict(metric_params_map.get("trgc", {})),
+                    mask_edge_effects=mask_edge_effects,
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.statusBar().showMessage(
+                    "TRGC grouping preview unavailable; Build Tensor will "
+                    f"continue ({exc})"
+                )
+            else:
+                if (
+                    trgc_group_count > 1
+                    and not self._confirm_trgc_grouped_estimation_warning()
+                ):
+                    self.statusBar().showMessage(
+                        "Build Tensor cancelled before launch."
+                    )
+                    return
 
         try:
             self._launch_tensor_run_process(

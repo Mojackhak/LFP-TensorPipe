@@ -771,6 +771,21 @@ not make an otherwise current Burst result stale.
 
 - `GC lags` changes model order, not the plotted frequency range.
 - `Group by samples` and `Round ms` are alternative grouping strategies. When grouping by exact samples is enabled, the rounded-millisecond grid no longer drives grouping.
+- After `Run Build Tensor` resolves the effective TRGC frequency grid and
+  estimation windows, it displays a warning when the actual runtime plan has
+  more than one frequency group. `Return` is the default and cancels the launch
+  without changing the parameters. `Continue` starts the existing grouped
+  calculation. Closing the warning is equivalent to `Return`.
+- The warning explains that independently estimated group results are
+  concatenated, that same-frequency comparisons across runs require unchanged
+  TRGC settings and group assignments, and that a concatenated result must not
+  be treated as one continuous TRGC spectrum or reduced across a frequency band
+  that crosses a group boundary.
+- Group preview failure does not cancel `Run Build Tensor` and does not display
+  the grouped-estimation dialog. The worker still receives every selected
+  metric, records a genuine TRGC preparation failure in the TRGC metric log,
+  and continues unrelated metrics according to the existing per-metric failure
+  isolation behavior.
 
 ### 7.11 PSI Advance
 

@@ -843,6 +843,29 @@ metric and output type.
 | Burst occupancy | `none` | Native | Native | Native | Native |
 | Other burst event measurements | `none` | Native | Native | Native | Native |
 
+#### TRGC grouped-estimation interpretation
+
+TRGC may divide the requested frequencies into multiple groups so that lower
+frequencies can use longer estimation windows. Each group is estimated
+independently and may use a different estimation window and/or model frequency
+range. The resulting frequency-axis output is the concatenation of those group
+results rather than one continuous TRGC model.
+
+When the actual runtime plan contains more than one TRGC frequency group,
+`Run Build Tensor` displays a warning before computation starts. Select
+`Return` to keep the current parameters without starting the run, or select
+`Continue` to run the approved grouped calculation. Results remain comparable
+for the same frequency across runs only when all TRGC settings and group
+assignments remain unchanged. Do not interpret the concatenated output as one
+continuous TRGC spectrum or extract a frequency band that crosses a group
+boundary.
+
+The grouping preview is advisory rather than a Build Tensor validation gate.
+If the preview cannot be prepared, Build Tensor still starts with every
+selected metric. The worker then records any real TRGC preparation failure in
+the TRGC metric log while allowing unrelated metrics to continue under the
+normal per-metric failure-isolation contract.
+
 #### Periodic/Aperiodic stored-value semantics
 
 The names `Periodic` and `Aperiodic` follow the standard SpecParam conceptual

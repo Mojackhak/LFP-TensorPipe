@@ -376,6 +376,64 @@ def _prepare_trgc(
     }
 
 
+def preview_trgc_frequency_group_count(
+    context: RecordContext,
+    *,
+    metric_params: dict[str, Any],
+    mask_edge_effects: bool,
+) -> int:
+    """Return the actual TRGC estimator-group count without computing outputs."""
+    from . import service as svc
+    from .orchestration_merge import merge_metric_params_map
+    from .orchestration_plan_connectivity import plan_trgc
+    from .orchestration_plan_validation import prepare_metric_plan_inputs
+
+    merged_params = merge_metric_params_map(
+        svc,
+        context,
+        metrics=["trgc"],
+        metric_params_map={"trgc": dict(metric_params)},
+        low_freq=None,
+        high_freq=None,
+        step_hz=None,
+        bands=None,
+        selected_channels=None,
+        selected_pairs=None,
+    )["trgc"]
+    prepared = prepare_metric_plan_inputs(
+        svc,
+        context,
+        metric_key="trgc",
+        metric_label=svc.TENSOR_METRICS_BY_KEY["trgc"].display_name,
+        metric_params=merged_params,
+    )
+    runtime_plans = plan_trgc(
+        svc,
+        context,
+        metric_low=prepared.metric_low,
+        metric_high=prepared.metric_high,
+        metric_step=prepared.metric_step,
+        metric_bands=prepared.metric_bands,
+        metric_channels=prepared.metric_channels,
+        metric_pairs=prepared.metric_pairs,
+        metric_params=prepared.metric_params,
+        mask_edge_effects=bool(mask_edge_effects),
+    )
+    backend_plans = {
+        str(plan.runner_kwargs["backend_method"]): plan
+        for plan in runtime_plans.values()
+        if plan.runner_key == "trgc_backend"
+    }
+    state = _prepare_trgc(context, backend_plans)
+    group_counts = {
+        len(state["descriptions"][backend_method]["groups"])
+        for backend_method in ("gc", "gc_tr")
+    }
+    if len(group_counts) != 1:
+        raise RuntimeError("GC and GC_TR produced inconsistent frequency groups.")
+    return int(group_counts.pop())
+
+
 def _assemble_blocks(
     description: dict[str, Any],
     methods: tuple[str, ...],

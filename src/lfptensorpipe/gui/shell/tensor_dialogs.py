@@ -13,6 +13,18 @@ from lfptensorpipe.gui.shell.common import (
     TENSOR_UNDIRECTED_METRIC_KEYS,
 )
 
+TRGC_GROUPED_ESTIMATION_WARNING = """Current settings divide TRGC into multiple frequency groups with
+different estimation windows and/or model frequency ranges.
+
+Results remain comparable for the same frequency across runs only when
+all TRGC settings and group assignments remain unchanged.
+
+Do not:
+• interpret the concatenated output as one continuous TRGC spectrum;
+• extract a frequency band that crosses a group boundary.
+
+You may continue for within-frequency comparisons using identical settings."""
+
 
 class MainWindowTensorDialogsMixin:
     def _inherit_tensor_metric_notches_from_filter(self, context: Any) -> bool:
@@ -89,6 +101,18 @@ class MainWindowTensorDialogsMixin:
         dialog.setText("\n".join(lines))
         continue_button = dialog.addButton("Continue", QMessageBox.AcceptRole)
         dialog.addButton("Cancel", QMessageBox.RejectRole)
+        dialog.exec()
+        return dialog.clickedButton() is continue_button
+
+    def _confirm_trgc_grouped_estimation_warning(self) -> bool:
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Warning)
+        dialog.setWindowTitle("TRGC uses multiple estimation groups")
+        dialog.setText(TRGC_GROUPED_ESTIMATION_WARNING)
+        return_button = dialog.addButton("Return", QMessageBox.RejectRole)
+        continue_button = dialog.addButton("Continue", QMessageBox.AcceptRole)
+        dialog.setDefaultButton(return_button)
+        dialog.setEscapeButton(return_button)
         dialog.exec()
         return dialog.clickedButton() is continue_button
 
