@@ -792,6 +792,14 @@ converted back to volts, so the stored mean is a duration-weighted geometric
 mean. Valid non-Burst zeros remain event-state values and are never passed to
 `log10`. Consequently, changing only the Alignment sample rate must not change
 these scalar values.
+
+Burst notch exclusions are denoising operations and do not define a separate
+subband-pooling metric. If a named Burst band is split around one or more notch
+holes, the application filters the surviving segments, reconstructs the band
+by summing those segment signals, and then computes one Hilbert envelope. This
+preserves the declared whole-band envelope, including cross-segment beating;
+the application does not combine segment envelopes with RSS.
+
 If a record contains an older Burst tensor or `occupation-*` output, rerun
 Burst, Align Run, Finish, and Extract Features. The application does not guess
 or migrate the meaning of legacy Burst values.

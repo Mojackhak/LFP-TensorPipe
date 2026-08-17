@@ -20,7 +20,9 @@ from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import read_run_log
 from lfptensorpipe.app.tensor.paths import tensor_metric_tensor_path
 from lfptensorpipe.io.pkl_io import load_pkl
-from lfptensorpipe.lfp.burst.semantics import has_current_burst_value_semantics
+from lfptensorpipe.lfp.burst.semantics import (
+    has_compatible_burst_value_semantics,
+)
 from lfptensorpipe.lfp.burst.timeline import (
     MappedFragment,
     build_warp_segments,
@@ -159,8 +161,13 @@ def _load_native_burst_tensor(
     if not isinstance(source_payload, dict):
         raise ValueError("Burst tensor payload is invalid.")
     metadata = source_payload.get("meta")
-    if not isinstance(metadata, dict) or not has_current_burst_value_semantics(
-        metadata.get("value_semantics")
+    params = metadata.get("params") if isinstance(metadata, dict) else None
+    bands_segments_hz = (
+        params.get("bands_segments_hz") if isinstance(params, dict) else None
+    )
+    if not isinstance(metadata, dict) or not has_compatible_burst_value_semantics(
+        metadata.get("value_semantics"),
+        bands_segments_hz=bands_segments_hz,
     ):
         raise ValueError(
             "Legacy Burst tensor detected. Rerun Burst, Align Run, Finish, and Extract Features."
@@ -169,7 +176,6 @@ def _load_native_burst_tensor(
         raise ValueError(
             "Legacy Burst transform policy detected. Rerun Burst, Align Run, Finish, and Extract Features."
         )
-    params = metadata.get("params")
     if not isinstance(params, dict) or int(params.get("decim_eff", 0)) != 1:
         raise ValueError("Burst feature extraction requires a native-rate tensor.")
     tensor = np.asarray(source_payload.get("tensor"), dtype=float)

@@ -580,10 +580,9 @@ def grid(
     edge_intervals_dilated_by_band: List[List[Tuple[float, float]]] = []
     edge_mask_info_by_band: List[Dict[str, Any]] = []
 
-    # Band-pass + Hilbert per band.
-    # If a band is provided as multiple segments (e.g. split by notch holes),
-    # we compute each segment envelope and combine them via RSS:
-    #   env = sqrt(sum(env_segment**2)).
+    # Band-pass + Hilbert per band. Notch exclusions are denoising only: if a
+    # band contains multiple surviving segments, reconstruct that band by
+    # summing the filtered segment signals before taking one Hilbert magnitude.
     iir_params = dict(order=int(filter_order), ftype="butter", output="sos")
     for bi, (band_name, segs, f_center) in enumerate(
         zip(band_names, band_segments, band_centers)
@@ -676,7 +675,7 @@ def grid(
         edge_intervals_dilated_by_band.append(list(edge_intervals_dilated))
         edge_mask_info_by_band.append(edge_mask_info)
 
-        env_sum_sq: np.ndarray | None = None
+        filtered_band: np.ndarray | None = None
         for l_freq, h_freq in segs:
             filt = mne.filter.filter_data(
                 data,
@@ -687,16 +686,15 @@ def grid(
                 iir_params=iir_params,
                 verbose=False,
             )
-            env_seg = np.abs(hilbert(filt, axis=-1)).astype(np.float64, copy=False)
-            if env_sum_sq is None:
-                env_sum_sq = env_seg.astype(np.float64, copy=True) ** 2
+            if filtered_band is None:
+                filtered_band = filt.astype(np.float64, copy=True)
             else:
-                env_sum_sq += env_seg.astype(np.float64, copy=False) ** 2
+                filtered_band += filt.astype(np.float64, copy=False)
 
-        if env_sum_sq is None:  # pragma: no cover
+        if filtered_band is None:  # pragma: no cover
             raise RuntimeError(f"No valid segments for band '{band_name}'.")
 
-        env = np.sqrt(env_sum_sq).astype(np.float64, copy=False)
+        env = np.abs(hilbert(filtered_band, axis=-1)).astype(np.float64, copy=False)
 
         # Threshold is either user-provided, or computed on baseline samples only
         # (if provided), per channel.

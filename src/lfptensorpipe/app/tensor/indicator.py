@@ -19,7 +19,7 @@ from lfptensorpipe.lfp.burst.semantics import (
     BURST_NATIVE_DECIM,
     BURST_NATIVE_HOP_S,
     burst_value_semantics,
-    has_current_burst_value_semantics,
+    has_compatible_burst_value_semantics,
 )
 from lfptensorpipe.lfp.connectivity import CONNECTIVITY_PADDING_MODE
 from lfptensorpipe.lfp.mask.annotations import ANNOTATION_SCOPE_SEMANTICS
@@ -454,8 +454,6 @@ def _metric_log_signature(
             signature["step_hz"] = float(params.get("step_hz"))
         return signature
     if metric_key == "burst":
-        if not has_current_burst_value_semantics(params.get("value_semantics")):
-            return None
         burst_policy = transform_policy_metadata(
             get_transform_policy(TENSOR_METRICS_BY_KEY["burst"].value_transform_mode)
         )
@@ -464,6 +462,11 @@ def _metric_log_signature(
         channels = _normalize_channels(params.get("selected_channels"))
         bands_used = _normalize_runtime_bands_signature(params.get("bands_used"))
         if channels is None or bands_used is None:
+            return None
+        if not has_compatible_burst_value_semantics(
+            params.get("value_semantics"),
+            bands_segments_hz=bands_used,
+        ):
             return None
         threshold_mode = params.get("threshold_mode")
         if threshold_mode not in {"computed", "provided"}:
@@ -485,8 +488,10 @@ def _metric_log_signature(
         }
         if threshold_mode == "provided":
             try:
-                signature["thresholds_used"] = normalize_burst_threshold_payload(
-                    params.get("thresholds_used")
+                _, signature["thresholds_used"] = select_burst_threshold_subset(
+                    params.get("thresholds_used"),
+                    channels=channels,
+                    bands=bands_used,
                 )
             except ValueError:
                 return None

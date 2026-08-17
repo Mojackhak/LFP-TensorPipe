@@ -9,9 +9,15 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from lfptensorpipe.lfp.burst.semantics import (
+    burst_value_semantics,
+    has_current_burst_value_semantics,
+)
+
 BURST_THRESHOLD_KIND = "lfptensorpipe_burst_thresholds"
 
-_PAYLOAD_KEYS = frozenset({"kind", "channels", "bands", "values"})
+_LEGACY_PAYLOAD_KEYS = frozenset({"kind", "channels", "bands", "values"})
+_PAYLOAD_KEYS = frozenset({"kind", "value_semantics", "channels", "bands", "values"})
 _BAND_KEYS = frozenset({"name", "segments_hz"})
 
 
@@ -99,7 +105,25 @@ def normalize_burst_threshold_payload(value: Any) -> dict[str, Any]:
     """Validate and return the canonical JSON-safe Burst threshold payload."""
     if not isinstance(value, dict):
         raise ValueError("Burst threshold payload must be a JSON object.")
-    _require_exact_keys(value, expected=_PAYLOAD_KEYS, field="Burst threshold payload")
+    actual_keys = frozenset(value)
+    if actual_keys == _LEGACY_PAYLOAD_KEYS:
+        value_semantics = None
+    else:
+        _require_exact_keys(
+            value,
+            expected=_PAYLOAD_KEYS,
+            field="Burst threshold payload",
+        )
+        raw_semantics = value.get("value_semantics")
+        if raw_semantics is None:
+            value_semantics = None
+        elif has_current_burst_value_semantics(raw_semantics):
+            value_semantics = burst_value_semantics()
+        else:
+            raise ValueError(
+                "Burst threshold value_semantics must declare "
+                "analytic_sum_before_magnitude."
+            )
     if value.get("kind") != BURST_THRESHOLD_KIND:
         raise ValueError(
             f"Burst threshold payload kind must be {BURST_THRESHOLD_KIND!r}."
@@ -160,6 +184,7 @@ def normalize_burst_threshold_payload(value: Any) -> dict[str, Any]:
 
     return {
         "kind": BURST_THRESHOLD_KIND,
+        "value_semantics": value_semantics,
         "channels": channels,
         "bands": bands,
         "values": values,
@@ -220,6 +245,7 @@ def build_burst_threshold_payload(
     array = np.asarray(values, dtype=float)
     payload = {
         "kind": BURST_THRESHOLD_KIND,
+        "value_semantics": burst_value_semantics(),
         "channels": [str(item) for item in channels],
         "bands": band_rows,
         "values": array.tolist(),
@@ -273,6 +299,17 @@ def select_burst_threshold_subset(
         problems.append("missing bands: " + ", ".join(missing_bands))
     if segment_mismatches:
         problems.append("segment mismatches: " + ", ".join(segment_mismatches))
+    if normalized["value_semantics"] is None:
+        legacy_split_bands = [
+            name
+            for name in requested_bands
+            if name in runtime_segments and len(runtime_segments[name]) > 1
+        ]
+        if legacy_split_bands:
+            problems.append(
+                "legacy RSS thresholds for notch-split bands: "
+                + ", ".join(legacy_split_bands)
+            )
     if problems:
         raise ValueError("Incompatible Burst thresholds (" + "; ".join(problems) + ").")
 
@@ -291,6 +328,10 @@ def select_burst_threshold_subset(
 def write_burst_threshold_json(payload: Any, path: str | Path) -> None:
     """Write one canonical Burst threshold payload as UTF-8 JSON."""
     normalized = normalize_burst_threshold_payload(payload)
+    if normalized["value_semantics"] is None:
+        raise ValueError(
+            "Legacy Burst thresholds must be recomputed before they are written."
+        )
     with Path(path).open("w", encoding="utf-8") as handle:
         json.dump(normalized, handle, ensure_ascii=False, indent=2, allow_nan=False)
         handle.write("\n")

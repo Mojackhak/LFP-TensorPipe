@@ -12,7 +12,9 @@ from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
 from lfptensorpipe.app.shared.downstream_invalidation import (
     invalidate_after_alignment_run,
 )
-from lfptensorpipe.lfp.burst.semantics import has_current_burst_value_semantics
+from lfptensorpipe.lfp.burst.semantics import (
+    has_compatible_burst_value_semantics,
+)
 from lfptensorpipe.lfp.burst.timeline import warp_burst_for_display
 from lfptensorpipe.utils.transforms import (
     convert_transform_domain_array,
@@ -224,13 +226,19 @@ def run_align_epochs(
                         f"Tensor metadata missing time axis for metric: {metric_key}"
                     )
                 if metric_key == "burst":
-                    if not has_current_burst_value_semantics(
-                        meta_in.get("value_semantics")
+                    params = meta_in.get("params", {})
+                    bands_segments_hz = (
+                        params.get("bands_segments_hz")
+                        if isinstance(params, dict)
+                        else None
+                    )
+                    if not has_compatible_burst_value_semantics(
+                        meta_in.get("value_semantics"),
+                        bands_segments_hz=bands_segments_hz,
                     ):
                         raise ValueError(
                             "Legacy Burst tensor detected. Rerun Burst before Alignment."
                         )
-                    params = meta_in.get("params", {})
                     if (
                         not isinstance(params, dict)
                         or int(params.get("decim_eff", 0)) != 1
