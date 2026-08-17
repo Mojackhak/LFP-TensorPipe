@@ -109,7 +109,9 @@ def smooth_axis(
         return_in_original_domain: If True and `transform_mode` is not None,
             apply the inverse transform after smoothing.
         pad_mode: Boundary handling mode passed to SciPy.
-        cval: Constant value used when `pad_mode == 'constant'`.
+        cval: Constant value used when `pad_mode == 'constant'`. Under
+            `nan_policy='omit'`, a finite constant is one valid boundary
+            sample, while a non-finite constant is omitted.
         nan_policy:
             - `omit`: ignore non-finite values; an all-invalid window returns
               `NaN`
@@ -154,6 +156,13 @@ def smooth_axis(
 
     if transform_mode is not None:
         x = apply_transform_array(x, mode=transform_mode)
+
+    omit_signal_cval = float(cval)
+    if np.isfinite(omit_signal_cval):
+        omit_validity_cval = 1.0
+    else:
+        omit_signal_cval = 0.0
+        omit_validity_cval = 0.0
 
     if method_l == "median":
         size = [1] * x.ndim
@@ -203,13 +212,19 @@ def smooth_axis(
             mask = np.isfinite(x)
             x0 = np.where(mask, x, 0.0)
             w = np.ones(k, dtype=float) / float(k)
-            num = convolve1d(x0, w, axis=ax, mode=pad_mode, cval=float(cval))
+            num = convolve1d(
+                x0,
+                w,
+                axis=ax,
+                mode=pad_mode,
+                cval=omit_signal_cval,
+            )
             den = convolve1d(
                 mask.astype(float),
                 w,
                 axis=ax,
                 mode=pad_mode,
-                cval=float(cval),
+                cval=omit_validity_cval,
             )
             with np.errstate(invalid="ignore", divide="ignore"):
                 x_smooth = num / den
@@ -223,7 +238,6 @@ def smooth_axis(
             "sigma": sigma_f,
             "axis": ax,
             "mode": pad_mode,
-            "cval": float(cval),
         }
         if truncate_f is not None:
             gaussian_kwargs["truncate"] = truncate_f
@@ -231,13 +245,21 @@ def smooth_axis(
         if nan_policy == "omit":
             mask = np.isfinite(x)
             x0 = np.where(mask, x, 0.0)
-            num = gaussian_filter1d(x0, **gaussian_kwargs)
-            den = gaussian_filter1d(mask.astype(float), **gaussian_kwargs)
+            num = gaussian_filter1d(
+                x0,
+                cval=omit_signal_cval,
+                **gaussian_kwargs,
+            )
+            den = gaussian_filter1d(
+                mask.astype(float),
+                cval=omit_validity_cval,
+                **gaussian_kwargs,
+            )
             with np.errstate(invalid="ignore", divide="ignore"):
                 x_smooth = num / den
             x_smooth = np.where(den > 0, x_smooth, np.nan)
         elif nan_policy == "propagate":
-            x_smooth = gaussian_filter1d(x, **gaussian_kwargs)
+            x_smooth = gaussian_filter1d(x, cval=float(cval), **gaussian_kwargs)
 
     if transform_mode is not None and return_in_original_domain:
         x_smooth = apply_inverse_transform_array(x_smooth, mode=transform_mode)
