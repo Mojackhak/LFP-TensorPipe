@@ -134,7 +134,7 @@ def seed_lfp_markers_from_raw(raw: Any) -> list[MarkerPoint]:
     markers: list[MarkerPoint] = []
     for onset, description in zip(annotations.onset, annotations.description):
         label = str(description).strip()
-        if not label or label.upper().startswith("BAD_"):
+        if not label or label.upper().startswith("BAD"):
             continue
         markers.append(
             MarkerPoint(
