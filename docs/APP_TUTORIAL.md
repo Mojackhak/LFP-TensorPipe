@@ -565,6 +565,17 @@ data, or channels made identical by re-referencing before interpreting the resul
 A completed Build Tensor state records that the requested computation finished;
 it does not redefine this degenerate ciPLV input as a finite value.
 
+PLI and wPLI have a separate numerical limitation for perfectly identical
+zero-phase signals. Machine-precision imaginary residuals can enter the sign or
+small-denominator formulas and produce a finite nonzero result. LFP-TensorPipe
+preserves the installed MNE-Connectivity estimator output instead of applying an
+arbitrary tolerance or forcing this exact case to zero. Do not interpret that
+degenerate duplicate-input result as evidence of meaningful lagged
+connectivity. If empirical channels are identical or proportional, first check
+for duplicated channel selection, duplicated imported data, or channels made
+equivalent by re-referencing. Ordinary non-identical PLI/wPLI results retain
+their standard interpretation.
+
 For this walkthrough:
 
 1. import the config
