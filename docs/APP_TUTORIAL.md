@@ -357,6 +357,14 @@ The tutorial filter uses:
 | `High freq` | `200.0` |
 | `Notches` | `41.75, 83.5, 125.25, 167.0` |
 
+`Low freq`, `High freq`, and `Notches` may be left blank to disable the
+corresponding high-pass, low-pass, or notch operation. Every entered frequency
+must be finite. `High freq` and every notch must remain strictly below the
+input Nyquist frequency; Filter Apply shows a blocking warning instead of
+silently clipping or dropping an unsupported value. In Filter Advance, leaving
+the complete peak-to-peak threshold field blank disables only fixed
+peak-to-peak rejection and keeps AutoReject active.
+
 This notch list is demo-specific. SceneRay uses `83.5 Hz` AC coupling between
 the LFP recorder and the IPG, so this dataset needs the half-frequency harmonic
 series to be notched. That is why the tutorial notches `41.75`, `83.5`,

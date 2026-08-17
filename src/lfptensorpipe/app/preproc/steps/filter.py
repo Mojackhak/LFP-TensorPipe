@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, replace
+import math
 import threading
 from typing import Any, Callable
 
@@ -37,19 +38,97 @@ def default_filter_advance_params() -> dict[str, Any]:
 def _normalize_notch_widths(value: Any) -> float | list[float]:
     if isinstance(value, (int, float)):
         parsed = float(value)
-        if parsed <= 0.0:
-            raise ValueError("notch_widths must be > 0.")
+        if not math.isfinite(parsed) or parsed <= 0.0:
+            raise ValueError("notch_widths must contain positive finite values.")
         return parsed
 
     if isinstance(value, (list, tuple)):
         if not value:
             raise ValueError("notch_widths cannot be empty.")
         parsed_list = [float(item) for item in value]
-        if any(item <= 0.0 for item in parsed_list):
-            raise ValueError("notch_widths values must be > 0.")
+        if any(not math.isfinite(item) or item <= 0.0 for item in parsed_list):
+            raise ValueError("notch_widths must contain positive finite values.")
         return parsed_list if len(parsed_list) > 1 else parsed_list[0]
 
     raise ValueError("notch_widths must be a number or a numeric list.")
+
+
+def _optional_float(value: Any, *, field_name: str) -> float | None:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"{field_name} must be finite when provided.")
+    return parsed
+
+
+def normalize_filter_runtime_params(
+    *,
+    notches: Any,
+    l_freq: Any,
+    h_freq: Any,
+) -> tuple[bool, dict[str, Any], str]:
+    """Normalize nullable basic Filter parameters at the runtime boundary."""
+    try:
+        low_freq = _optional_float(l_freq, field_name="l_freq")
+        high_freq = _optional_float(h_freq, field_name="h_freq")
+        if notches is None or (isinstance(notches, str) and not notches.strip()):
+            parsed_notches: list[float] = []
+        elif isinstance(notches, str):
+            parsed_notches = [
+                float(item.strip()) for item in notches.split(",") if item.strip()
+            ]
+        elif isinstance(notches, (list, tuple)):
+            parsed_notches = [float(item) for item in notches]
+        else:
+            raise ValueError("notches must be empty or a number list when provided.")
+    except Exception as exc:  # noqa: BLE001
+        return False, {}, str(exc)
+
+    if low_freq is not None and low_freq < 0.0:
+        return False, {}, "l_freq must be >= 0 when provided."
+    if high_freq is not None and high_freq <= 0.0:
+        return False, {}, "h_freq must be > 0 when provided."
+    if low_freq is not None and high_freq is not None and high_freq <= low_freq:
+        return False, {}, "h_freq must be greater than l_freq when both are provided."
+    if any(not math.isfinite(value) or value <= 0.0 for value in parsed_notches):
+        return False, {}, "notches must contain positive finite values."
+
+    return (
+        True,
+        {
+            "notches": parsed_notches,
+            "l_freq": low_freq,
+            "h_freq": high_freq,
+        },
+        "",
+    )
+
+
+def filter_nyquist_warning(
+    *,
+    sfreq_hz: Any,
+    notches: list[float] | tuple[float, ...],
+    h_freq: float | None,
+) -> str:
+    """Return a blocking warning for a requested frequency at/above Nyquist."""
+    sfreq = float(sfreq_hz)
+    if not math.isfinite(sfreq) or sfreq <= 0.0:
+        return "Input sampling frequency must be positive and finite."
+    nyquist = sfreq / 2.0
+    if h_freq is not None and float(h_freq) >= nyquist:
+        return (
+            f"High freq {float(h_freq):g} Hz must be below the Nyquist frequency "
+            f"of {nyquist:g} Hz.\n\nEnter a value below {nyquist:g} Hz, or "
+            "leave High freq empty to disable low-pass filtering."
+        )
+    for notch in notches:
+        if float(notch) >= nyquist:
+            return (
+                f"Notch frequency {float(notch):g} Hz must be below the Nyquist "
+                f"frequency of {nyquist:g} Hz.\n\nRemove it or leave Notches empty."
+            )
+    return ""
 
 
 def normalize_filter_advance_params(
@@ -80,28 +159,44 @@ def normalize_filter_advance_params(
     except Exception as exc:  # noqa: BLE001
         return False, defaults, str(exc)
 
-    if epoch_dur <= 0.0:
-        return False, defaults, "epoch_dur must be > 0."
-    if autoreject_correct_factor <= 0.0:
-        return False, defaults, "autoreject_correct_factor must be > 0."
-    if not isinstance(p2p_raw, (list, tuple)) or len(p2p_raw) != 2:
-        return False, defaults, "p2p_thresh must contain exactly two numbers."
+    if not math.isfinite(epoch_dur) or epoch_dur <= 0.0:
+        return False, defaults, "epoch_dur must be finite and > 0."
+    if not math.isfinite(autoreject_correct_factor) or autoreject_correct_factor <= 0.0:
+        return (
+            False,
+            defaults,
+            "autoreject_correct_factor must be finite and > 0.",
+        )
 
-    try:
-        p2p_min = float(p2p_raw[0])
-        p2p_max = float(p2p_raw[1])
-    except Exception:  # noqa: BLE001
-        return False, defaults, "p2p_thresh must contain valid numbers."
-
-    if p2p_min < 0.0 or p2p_max <= 0.0 or p2p_min >= p2p_max:
-        return False, defaults, "p2p_thresh must satisfy 0 <= min < max."
+    p2p_thresh: list[float] | None
+    if p2p_raw is None or p2p_raw == "" or p2p_raw == [] or p2p_raw == ():
+        p2p_thresh = None
+    else:
+        if not isinstance(p2p_raw, (list, tuple)) or len(p2p_raw) != 2:
+            return (
+                False,
+                defaults,
+                "p2p_thresh must be empty or contain exactly two numbers.",
+            )
+        try:
+            p2p_min = float(p2p_raw[0])
+            p2p_max = float(p2p_raw[1])
+        except Exception:  # noqa: BLE001
+            return False, defaults, "p2p_thresh must contain valid numbers."
+        if not math.isfinite(p2p_min):
+            return False, defaults, "p2p_thresh minimum must be finite."
+        if not math.isfinite(p2p_max):
+            return False, defaults, "p2p_thresh maximum must be finite."
+        if p2p_min < 0.0 or p2p_max <= 0.0 or p2p_min >= p2p_max:
+            return False, defaults, "p2p_thresh must satisfy 0 <= min < max."
+        p2p_thresh = [p2p_min, p2p_max]
 
     return (
         True,
         {
             "notch_widths": notch_widths,
             "epoch_dur": epoch_dur,
-            "p2p_thresh": [p2p_min, p2p_max],
+            "p2p_thresh": p2p_thresh,
             "autoreject_correct_factor": autoreject_correct_factor,
         },
         "",
@@ -134,71 +229,18 @@ def apply_filter_step(
         advance_params
     )
     if not valid_params:
-        mark_preproc_step_fn(
-            resolver=resolver,
-            step="filter",
-            completed=False,
-            input_path=str(src),
-            output_path=str(dst),
-            message=f"Invalid Filter Advance params: {message}",
-        )
-        invalidate_downstream_fn(context, "filter")
         return False, f"Invalid Filter Advance params: {message}"
 
-    try:
-        runtime_l_freq = float(1.0 if l_freq is None else l_freq)
-        runtime_h_freq = float(200.0 if h_freq is None else h_freq)
-    except Exception as exc:  # noqa: BLE001
-        mark_preproc_step_fn(
-            resolver=resolver,
-            step="filter",
-            completed=False,
-            input_path=str(src),
-            output_path=str(dst),
-            message=f"Invalid Filter freq params: {exc}",
-        )
-        invalidate_downstream_fn(context, "filter")
-        return False, f"Invalid Filter freq params: {exc}"
-    if runtime_l_freq < 0.0 or runtime_h_freq <= runtime_l_freq:
-        mark_preproc_step_fn(
-            resolver=resolver,
-            step="filter",
-            completed=False,
-            input_path=str(src),
-            output_path=str(dst),
-            message="Invalid Filter freq params: require 0 <= low < high.",
-        )
-        invalidate_downstream_fn(context, "filter")
-        return False, "Invalid Filter freq params: require 0 <= low < high."
-
-    runtime_notches: list[float] = []
-    if notches is not None:
-        try:
-            runtime_notches = [float(value) for value in notches]
-        except Exception as exc:  # noqa: BLE001
-            mark_preproc_step_fn(
-                resolver=resolver,
-                step="filter",
-                completed=False,
-                input_path=str(src),
-                output_path=str(dst),
-                message=f"Invalid Filter notches: {exc}",
-            )
-            invalidate_downstream_fn(context, "filter")
-            return False, f"Invalid Filter notches: {exc}"
-        if any(value <= 0.0 for value in runtime_notches):
-            mark_preproc_step_fn(
-                resolver=resolver,
-                step="filter",
-                completed=False,
-                input_path=str(src),
-                output_path=str(dst),
-                message="Invalid Filter notches: values must be > 0.",
-            )
-            invalidate_downstream_fn(context, "filter")
-            return False, "Invalid Filter notches: values must be > 0."
-    else:
-        runtime_notches = [50.0, 100.0]
+    valid_runtime, runtime_params, runtime_message = normalize_filter_runtime_params(
+        notches=notches,
+        l_freq=l_freq,
+        h_freq=h_freq,
+    )
+    if not valid_runtime:
+        return False, f"Invalid Filter params: {runtime_message}"
+    runtime_l_freq = runtime_params["l_freq"]
+    runtime_h_freq = runtime_params["h_freq"]
+    runtime_notches = list(runtime_params["notches"])
 
     if not src.exists():
         mark_preproc_step_fn(
@@ -223,24 +265,29 @@ def apply_filter_step(
 
         raw = read_raw_fif_fn(str(src), preload=True, verbose="ERROR")
         nyquist = float(raw.info["sfreq"]) / 2.0
-        max_h_freq = nyquist - 1e-3
-        applied_h_freq = min(runtime_h_freq, max_h_freq)
-        if applied_h_freq <= runtime_l_freq:
-            raise ValueError(
-                "Filter high freq is too high for current data Nyquist or not greater than low freq."
-            )
-        applied_notches = [value for value in runtime_notches if value < max_h_freq]
-        dropped_notches = [value for value in runtime_notches if value >= max_h_freq]
+        nyquist_message = filter_nyquist_warning(
+            sfreq_hz=raw.info["sfreq"],
+            notches=runtime_notches,
+            h_freq=runtime_h_freq,
+        )
+        if nyquist_message:
+            if hasattr(raw, "close"):
+                raw.close()
+            return False, nyquist_message
         cfg = replace(
             BadAnnotationConfig(),
             l_freq=runtime_l_freq,
-            h_freq=applied_h_freq,
-            notches=tuple(applied_notches) if applied_notches else None,
+            h_freq=runtime_h_freq,
+            notches=tuple(runtime_notches) if runtime_notches else None,
             notch_widths=normalized_params["notch_widths"],
             epoch_dur=normalized_params["epoch_dur"],
             p2p_thresh=(
-                float(normalized_params["p2p_thresh"][0]),
-                float(normalized_params["p2p_thresh"][1]),
+                None
+                if normalized_params["p2p_thresh"] is None
+                else (
+                    float(normalized_params["p2p_thresh"][0]),
+                    float(normalized_params["p2p_thresh"][1]),
+                )
             ),
             autoreject_correct_factor=normalized_params["autoreject_correct_factor"],
         )
@@ -272,7 +319,7 @@ def apply_filter_step(
                     "low_freq": cfg.l_freq,
                     "high_freq": cfg.h_freq,
                     "notches": list(cfg.notches or []),
-                    "dropped_notches": dropped_notches,
+                    "nyquist_freq": nyquist,
                     "bad_annotation_config": asdict(cfg),
                     "summary": summary,
                     "reject_plot_path": str(reject_plot_path),
@@ -286,10 +333,12 @@ def apply_filter_step(
                     "low_freq": cfg.l_freq,
                     "high_freq": cfg.h_freq,
                     "notches": list(cfg.notches or []),
-                    "dropped_notches": dropped_notches,
+                    "nyquist_freq": nyquist,
                     "notch_widths": cfg.notch_widths,
                     "epoch_dur": cfg.epoch_dur,
-                    "p2p_thresh": list(cfg.p2p_thresh),
+                    "p2p_thresh": (
+                        None if cfg.p2p_thresh is None else list(cfg.p2p_thresh)
+                    ),
                     "autoreject_correct_factor": cfg.autoreject_correct_factor,
                     "reject_plot_path": str(reject_plot_path),
                 },

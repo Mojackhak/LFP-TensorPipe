@@ -88,8 +88,10 @@ def build_preproc_filter_block(self, *, grid_spacing: int) -> QGroupBox:
     notches_layout.setSpacing(grid_spacing)
     notches_layout.addWidget(QLabel("Notches"))
     self._preproc_filter_notches_edit = QLineEdit("50,100")
-    self._preproc_filter_notches_edit.setPlaceholderText("e.g. 50,100")
-    self._preproc_filter_notches_edit.setToolTip("Comma-separated notch centers in Hz.")
+    self._preproc_filter_notches_edit.setPlaceholderText("blank or e.g. 50,100")
+    self._preproc_filter_notches_edit.setToolTip(
+        "Comma-separated notch centers below Nyquist. Leave blank to disable notch filtering."
+    )
     self._preproc_filter_notches_edit.setMinimumWidth(150)
     self._preproc_filter_notches_edit.setSizePolicy(
         QSizePolicy.Expanding, QSizePolicy.Fixed
@@ -103,15 +105,19 @@ def build_preproc_filter_block(self, *, grid_spacing: int) -> QGroupBox:
     freq_layout.setSpacing(grid_spacing)
     freq_layout.addWidget(QLabel("Low freq"))
     self._preproc_filter_low_freq_edit = QLineEdit("1")
-    self._preproc_filter_low_freq_edit.setPlaceholderText("Hz")
-    self._preproc_filter_low_freq_edit.setToolTip("High-pass cutoff in Hz.")
+    self._preproc_filter_low_freq_edit.setPlaceholderText("blank or Hz")
+    self._preproc_filter_low_freq_edit.setToolTip(
+        "High-pass cutoff in Hz. Leave blank to disable high-pass filtering."
+    )
     self._preproc_filter_low_freq_edit.setMinimumWidth(45)
     freq_layout.addWidget(self._preproc_filter_low_freq_edit, stretch=1)
 
     freq_layout.addWidget(QLabel("High freq"))
     self._preproc_filter_high_freq_edit = QLineEdit("200")
-    self._preproc_filter_high_freq_edit.setPlaceholderText("Hz")
-    self._preproc_filter_high_freq_edit.setToolTip("Low-pass cutoff in Hz.")
+    self._preproc_filter_high_freq_edit.setPlaceholderText("blank or Hz")
+    self._preproc_filter_high_freq_edit.setToolTip(
+        "Low-pass cutoff below Nyquist. Leave blank to disable low-pass filtering."
+    )
     self._preproc_filter_high_freq_edit.setMinimumWidth(45)
     freq_layout.addWidget(self._preproc_filter_high_freq_edit, stretch=1)
     freq_layout.addStretch(1)

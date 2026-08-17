@@ -49,7 +49,9 @@ class FilterAdvanceDialog(QDialog):
         )
         p2p_tooltip = (
             "Peak-to-peak amplitude range in Volts: min,max. Epochs outside this "
-            "range are marked BAD Must satisfy 0 <= min < max (e.g., 1e-6,1e-3)."
+            "range are marked BAD. Leave blank to disable only fixed peak-to-peak "
+            "rejection; AutoReject remains active. Otherwise require two finite "
+            "values with 0 <= min < max (e.g., 1e-6,1e-3)."
         )
         autoreject_tooltip = (
             "Multiplier for AutoReject channel thresholds. Higher values are more "
@@ -141,14 +143,17 @@ class FilterAdvanceDialog(QDialog):
     def _apply_to_fields(self, params: dict[str, Any]) -> None:
         notch_value = params.get("notch_widths", 2.0)
         p2p_value = params.get("p2p_thresh", [1e-6, 1e-3])
-        if not isinstance(p2p_value, (list, tuple)) or len(p2p_value) != 2:
+        if p2p_value is None:
+            p2p_text = ""
+        elif isinstance(p2p_value, (list, tuple)) and len(p2p_value) == 2:
+            p2p_text = f"{float(p2p_value[0]):g}, {float(p2p_value[1]):g}"
+        else:
             p2p_value = [1e-6, 1e-3]
+            p2p_text = f"{float(p2p_value[0]):g}, {float(p2p_value[1]):g}"
 
         self._notch_widths_edit.setText(self._stringify_notch_widths(notch_value))
         self._epoch_dur_edit.setText(f"{float(params.get('epoch_dur', 1.0)):g}")
-        self._p2p_thresh_edit.setText(
-            f"{float(p2p_value[0]):g}, {float(p2p_value[1]):g}"
-        )
+        self._p2p_thresh_edit.setText(p2p_text)
         self._autoreject_factor_edit.setText(
             f"{float(params.get('autoreject_correct_factor', 1.5)):g}"
         )
@@ -163,10 +168,14 @@ class FilterAdvanceDialog(QDialog):
         return [float(item) for item in parts]
 
     @staticmethod
-    def _parse_p2p_thresh(text: str) -> list[float]:
+    def _parse_p2p_thresh(text: str) -> list[float] | None:
         parts = [item.strip() for item in text.split(",") if item.strip()]
+        if not parts:
+            return None
         if len(parts) != 2:
-            raise ValueError("p2p_thresh must be provided as two numbers: min,max.")
+            raise ValueError(
+                "p2p_thresh must be empty or provided as two numbers: min,max."
+            )
         return [float(parts[0]), float(parts[1])]
 
     def _collect_params(self) -> dict[str, Any]:

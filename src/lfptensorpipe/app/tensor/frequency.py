@@ -579,8 +579,16 @@ def load_tensor_filter_inheritance(context: RecordContext) -> TensorFilterInheri
     if payload is not None and bool(payload.get("completed")):
         params = payload.get("params", {})
         if isinstance(params, dict):
-            low_freq = _as_float(params.get("low_freq", low_freq), low_freq)
-            high_freq = _as_float(params.get("high_freq", high_freq), high_freq)
+            requested_low = params.get("low_freq", low_freq)
+            requested_high = params.get("high_freq", high_freq)
+            low_freq = (
+                0.0 if requested_low is None else _as_float(requested_low, low_freq)
+            )
+            high_freq = (
+                _as_float(params.get("nyquist_freq"), high_freq)
+                if requested_high is None
+                else _as_float(requested_high, high_freq)
+            )
             notches = _parse_positive_float_tuple(params.get("notches"))
             notch_widths = _expand_notch_radii_runtime(
                 params.get("notch_widths", 2.0),

@@ -7,6 +7,7 @@ from lfptensorpipe.gui.shell.common import (
     Path,
     PathResolver,
     QDialog,
+    normalize_filter_advance_params,
     preproc_step_log_path,
     preproc_step_raw_path,
     read_run_log,
@@ -68,6 +69,22 @@ class MainWindowPreprocActionsMixin:
             return
         try:
             notches, low_freq, high_freq = self._collect_filter_runtime_params()
+            valid_advance, normalized_advance, advance_message = (
+                normalize_filter_advance_params(self._preproc_filter_advance_params)
+            )
+            if not valid_advance:
+                raise ValueError(advance_message)
+            raw_path = preproc_step_raw_path(PathResolver(context), "raw")
+            raw = self._read_raw_fif(raw_path, preload=False, verbose="ERROR")
+            try:
+                nyquist_warning = self._filter_nyquist_warning_runtime(
+                    sfreq_hz=raw.info["sfreq"],
+                    notches=notches,
+                    h_freq=high_freq,
+                )
+            finally:
+                if hasattr(raw, "close"):
+                    raw.close()
         except Exception as exc:  # noqa: BLE001
             self._show_warning(
                 "Filter Apply",
@@ -77,6 +94,13 @@ class MainWindowPreprocActionsMixin:
                 f"Filter Apply failed: invalid parameters ({exc})"
             )
             return
+        if nyquist_warning:
+            self._show_warning("Filter Apply", nyquist_warning)
+            self.statusBar().showMessage(
+                "Filter Apply cancelled: unsupported frequency."
+            )
+            return
+        self._preproc_filter_advance_params = normalized_advance
         ok, message = self._run_with_busy(
             "Filter Apply",
             lambda: self._apply_filter_step_runtime(

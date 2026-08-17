@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 
@@ -68,8 +69,21 @@ def normalize_filter_notches_config(value: Any) -> list[float]:
         parsed = [float(item) for item in value]
     else:
         raise ValueError("notches must be a number, list, or comma-separated string.")
-    if any(item <= 0.0 for item in parsed):
-        raise ValueError("notches must be positive numbers.")
+    if any(not math.isfinite(item) or item <= 0.0 for item in parsed):
+        raise ValueError("notches must contain positive finite numbers.")
+    return parsed
+
+
+def _normalize_optional_filter_frequency(
+    value: Any,
+    *,
+    field_name: str,
+) -> float | None:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"{field_name} must be finite when provided.")
     return parsed
 
 
@@ -88,15 +102,25 @@ def normalize_preproc_filter_basic_params(
             merged[key] = params[key]
     try:
         notches = normalize_filter_notches_config(merged["notches"])
-        l_freq = float(merged["l_freq"])
-        h_freq = float(merged["h_freq"])
+        l_freq = _normalize_optional_filter_frequency(
+            merged["l_freq"], field_name="l_freq"
+        )
+        h_freq = _normalize_optional_filter_frequency(
+            merged["h_freq"], field_name="h_freq"
+        )
     except Exception as exc:  # noqa: BLE001
         return False, defaults, str(exc)
 
-    if l_freq < 0.0:
-        return False, defaults, "l_freq must be >= 0."
-    if h_freq <= l_freq:
-        return False, defaults, "h_freq must be greater than l_freq."
+    if l_freq is not None and l_freq < 0.0:
+        return False, defaults, "l_freq must be >= 0 when provided."
+    if h_freq is not None and h_freq <= 0.0:
+        return False, defaults, "h_freq must be > 0 when provided."
+    if l_freq is not None and h_freq is not None and h_freq <= l_freq:
+        return (
+            False,
+            defaults,
+            "h_freq must be greater than l_freq when both are provided.",
+        )
 
     return True, {"notches": notches, "l_freq": l_freq, "h_freq": h_freq}, ""
 

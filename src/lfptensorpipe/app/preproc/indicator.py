@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -73,7 +74,7 @@ def _normalize_notches(value: Any) -> list[float] | None:
             parsed = float(item)
         except Exception:
             return None
-        if parsed <= 0.0:
+        if not math.isfinite(parsed) or parsed <= 0.0:
             return None
         normalized.add(float(parsed))
     return sorted(normalized)
@@ -93,19 +94,37 @@ def _filter_signature(
     if normalized_notches is None:
         return None
     try:
-        low_freq = float(l_freq)
-        high_freq = float(h_freq)
+        low_freq = (
+            None
+            if l_freq is None or (isinstance(l_freq, str) and not l_freq.strip())
+            else float(l_freq)
+        )
+        high_freq = (
+            None
+            if h_freq is None or (isinstance(h_freq, str) and not h_freq.strip())
+            else float(h_freq)
+        )
     except Exception:
         return None
-    if low_freq < 0.0 or high_freq <= low_freq:
+    if low_freq is not None and (not math.isfinite(low_freq) or low_freq < 0.0):
+        return None
+    if high_freq is not None and (not math.isfinite(high_freq) or high_freq <= 0.0):
+        return None
+    if low_freq is not None and high_freq is not None and high_freq <= low_freq:
         return None
     return {
-        "low_freq": float(low_freq),
-        "high_freq": float(high_freq),
+        "low_freq": low_freq,
+        "high_freq": high_freq,
         "notches": normalized_notches,
-        "notch_widths": normalized_advance["notch_widths"],
+        "notch_widths": (
+            normalized_advance["notch_widths"] if normalized_notches else None
+        ),
         "epoch_dur": normalized_advance["epoch_dur"],
-        "p2p_thresh": list(normalized_advance["p2p_thresh"]),
+        "p2p_thresh": (
+            None
+            if normalized_advance["p2p_thresh"] is None
+            else list(normalized_advance["p2p_thresh"])
+        ),
         "autoreject_correct_factor": normalized_advance["autoreject_correct_factor"],
     }
 

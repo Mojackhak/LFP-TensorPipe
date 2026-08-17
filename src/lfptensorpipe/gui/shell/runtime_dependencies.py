@@ -28,6 +28,7 @@ from lfptensorpipe.app import (
     discover_subjects,
     extract_features_indicator_state,
     features_panel_state,
+    filter_nyquist_warning,
     finish_alignment_epochs,
     has_reconstruction_mat,
     import_record_from_raw,
@@ -437,6 +438,9 @@ class MainWindowRuntimeDependenciesMixin:
 
     def _apply_filter_step_runtime(self, context: Any, **kwargs: Any) -> Any:
         return apply_filter_step(context, **kwargs)
+
+    def _filter_nyquist_warning_runtime(self, **kwargs: Any) -> str:
+        return filter_nyquist_warning(**kwargs)
 
     def _apply_annotations_step_runtime(self, context: Any, **kwargs: Any) -> Any:
         return apply_annotations_step(context, **kwargs)

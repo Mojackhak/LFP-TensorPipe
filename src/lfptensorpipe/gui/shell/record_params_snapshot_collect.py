@@ -10,6 +10,7 @@ from lfptensorpipe.app.tensor.cpu_budget import (
 )
 from lfptensorpipe.gui.shell.common import (
     Any,
+    normalize_preproc_filter_basic_params,
     np,
 )
 
@@ -68,31 +69,25 @@ class MainWindowRecordParamsSnapshotCollectMixin:
             if self._preproc_filter_notches_edit is not None
             else self._format_filter_notches(basic_defaults.get("notches", []))
         )
-        try:
-            notches = self._parse_filter_notches(notches_text)
-        except Exception:
-            notches = list(basic_defaults.get("notches", []))
-        low_freq = self._safe_float(
-            (
-                self._preproc_filter_low_freq_edit.text().strip()
-                if self._preproc_filter_low_freq_edit is not None
-                else basic_defaults.get("l_freq", 1.0)
-            ),
-            self._safe_float(basic_defaults.get("l_freq", 1.0), 1.0),
+        low_freq_value = (
+            self._preproc_filter_low_freq_edit.text().strip()
+            if self._preproc_filter_low_freq_edit is not None
+            else basic_defaults.get("l_freq")
         )
-        high_freq = self._safe_float(
-            (
-                self._preproc_filter_high_freq_edit.text().strip()
-                if self._preproc_filter_high_freq_edit is not None
-                else basic_defaults.get("h_freq", 200.0)
-            ),
-            self._safe_float(basic_defaults.get("h_freq", 200.0), 200.0),
+        high_freq_value = (
+            self._preproc_filter_high_freq_edit.text().strip()
+            if self._preproc_filter_high_freq_edit is not None
+            else basic_defaults.get("h_freq")
         )
-        basic = {
-            "notches": [float(item) for item in notches],
-            "l_freq": float(low_freq),
-            "h_freq": float(high_freq),
-        }
+        valid_basic, basic, _ = normalize_preproc_filter_basic_params(
+            {
+                "notches": notches_text,
+                "l_freq": low_freq_value,
+                "h_freq": high_freq_value,
+            }
+        )
+        if not valid_basic:
+            basic = dict(basic_defaults)
         ecg_params_by_method = deepcopy(self._preproc_ecg_params_by_method)
         return {
             "filter": {

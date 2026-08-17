@@ -108,6 +108,10 @@ class MainWindowPreprocDefaultsMixin:
     def _format_filter_notches(values: list[float]) -> str:
         return ",".join(f"{float(item):g}" for item in values)
 
+    @staticmethod
+    def _format_optional_filter_frequency(value: float | None) -> str:
+        return "" if value is None else f"{float(value):g}"
+
     def _apply_filter_basic_params_to_fields(self, params: dict[str, Any]) -> None:
         ok, normalized, _ = normalize_preproc_filter_basic_params(params)
         if not ok:
@@ -117,9 +121,13 @@ class MainWindowPreprocDefaultsMixin:
                 self._format_filter_notches(normalized["notches"])
             )
         if self._preproc_filter_low_freq_edit is not None:
-            self._preproc_filter_low_freq_edit.setText(f"{normalized['l_freq']:g}")
+            self._preproc_filter_low_freq_edit.setText(
+                self._format_optional_filter_frequency(normalized["l_freq"])
+            )
         if self._preproc_filter_high_freq_edit is not None:
-            self._preproc_filter_high_freq_edit.setText(f"{normalized['h_freq']:g}")
+            self._preproc_filter_high_freq_edit.setText(
+                self._format_optional_filter_frequency(normalized["h_freq"])
+            )
 
     def _load_preproc_viz_psd_defaults(self) -> dict[str, Any]:
         payload = self._config_store.read_yaml("preproc.yml", default={})
@@ -169,7 +177,9 @@ class MainWindowPreprocDefaultsMixin:
             raise ValueError("Notches must be positive numbers.")
         return values
 
-    def _collect_filter_runtime_params(self) -> tuple[list[float], float, float]:
+    def _collect_filter_runtime_params(
+        self,
+    ) -> tuple[list[float], float | None, float | None]:
         notches_text = (
             self._preproc_filter_notches_edit.text()
             if self._preproc_filter_notches_edit is not None
@@ -185,11 +195,13 @@ class MainWindowPreprocDefaultsMixin:
             if self._preproc_filter_high_freq_edit is not None
             else ""
         )
-        notches = self._parse_filter_notches(notches_text)
-        low_freq = float(low_text.strip())
-        high_freq = float(high_text.strip())
-        if low_freq < 0.0:
-            raise ValueError("Low freq must be >= 0.")
-        if high_freq <= low_freq:
-            raise ValueError("High freq must be greater than Low freq.")
-        return notches, low_freq, high_freq
+        valid, normalized, message = normalize_preproc_filter_basic_params(
+            {
+                "notches": notches_text,
+                "l_freq": low_text,
+                "h_freq": high_text,
+            }
+        )
+        if not valid:
+            raise ValueError(message)
+        return normalized["notches"], normalized["l_freq"], normalized["h_freq"]

@@ -116,12 +116,20 @@ class MainWindowRecordParamsSnapshotLogsMixin:
             ):
                 basic["notches"] = [float(item) for item in filter_params["notches"]]
             if "low_freq" in filter_params:
-                basic["l_freq"] = self._safe_float(
-                    filter_params.get("low_freq"), basic["l_freq"]
+                basic["l_freq"] = (
+                    None
+                    if filter_params.get("low_freq") is None
+                    else self._safe_float(
+                        filter_params.get("low_freq"), basic["l_freq"]
+                    )
                 )
             if "high_freq" in filter_params:
-                basic["h_freq"] = self._safe_float(
-                    filter_params.get("high_freq"), basic["h_freq"]
+                basic["h_freq"] = (
+                    None
+                    if filter_params.get("high_freq") is None
+                    else self._safe_float(
+                        filter_params.get("high_freq"), basic["h_freq"]
+                    )
                 )
             snapshot["preproc"]["filter"]["basic"] = basic
             advance = dict(snapshot["preproc"]["filter"]["advance"])

@@ -40,7 +40,9 @@ from .steps.filter import (
     _normalize_notch_widths as _normalize_notch_widths_impl,
     apply_filter_step as _apply_filter_step_impl,
     default_filter_advance_params as _default_filter_advance_params_impl,
+    filter_nyquist_warning as _filter_nyquist_warning_impl,
     normalize_filter_advance_params as _normalize_filter_advance_params_impl,
+    normalize_filter_runtime_params as _normalize_filter_runtime_params_impl,
 )
 from .steps.raw import bootstrap_raw_step_from_rawdata as _bootstrap_raw_step_impl
 from .indicator import (
@@ -81,6 +83,32 @@ def normalize_filter_advance_params(
     params: dict[str, Any] | None,
 ) -> tuple[bool, dict[str, Any], str]:
     return _normalize_filter_advance_params_impl(params)
+
+
+def normalize_filter_runtime_params(
+    *,
+    notches: Any,
+    l_freq: Any,
+    h_freq: Any,
+) -> tuple[bool, dict[str, Any], str]:
+    return _normalize_filter_runtime_params_impl(
+        notches=notches,
+        l_freq=l_freq,
+        h_freq=h_freq,
+    )
+
+
+def filter_nyquist_warning(
+    *,
+    sfreq_hz: Any,
+    notches: list[float] | tuple[float, ...],
+    h_freq: float | None,
+) -> str:
+    return _filter_nyquist_warning_impl(
+        sfreq_hz=sfreq_hz,
+        notches=notches,
+        h_freq=h_freq,
+    )
 
 
 def default_ecg_method_params(method: str) -> dict[str, Any]:

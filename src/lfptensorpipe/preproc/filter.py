@@ -392,11 +392,14 @@ class BadAnnotationConfig:
     Configuration for marking BAD segments.
     """
 
-    l_freq: float = 1.0
-    h_freq: float = 200.0
+    l_freq: Optional[float] = 1.0
+    h_freq: Optional[float] = 200.0
     epoch_dur: float = 1.0
     overlap: float = 0.0
-    p2p_thresh: Tuple[float, float] = (1e-6, 1e-3)  # (min, max) in Volts
+    p2p_thresh: Optional[Tuple[float, float]] = (
+        1e-6,
+        1e-3,
+    )  # (min, max) in Volts; None disables fixed P2P rejection
     autoreject_correct_factor: float = 1.5
     notches: Optional[Sequence[float]] = None
     notch_widths: Union[float, Sequence[float]] = 1.0
@@ -574,7 +577,7 @@ def mark_lfp_bad_segments(
     summary:
         dict of counts and parameters.
     """
-    if cfg.p2p_thresh[0] >= cfg.p2p_thresh[1]:
+    if cfg.p2p_thresh is not None and cfg.p2p_thresh[0] >= cfg.p2p_thresh[1]:
         raise ValueError(f"Invalid p2p_thresh: {cfg.p2p_thresh}. Expected (min, max).")
 
     # Import autoreject lazily to keep module import lightweight
@@ -603,9 +606,13 @@ def mark_lfp_bad_segments(
         raw_mark.set_channel_types(eeg_type_map)
 
     # 2) Filter for detection
-    raw_mark.filter(
-        l_freq=cfg.l_freq, h_freq=cfg.h_freq, fir_design="firwin", phase="zero"
-    )
+    if cfg.l_freq is not None or cfg.h_freq is not None:
+        raw_mark.filter(
+            l_freq=cfg.l_freq,
+            h_freq=cfg.h_freq,
+            fir_design="firwin",
+            phase="zero",
+        )
     if (notches is not None) and (notches.size > 0):
         raw_mark.notch_filter(freqs=notches, notch_widths=notch_widths)
 
@@ -637,7 +644,10 @@ def mark_lfp_bad_segments(
     # 4) Hard p2p threshold (range)
     data = epochs_all.get_data()  # (n_epochs, n_ch, n_times)
     p2p = np.ptp(data, axis=2)
-    bad_p2p = ((p2p < cfg.p2p_thresh[0]) | (p2p > cfg.p2p_thresh[1])).any(axis=1)
+    if cfg.p2p_thresh is None:
+        bad_p2p = np.zeros(n_epochs, dtype=bool)
+    else:
+        bad_p2p = ((p2p < cfg.p2p_thresh[0]) | (p2p > cfg.p2p_thresh[1])).any(axis=1)
 
     keep_idx = np.where(~bad_p2p)[0]
 
