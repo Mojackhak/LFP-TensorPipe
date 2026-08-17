@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 import numpy as np
 
 from lfptensorpipe.app.alignment.generation import (
@@ -23,7 +25,7 @@ def finish_alignment_epochs(
     context: RecordContext,
     *,
     paradigm_slug: str,
-    picked_epoch_indices: list[int],
+    picked_epoch_indices: Iterable[int | np.integer],
     selected_metrics: list[str] | tuple[str, ...] | None = None,
 ) -> tuple[bool, str]:
     """Build raw-table outputs for picked epochs."""
@@ -82,11 +84,17 @@ def finish_alignment_epochs(
             )
             or "Latest Align Run has no accepted metric generation."
         )
-    if not picked_epoch_indices:
+    picked_items = list(picked_epoch_indices)
+    if not picked_items:
         return False, "Select at least one epoch before Finish."
-    picked = sorted({int(item) for item in picked_epoch_indices if int(item) >= 0})
-    if not picked:
-        return False, "Select at least one valid epoch before Finish."
+    if any(
+        isinstance(item, (bool, np.bool_))
+        or not isinstance(item, (int, np.integer))
+        or int(item) < 0
+        for item in picked_items
+    ):
+        return False, "Epoch indices must be non-negative integers."
+    picked = sorted({int(item) for item in picked_items})
     finish_method = _resolve_alignment_method_key(
         trial_cfg.get("method", "") if isinstance(trial_cfg, dict) else ""
     )
