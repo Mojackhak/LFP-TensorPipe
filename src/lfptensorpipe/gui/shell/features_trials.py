@@ -15,6 +15,10 @@ from lfptensorpipe.gui.shell.common import (
 
 
 class MainWindowFeaturesTrialsMixin:
+    @staticmethod
+    def _features_optional_text(value: Any) -> str:
+        return "" if value is None else str(value).strip()
+
     def _features_metric_keys_for_trial_slug(self, slug: str | None) -> list[str]:
         context = self._record_context()
         if context is None or not isinstance(slug, str):
@@ -94,7 +98,7 @@ class MainWindowFeaturesTrialsMixin:
                     "times": times,
                 }
 
-        active_metric = str(source.get("active_metric", "")).strip()
+        active_metric = self._features_optional_text(source.get("active_metric"))
         ordered_metric_keys = list(metric_keys)
         if not ordered_metric_keys:
             ordered_metric_keys = list(normalized_axes.keys())
@@ -106,7 +110,9 @@ class MainWindowFeaturesTrialsMixin:
         filters = source.get("filters")
         plot_labels = source.get("plot_labels")
         plot_advance = source.get("plot_advance")
-        selected_relative_stem = str(source.get("selected_relative_stem", "")).strip()
+        selected_relative_stem = self._features_optional_text(
+            source.get("selected_relative_stem")
+        )
         return {
             "active_metric": active_metric,
             "axes_by_metric": normalized_axes,
@@ -116,24 +122,24 @@ class MainWindowFeaturesTrialsMixin:
             ),
             "filters": {
                 "feature": (
-                    str(filters.get("feature", "")).strip()
+                    self._features_optional_text(filters.get("feature"))
                     if isinstance(filters, dict)
                     else ""
                 ),
             },
             "plot_labels": {
                 "x": (
-                    str(plot_labels.get("x", "")).strip()
+                    self._features_optional_text(plot_labels.get("x"))
                     if isinstance(plot_labels, dict)
                     else ""
                 ),
                 "y": (
-                    str(plot_labels.get("y", "")).strip()
+                    self._features_optional_text(plot_labels.get("y"))
                     if isinstance(plot_labels, dict)
                     else ""
                 ),
                 "cbar": (
-                    str(plot_labels.get("cbar", "")).strip()
+                    self._features_optional_text(plot_labels.get("cbar"))
                     if isinstance(plot_labels, dict)
                     else ""
                 ),

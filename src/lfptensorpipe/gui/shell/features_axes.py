@@ -9,6 +9,7 @@ from lfptensorpipe.gui.shell.common import (
     PathResolver,
     QDialog,
     pd,
+    set_control_validation_error,
 )
 
 
@@ -148,6 +149,7 @@ class MainWindowFeaturesAxesMixin:
                         f"Bands Auto ({count_bands})"
                     )
                     self._features_axis_bands_button.setEnabled(False)
+                    set_control_validation_error(self._features_axis_bands_button, None)
                 else:
                     count_bands = len(
                         self._normalized_features_axes_for_metric(metric_key)["bands"]
@@ -156,9 +158,14 @@ class MainWindowFeaturesAxesMixin:
                         f"Bands Configure... ({count_bands})"
                     )
                     self._features_axis_bands_button.setEnabled(True)
+                    set_control_validation_error(
+                        self._features_axis_bands_button,
+                        None if count_bands else "At least one band is required.",
+                    )
             else:
                 self._features_axis_bands_button.setText("Bands Configure... (0)")
                 self._features_axis_bands_button.setEnabled(False)
+                set_control_validation_error(self._features_axis_bands_button, None)
         if self._features_axis_times_button is not None:
             count_times = (
                 len(self._normalized_features_axes_for_metric(metric_key)["times"])
@@ -169,6 +176,14 @@ class MainWindowFeaturesAxesMixin:
                 f"Phases Configure... ({count_times})"
             )
             self._features_axis_times_button.setEnabled(has_metric)
+            set_control_validation_error(
+                self._features_axis_times_button,
+                (
+                    None
+                    if not has_metric or count_times
+                    else "At least one phase is required."
+                ),
+            )
         if self._features_axis_apply_all_button is not None:
             self._features_axis_apply_all_button.setEnabled(has_metric)
 

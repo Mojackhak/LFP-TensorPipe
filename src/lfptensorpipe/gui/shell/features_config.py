@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import json
 
-from lfptensorpipe.gui.shell.common import Any, Path, PathResolver, RecordContext
+from lfptensorpipe.gui.shell.common import (
+    Any,
+    Path,
+    PathResolver,
+    QMessageBox,
+    RecordContext,
+)
 
 FEATURES_CONFIG_SCHEMA = "lfptensorpipe.features-config"
 FEATURES_CONFIG_VERSION = 1
@@ -61,6 +67,9 @@ class MainWindowFeaturesConfigMixin:
 
     def _build_features_config_export_payload(self) -> dict[str, Any]:
         metric_keys = self._features_metric_keys_for_selected_trial()
+        axes_ok, axes_message = self._validate_features_axes_for_run(metric_keys)
+        if not axes_ok:
+            raise ValueError(axes_message)
         active_metric = self._current_features_axis_metric() or ""
         if active_metric not in metric_keys:
             active_metric = metric_keys[0] if metric_keys else ""
@@ -124,14 +133,14 @@ class MainWindowFeaturesConfigMixin:
                 ignored_metrics.append(metric_key)
                 continue
             if not isinstance(axes_node, dict):
-                continue
+                axes_node = {}
             raw_bands = axes_node.get("bands")
             if self._features_metric_uses_auto_bands(metric_key):
                 if isinstance(raw_bands, list) and raw_bands:
                     auto_band_metrics.append(metric_key)
                 bands: list[dict[str, Any]] = []
             else:
-                bands = [
+                normalized_bands = [
                     dict(item)
                     for item in self._normalize_feature_axis_rows(
                         raw_bands,
@@ -140,15 +149,55 @@ class MainWindowFeaturesConfigMixin:
                         allow_duplicate_names=False,
                     )
                 ]
+                if isinstance(raw_bands, list) and len(normalized_bands) < len(
+                    raw_bands
+                ):
+                    warnings.append(f"Removed invalid axis row(s): {metric_key}.bands.")
+                bands = normalized_bands
+                if not bands:
+                    defaults = self._load_features_axis_defaults(
+                        metric_key=metric_key,
+                        axis_key="bands",
+                    )
+                    if not defaults:
+                        raise ValueError(
+                            f"{metric_key} band selection is required and has no safe automatic default."
+                        )
+                    bands = [dict(item) for item in defaults]
+                    category = (
+                        "Missing default restored"
+                        if "bands" not in axes_node
+                        else "Invalid value restored"
+                    )
+                    warnings.append(f"{category}: {metric_key}.bands.")
+            raw_times = axes_node.get("times")
             times = [
                 dict(item)
                 for item in self._normalize_feature_axis_rows(
-                    axes_node.get("times"),
+                    raw_times,
                     min_start=0.0,
                     max_end=100.0,
                     allow_duplicate_names=True,
                 )
             ]
+            if isinstance(raw_times, list) and len(times) < len(raw_times):
+                warnings.append(f"Removed invalid axis row(s): {metric_key}.times.")
+            if not times:
+                defaults = self._load_features_axis_defaults(
+                    metric_key=metric_key,
+                    axis_key="times",
+                )
+                if not defaults:
+                    raise ValueError(
+                        f"{metric_key} phase selection is required and has no safe automatic default."
+                    )
+                times = [dict(item) for item in defaults]
+                category = (
+                    "Missing default restored"
+                    if "times" not in axes_node
+                    else "Invalid value restored"
+                )
+                warnings.append(f"{category}: {metric_key}.times.")
             normalized_axes[metric_key] = {
                 "bands": bands,
                 "times": times,
@@ -163,6 +212,42 @@ class MainWindowFeaturesConfigMixin:
                 "Ignored imported band rows for auto-band metric(s): "
                 + ", ".join(sorted(set(auto_band_metrics)))
             )
+        for metric_key in available_metrics:
+            if metric_key in normalized_axes:
+                continue
+            bands = (
+                []
+                if self._features_metric_uses_auto_bands(metric_key)
+                else [
+                    dict(item)
+                    for item in self._load_features_axis_defaults(
+                        metric_key=metric_key,
+                        axis_key="bands",
+                    )
+                ]
+            )
+            times = [
+                dict(item)
+                for item in self._load_features_axis_defaults(
+                    metric_key=metric_key,
+                    axis_key="times",
+                )
+            ]
+            if not self._features_metric_uses_auto_bands(metric_key) and not bands:
+                raise ValueError(
+                    f"{metric_key} band selection is missing and has no safe automatic default."
+                )
+            if not times:
+                raise ValueError(
+                    f"{metric_key} phase selection is missing and has no safe automatic default."
+                )
+            normalized_axes[metric_key] = {"bands": bands, "times": times}
+            restored_axes = (
+                "times"
+                if self._features_metric_uses_auto_bands(metric_key)
+                else "bands/times"
+            )
+            warnings.append(f"Missing default restored: {metric_key}.{restored_axes}.")
         if not normalized_axes:
             raise ValueError(
                 "Features config has no applicable metric config for the current selected trial."
@@ -220,12 +305,17 @@ class MainWindowFeaturesConfigMixin:
         export_path = Path(file_path_text)
         if not export_path.suffix:
             export_path = export_path.with_suffix(".json")
-        export_path.parent.mkdir(parents=True, exist_ok=True)
-
         try:
             payload = self._build_features_config_export_payload()
+            export_path.parent.mkdir(parents=True, exist_ok=True)
             with export_path.open("w", encoding="utf-8") as handle:
-                json.dump(payload, handle, ensure_ascii=False, indent=2)
+                json.dump(
+                    payload,
+                    handle,
+                    ensure_ascii=False,
+                    indent=2,
+                    allow_nan=False,
+                )
                 handle.write("\n")
         except Exception as exc:  # noqa: BLE001
             self._show_warning("Export Configs", f"Export failed:\n{exc}")
@@ -270,6 +360,25 @@ class MainWindowFeaturesConfigMixin:
             )
         except Exception as exc:  # noqa: BLE001
             self._show_warning("Import Configs", f"Import failed:\n{exc}")
+            return
+
+        preview_lines = [
+            "Review the Features config normalization before importing:",
+            "",
+        ]
+        if warnings:
+            preview_lines.extend(f"- {warning}" for warning in warnings)
+        else:
+            preview_lines.append("- No normalization was required.")
+        preview_lines.extend(["", "Apply this imported configuration?"])
+        confirmed = self._ask_question(
+            "Import Features Configs",
+            "\n".join(preview_lines),
+            buttons=QMessageBox.Yes | QMessageBox.No,
+            default_button=QMessageBox.No,
+        )
+        if confirmed != QMessageBox.Yes:
+            self.statusBar().showMessage("Features config import cancelled.")
             return
 
         self._features_axes_by_metric = {

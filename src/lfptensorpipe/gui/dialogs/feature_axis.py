@@ -77,6 +77,12 @@ class FeatureAxisConfigureDialog(QDialog):
         self._draft_end_edit = QLineEdit()
         self._draft_end_edit.setPlaceholderText(end_text)
         self._draft_end_edit.setToolTip(f"End value in {self._range_unit}.")
+        for edit in (
+            self._draft_name_edit,
+            self._draft_start_edit,
+            self._draft_end_edit,
+        ):
+            edit.editingFinished.connect(self._validate_draft_controls)
         add_button = QPushButton("Add")
         add_button.clicked.connect(self._on_add)
         add_button.setToolTip(f"Add the draft {self._item_label.lower()} row.")
@@ -190,6 +196,40 @@ class FeatureAxisConfigureDialog(QDialog):
                     tool_tip=f"Delete this {self._item_label.lower()}.",
                 ),
             )
+        set_control_validation_error(
+            self._table,
+            (
+                None
+                if self._rows
+                else f"At least one {self._item_label.lower()} is required."
+            ),
+        )
+
+    def _validate_draft_controls(self) -> None:
+        name = self._draft_name_edit.text().strip()
+        start = self._draft_start_edit.text().strip()
+        end = self._draft_end_edit.text().strip()
+        has_draft = bool(name or start or end)
+        set_control_validation_error(
+            self._draft_name_edit,
+            f"{self._item_label} is required." if has_draft and not name else None,
+        )
+        for edit, value in (
+            (self._draft_start_edit, start),
+            (self._draft_end_edit, end),
+        ):
+            error = None
+            if has_draft and not value:
+                error = "A numeric value is required."
+            elif value:
+                try:
+                    parsed = float(value)
+                except (TypeError, ValueError):
+                    error = "A numeric value is required."
+                else:
+                    if not np.isfinite(parsed):
+                        error = "A finite value is required."
+            set_control_validation_error(edit, error)
 
     def _validate_rows(
         self,
@@ -230,6 +270,7 @@ class FeatureAxisConfigureDialog(QDialog):
         return True, cleaned, ""
 
     def _on_add(self) -> None:
+        self._validate_draft_controls()
         name = self._draft_name_edit.text().strip()
         start_text = self._draft_start_edit.text().strip()
         end_text = self._draft_end_edit.text().strip()
@@ -254,6 +295,7 @@ class FeatureAxisConfigureDialog(QDialog):
         self._draft_name_edit.clear()
         self._draft_start_edit.clear()
         self._draft_end_edit.clear()
+        self._validate_draft_controls()
         self._render_table()
 
     def _on_remove(self, row_idx: int) -> None:
@@ -281,6 +323,17 @@ class FeatureAxisConfigureDialog(QDialog):
         self._render_table()
 
     def _on_submit(self, action: str) -> None:
+        if action == "set_default" and not self._rows:
+            set_control_validation_error(
+                self._table,
+                f"At least one {self._item_label.lower()} is required.",
+            )
+            QMessageBox.warning(
+                self,
+                self.windowTitle(),
+                f"At least one {self._item_label.lower()} is required.",
+            )
+            return
         valid, normalized, message = self._validate_rows(
             [dict(item) for item in self._rows]
         )

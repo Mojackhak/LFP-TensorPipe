@@ -1,9 +1,12 @@
 """Features plotting and export MainWindow methods."""
 
 from __future__ import annotations
+from lfptensorpipe.gui.dialogs.common import set_control_validation_error
+from lfptensorpipe.gui.dialogs.features_plot_advance import (
+    validate_features_plot_advance_params,
+)
 from lfptensorpipe.gui.shell.common import (
     Any,
-    FEATURE_PLOT_COLORMAPS,
     Path,
     PathResolver,
     QDialog,
@@ -59,18 +62,20 @@ class MainWindowFeaturesPlottingMixin:
         payload: pd.DataFrame,
         *,
         derived_type: str,
+        plot_advance_params: dict[str, Any] | None = None,
     ) -> pd.DataFrame:
         processed = payload.copy()
-        transform_mode = normalize_feature_plot_transform_mode(
-            self._features_plot_advance_params.get("transform_mode", "none")
+        params = (
+            plot_advance_params
+            if isinstance(plot_advance_params, dict)
+            else self._features_plot_advance_params
         )
-        normalize_mode = str(
-            self._features_plot_advance_params.get("normalize_mode", "none")
-        ).strip()
-        baseline_mode = str(
-            self._features_plot_advance_params.get("baseline_mode", "mean")
-        ).strip()
-        baseline_ranges = self._features_plot_advance_params.get(
+        transform_mode = normalize_feature_plot_transform_mode(
+            params.get("transform_mode", "none")
+        )
+        normalize_mode = str(params.get("normalize_mode", "none")).strip()
+        baseline_mode = str(params.get("baseline_mode", "mean")).strip()
+        baseline_ranges = params.get(
             "baseline_percent_ranges",
             [],
         )
@@ -102,6 +107,31 @@ class MainWindowFeaturesPlottingMixin:
                 slice_mode="percent",
             )
         return processed
+
+    def _validate_features_plot_advance_for_payload(
+        self,
+        payload: pd.DataFrame,
+        *,
+        derived_type: str,
+    ) -> dict[str, Any]:
+        allow_x_log, allow_y_log, allow_normalize = (
+            self._features_plot_advance_capabilities(payload, derived_type)
+        )
+        try:
+            normalized = validate_features_plot_advance_params(
+                self._features_plot_advance_params,
+                allow_x_log=allow_x_log,
+                allow_y_log=allow_y_log,
+                allow_normalize=allow_normalize,
+            )
+        except ValueError as exc:
+            set_control_validation_error(
+                self._features_plot_advance_button,
+                str(exc),
+            )
+            raise
+        set_control_validation_error(self._features_plot_advance_button, None)
+        return normalized
 
     @staticmethod
     def _flatten_cell_for_xlsx(value: Any) -> str:
@@ -241,6 +271,13 @@ class MainWindowFeaturesPlottingMixin:
         if dialog.exec() != QDialog.Accepted or dialog.selected_params is None:
             return
         self._features_plot_advance_params = dict(dialog.selected_params)
+        try:
+            self._validate_features_plot_advance_for_payload(
+                payload,
+                derived_type=derived_type,
+            )
+        except ValueError:
+            pass
         self.statusBar().showMessage("Plot advance params updated.")
         self._mark_record_param_dirty("features.plot_advance")
 
@@ -251,6 +288,19 @@ class MainWindowFeaturesPlottingMixin:
             self._show_warning("Export", "Run Plot first.")
             return
         selected = self._selected_features_file()
+        derived_type = (
+            str(selected.get("derived_type", "")).strip().lower()
+            if isinstance(selected, dict)
+            else ""
+        )
+        try:
+            self._validate_features_plot_advance_for_payload(
+                self._features_last_plot_data,
+                derived_type=derived_type,
+            )
+        except ValueError as exc:
+            self._show_warning("Export", f"Invalid Plot Advance settings:\n{exc}")
+            return
         if isinstance(selected, dict) and "path" in selected:
             default_dir = Path(str(selected["path"])).parent
         else:
@@ -302,6 +352,10 @@ class MainWindowFeaturesPlottingMixin:
             if "Value" not in payload.columns:
                 raise ValueError("Selected file is missing required Value column.")
             derived_type = str(selected.get("derived_type", "")).strip().lower()
+            plot_advance_params = self._validate_features_plot_advance_for_payload(
+                payload,
+                derived_type=derived_type,
+            )
             if derived_type in {"raw", "trace"} and "Phase" not in payload.columns:
                 payload = payload.copy()
                 payload["Phase"] = "All"
@@ -333,7 +387,9 @@ class MainWindowFeaturesPlottingMixin:
                 raise ValueError("No plottable nested Value data found.")
 
             payload = self._apply_features_plot_advance(
-                payload, derived_type=derived_type
+                payload,
+                derived_type=derived_type,
+                plot_advance_params=plot_advance_params,
             )
             allow_x_log, allow_y_log, _ = self._features_plot_advance_capabilities(
                 payload,
@@ -347,19 +403,9 @@ class MainWindowFeaturesPlottingMixin:
             cbar_label = self._resolve_plot_label(self._features_cbar_label_edit, None)
             metric_key = str(selected.get("metric", "")).strip()
             plot_params = self._load_features_plot_params(metric_key, derived_type)
-            x_log = (
-                bool(self._features_plot_advance_params.get("x_log", False))
-                and allow_x_log
-            )
-            y_log = (
-                bool(self._features_plot_advance_params.get("y_log", False))
-                and allow_y_log
-            )
-            colormap = str(
-                self._features_plot_advance_params.get("colormap", "viridis")
-            ).strip()
-            if colormap not in FEATURE_PLOT_COLORMAPS:
-                colormap = "viridis"
+            x_log = bool(plot_advance_params.get("x_log", False)) and allow_x_log
+            y_log = bool(plot_advance_params.get("y_log", False)) and allow_y_log
+            colormap = str(plot_advance_params.get("colormap", "viridis")).strip()
             palette_name = colormap
             if colormap == "cmcrameri.vik":
                 try:

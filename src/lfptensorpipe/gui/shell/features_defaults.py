@@ -210,6 +210,8 @@ class MainWindowFeaturesDefaultsMixin:
             max_end=(100.0 if axis_key == "times" else None),
             allow_duplicate_names=(axis_key == "times"),
         )
+        if not normalized:
+            raise ValueError(f"At least one valid {axis_key} row is required.")
         payload = self._config_store.read_yaml(
             _FEATURES_DEFAULTS_CONFIG_FILENAME,
             default={},

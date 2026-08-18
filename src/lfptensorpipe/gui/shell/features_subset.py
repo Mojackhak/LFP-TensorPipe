@@ -194,9 +194,19 @@ class MainWindowFeaturesSubsetMixin:
     ) -> dict[str, str]:
         source = selection if isinstance(selection, dict) else {}
         return {
-            "band": str(source.get("band", "")).strip(),
-            "channel": str(source.get("channel", "")).strip(),
-            "region": str(source.get("region", "")).strip(),
+            "band": (
+                "" if source.get("band") is None else str(source.get("band")).strip()
+            ),
+            "channel": (
+                ""
+                if source.get("channel") is None
+                else str(source.get("channel")).strip()
+            ),
+            "region": (
+                ""
+                if source.get("region") is None
+                else str(source.get("region")).strip()
+            ),
         }
 
     def _filter_features_payload_by_subset(

@@ -49,6 +49,8 @@ class BaselineRangeConfigureDialog(QDialog):
         self._draft_end_edit = QLineEdit()
         self._draft_end_edit.setPlaceholderText("End")
         self._draft_end_edit.setToolTip("Baseline end in percent.")
+        self._draft_start_edit.editingFinished.connect(self._refresh_draft_validation)
+        self._draft_end_edit.editingFinished.connect(self._refresh_draft_validation)
         add_button = QPushButton("Add")
         add_button.clicked.connect(self._on_add)
         add_button.setToolTip("Add the draft baseline range.")
@@ -80,6 +82,7 @@ class BaselineRangeConfigureDialog(QDialog):
 
         self._rows = self._normalize_ranges([list(item) for item in current_ranges])
         self._render_table()
+        self._refresh_draft_validation()
 
     @property
     def selected_ranges(self) -> tuple[list[float], ...]:
@@ -128,6 +131,7 @@ class BaselineRangeConfigureDialog(QDialog):
             )
 
     def _on_add(self) -> None:
+        self._refresh_draft_validation()
         try:
             start = float(self._draft_start_edit.text().strip())
             end = float(self._draft_end_edit.text().strip())
@@ -148,6 +152,47 @@ class BaselineRangeConfigureDialog(QDialog):
         self._draft_start_edit.clear()
         self._draft_end_edit.clear()
         self._render_table()
+        self._refresh_draft_validation()
+
+    def _refresh_draft_validation(self) -> None:
+        set_control_validation_error(self._draft_start_edit, None)
+        set_control_validation_error(self._draft_end_edit, None)
+        start_text = self._draft_start_edit.text().strip()
+        end_text = self._draft_end_edit.text().strip()
+        if not start_text and not end_text:
+            return
+        try:
+            start = float(start_text)
+        except (TypeError, ValueError):
+            set_control_validation_error(
+                self._draft_start_edit, "Start must be numeric."
+            )
+            start = None
+        try:
+            end = float(end_text)
+        except (TypeError, ValueError):
+            set_control_validation_error(self._draft_end_edit, "End must be numeric.")
+            end = None
+        if start is not None and (
+            not np.isfinite(start) or start < 0.0 or start > 100.0
+        ):
+            set_control_validation_error(
+                self._draft_start_edit, "Start must be finite and within 0-100."
+            )
+        if end is not None and (not np.isfinite(end) or end < 0.0 or end > 100.0):
+            set_control_validation_error(
+                self._draft_end_edit, "End must be finite and within 0-100."
+            )
+        if (
+            start is not None
+            and end is not None
+            and np.isfinite(start)
+            and np.isfinite(end)
+            and end <= start
+        ):
+            message = "End must be greater than Start."
+            set_control_validation_error(self._draft_start_edit, message)
+            set_control_validation_error(self._draft_end_edit, message)
 
     def _on_remove(self, row_idx: int) -> None:
         if row_idx < 0 or row_idx >= len(self._rows):
