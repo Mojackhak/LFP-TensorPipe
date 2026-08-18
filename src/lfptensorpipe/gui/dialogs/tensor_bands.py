@@ -73,6 +73,12 @@ class TensorBandsConfigureDialog(QDialog):
         end_row_layout.addWidget(self._apply_button)
         draft_layout.addWidget(end_row, 2, 1)
         root.addWidget(draft)
+        for edit in (
+            self._draft_name_edit,
+            self._draft_start_edit,
+            self._draft_end_edit,
+        ):
+            edit.editingFinished.connect(self._refresh_draft_validation)
 
         footer = QWidget()
         footer_layout = QHBoxLayout(footer)
@@ -107,6 +113,7 @@ class TensorBandsConfigureDialog(QDialog):
 
         self._apply_default_bands(default_bands)
         self._apply_initial_bands(current_bands)
+        self._refresh_draft_validation()
 
     @property
     def selected_bands(self) -> tuple[dict[str, float | str], ...]:
@@ -174,6 +181,10 @@ class TensorBandsConfigureDialog(QDialog):
                     tool_tip="Delete this band.",
                 ),
             )
+        set_control_validation_error(
+            self._table,
+            None if self._bands else "At least one band is required.",
+        )
 
     def _validate_rows(self, rows: list[dict[str, float | str]]) -> tuple[bool, str]:
         names: set[str] = set()
@@ -192,6 +203,7 @@ class TensorBandsConfigureDialog(QDialog):
         return True, ""
 
     def _on_apply_draft(self) -> None:
+        self._refresh_draft_validation()
         name = self._draft_name_edit.text().strip()
         start_text = self._draft_start_edit.text().strip()
         end_text = self._draft_end_edit.text().strip()
@@ -213,6 +225,52 @@ class TensorBandsConfigureDialog(QDialog):
         self._bands = sorted(candidate, key=lambda item: float(item["start"]))
         self._on_clear_draft()
         self._render_table()
+
+    def _refresh_draft_validation(self) -> None:
+        controls = (
+            self._draft_name_edit,
+            self._draft_start_edit,
+            self._draft_end_edit,
+        )
+        for control in controls:
+            set_control_validation_error(control, None)
+        name = self._draft_name_edit.text().strip()
+        start_text = self._draft_start_edit.text().strip()
+        end_text = self._draft_end_edit.text().strip()
+        if not any((name, start_text, end_text)):
+            return
+        if not name:
+            set_control_validation_error(self._draft_name_edit, "Band is required.")
+        start: float | None
+        end: float | None
+        try:
+            start = float(start_text)
+        except (TypeError, ValueError):
+            start = None
+            set_control_validation_error(
+                self._draft_start_edit, "Start must be numeric."
+            )
+        try:
+            end = float(end_text)
+        except (TypeError, ValueError):
+            end = None
+            set_control_validation_error(self._draft_end_edit, "End must be numeric.")
+        if start is not None and (not np.isfinite(start) or start <= 0.0):
+            set_control_validation_error(
+                self._draft_start_edit, "Start must be finite and > 0."
+            )
+        if end is not None and not np.isfinite(end):
+            set_control_validation_error(self._draft_end_edit, "End must be finite.")
+        if (
+            start is not None
+            and end is not None
+            and np.isfinite(start)
+            and np.isfinite(end)
+            and end <= start
+        ):
+            message = "End must be greater than Start."
+            set_control_validation_error(self._draft_start_edit, message)
+            set_control_validation_error(self._draft_end_edit, message)
 
     def _on_remove_row(self, row_idx: int) -> None:
         if row_idx < 0 or row_idx >= len(self._bands):
@@ -238,6 +296,7 @@ class TensorBandsConfigureDialog(QDialog):
         self._draft_name_edit.clear()
         self._draft_start_edit.clear()
         self._draft_end_edit.clear()
+        self._refresh_draft_validation()
 
     def _on_clear_all(self) -> None:
         self._bands = []
@@ -248,11 +307,18 @@ class TensorBandsConfigureDialog(QDialog):
         self._render_table()
 
     def _on_submit(self, action: str) -> None:
-        if not self._bands:
+        if action == "set_default" and not self._bands:
+            set_control_validation_error(self._table, "At least one band is required.")
             QMessageBox.warning(
                 self, "Bands Configure", "At least one band is required."
             )
             return
+        if not self._bands:
+            set_control_validation_error(self._table, "At least one band is required.")
+            self._selected_action = action
+            self.accept()
+            return
+        set_control_validation_error(self._table, None)
         valid, message = self._validate_rows([dict(item) for item in self._bands])
         if not valid:
             QMessageBox.warning(self, "Bands Configure", message)

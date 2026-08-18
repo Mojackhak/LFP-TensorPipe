@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.tensor import service as tensor_service
+from lfptensorpipe.app.tensor.cpu_budget import normalize_tensor_cpu_percent
+from lfptensorpipe.app.tensor.orchestration_plan_validation import (
+    prepare_metric_plan_inputs,
+)
 from lfptensorpipe.gui.shell.common import (
     Any,
     QLineEdit,
@@ -12,7 +17,10 @@ from lfptensorpipe.gui.shell.common import (
     QWidget,
     build_tensor_metric_notch_payload,
     np,
+    set_control_validation_error,
 )
+
+_COMBO_DRAFT_VALUE_PROPERTY = "lfptpDraftValue"
 
 
 def _tensor_metric_specs(owner: Any) -> tuple[Any, ...]:
@@ -123,12 +131,15 @@ class MainWindowTensorStateMetricsMixin:
         if metric_key == "periodic_aperiodic":
             params.pop("smooth_enabled", None)
             params.pop("kernel_size", None)
-        params.update(
-            build_tensor_metric_notch_payload(
-                params.get("notches"),
-                params.get("notch_radii"),
+        try:
+            params.update(
+                build_tensor_metric_notch_payload(
+                    params.get("notches"),
+                    params.get("notch_radii"),
+                )
             )
-        )
+        except (TypeError, ValueError):
+            pass
         if metric_key in {"psi", "burst"}:
             params["bands"] = [
                 dict(item)
@@ -246,9 +257,9 @@ class MainWindowTensorStateMetricsMixin:
                 low = float(value[0])
                 high = float(value[1])
             except Exception:
-                return ""
+                return str(value)
             return f"{low:g}, {high:g}"
-        return ""
+        return "" if value is None else str(value)
 
     def _commit_active_tensor_panel_to_params(self) -> None:
         metric_key = self._tensor_active_metric_key
@@ -259,11 +270,12 @@ class MainWindowTensorStateMetricsMixin:
                 return
             text = edit.text().strip()
             if not text:
+                params[key] = None
                 return
             try:
                 params[key] = float(text)
             except Exception:
-                return
+                params[key] = text
 
         if metric_key in TENSOR_COMMON_BASIC_METRIC_KEYS:
             parse_float_field(self._tensor_low_freq_edit, "low_freq_hz")
@@ -282,18 +294,24 @@ class MainWindowTensorStateMetricsMixin:
             method = self._tensor_method_combo.currentData()
             if isinstance(method, str):
                 params["method"] = method
+                self._tensor_method_combo.setProperty(_COMBO_DRAFT_VALUE_PROPERTY, None)
+            elif self._tensor_method_combo.currentIndex() < 0:
+                params["method"] = self._tensor_method_combo.property(
+                    _COMBO_DRAFT_VALUE_PROPERTY
+                )
         if (
             metric_key == "periodic_aperiodic"
             and self._tensor_freq_range_edit is not None
         ):
+            range_text = self._tensor_freq_range_edit.text().strip()
             try:
-                parsed_range = self._parse_freq_range_text(
-                    self._tensor_freq_range_edit.text()
-                )
+                parsed_range = self._parse_freq_range_text(range_text)
                 if parsed_range is not None:
                     params["freq_range_hz"] = parsed_range
             except Exception:
-                pass
+                params["freq_range_hz"] = range_text
+            if not range_text:
+                params["freq_range_hz"] = None
         if metric_key == "burst":
             parse_float_field(self._tensor_percentile_edit, "percentile")
             parse_float_field(self._tensor_min_cycles_basic_edit, "min_cycles")
@@ -317,7 +335,8 @@ class MainWindowTensorStateMetricsMixin:
         def overlay_text_field(edit: QLineEdit | None, key: str) -> None:
             if edit is None:
                 return
-            params[key] = edit.text().strip()
+            text = edit.text().strip()
+            params[key] = text if text else None
 
         if metric_key in TENSOR_COMMON_BASIC_METRIC_KEYS:
             overlay_text_field(self._tensor_low_freq_edit, "low_freq_hz")
@@ -336,13 +355,17 @@ class MainWindowTensorStateMetricsMixin:
             method = self._tensor_method_combo.currentData()
             if isinstance(method, str):
                 params["method"] = method
+            elif self._tensor_method_combo.currentIndex() < 0:
+                params["method"] = self._tensor_method_combo.property(
+                    _COMBO_DRAFT_VALUE_PROPERTY
+                )
         if (
             metric_key == "periodic_aperiodic"
             and self._tensor_freq_range_edit is not None
         ):
             freq_range_text = self._tensor_freq_range_edit.text().strip()
             if not freq_range_text:
-                params["freq_range_hz"] = ""
+                params["freq_range_hz"] = None
             else:
                 try:
                     params["freq_range_hz"] = self._parse_freq_range_text(
@@ -364,6 +387,106 @@ class MainWindowTensorStateMetricsMixin:
             ]
         return params
 
+    @staticmethod
+    def _tensor_error_control_keys(message: str) -> set[str]:
+        lowered = str(message).lower()
+        keys = {
+            key
+            for key in (
+                "low_freq_hz",
+                "high_freq_hz",
+                "freq_step_hz",
+                "time_resolution_s",
+                "hop_s",
+                "method",
+                "freq_range_hz",
+                "percentile",
+                "min_cycles",
+            )
+            if key in lowered
+        }
+        if "frequency" in lowered and not keys:
+            keys.update({"low_freq_hz", "high_freq_hz", "freq_step_hz"})
+        if "band" in lowered:
+            keys.add("bands")
+        if "selected channel" in lowered:
+            keys.add("selected_channels")
+        if "selected pair" in lowered:
+            keys.add("selected_pairs")
+        return keys
+
+    def _set_tensor_metric_validation_marks(
+        self,
+        metric_key: str,
+        message: str | None,
+    ) -> None:
+        if metric_key != self._tensor_active_metric_key:
+            return
+        widgets = dict(self._tensor_basic_param_widgets)
+        widgets["selected_channels"] = self._tensor_channels_button
+        widgets["selected_pairs"] = self._tensor_pairs_button
+        for widget in widgets.values():
+            set_control_validation_error(widget, None)
+        set_control_validation_error(self._tensor_advance_button, None)
+        error = str(message or "").strip()
+        if not error:
+            return
+        keys = self._tensor_error_control_keys(error)
+        marked = False
+        for key in keys:
+            widget = widgets.get(key)
+            if widget is not None and widget.isEnabled():
+                set_control_validation_error(widget, error)
+                marked = True
+        if not marked and self._tensor_advance_button is not None:
+            if self._tensor_advance_button.isEnabled():
+                set_control_validation_error(self._tensor_advance_button, error)
+
+    def _tensor_metric_draft_error(
+        self,
+        metric_key: str,
+        params: dict[str, Any],
+    ) -> str:
+        context = self._record_context()
+        if context is None:
+            return ""
+        try:
+            prepare_metric_plan_inputs(
+                tensor_service,
+                context,
+                metric_key=metric_key,
+                metric_label=self._tensor_metric_display_name(metric_key),
+                metric_params=dict(params),
+            )
+        except Exception as exc:  # noqa: BLE001
+            return str(exc)
+        return ""
+
+    def _validate_active_tensor_draft(self) -> str:
+        metric_key = self._tensor_active_metric_key
+        params = self._active_tensor_panel_indicator_params()
+        error = self._tensor_metric_draft_error(metric_key, params)
+        self._set_tensor_metric_validation_marks(metric_key, error)
+        return error
+
+    def _on_tensor_basic_field_finished(self) -> None:
+        self._commit_active_tensor_panel_to_params()
+        self._validate_active_tensor_draft()
+        self._refresh_tensor_metric_indicators_from_draft()
+
+    def _validate_tensor_cpu_draft(self) -> str:
+        edit = getattr(self, "_tensor_cpu_percent_edit", None)
+        if edit is None:
+            return ""
+        try:
+            normalize_tensor_cpu_percent(edit.text().strip())
+        except ValueError as exc:
+            error = str(exc)
+            set_control_validation_error(edit, error)
+            return error
+        set_control_validation_error(edit, None)
+        return ""
+
     def _apply_active_tensor_params_to_panel(self) -> None:
         metric_key = self._tensor_active_metric_key
         params = self._tensor_metric_params.get(metric_key, {})
@@ -371,7 +494,15 @@ class MainWindowTensorStateMetricsMixin:
         def set_float(edit: QLineEdit | None, value: Any) -> None:
             if edit is None:
                 return
-            edit.setText(f"{self._safe_float(value, 0.0):g}")
+            if value is None:
+                edit.clear()
+                return
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError):
+                edit.setText(str(value))
+                return
+            edit.setText(f"{parsed:g}")
 
         if self._tensor_metric_title_label is not None:
             self._tensor_metric_title_label.setText(
@@ -393,8 +524,10 @@ class MainWindowTensorStateMetricsMixin:
         if self._tensor_method_combo is not None:
             method = params.get("method", "morlet")
             idx = self._tensor_method_combo.findData(str(method))
-            if idx < 0:
-                idx = 0
+            self._tensor_method_combo.setProperty(
+                _COMBO_DRAFT_VALUE_PROPERTY,
+                method if idx < 0 else None,
+            )
             self._tensor_method_combo.setCurrentIndex(idx)
         self._sync_tensor_time_resolution_label()
         if self._tensor_freq_range_edit is not None:
@@ -418,6 +551,10 @@ class MainWindowTensorStateMetricsMixin:
         if not metric_key:
             return
         self._commit_active_tensor_panel_to_params()
+        self._set_tensor_metric_validation_marks(
+            self._tensor_active_metric_key,
+            None,
+        )
         self._ensure_tensor_metric_state_from_defaults(self._record_context())
         self._tensor_active_metric_key = metric_key
         spec = next(

@@ -6,7 +6,6 @@ from copy import deepcopy
 
 from lfptensorpipe.app.tensor.cpu_budget import (
     DEFAULT_TENSOR_CPU_PERCENT,
-    normalize_tensor_cpu_percent,
 )
 from lfptensorpipe.gui.shell.common import (
     Any,
@@ -90,13 +89,16 @@ class MainWindowRecordParamsApplyTensorMixin:
                                 "Burst Thresholds",
                                 "Ignored invalid saved Burst thresholds:\n" + str(exc),
                             )
-                    merged.update(
-                        build_tensor_metric_notch_payload(
-                            merged.get("notches"),
-                            merged.get("notch_radii"),
-                            legacy_mismatched_list_broadcast=legacy_notch_fields,
+                    try:
+                        merged.update(
+                            build_tensor_metric_notch_payload(
+                                merged.get("notches"),
+                                merged.get("notch_radii"),
+                                legacy_mismatched_list_broadcast=legacy_notch_fields,
+                            )
                         )
-                    )
+                    except (TypeError, ValueError):
+                        pass
                     merged_params[spec.key] = merged
                 if not isinstance(metric_params.get("imcoh_abs"), dict):
                     coherence_params = merged_params.get("coherence", {})
@@ -155,16 +157,22 @@ class MainWindowRecordParamsApplyTensorMixin:
             skipped += 1
 
         if "tensor.cpu_percent" not in self._record_param_dirty_keys:
-            cpu_percent = _nested_get(snapshot, ("tensor", "cpu_percent"))
-            try:
-                normalized_cpu_percent = normalize_tensor_cpu_percent(
-                    DEFAULT_TENSOR_CPU_PERCENT if cpu_percent is None else cpu_percent
-                )
-            except ValueError:
-                normalized_cpu_percent = DEFAULT_TENSOR_CPU_PERCENT
+            tensor_node = _nested_get(snapshot, ("tensor",))
+            if isinstance(tensor_node, dict) and "cpu_percent" in tensor_node:
+                cpu_percent = tensor_node.get("cpu_percent")
+            else:
+                cpu_percent = DEFAULT_TENSOR_CPU_PERCENT
             cpu_percent_edit = getattr(self, "_tensor_cpu_percent_edit", None)
             if cpu_percent_edit is not None:
-                cpu_percent_edit.setText(f"{normalized_cpu_percent:g}")
+                if cpu_percent is None:
+                    cpu_percent_edit.clear()
+                else:
+                    try:
+                        cpu_number = float(cpu_percent)
+                    except (TypeError, ValueError):
+                        cpu_percent_edit.setText(str(cpu_percent))
+                    else:
+                        cpu_percent_edit.setText(f"{cpu_number:g}")
         else:
             skipped += 1
 

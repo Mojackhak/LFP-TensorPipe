@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from lfptensorpipe.app.tensor.frequency import (
-    validate_periodic_aperiodic_notch_bounds,
-)
 from lfptensorpipe.io.burst_thresholds import (
     load_burst_threshold_json,
     normalize_burst_threshold_payload,
@@ -20,6 +17,7 @@ MT_MIN_CYCLES_TOOLTIP = (
     "Minimum oscillation cycles in a Multitaper window. Low frequencies use a "
     "longer window when needed. The default is 3.0."
 )
+_COMBO_DRAFT_VALUE_PROPERTY = "lfptpDraftValue"
 
 
 class TensorMetricAdvanceDialog(QDialog):
@@ -34,6 +32,7 @@ class TensorMetricAdvanceDialog(QDialog):
         default_params: dict[str, Any],
         burst_baseline_annotations: tuple[str, ...] = (),
         set_default_callback: Callable[[dict[str, Any]], None] | None = None,
+        validate_callback: Callable[[dict[str, Any]], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -50,6 +49,7 @@ class TensorMetricAdvanceDialog(QDialog):
             if str(item).strip()
         )
         self._set_default_callback = set_default_callback
+        self._validate_callback = validate_callback
         self._fields: dict[str, Any] = {}
         self._loaded_thresholds: Any = None
         self._loaded_thresholds_path: str | None = None
@@ -99,6 +99,8 @@ class TensorMetricAdvanceDialog(QDialog):
         root.addWidget(button_row)
 
         self._apply_to_fields(self._working_base_params)
+        self._connect_validation_signals()
+        self._validate_draft_fields()
 
     @property
     def selected_action(self) -> str | None:
@@ -118,8 +120,8 @@ class TensorMetricAdvanceDialog(QDialog):
             "Half-width around each notch center. A 50 Hz center with a 2 Hz "
             "radius excludes 48-52 Hz. When inherited from Preprocess, the "
             "numeric notch-width value is preserved as the Tensor radius. "
-            "A single value broadcasts to all metric notches. Leave blank to "
-            "use 2 Hz."
+            "A single value broadcasts to all metric notches. The default is "
+            "2 Hz; clearing this field is invalid while notches are configured."
         )
         form.addRow("Notches", notches)
         form.addRow("Notch radius (Hz)", notch_radii)
@@ -128,7 +130,10 @@ class TensorMetricAdvanceDialog(QDialog):
 
     @staticmethod
     def _stringify_notches(value: Any) -> str:
-        payload = build_tensor_metric_notch_payload(value, 2.0)
+        try:
+            payload = build_tensor_metric_notch_payload(value, 2.0)
+        except (TypeError, ValueError):
+            return "" if value is None else str(value)
         return ", ".join(f"{float(item):g}" for item in payload["notches"])
 
     @staticmethod
@@ -136,8 +141,14 @@ class TensorMetricAdvanceDialog(QDialog):
         if value is None:
             return ""
         if isinstance(value, (list, tuple)):
-            return ", ".join(f"{float(item):g}" for item in value)
-        return f"{float(value):g}"
+            try:
+                return ", ".join(f"{float(item):g}" for item in value)
+            except (TypeError, ValueError):
+                return str(value)
+        try:
+            return f"{float(value):g}"
+        except (TypeError, ValueError):
+            return str(value)
 
     @staticmethod
     def _parse_notches(text: str) -> list[float]:
@@ -469,15 +480,23 @@ class TensorMetricAdvanceDialog(QDialog):
                 elif value is None:
                     widget.clear()
                 elif isinstance(value, (list, tuple)) and len(value) == 2:
-                    widget.setText(f"{float(value[0]):g}, {float(value[1]):g}")
+                    try:
+                        text = f"{float(value[0]):g}, {float(value[1]):g}"
+                    except (TypeError, ValueError):
+                        text = str(value)
+                    widget.setText(text)
                 else:
                     widget.setText(str(value))
             elif isinstance(widget, QCheckBox):
                 widget.setChecked(bool(value))
             elif isinstance(widget, QComboBox):
                 idx = widget.findData(value)
-                if idx < 0:
+                if idx < 0 and value is None:
                     idx = 0
+                widget.setProperty(
+                    _COMBO_DRAFT_VALUE_PROPERTY,
+                    value if idx < 0 else None,
+                )
                 widget.setCurrentIndex(idx)
         self._sync_trgc_round_ms_enabled()
         self._sync_periodic_smoothing_fields_enabled()
@@ -505,6 +524,104 @@ class TensorMetricAdvanceDialog(QDialog):
             else:
                 self._loaded_thresholds_path = None
             self._sync_burst_threshold_controls()
+
+    def _connect_validation_signals(self) -> None:
+        for widget in self._fields.values():
+            if isinstance(widget, QLineEdit):
+                widget.editingFinished.connect(self._validate_draft_fields)
+            elif isinstance(widget, QComboBox):
+                widget.currentIndexChanged.connect(
+                    lambda _index, combo=widget: self._on_combo_value_changed(combo)
+                )
+            elif isinstance(widget, QCheckBox):
+                widget.stateChanged.connect(
+                    lambda _state: self._validate_draft_fields()
+                )
+
+    def _on_combo_value_changed(self, widget: QComboBox) -> None:
+        if widget.currentIndex() >= 0:
+            widget.setProperty(_COMBO_DRAFT_VALUE_PROPERTY, None)
+        self._validate_draft_fields()
+
+    @staticmethod
+    def _draft_number(text: str) -> float | str | None:
+        token = text.strip()
+        if not token:
+            return None
+        try:
+            value = float(token)
+        except (TypeError, ValueError):
+            return token
+        if not np.isfinite(value):
+            return token
+        return value
+
+    @classmethod
+    def _draft_line_value(cls, key: str, text: str) -> Any:
+        token = text.strip()
+        if key == "notches":
+            if not token:
+                return []
+            try:
+                return cls._parse_notches(token)
+            except (TypeError, ValueError):
+                return token
+        if key == "notch_radii":
+            if not token:
+                return None
+            try:
+                return cls._parse_notch_radii(token)
+            except (TypeError, ValueError):
+                return token
+        if key == "peak_width_limits_hz":
+            parts = [item.strip() for item in token.split(",") if item.strip()]
+            if len(parts) != 2:
+                return None if not token else token
+            values = [cls._draft_number(item) for item in parts]
+            if all(isinstance(value, float) for value in values):
+                return values
+            return token
+        if key == "max_n_peaks" and token.lower() == "inf":
+            return "inf"
+        value = cls._draft_number(token)
+        if key in {"time_smooth_kernel_size", "gc_n_lags"} and isinstance(value, float):
+            return int(value) if value.is_integer() else value
+        return value
+
+    @staticmethod
+    def _error_field_keys(message: str, fields: dict[str, Any]) -> set[str]:
+        lowered = message.lower()
+        keys = {key for key in fields if key.lower() in lowered}
+        if "cycle" in lowered:
+            keys.update(key for key in ("min_cycles", "max_cycles") if key in fields)
+        if "notch" in lowered:
+            keys.update(key for key in ("notches", "notch_radii") if key in fields)
+        if "method" in lowered and "method" in fields:
+            keys.add("method")
+        return keys
+
+    def _validate_draft_fields(self) -> list[str]:
+        for widget in self._fields.values():
+            set_control_validation_error(widget, None)
+        if self._validate_callback is None:
+            return []
+        payload = dict(self._working_base_params)
+        payload.update(self._collect_params())
+        try:
+            self._validate_callback(dict(payload))
+        except Exception as exc:  # noqa: BLE001
+            message = str(exc)
+            keys = self._error_field_keys(message, self._fields)
+            if not keys:
+                keys = {
+                    key for key, widget in self._fields.items() if widget.isEnabled()
+                }
+            for key in keys:
+                widget = self._fields.get(key)
+                if widget is not None and widget.isEnabled():
+                    set_control_validation_error(widget, message)
+            return [message]
+        return []
 
     def _sync_trgc_round_ms_enabled(self) -> None:
         if (
@@ -545,6 +662,9 @@ class TensorMetricAdvanceDialog(QDialog):
             widget = self._fields.get(key)
             if widget is not None:
                 widget.setEnabled(not is_multitaper)
+        for widget in self._fields.values():
+            if not widget.isEnabled():
+                set_control_validation_error(widget, None)
 
     def _sync_burst_threshold_controls(self) -> None:
         if self._metric_key != "burst":
@@ -602,69 +722,21 @@ class TensorMetricAdvanceDialog(QDialog):
     def _on_restore_defaults(self) -> None:
         self._working_base_params = dict(self._default_params)
         self._apply_to_fields(self._working_base_params)
+        self._validate_draft_fields()
 
     def _collect_params(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
         for key, widget in self._fields.items():
             if isinstance(widget, QLineEdit):
-                text = widget.text().strip()
-                if key == "notches":
-                    out[key] = self._parse_notches(text)
-                    continue
-                if key == "notch_radii":
-                    out[key] = self._parse_notch_radii(text)
-                    continue
-                if not text:
-                    if key in {
-                        "mt_time_bandwidth_product",
-                        "mt_min_cycles",
-                    }:
-                        raise ValueError(f"{key} is required.")
-                    out[key] = None
-                    continue
-                if key in {"time_smooth_kernel_size", "gc_n_lags"}:
-                    value = int(text)
-                    if value < 1:
-                        raise ValueError(f"{key} must be >= 1.")
-                    out[key] = value
-                elif key == "round_ms":
-                    value = float(text)
-                    if value <= 0.0:
-                        raise ValueError("round_ms must be > 0.")
-                    out[key] = value
-                elif key == "freq_smooth_sigma":
-                    value = float(text)
-                    if value <= 0.0:
-                        raise ValueError("freq_smooth_sigma must be > 0.")
-                    out[key] = value
-                elif key == "mt_time_bandwidth_product":
-                    value = float(text)
-                    if not np.isfinite(value) or value < 2.0:
-                        raise ValueError(
-                            "mt_time_bandwidth_product must be finite and >= 2."
-                        )
-                    out[key] = value
-                elif key == "mt_min_cycles":
-                    value = float(text)
-                    if not np.isfinite(value) or value <= 0.0:
-                        raise ValueError("mt_min_cycles must be finite and > 0.")
-                    out[key] = value
-                elif key == "peak_width_limits_hz":
-                    parts = [item.strip() for item in text.split(",") if item.strip()]
-                    if len(parts) != 2:
-                        raise ValueError(
-                            "Peak width limits must be two numbers: low,high."
-                        )
-                    out[key] = [float(parts[0]), float(parts[1])]
-                elif key == "max_n_peaks":
-                    out[key] = "inf" if text.lower() == "inf" else float(text)
-                else:
-                    out[key] = float(text)
+                out[key] = self._draft_line_value(key, widget.text())
             elif isinstance(widget, QCheckBox):
                 out[key] = bool(widget.isChecked())
             elif isinstance(widget, QComboBox):
-                data = widget.currentData()
-                out[key] = str(data) if data is not None else str(widget.currentText())
+                if widget.currentIndex() < 0:
+                    out[key] = widget.property(_COMBO_DRAFT_VALUE_PROPERTY)
+                else:
+                    data = widget.currentData()
+                    out[key] = data if data is not None else widget.currentText()
         if self._metric_key == "burst":
             if self._baseline_annotations_combo is not None:
                 selected_label = self._baseline_annotations_combo.currentData()
@@ -677,31 +749,14 @@ class TensorMetricAdvanceDialog(QDialog):
         return out
 
     def _on_submit(self, action: str) -> None:
-        try:
-            field_payload = self._collect_params()
-        except Exception as exc:  # noqa: BLE001
-            QMessageBox.warning(
-                self, "Tensor Advance", f"Invalid advanced params:\n{exc}"
-            )
-            return
+        field_payload = self._collect_params()
         payload = dict(self._working_base_params)
         payload.update(field_payload)
-        try:
-            payload.update(
-                build_tensor_metric_notch_payload(
-                    payload.get("notches"),
-                    payload.get("notch_radii"),
-                )
-            )
-        except ValueError as exc:
-            QMessageBox.warning(
-                self, "Tensor Advance", f"Invalid advanced params:\n{exc}"
-            )
-            return
-        if self._metric_key == "periodic_aperiodic":
+        if action == "set_default" and self._validate_callback is not None:
             try:
-                validate_periodic_aperiodic_notch_bounds(payload)
-            except ValueError as exc:
+                self._validate_callback(dict(payload))
+            except Exception as exc:  # noqa: BLE001
+                self._validate_draft_fields()
                 QMessageBox.warning(
                     self, "Tensor Advance", f"Invalid advanced params:\n{exc}"
                 )

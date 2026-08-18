@@ -6,6 +6,7 @@ from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QFormLayout,
@@ -153,6 +154,7 @@ def _build_tensor_bands_block(self) -> QGroupBox:
     header = self._tensor_bands_table.horizontalHeader()
     header.setSectionResizeMode(QHeaderView.Stretch)
     self._tensor_bands_table.setMinimumHeight(180)
+    self._tensor_bands_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
     for row_idx, band in enumerate(bands_defaults):
         self._tensor_bands_table.setItem(
             row_idx, 0, QTableWidgetItem(str(band["name"]))
@@ -259,6 +261,15 @@ def _build_tensor_metric_params_block(self) -> QGroupBox:
         "percentile": self._tensor_percentile_edit,
         "min_cycles": self._tensor_min_cycles_basic_edit,
     }
+    validate_basic = getattr(self, "_on_tensor_basic_field_finished", None)
+    if callable(validate_basic):
+        for widget in self._tensor_basic_param_widgets.values():
+            if isinstance(widget, QLineEdit):
+                widget.textEdited.connect(
+                    lambda _text, callback=validate_basic: callback()
+                )
+                widget.editingFinished.connect(validate_basic)
+        self._tensor_method_combo.activated.connect(lambda _index: validate_basic())
 
     self._ensure_tensor_metric_state_from_defaults(self._record_context())
     self._set_active_tensor_metric(self._tensor_active_metric_key)
@@ -303,6 +314,9 @@ def _build_tensor_actions_block(self) -> QGroupBox:
     self._tensor_cpu_percent_edit.setToolTip(
         "Build-wide CPU budget from 0 to 100 percent. The run uses at least one "
         "CPU slot and does not include this value in tensor freshness."
+    )
+    self._tensor_cpu_percent_edit.editingFinished.connect(
+        self._validate_tensor_cpu_draft
     )
     cpu_row_layout.addWidget(self._tensor_cpu_percent_edit, 1)
 

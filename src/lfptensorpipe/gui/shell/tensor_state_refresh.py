@@ -152,3 +152,6 @@ class MainWindowTensorStateRefreshMixin:
         if self._tensor_run_button is not None:
             self._tensor_run_button.setText("Build Tensor")
             self._tensor_run_button.setEnabled(editable and bool(selected_metrics))
+        validate_draft = getattr(self, "_validate_active_tensor_draft", None)
+        if callable(validate_draft):
+            validate_draft()

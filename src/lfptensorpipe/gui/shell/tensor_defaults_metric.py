@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.tensor.orchestration_plan_validation import (
+    validate_metric_storage_params,
+)
 from lfptensorpipe.gui.shell.common import (
     Any,
     RecordContext,
@@ -159,8 +162,10 @@ def _load_tensor_metric_default_params(
     context: RecordContext | None,
 ) -> dict[str, Any]:
     base = self._default_tensor_metric_params(metric_key, context=context)
+    built_in = dict(base)
     defaults_payload = self._load_tensor_metric_defaults_payload()
     node = defaults_payload.get(metric_key)
+    explicit_node = node if isinstance(node, dict) else {}
     legacy_notch_fields = False
     if isinstance(node, dict):
         normalized_node = dict(node)
@@ -168,7 +173,38 @@ def _load_tensor_metric_default_params(
         legacy_notch_radii = normalized_node.pop("notch_widths", None)
         if legacy_notch_fields and "notch_radii" not in normalized_node:
             normalized_node["notch_radii"] = legacy_notch_radii
-        base = _deep_merge_dict(base, normalized_node)
+        accepted: dict[str, Any] = {}
+        repaired: list[str] = []
+        for key, value in normalized_node.items():
+            candidate = _deep_merge_dict(base, {**accepted, key: value})
+            try:
+                validate_metric_storage_params(
+                    metric_key=metric_key,
+                    metric_label=metric_key,
+                    metric_params=candidate,
+                )
+            except (TypeError, ValueError):
+                if key in built_in:
+                    repaired.append(key)
+                    continue
+                accepted[key] = value
+            else:
+                accepted[key] = value
+        explicit_node = accepted
+        base = _deep_merge_dict(base, accepted)
+        if repaired:
+            report_key = (metric_key, tuple(sorted(repaired)))
+            reported = getattr(self, "_reported_tensor_default_repairs", set())
+            if report_key not in reported:
+                reported = set(reported)
+                reported.add(report_key)
+                setattr(self, "_reported_tensor_default_repairs", reported)
+                status_bar_getter = getattr(self, "statusBar", None)
+                if callable(status_bar_getter):
+                    status_bar_getter().showMessage(
+                        "Restored invalid Tensor defaults for "
+                        f"{metric_key}: {', '.join(sorted(repaired))}."
+                    )
     base.update(
         build_tensor_metric_notch_payload(
             base.get("notches"),
@@ -177,9 +213,8 @@ def _load_tensor_metric_default_params(
         )
     )
     if metric_key in {"psi", "burst"}:
-        band_rows = self._normalize_tensor_bands_rows(base.get("bands"))
-        if band_rows:
-            base["bands"] = [dict(item) for item in band_rows]
+        if "bands" in explicit_node and explicit_node.get("bands") is not None:
+            base["bands"] = explicit_node.get("bands")
         else:
             base["bands"] = [
                 dict(item)
@@ -204,51 +239,6 @@ def _load_tensor_metric_default_params(
     if metric_key == "periodic_aperiodic":
         base.pop("smooth_enabled", None)
         base.pop("kernel_size", None)
-        try:
-            low = float(base.get("low_freq_hz", 0.0))
-            high = float(base.get("high_freq_hz", 0.0))
-            time_resolution_s = float(base.get("time_resolution_s", 0.5))
-            hop_s = float(base.get("hop_s", 0.025))
-        except Exception:
-            low = 1.0
-            high = max(low + 1.0, 2.0)
-            time_resolution_s = 0.5
-            hop_s = 0.025
-        range_value = base.get("freq_range_hz")
-        parsed: list[float] | None = None
-        if isinstance(range_value, (list, tuple)) and len(range_value) == 2:
-            try:
-                lo = float(range_value[0])
-                hi = float(range_value[1])
-                if hi > lo:
-                    parsed = [lo, hi]
-            except Exception:
-                parsed = None
-        if (
-            parsed is None
-            or float(low) < float(parsed[0])
-            or float(high) > float(parsed[1])
-        ):
-            base["freq_range_hz"] = [float(low), float(high)]
-        base["freq_smooth_enabled"] = bool(base.get("freq_smooth_enabled", True))
-        try:
-            sigma = float(base.get("freq_smooth_sigma", 1.5))
-            base["freq_smooth_sigma"] = sigma if sigma > 0.0 else 1.5
-        except Exception:
-            base["freq_smooth_sigma"] = 1.5
-        base["time_smooth_enabled"] = bool(base.get("time_smooth_enabled", True))
-        try:
-            kernel_value = int(base.get("time_smooth_kernel_size"))
-            if kernel_value < 1:
-                raise ValueError
-            if kernel_value % 2 == 0:
-                kernel_value += 1
-            base["time_smooth_kernel_size"] = int(kernel_value)
-        except Exception:
-            base["time_smooth_kernel_size"] = _default_periodic_time_smooth_kernel_size(
-                time_resolution_s,
-                hop_s,
-            )
     return base
 
 
@@ -383,14 +373,19 @@ def _tensor_prepare_metric_default_payload(
         prepared["selected_pairs"] = [[source, target] for source, target in pairs]
 
     if metric_key in {"psi", "burst"}:
-        if "bands" in prepared:
-            bands = self._normalize_tensor_bands_rows(prepared.get("bands"))
-        else:
-            bands = self._normalize_tensor_bands_rows(
-                self._tensor_metric_params.get(metric_key, {}).get("bands")
-            )
-        if not bands:
-            bands = self._load_tensor_metric_bands_defaults(metric_key)
-        prepared["bands"] = [dict(item) for item in bands]
+        if "bands" not in prepared:
+            current = self._tensor_metric_params.get(metric_key, {})
+            if "bands" in current and current.get("bands") is not None:
+                prepared["bands"] = current.get("bands")
+            else:
+                prepared["bands"] = [
+                    dict(item)
+                    for item in self._load_tensor_metric_bands_defaults(metric_key)
+                ]
+        elif prepared.get("bands") is None:
+            prepared["bands"] = [
+                dict(item)
+                for item in self._load_tensor_metric_bands_defaults(metric_key)
+            ]
 
     return prepared

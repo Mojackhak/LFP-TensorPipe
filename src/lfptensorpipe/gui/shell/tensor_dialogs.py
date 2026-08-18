@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from lfptensorpipe.gui.dialogs.tensor_bands import TensorBandsConfigureDialog
+from lfptensorpipe.app.tensor import service as tensor_service
+from lfptensorpipe.app.tensor.orchestration_plan_validation import (
+    prepare_metric_plan_inputs,
+)
 from lfptensorpipe.gui.shell.common import (
     Any,
     build_tensor_metric_notch_payload,
@@ -173,6 +177,7 @@ class MainWindowTensorDialogsMixin:
                 )
             )
         self._commit_active_tensor_panel_to_params()
+        self._validate_active_tensor_draft()
         self._refresh_tensor_metric_indicators_from_draft()
 
     def _on_tensor_pairs_select(self) -> None:
@@ -236,6 +241,7 @@ class MainWindowTensorDialogsMixin:
         self._mark_record_param_dirty("tensor.selectors")
         self._refresh_tensor_pair_button_text()
         self._commit_active_tensor_panel_to_params()
+        self._validate_active_tensor_draft()
         self._refresh_tensor_metric_indicators_from_draft()
 
     @staticmethod
@@ -324,6 +330,22 @@ class MainWindowTensorDialogsMixin:
             available_channels=self._tensor_available_channels,
         )
 
+        def _validate_metric_params(full_params: dict[str, Any]) -> None:
+            context = self._record_context()
+            if context is None:
+                raise ValueError("Select a record before saving Tensor parameters.")
+            prepared = self._tensor_prepare_metric_default_payload(
+                metric_key,
+                full_params,
+            )
+            prepare_metric_plan_inputs(
+                tensor_service,
+                context,
+                metric_key=metric_key,
+                metric_label=self._tensor_metric_display_name(metric_key),
+                metric_params=prepared,
+            )
+
         def _save_metric_defaults(full_params: dict[str, Any]) -> None:
             prepared = self._tensor_prepare_metric_default_payload(
                 metric_key, full_params
@@ -349,6 +371,7 @@ class MainWindowTensorDialogsMixin:
             default_params=default_params,
             burst_baseline_annotations=burst_baseline_annotations,
             set_default_callback=_save_metric_defaults,
+            validate_callback=_validate_metric_params,
             parent=self,
         )
         if dialog.exec() != QDialog.Accepted:
@@ -363,11 +386,14 @@ class MainWindowTensorDialogsMixin:
         self._refresh_tensor_controls()
         context = self._record_context()
         if context is not None and getattr(dialog, "selected_action", "save") == "save":
-            warnings = self._tensor_metric_notch_warnings(
-                context,
-                metric_key,
-                dict(self._tensor_metric_params.get(metric_key, {})),
-            )
+            try:
+                warnings = self._tensor_metric_notch_warnings(
+                    context,
+                    metric_key,
+                    dict(self._tensor_metric_params.get(metric_key, {})),
+                )
+            except ValueError:
+                warnings = []
             self._show_tensor_metric_notch_warning(metric_key, warnings)
 
     def _refresh_tensor_bands_button_text(self) -> None:
@@ -394,7 +420,7 @@ class MainWindowTensorDialogsMixin:
             return
         params = dict(self._tensor_metric_params.get(metric_key, {}))
         current_bands = self._normalize_tensor_bands_rows(params.get("bands"))
-        if not current_bands:
+        if "bands" not in params:
             current_bands = self._load_tensor_metric_bands_defaults(metric_key)
         default_params = self._tensor_effective_metric_defaults(
             metric_key,
@@ -431,4 +457,5 @@ class MainWindowTensorDialogsMixin:
         self._tensor_metric_params[metric_key] = params
         self._refresh_tensor_bands_button_text()
         self._mark_record_param_dirty("tensor.metric_params")
+        self._validate_active_tensor_draft()
         self._refresh_tensor_metric_indicators_from_draft()

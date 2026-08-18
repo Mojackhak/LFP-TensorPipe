@@ -21,15 +21,16 @@ from lfptensorpipe.app.tensor.cpu_budget import (
     DEFAULT_TENSOR_CPU_PERCENT,
     normalize_tensor_cpu_percent,
 )
+from lfptensorpipe.app.tensor import service as tensor_service
+from lfptensorpipe.app.tensor.orchestration_plan_validation import (
+    prepare_metric_plan_inputs,
+)
 from lfptensorpipe.app.tensor.cancellation import (
     BUILD_TENSOR_CANCELLED_MESSAGE,
     backfill_cancelled_build_tensor_run,
 )
 from lfptensorpipe.app.tensor.connectivity_coordinator import (
     preview_trgc_frequency_group_count,
-)
-from lfptensorpipe.app.tensor.frequency import (
-    validate_periodic_aperiodic_notch_bounds,
 )
 from lfptensorpipe.app.tensor.process_tree import (
     BuildTensorProcessTree,
@@ -46,8 +47,7 @@ from lfptensorpipe.gui.shell.common import (
     Any,
     QApplication,
     RecordContext,
-    TENSOR_COMMON_BASIC_METRIC_KEYS,
-    build_tensor_metric_notch_payload,
+    set_control_validation_error,
 )
 
 TENSOR_RUN_COOPERATIVE_TIMEOUT_S = 5.0
@@ -93,113 +93,15 @@ class MainWindowTensorRunMixin:
             ]
         return pairs_map
 
-    def _collect_tensor_bands(self, value: Any) -> list[dict[str, Any]]:
-        bands = self._normalize_tensor_bands_rows(value)
-        if not bands:
-            raise ValueError("At least one band is required.")
-        return [dict(item) for item in bands]
-
     def _collect_tensor_runtime_metric_params(
         self, context: RecordContext, selected_metrics: list[str]
     ) -> dict[str, dict[str, Any]]:
+        _ = context
         self._commit_active_tensor_panel_to_params()
         self._sync_tensor_selector_maps_into_metric_params()
         metric_params_map: dict[str, dict[str, Any]] = {}
         for metric_key in selected_metrics:
             params = dict(self._tensor_metric_params.get(metric_key, {}))
-            params.update(
-                build_tensor_metric_notch_payload(
-                    params.get("notches"),
-                    params.get("notch_radii"),
-                )
-            )
-            if metric_key in TENSOR_COMMON_BASIC_METRIC_KEYS:
-                low_freq = float(params.get("low_freq_hz", 0.0))
-                high_freq = float(params.get("high_freq_hz", 0.0))
-                step_hz = float(params.get("freq_step_hz", 0.0))
-                if low_freq <= 0.0:
-                    raise ValueError(
-                        f"{self._tensor_metric_display_name(metric_key)} low freq must be > 0."
-                    )
-                if high_freq <= low_freq:
-                    raise ValueError(
-                        f"{self._tensor_metric_display_name(metric_key)} high freq must be greater than low freq."
-                    )
-                if step_hz <= 0.0:
-                    raise ValueError(
-                        f"{self._tensor_metric_display_name(metric_key)} step must be > 0."
-                    )
-                valid, message, _ = self._validate_tensor_frequency_params_runtime(
-                    context,
-                    low_freq=low_freq,
-                    high_freq=high_freq,
-                    step_hz=step_hz,
-                )
-                if not valid:
-                    raise ValueError(
-                        f"{self._tensor_metric_display_name(metric_key)}: {message}"
-                    )
-            elif metric_key == "psi":
-                step_hz = float(params.get("freq_step_hz", 0.0))
-                if step_hz <= 0.0:
-                    raise ValueError(
-                        f"{self._tensor_metric_display_name(metric_key)} step must be > 0."
-                    )
-            if metric_key in {"psi", "burst"}:
-                bands = self._collect_tensor_bands(params.get("bands"))
-                params["bands"] = bands
-            if metric_key == "periodic_aperiodic":
-                validate_periodic_aperiodic_notch_bounds(params)
-                freq_range = params.get("freq_range_hz")
-                if not isinstance(freq_range, (list, tuple)) or len(freq_range) != 2:
-                    raise ValueError("Periodic/APeriodic freq range must be provided.")
-                try:
-                    range_lo = float(freq_range[0])
-                    range_hi = float(freq_range[1])
-                except Exception as exc:  # noqa: BLE001
-                    raise ValueError(
-                        "Periodic/APeriodic freq range must be numeric."
-                    ) from exc
-                if range_hi <= range_lo:
-                    raise ValueError(
-                        "Periodic/APeriodic freq range must satisfy high > low."
-                    )
-                low = float(params.get("low_freq_hz", 0.0))
-                high = float(params.get("high_freq_hz", 0.0))
-                if low < range_lo or high > range_hi:
-                    raise ValueError(
-                        "Periodic/APeriodic low/high must stay within SpecParam freq range."
-                    )
-                step_hz = float(params.get("freq_step_hz", 0.0))
-                valid_range, message_range, _ = (
-                    self._validate_tensor_frequency_params_runtime(
-                        context,
-                        low_freq=range_lo,
-                        high_freq=range_hi,
-                        step_hz=step_hz,
-                    )
-                )
-                if not valid_range:
-                    raise ValueError(
-                        "Periodic/APeriodic SpecParam freq range is invalid: "
-                        f"{message_range}"
-                    )
-                if bool(params.get("freq_smooth_enabled", True)):
-                    sigma = params.get("freq_smooth_sigma")
-                    if sigma is not None and float(sigma) <= 0.0:
-                        raise ValueError(
-                            "Periodic/APeriodic freq smooth sigma must be > 0."
-                        )
-                if bool(params.get("time_smooth_enabled", True)):
-                    kernel_size = params.get("time_smooth_kernel_size")
-                    if kernel_size is not None and int(kernel_size) < 1:
-                        raise ValueError(
-                            "Periodic/APeriodic time smooth kernel size must be >= 1."
-                        )
-            if metric_key == "psi" and not params.get("bands"):
-                raise ValueError("PSI requires at least one configured band.")
-            if metric_key == "burst" and not params.get("bands"):
-                raise ValueError("Burst requires at least one configured band.")
             if metric_key == "burst":
                 params["hop_s"] = BURST_NATIVE_HOP_S
                 params["decim"] = BURST_NATIVE_DECIM
@@ -232,11 +134,71 @@ class MainWindowTensorRunMixin:
         metric_params_map = self._collect_tensor_runtime_metric_params(
             context, selected_metrics
         )
-        cpu_percent = normalize_tensor_cpu_percent(
+        errors: list[tuple[str, str]] = []
+        cpu_raw = (
             self._tensor_cpu_percent_edit.text().strip()
             if self._tensor_cpu_percent_edit is not None
             else DEFAULT_TENSOR_CPU_PERCENT
         )
+        try:
+            cpu_percent = normalize_tensor_cpu_percent(cpu_raw)
+        except ValueError as exc:
+            cpu_percent = DEFAULT_TENSOR_CPU_PERCENT
+            errors.append(("cpu_percent", str(exc)))
+            set_control_validation_error(self._tensor_cpu_percent_edit, str(exc))
+        else:
+            set_control_validation_error(self._tensor_cpu_percent_edit, None)
+
+        first_metric_error: tuple[str, str] | None = None
+        for metric_key in selected_metrics:
+            params = dict(metric_params_map.get(metric_key, {}))
+            try:
+                prepared = prepare_metric_plan_inputs(
+                    tensor_service,
+                    context,
+                    metric_key=metric_key,
+                    metric_label=self._tensor_metric_display_name(metric_key),
+                    metric_params=params,
+                )
+            except Exception as exc:  # noqa: BLE001
+                message = str(exc)
+                errors.append((metric_key, message))
+                if first_metric_error is None:
+                    first_metric_error = (metric_key, message)
+            else:
+                metric_params_map[metric_key] = dict(prepared.metric_params)
+
+        if errors:
+            if first_metric_error is not None:
+                metric_key, message = first_metric_error
+                if metric_key != self._tensor_active_metric_key:
+                    self._set_active_tensor_metric(metric_key)
+                self._set_tensor_metric_validation_marks(metric_key, message)
+                keys = self._tensor_error_control_keys(message)
+                widgets = dict(self._tensor_basic_param_widgets)
+                widgets["selected_channels"] = self._tensor_channels_button
+                widgets["selected_pairs"] = self._tensor_pairs_button
+                focus_widget = next(
+                    (
+                        widgets[key]
+                        for key in keys
+                        if key in widgets and widgets[key] is not None
+                    ),
+                    self._tensor_advance_button,
+                )
+                if focus_widget is not None:
+                    focus_widget.setFocus()
+            elif self._tensor_cpu_percent_edit is not None:
+                self._tensor_cpu_percent_edit.setFocus()
+            lines = []
+            for key, message in errors:
+                label = (
+                    "CPU (%)"
+                    if key == "cpu_percent"
+                    else self._tensor_metric_display_name(key)
+                )
+                lines.append(f"- {label}: {message}")
+            raise ValueError("\n".join(lines))
         return selected_metrics, mask_edge_effects, cpu_percent, metric_params_map
 
     def _tensor_run_is_active(self) -> bool:
@@ -797,11 +759,14 @@ class MainWindowTensorRunMixin:
 
         warnings_by_metric: dict[str, list[str]] = {}
         for metric_key in selected_metrics:
-            warnings = self._tensor_metric_notch_warnings(
-                context,
-                metric_key,
-                dict(metric_params_map.get(metric_key, {})),
-            )
+            try:
+                warnings = self._tensor_metric_notch_warnings(
+                    context,
+                    metric_key,
+                    dict(metric_params_map.get(metric_key, {})),
+                )
+            except ValueError:
+                continue
             if warnings:
                 warnings_by_metric[metric_key] = warnings
         if warnings_by_metric and not self._confirm_tensor_preflight_notch_warnings(

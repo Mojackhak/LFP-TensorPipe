@@ -102,6 +102,7 @@ class TensorPairSelectDialog(QDialog):
         draft_layout.addWidget(QLabel("Target"), 1, 0)
         self._draft_target_edit = QLineEdit()
         self._draft_target_edit.textChanged.connect(self._update_apply_state)
+        self._draft_target_edit.editingFinished.connect(self._refresh_draft_validation)
         self._draft_target_edit.setToolTip("Draft target channel.")
         draft_layout.addWidget(self._draft_target_edit, 1, 1)
         pair_row = QWidget()
@@ -157,6 +158,7 @@ class TensorPairSelectDialog(QDialog):
         self._render_channels()
         self._render_pairs()
         self._update_apply_state()
+        self._refresh_draft_validation()
 
     @property
     def selected_pairs(self) -> tuple[tuple[str, str], ...]:
@@ -221,6 +223,10 @@ class TensorPairSelectDialog(QDialog):
                     tool_tip="Delete this pair.",
                 ),
             )
+        set_control_validation_error(
+            self._pair_table,
+            None if self._pairs else "At least one pair is required.",
+        )
 
     def _render_channels(self) -> None:
         self._channel_list.clear()
@@ -258,12 +264,14 @@ class TensorPairSelectDialog(QDialog):
             self._draft_source_edit.setText(channel)
             self._render_channels()
             self._update_apply_state()
+            self._refresh_draft_validation()
             return
         if channel == self._draft_source:
             self._on_clear_draft()
             return
         self._draft_target_edit.setText(channel)
         self._update_apply_state()
+        self._refresh_draft_validation()
 
     def _update_apply_state(self) -> None:
         source = self._draft_source_edit.text().strip()
@@ -281,6 +289,7 @@ class TensorPairSelectDialog(QDialog):
         self._draft_apply_button.setEnabled(bool(source and target))
 
     def _on_apply_draft(self) -> None:
+        self._refresh_draft_validation()
         source = self._draft_source_edit.text().strip()
         target = self._draft_target_edit.text().strip()
         if not source or not target:
@@ -320,6 +329,31 @@ class TensorPairSelectDialog(QDialog):
         self._draft_pair_preview.clear()
         self._render_channels()
         self._update_apply_state()
+        self._refresh_draft_validation()
+
+    def _refresh_draft_validation(self) -> None:
+        set_control_validation_error(self._draft_source_edit, None)
+        set_control_validation_error(self._draft_target_edit, None)
+        source = self._draft_source_edit.text().strip()
+        target = self._draft_target_edit.text().strip()
+        if not source and not target:
+            return
+        if not source:
+            set_control_validation_error(self._draft_source_edit, "Source is required.")
+        if not target:
+            set_control_validation_error(self._draft_target_edit, "Target is required.")
+        if source and source not in self._channel_names:
+            set_control_validation_error(
+                self._draft_source_edit, "Source is not an available channel."
+            )
+        if target and target not in self._channel_names:
+            set_control_validation_error(
+                self._draft_target_edit, "Target is not an available channel."
+            )
+        if source and target and source == target:
+            message = "Source and target must differ."
+            set_control_validation_error(self._draft_source_edit, message)
+            set_control_validation_error(self._draft_target_edit, message)
 
     def _on_remove_pair(self, pair: tuple[str, str]) -> None:
         self._pairs = [item for item in self._pairs if item != pair]
@@ -336,9 +370,16 @@ class TensorPairSelectDialog(QDialog):
         self._render_channels()
 
     def _accept(self, action: str) -> None:
-        if not self._pairs:
+        if action == "set_default" and not self._pairs:
+            set_control_validation_error(
+                self._pair_table, "At least one pair is required."
+            )
             self._show_warning(self.windowTitle(), "At least one pair is required.")
             return
+        set_control_validation_error(
+            self._pair_table,
+            None if self._pairs else "At least one pair is required.",
+        )
         if action == "set_default":
             pairs = tuple(self._pairs)
             if self._set_default_callback is not None:

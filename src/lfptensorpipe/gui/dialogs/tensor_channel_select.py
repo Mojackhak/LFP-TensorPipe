@@ -28,6 +28,7 @@ class TensorChannelSelectDialog(QDialog):
         self._selected_action: str | None = None
         self._list = QListWidget()
         self._list.setToolTip("Select channels to include in the active metric.")
+        self._list.itemChanged.connect(self._update_validation_state)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
@@ -74,6 +75,7 @@ class TensorChannelSelectDialog(QDialog):
         footer_layout.addWidget(cancel_button)
         root.addWidget(footer)
         self._render()
+        self._update_validation_state()
 
     @property
     def selected_channels(self) -> tuple[str, ...]:
@@ -110,9 +112,21 @@ class TensorChannelSelectDialog(QDialog):
     def _on_restore_defaults(self) -> None:
         self._apply_selected(self._default_selected)
 
+    def _update_validation_state(self, _item: QListWidgetItem | None = None) -> None:
+        error = (
+            "At least one channel is required." if not self.selected_channels else ""
+        )
+        set_control_validation_error(self._list, error)
+
     def _accept(self, action: str) -> None:
         if action == "set_default":
             selected = tuple(self.selected_channels)
+            if not selected:
+                self._update_validation_state()
+                QMessageBox.warning(
+                    self, self.windowTitle(), "At least one channel is required."
+                )
+                return
             if self._set_default_callback is not None:
                 try:
                     self._set_default_callback(selected)
@@ -124,5 +138,6 @@ class TensorChannelSelectDialog(QDialog):
             self._default_selected = set(selected)
             self._selected_action = action
             return
+        self._update_validation_state()
         self._selected_action = action
         self.accept()

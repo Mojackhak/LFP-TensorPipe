@@ -6,6 +6,7 @@ from copy import deepcopy
 import json
 import math
 
+from lfptensorpipe.app.tensor import service as tensor_service
 from lfptensorpipe.app.tensor.cpu_budget import (
     DEFAULT_TENSOR_CPU_PERCENT,
     normalize_tensor_cpu_percent,
@@ -13,8 +14,13 @@ from lfptensorpipe.app.tensor.cpu_budget import (
 from lfptensorpipe.app.tensor.frequency import (
     validate_periodic_aperiodic_notch_bounds,
 )
+from lfptensorpipe.app.tensor.orchestration_plan_validation import (
+    prepare_metric_plan_inputs,
+    validate_metric_storage_params,
+)
 from lfptensorpipe.gui.shell.common import (
     Any,
+    QMessageBox,
     Path,
     PathResolver,
     RecordContext,
@@ -324,11 +330,31 @@ class MainWindowTensorConfigMixin:
         self._commit_active_tensor_panel_to_params()
         self._sync_tensor_selector_maps_into_metric_params()
 
-        validate_periodic_aperiodic_notch_bounds(
-            dict(self._tensor_metric_params.get("periodic_aperiodic", {}))
-        )
-
         supported_metric_keys = self._tensor_config_supported_metric_keys()
+        context = self._record_context()
+        if context is None:
+            raise ValueError("Select a record before exporting Tensor configs.")
+        validation_errors: list[str] = []
+        for metric_key in supported_metric_keys:
+            params = dict(self._tensor_metric_params.get(metric_key, {}))
+            try:
+                prepare_metric_plan_inputs(
+                    tensor_service,
+                    context,
+                    metric_key=metric_key,
+                    metric_label=self._tensor_metric_display_name(metric_key),
+                    metric_params=params,
+                )
+            except Exception as exc:  # noqa: BLE001
+                validation_errors.append(
+                    f"{self._tensor_metric_display_name(metric_key)}: {exc}"
+                )
+        if validation_errors:
+            raise ValueError(
+                "Tensor config contains invalid drafts:\n- "
+                + "\n- ".join(validation_errors)
+            )
+
         active_metric = (
             self._tensor_active_metric_key
             if self._tensor_active_metric_key in supported_metric_keys
@@ -360,6 +386,138 @@ class MainWindowTensorConfigMixin:
                 },
             },
         }
+
+    def _tensor_import_metric_defaults(
+        self,
+        metric_key: str,
+        *,
+        context: RecordContext | None,
+        available_channels: tuple[str, ...],
+    ) -> dict[str, Any] | None:
+        getter = getattr(self, "_tensor_effective_metric_defaults", None)
+        if not callable(getter):
+            return None
+        defaults = getter(
+            metric_key,
+            context=context,
+            available_channels=available_channels,
+        )
+        return dict(defaults) if isinstance(defaults, dict) else None
+
+    @staticmethod
+    def _tensor_import_error_fields(
+        message: str,
+        whitelist: tuple[str, ...],
+    ) -> list[str]:
+        lowered = str(message).lower()
+        if "selected channel" in lowered:
+            return ["selected_channels"]
+        if "selected pair" in lowered:
+            return ["selected_pairs"]
+        if "band" in lowered and "bands" in whitelist:
+            return ["bands"]
+        if "specparam freq range" in lowered or "within specparam" in lowered:
+            return ["freq_range_hz"]
+        if "frequency" in lowered and not any(
+            key.lower() in lowered for key in whitelist
+        ):
+            return [
+                key
+                for key in ("low_freq_hz", "high_freq_hz", "freq_step_hz")
+                if key in whitelist
+            ]
+        if "max_cycles" in lowered and "max_cycles" in whitelist:
+            return ["max_cycles"]
+        return [key for key in whitelist if key.lower() in lowered]
+
+    def _repair_tensor_config_metric_params(
+        self,
+        metric_key: str,
+        node: dict[str, Any],
+        *,
+        context: RecordContext | None,
+        available_channels: tuple[str, ...],
+        legacy_notch_fields: bool,
+    ) -> tuple[dict[str, Any], list[str]]:
+        defaults = self._tensor_import_metric_defaults(
+            metric_key,
+            context=context,
+            available_channels=available_channels,
+        )
+        if defaults is None:
+            return self._normalize_tensor_config_metric_params(
+                metric_key,
+                node,
+                available_channels=available_channels,
+                legacy_notch_fields=legacy_notch_fields,
+            )
+
+        whitelist = TENSOR_CONFIG_FIELDS_BY_METRIC.get(metric_key, ())
+        working = dict(node)
+        warnings: list[str] = []
+        unknown_fields = sorted(key for key in working if key not in whitelist)
+        if unknown_fields:
+            warnings.append(
+                f"Removed unavailable values for {metric_key}: "
+                + ", ".join(unknown_fields)
+                + "."
+            )
+        working = {key: value for key, value in working.items() if key in whitelist}
+
+        for key in whitelist:
+            if key in working:
+                continue
+            if key not in defaults:
+                raise ValueError(
+                    f"tensor.metric_params.{metric_key}.{key} is missing and has no safe default."
+                )
+            working[key] = deepcopy(defaults[key])
+            warnings.append(f"Missing default restored for {metric_key}.{key}.")
+
+        max_attempts = len(whitelist) + 4
+        for _attempt in range(max_attempts):
+            try:
+                normalized, metric_warnings = (
+                    self._normalize_tensor_config_metric_params(
+                        metric_key,
+                        working,
+                        available_channels=available_channels,
+                        legacy_notch_fields=legacy_notch_fields,
+                    )
+                )
+                validate_metric_storage_params(
+                    metric_key=metric_key,
+                    metric_label=self._tensor_metric_display_name(metric_key),
+                    metric_params=normalized,
+                )
+                if context is not None:
+                    prepare_metric_plan_inputs(
+                        tensor_service,
+                        context,
+                        metric_key=metric_key,
+                        metric_label=self._tensor_metric_display_name(metric_key),
+                        metric_params=normalized,
+                    )
+            except Exception as exc:  # noqa: BLE001
+                fields = self._tensor_import_error_fields(str(exc), whitelist)
+                fields = [
+                    key
+                    for key in fields
+                    if key in defaults and working.get(key) != defaults.get(key)
+                ]
+                if not fields:
+                    raise ValueError(
+                        f"tensor.metric_params.{metric_key} has no safe repair: {exc}"
+                    ) from exc
+                for key in fields:
+                    working[key] = deepcopy(defaults[key])
+                    warnings.append(f"Invalid value restored for {metric_key}.{key}.")
+                continue
+            warnings.extend(metric_warnings)
+            return normalized, warnings
+        raise ValueError(
+            f"tensor.metric_params.{metric_key} could not be repaired safely."
+        )
 
     def _normalize_tensor_config_metric_params(
         self,
@@ -556,33 +714,32 @@ class MainWindowTensorConfigMixin:
 
         supported_metric_keys = self._tensor_config_supported_metric_keys()
         metric_params_by_key = dict(metric_params)
+        warnings: list[str] = []
         missing = [
             metric_key
             for metric_key in supported_metric_keys
             if metric_key not in metric_params_by_key
         ]
-        required_missing = (
-            [metric_key for metric_key in missing if metric_key != "imcoh_abs"]
-            if version == TENSOR_CONFIG_LEGACY_VERSION
-            else list(missing)
-        )
-        if required_missing:
-            raise ValueError(
-                "Tensor config is missing metric definitions for: "
-                + ", ".join(required_missing)
-                + "."
-            )
         imcoh_abs_defaulted = (
             version == TENSOR_CONFIG_LEGACY_VERSION and "imcoh_abs" in missing
         )
-        if imcoh_abs_defaulted:
-            metric_params_by_key["imcoh_abs"] = self._tensor_effective_metric_defaults(
-                "imcoh_abs",
+        for metric_key in missing:
+            defaults = self._tensor_import_metric_defaults(
+                metric_key,
                 context=context,
                 available_channels=available_channels,
             )
+            if defaults is None:
+                raise ValueError(
+                    "Tensor config is missing metric definitions for: "
+                    + ", ".join(missing)
+                    + "."
+                )
+            metric_params_by_key[metric_key] = defaults
+            warnings.append(
+                f"Missing default restored for tensor.metric_params.{metric_key}."
+            )
 
-        warnings: list[str] = []
         if version == TENSOR_CONFIG_LEGACY_VERSION:
             for metric_key in supported_metric_keys:
                 node = metric_params_by_key.get(metric_key)
@@ -607,7 +764,7 @@ class MainWindowTensorConfigMixin:
                 normalized_legacy["mt_min_cycles"] = 3.0
                 metric_params_by_key[metric_key] = normalized_legacy
             warnings.append(
-                "Version 3 Tensor config was imported.\n\n"
+                "Legacy conversion: Version 3 Tensor config was imported.\n\n"
                 "Legacy Build Tensor notch_widths values were preserved unchanged "
                 "as notch_radii because those values already represented a radius."
                 "\n\nLegacy Multitaper time_bandwidth and mt_bandwidth values "
@@ -630,10 +787,26 @@ class MainWindowTensorConfigMixin:
                     if field_name not in node
                 ]
                 if missing_mt_fields:
-                    raise ValueError(
-                        f"tensor.metric_params.{metric_key} is missing required "
-                        "Multitaper fields: " + ", ".join(missing_mt_fields) + "."
+                    defaults = self._tensor_import_metric_defaults(
+                        metric_key,
+                        context=context,
+                        available_channels=available_channels,
                     )
+                    if defaults is None or any(
+                        field_name not in defaults for field_name in missing_mt_fields
+                    ):
+                        raise ValueError(
+                            f"tensor.metric_params.{metric_key} is missing required "
+                            "Multitaper fields: " + ", ".join(missing_mt_fields) + "."
+                        )
+                    normalized_node = dict(node)
+                    for field_name in missing_mt_fields:
+                        normalized_node[field_name] = deepcopy(defaults[field_name])
+                        warnings.append(
+                            "Missing default restored for "
+                            f"{metric_key}.{field_name}."
+                        )
+                    metric_params_by_key[metric_key] = normalized_node
         unknown_metric_keys = [
             str(metric_key)
             for metric_key in metric_params_by_key.keys()
@@ -648,7 +821,10 @@ class MainWindowTensorConfigMixin:
 
         raw_selected_metrics = tensor_node.get("selected_metrics")
         if not isinstance(raw_selected_metrics, list):
-            raise ValueError("Tensor config `tensor.selected_metrics` must be a list.")
+            raw_selected_metrics = []
+            warnings.append(
+                "Invalid or missing selected_metrics restored to an empty selection."
+            )
         selected_metrics: list[str] = []
         unknown_selected_metrics: list[str] = []
         for item in raw_selected_metrics:
@@ -682,19 +858,26 @@ class MainWindowTensorConfigMixin:
 
         mask_edge_effects = tensor_node.get("mask_edge_effects")
         if not isinstance(mask_edge_effects, bool):
-            raise ValueError(
-                "Tensor config `tensor.mask_edge_effects` must be a boolean."
-            )
-        cpu_percent = normalize_tensor_cpu_percent(
-            tensor_node.get("cpu_percent", DEFAULT_TENSOR_CPU_PERCENT)
-        )
+            mask_edge_effects = True
+            warnings.append("Invalid or missing mask_edge_effects restored to true.")
+        if "cpu_percent" in tensor_node:
+            raw_cpu_percent = tensor_node.get("cpu_percent")
+        else:
+            raw_cpu_percent = DEFAULT_TENSOR_CPU_PERCENT
+            warnings.append("Missing CPU (%) restored to 75.")
+        try:
+            cpu_percent = normalize_tensor_cpu_percent(raw_cpu_percent)
+        except ValueError:
+            cpu_percent = DEFAULT_TENSOR_CPU_PERCENT
+            warnings.append("Invalid CPU (%) restored to 75.")
 
         normalized_metric_params: dict[str, dict[str, Any]] = {}
         for metric_key in supported_metric_keys:
             normalized_params, metric_warnings = (
-                self._normalize_tensor_config_metric_params(
+                self._repair_tensor_config_metric_params(
                     metric_key,
                     metric_params_by_key.get(metric_key, {}),
+                    context=context,
                     available_channels=available_channels,
                     legacy_notch_fields=(version == TENSOR_CONFIG_LEGACY_VERSION),
                 )
@@ -770,12 +953,18 @@ class MainWindowTensorConfigMixin:
         export_path = Path(file_path_text)
         if not export_path.suffix:
             export_path = export_path.with_suffix(".json")
-        export_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
             payload = self._build_tensor_config_export_payload()
+            export_path.parent.mkdir(parents=True, exist_ok=True)
             with export_path.open("w", encoding="utf-8") as handle:
-                json.dump(payload, handle, ensure_ascii=False, indent=2)
+                json.dump(
+                    payload,
+                    handle,
+                    ensure_ascii=False,
+                    indent=2,
+                    allow_nan=False,
+                )
                 handle.write("\n")
         except Exception as exc:  # noqa: BLE001
             self._show_warning("Export Configs", f"Export failed:\n{exc}")
@@ -814,15 +1003,29 @@ class MainWindowTensorConfigMixin:
             self._show_warning("Import Configs", f"Import failed:\n{exc}")
             return
 
+        preview_lines = [
+            "Review the Tensor config normalization before importing:",
+            "",
+        ]
+        if warnings:
+            preview_lines.extend(f"- {warning}" for warning in warnings)
+        else:
+            preview_lines.append("- No normalization was required.")
+        preview_lines.extend(["", "Apply this imported configuration?"])
+        confirmed = self._ask_question(
+            "Import Tensor Configs",
+            "\n".join(preview_lines),
+            buttons=QMessageBox.Yes | QMessageBox.No,
+            default_button=QMessageBox.No,
+        )
+        if confirmed != QMessageBox.Yes:
+            self.statusBar().showMessage("Tensor config import cancelled.")
+            return
+
         self._apply_tensor_import_snapshot(context, tensor_snapshot)
         self._record_param_dirty_keys.update(TENSOR_DIRTY_KEYS)
 
         self.statusBar().showMessage(f"Imported Tensor config: {import_path.name}")
-        if warnings:
-            self._show_information(
-                "Import Configs",
-                "Tensor config imported with warnings:\n- " + "\n- ".join(warnings),
-            )
 
 
 __all__ = [
