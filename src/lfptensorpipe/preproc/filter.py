@@ -33,6 +33,8 @@ import numpy as np
 import mne
 from ..lfp.mask.annotations import MatchMode
 
+FILTER_EDGE_DESCRIPTION = "EDGE_filter"
+
 # -----------------------------------------------------------------------------
 # Utilities
 # -----------------------------------------------------------------------------
@@ -231,6 +233,375 @@ def _build_bad_sample_mask(
             bad_mask[start_samp:stop_samp] = True
 
     return bad_mask
+
+
+def _set_annotations_from_attached_frame(
+    raw: mne.io.BaseRaw,
+    annotations: mne.Annotations,
+) -> None:
+    """Attach annotations whose onsets are already in Raw's exposed frame."""
+    prepared = annotations
+    if annotations.orig_time is None:
+        prepared = mne.Annotations(
+            onset=np.asarray(annotations.onset, dtype=float) - float(raw.first_time),
+            duration=np.asarray(annotations.duration, dtype=float),
+            description=np.asarray(annotations.description, dtype=object).tolist(),
+            orig_time=None,
+            ch_names=list(annotations.ch_names),
+        )
+    raw.set_annotations(prepared)
+
+
+def _without_filter_edges(annotations: mne.Annotations) -> mne.Annotations:
+    """Remove the exact system-owned filter-support annotation."""
+    if len(annotations) == 0:
+        return annotations.copy()
+    keep = np.asarray(
+        [str(desc) != FILTER_EDGE_DESCRIPTION for desc in annotations.description],
+        dtype=bool,
+    )
+    if np.any(keep):
+        return annotations[keep]
+    return mne.Annotations([], [], [], orig_time=annotations.orig_time)
+
+
+def _filter_boundary_support(
+    raw: mne.io.BaseRaw,
+    *,
+    channel: str,
+) -> tuple[np.ndarray, tuple[int, ...]]:
+    """Return invalid samples and point boundaries for one channel."""
+    sfreq = float(raw.info["sfreq"])
+    n_times = int(raw.n_times)
+    sample_shift = int(raw.first_samp)
+    invalid = np.zeros(n_times, dtype=bool)
+    point_boundaries: set[int] = set()
+
+    for onset, duration, description, ch_names in zip(
+        raw.annotations.onset,
+        raw.annotations.duration,
+        raw.annotations.description,
+        raw.annotations.ch_names,
+    ):
+        desc_upper = str(description).upper()
+        if not desc_upper.startswith(("BAD", "EDGE")):
+            continue
+        scope = tuple(str(name) for name in ch_names)
+        if scope and channel not in scope:
+            continue
+
+        start = int(round(float(onset) * sfreq)) - sample_shift
+        stop = int(round((float(onset) + float(duration)) * sfreq)) - sample_shift
+        start = int(np.clip(start, 0, n_times))
+        stop = int(np.clip(stop, 0, n_times))
+        if stop > start:
+            invalid[start:stop] = True
+        elif 0 < start < n_times:
+            point_boundaries.add(start)
+
+    return invalid, tuple(sorted(point_boundaries))
+
+
+def _valid_filter_segments(
+    invalid: np.ndarray,
+    point_boundaries: Sequence[int],
+) -> list[tuple[int, int]]:
+    """Return half-open valid runs split at zero-duration EDGE/BAD points."""
+    valid = ~np.asarray(invalid, dtype=bool)
+    if not np.any(valid):
+        return []
+    changes = np.diff(valid.astype(np.int8))
+    starts = list(np.where(changes == 1)[0] + 1)
+    stops = list(np.where(changes == -1)[0] + 1)
+    if valid[0]:
+        starts.insert(0, 0)
+    if valid[-1]:
+        stops.append(int(valid.size))
+
+    split_points = tuple(int(value) for value in point_boundaries)
+    segments: list[tuple[int, int]] = []
+    for start, stop in zip(starts, stops):
+        cuts = [start]
+        cuts.extend(point for point in split_points if start < point < stop)
+        cuts.append(stop)
+        segments.extend(
+            (left, right) for left, right in zip(cuts[:-1], cuts[1:]) if right > left
+        )
+    return segments
+
+
+def _resolved_notch_widths(
+    freqs: np.ndarray,
+    notch_widths: Union[float, Sequence[float]],
+) -> np.ndarray:
+    widths = np.atleast_1d(np.asarray(notch_widths, dtype=float))
+    if widths.size == 1:
+        return np.full(freqs.shape, float(widths[0]), dtype=float)
+    if widths.size != freqs.size:
+        raise ValueError("notch_widths must be scalar or match the notch count.")
+    return widths
+
+
+def _filter_support_geometry(
+    *,
+    n_times: int,
+    sfreq: float,
+    l_freq: float | None,
+    h_freq: float | None,
+    notches: Sequence[float] | None,
+    notch_widths: Union[float, Sequence[float]],
+) -> dict[str, Any]:
+    """Derive exact sequential zero-phase FIR support from MNE kernels."""
+    probe = np.zeros(max(1, int(n_times)), dtype=float)
+    kernel_lengths: dict[str, int] = {}
+
+    if l_freq is not None or h_freq is not None:
+        band_kernel = mne.filter.create_filter(
+            probe,
+            sfreq,
+            l_freq,
+            h_freq,
+            phase="zero",
+            fir_design="firwin",
+            verbose="ERROR",
+        )
+        kernel_lengths["bandpass"] = int(np.asarray(band_kernel).size)
+
+    resolved_notches = (
+        np.asarray(tuple(notches), dtype=float)
+        if notches is not None
+        else np.empty(0, dtype=float)
+    )
+    if resolved_notches.size:
+        widths = _resolved_notch_widths(resolved_notches, notch_widths)
+        transition_half_width = 0.5
+        lows = resolved_notches - widths / 2.0 - transition_half_width
+        highs = resolved_notches + widths / 2.0 + transition_half_width
+        notch_kernel = mne.filter.create_filter(
+            probe,
+            sfreq,
+            highs,
+            lows,
+            l_trans_bandwidth=transition_half_width,
+            h_trans_bandwidth=transition_half_width,
+            phase="zero",
+            fir_design="firwin",
+            verbose="ERROR",
+        )
+        kernel_lengths["notch"] = int(np.asarray(notch_kernel).size)
+
+    radius_samples = int(sum((length - 1) // 2 for length in kernel_lengths.values()))
+    return {
+        "kernel_lengths": kernel_lengths,
+        "support_radius_samples": radius_samples,
+        "support_radius_sec": float(radius_samples / sfreq),
+    }
+
+
+def _filter_valid_segment(
+    data: np.ndarray,
+    *,
+    sfreq: float,
+    l_freq: float | None,
+    h_freq: float | None,
+    notches: Sequence[float] | None,
+    notch_widths: Union[float, Sequence[float]],
+) -> np.ndarray:
+    """Apply the detection-order filters to one independent valid segment."""
+    filtered = np.asarray(data, dtype=float).copy()
+    if l_freq is not None or h_freq is not None:
+        filtered = mne.filter.filter_data(
+            filtered,
+            sfreq,
+            l_freq,
+            h_freq,
+            phase="zero",
+            fir_design="firwin",
+            verbose="ERROR",
+        )
+    resolved_notches = (
+        np.asarray(tuple(notches), dtype=float)
+        if notches is not None
+        else np.empty(0, dtype=float)
+    )
+    if resolved_notches.size:
+        filtered = mne.filter.notch_filter(
+            filtered,
+            sfreq,
+            resolved_notches,
+            notch_widths=notch_widths,
+            phase="zero",
+            fir_design="firwin",
+            verbose="ERROR",
+        )
+    return np.asarray(filtered, dtype=float)
+
+
+def _mask_annotation_rows(
+    mask: np.ndarray,
+    *,
+    sfreq: float,
+    first_samp: int,
+    scope: tuple[str, ...],
+) -> list[tuple[float, float, str, tuple[str, ...]]]:
+    """Convert a sample mask into half-open annotation rows."""
+    values = np.asarray(mask, dtype=bool)
+    if not np.any(values):
+        return []
+    changes = np.diff(values.astype(np.int8))
+    starts = list(np.where(changes == 1)[0] + 1)
+    stops = list(np.where(changes == -1)[0] + 1)
+    if values[0]:
+        starts.insert(0, 0)
+    if values[-1]:
+        stops.append(int(values.size))
+    return [
+        (
+            float((start + first_samp) / sfreq),
+            float((stop - start) / sfreq),
+            FILTER_EDGE_DESCRIPTION,
+            scope,
+        )
+        for start, stop in zip(starts, stops)
+        if stop > start
+    ]
+
+
+def finalize_reviewed_lfp_filter(
+    raw: mne.io.BaseRaw,
+    *,
+    reviewed_annotations: mne.Annotations,
+    reviewed_bads: Sequence[str],
+    l_freq: float | None,
+    h_freq: float | None,
+    notches: Sequence[float] | None,
+    notch_widths: Union[float, Sequence[float]],
+    boundary_isolated: bool = True,
+) -> tuple[mne.io.BaseRaw, dict[str, Any]]:
+    """Build the accepted Filter result from original data and reviewed BAD/EDGE.
+
+    With ``boundary_isolated=True`` every global/channel-specific valid interval
+    is filtered independently and the exact sequential FIR support is marked as
+    `EDGE_filter`, so artifact energy inside reviewed BAD cannot ring into
+    retained support. With ``boundary_isolated=False`` the reviewed Raw is
+    filtered continuously exactly like MNE whole-Raw filtering: no interval
+    split, no `EDGE_filter` output, and BAD boundaries are not isolated.
+    """
+    out = raw.copy()
+    out.load_data()
+    reviewed = _without_filter_edges(reviewed_annotations)
+    _set_annotations_from_attached_frame(out, reviewed)
+    out.info["bads"] = [name for name in reviewed_bads if name in out.ch_names]
+
+    sfreq = float(out.info["sfreq"])
+    support = _filter_support_geometry(
+        n_times=out.n_times,
+        sfreq=sfreq,
+        l_freq=l_freq,
+        h_freq=h_freq,
+        notches=notches,
+        notch_widths=notch_widths,
+    )
+    radius = int(support["support_radius_samples"])
+    data = out.get_data()
+    edge_masks: list[np.ndarray] = []
+    segment_counts: dict[str, int] = {}
+
+    if not boundary_isolated:
+        data = _filter_valid_segment(
+            data,
+            sfreq=sfreq,
+            l_freq=l_freq,
+            h_freq=h_freq,
+            notches=notches,
+            notch_widths=notch_widths,
+        )
+        segment_counts = {channel: 1 for channel in out.ch_names}
+    else:
+        for channel_index, channel in enumerate(out.ch_names):
+            invalid, point_boundaries = _filter_boundary_support(out, channel=channel)
+            segments = _valid_filter_segments(invalid, point_boundaries)
+            segment_counts[channel] = len(segments)
+            channel_edges = np.zeros(out.n_times, dtype=bool)
+            for start, stop in segments:
+                length = stop - start
+                if radius > 0 and length <= 2 * radius:
+                    channel_edges[start:stop] = True
+                    continue
+                data[channel_index, start:stop] = _filter_valid_segment(
+                    data[channel_index, start:stop],
+                    sfreq=sfreq,
+                    l_freq=l_freq,
+                    h_freq=h_freq,
+                    notches=notches,
+                    notch_widths=notch_widths,
+                )
+                if radius > 0:
+                    channel_edges[start : start + radius] = True
+                    channel_edges[stop - radius : stop] = True
+            edge_masks.append(channel_edges)
+
+    out._data[...] = data
+    annotation_rows: list[tuple[float, float, str, tuple[str, ...]]] = []
+    if edge_masks:
+        common_edges = np.logical_and.reduce(edge_masks)
+        annotation_rows.extend(
+            _mask_annotation_rows(
+                common_edges,
+                sfreq=sfreq,
+                first_samp=int(out.first_samp),
+                scope=(),
+            )
+        )
+        for channel, channel_edges in zip(out.ch_names, edge_masks):
+            annotation_rows.extend(
+                _mask_annotation_rows(
+                    channel_edges & ~common_edges,
+                    sfreq=sfreq,
+                    first_samp=int(out.first_samp),
+                    scope=(channel,),
+                )
+            )
+
+    combined = out.annotations.copy()
+    if annotation_rows:
+        edge_annotations = mne.Annotations(
+            onset=[row[0] for row in annotation_rows],
+            duration=[row[1] for row in annotation_rows],
+            description=[row[2] for row in annotation_rows],
+            orig_time=combined.orig_time,
+            ch_names=[row[3] for row in annotation_rows],
+        )
+        combined = combined + edge_annotations
+        order = np.argsort(np.asarray(combined.onset, dtype=float))
+        combined = mne.Annotations(
+            onset=np.asarray(combined.onset, dtype=float)[order].tolist(),
+            duration=np.asarray(combined.duration, dtype=float)[order].tolist(),
+            description=np.asarray(combined.description, dtype=object)[order].tolist(),
+            orig_time=combined.orig_time,
+            ch_names=[combined.ch_names[index] for index in order],
+        )
+    _set_annotations_from_attached_frame(out, combined)
+
+    _append_info_description(
+        out,
+        (
+            "reviewed_segment_filter: "
+            if boundary_isolated
+            else "reviewed_continuous_filter: "
+        )
+        + f"{l_freq}-{h_freq} Hz; notches={list(notches or [])}; "
+        f"support_radius_sec={support['support_radius_sec']}",
+    )
+    report = {
+        **support,
+        "boundary_isolated": bool(boundary_isolated),
+        "edge_description": FILTER_EDGE_DESCRIPTION if boundary_isolated else None,
+        "n_edge_annotations": len(annotation_rows),
+        "segments_by_channel": segment_counts,
+        "filter_order": ["bandpass", "notch"],
+    }
+    return out, report
 
 
 def merge_contiguous_bad_annotations(

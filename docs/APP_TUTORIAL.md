@@ -378,10 +378,66 @@ The below figure is the plot for `Preprocess Signal 1.Filter`.
 This is the main manual QC step of the preprocess section:
 
 - click `Filter -> Apply`
-- open `Filter -> Plot`
+- after Apply creates a yellow review Preview, open `Filter -> Plot`
 - press `a` in the MNE browser to enter annotation edit mode
 - adjust the `BAD` spans if the automatically detected windows are not
-  acceptable. The modifications are saved automatically upon closing the window.
+  acceptable
+- close the browser. No confirmation is shown: the app automatically rereads
+  the unfiltered Raw, refilters it under the reviewed global/channel-specific
+  `BAD` and `EDGE` annotations, and accepts the result only after that
+  finalization succeeds.
+
+How that refiltering treats BAD boundaries is controlled by
+`Filter -> Advance -> Isolate BAD boundaries when filtering`, which is off by
+default. Both settings share the same review lifecycle and both rebuild the
+accepted result from the original unfiltered Raw; they differ only in the
+filtering itself.
+
+Before Filter Apply, Plot is unavailable for a record with no existing Filter
+result. A valid yellow review Preview is plottable but later preprocess steps
+remain blocked until it is finalized. An existing green finalized or legacy
+Filter result may still be opened without another Apply. Closing such a plot
+without changing annotations or bad-channel selections does not rewrite data or
+invalidate existing results; closing it after a real edit automatically
+refinalizes from the original Raw.
+
+Creating a Preview does not invalidate an earlier accepted Filter generation or
+its downstream results. Those results remain preserved but temporarily
+unavailable while review is pending. They are invalidated only after closing the
+Preview successfully accepts a changed Filter result; a failed finalization
+leaves the earlier accepted generation and downstream state unchanged.
+
+With `Isolate BAD boundaries when filtering` **off** (default), the reviewed Raw
+is filtered continuously, exactly like MNE whole-Raw filtering. No interval is
+split and no `EDGE_filter` annotation is produced, so the full recording remains
+available. Ordinary `BAD`/`BAD_gap` annotations do not make MNE treat their two
+sides as independent signals, so artifact energy inside a reviewed BAD interval
+can still ring into the retained signal on both sides of that interval. Use this
+setting when data yield matters more than exact boundary isolation, and keep in
+mind that values immediately around each BAD interval are influenced by the
+artifact the interval marks.
+
+With the option **on**, each valid interval between global/channel-specific
+`BAD`/`EDGE` boundaries is filtered independently, so BAD-contained energy
+cannot reach retained support. The accepted Filter file then keeps reviewed BAD
+samples numerically unfiltered and marks the adjacent FIR support as
+system-owned `EDGE_filter`. Global support is removed by Bad Segment Removal,
+while channel-specific support stays scoped for downstream channel-aware
+masking. Do not create or rename annotations to the reserved exact description
+`EDGE_filter`.
+
+The isolated mode costs data. One support radius is about 4.95 s at a 1 Hz
+high-pass and 250 Hz sampling, and every BAD boundary consumes that radius on
+each side; an interval shorter than two radii is left unfiltered and marked
+`EDGE_filter` in full. A zero-duration `BAD` point marker also splits the
+signal and costs the same. Dense detection therefore removes a large share of a
+recording: measured on a 300 s record filtered 1-100 Hz with a 50 Hz notch, one
+1 s `BAD` every 60 s leaves about 86 percent usable, one every 20 s leaves about
+50 percent, and one every 10 s leaves about 3 percent.
+
+Switching the option makes an existing Filter result stale, because it changes
+the accepted output values. Rerun Filter and its downstream steps after
+changing it.
 
 #### Channel-specific BAD intervals in the MNE browser
 
@@ -393,7 +449,7 @@ for all channels by default. To restrict the new interval to one or more channel
 3. drag across the required time interval
 4. hold `Shift` and left-click the shaded annotation over each affected channel
    trace
-5. close the browser to save the edited Raw file
+5. close the browser to automatically refilter and accept the reviewed result
 
 For example, one `Shift`-click over channel `A` assigns the interval to `A` only;
 another `Shift`-click over channel `B` assigns it to both `A` and `B`. A

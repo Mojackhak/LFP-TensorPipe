@@ -76,10 +76,25 @@ def _open_step_plot(
 
 
 def _on_preproc_filter_plot(self) -> None:
-    _open_step_plot(
-        self,
-        step="filter",
-        missing_message="Filter Plot unavailable: filter/raw.fif is missing.",
+    context = self._record_context()
+    if context is None:
+        self.statusBar().showMessage(
+            "Filter Plot unavailable: select project/subject/record."
+        )
+        return
+    resolver = PathResolver(context)
+    if self._preproc_filter_review_required_runtime(resolver):
+        raw_path = self._preproc_filter_preview_raw_path_runtime(resolver)
+    else:
+        raw_path = preproc_step_raw_path(resolver, "filter")
+    if not raw_path.exists():
+        self.statusBar().showMessage(
+            "Filter Plot unavailable: no review Preview or accepted Filter result exists."
+        )
+        self._refresh_preproc_controls()
+        return
+    self._open_mne_raw_plot(
+        raw_path,
         title_prefix="Filter",
         autosave_step="filter",
     )

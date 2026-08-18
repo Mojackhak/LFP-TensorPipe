@@ -12,6 +12,7 @@ from lfptensorpipe.app.shared.downstream_invalidation import (
     invalidate_after_preproc_result_change,
 )
 from .paths import (
+    preproc_filter_preview_raw_path as _preproc_filter_preview_raw_path_impl,
     preproc_step_config_path as _preproc_step_config_path_impl,
     preproc_step_log_path as _preproc_step_log_path_impl,
     preproc_step_raw_path as _preproc_step_raw_path_impl,
@@ -39,6 +40,7 @@ from .steps.finish import (
 from .steps.filter import (
     _normalize_notch_widths as _normalize_notch_widths_impl,
     apply_filter_step as _apply_filter_step_impl,
+    finalize_filter_review as _finalize_filter_review_impl,
     default_filter_advance_params as _default_filter_advance_params_impl,
     filter_nyquist_warning as _filter_nyquist_warning_impl,
     normalize_filter_advance_params as _normalize_filter_advance_params_impl,
@@ -49,6 +51,7 @@ from .indicator import (
     preproc_annotations_panel_state as _preproc_annotations_panel_state_impl,
     preproc_ecg_panel_state as _preproc_ecg_panel_state_impl,
     preproc_filter_panel_state as _preproc_filter_panel_state_impl,
+    preproc_filter_review_required as _preproc_filter_review_required_impl,
 )
 
 PREPROC_STEPS = (
@@ -166,6 +169,10 @@ def preproc_step_config_path(resolver: PathResolver, step: str) -> Path:
     return _preproc_step_config_path_impl(resolver, step)
 
 
+def preproc_filter_preview_raw_path(resolver: PathResolver) -> Path:
+    return _preproc_filter_preview_raw_path_impl(resolver)
+
+
 def write_preproc_step_config(
     *,
     resolver: PathResolver,
@@ -274,6 +281,11 @@ def resolve_preproc_step_source(
     if target_index == 0:
         raise ValueError("Raw does not have a preprocess source step.")
 
+    resolver = PathResolver(context)
+    filter_index = PREPROC_STEPS.index("filter")
+    if target_index > filter_index and preproc_filter_review_required(resolver):
+        return None
+
     runtime_read_run_log = read_run_log_fn or read_run_log
     return _resolve_finish_source_impl(
         context,
@@ -321,12 +333,30 @@ def apply_filter_step(
         l_freq=l_freq,
         h_freq=h_freq,
         mark_preproc_step_fn=mark_preproc_step,
-        invalidate_downstream_fn=invalidate_downstream_preproc_steps,
         thread_module=thread_module,
         read_raw_fif_fn=read_raw_fif_fn,
         mark_lfp_bad_segments_fn=mark_lfp_bad_segments_fn,
     )
     return ok, message
+
+
+def finalize_filter_review(
+    context: RecordContext,
+    *,
+    reviewed_annotations: Any,
+    reviewed_bads: list[str] | tuple[str, ...],
+    read_raw_fif_fn: Any | None = None,
+    finalize_reviewed_filter_fn: Any | None = None,
+) -> tuple[bool, str]:
+    return _finalize_filter_review_impl(
+        context,
+        reviewed_annotations=reviewed_annotations,
+        reviewed_bads=reviewed_bads,
+        mark_preproc_step_fn=mark_preproc_step,
+        invalidate_downstream_fn=invalidate_downstream_preproc_steps,
+        read_raw_fif_fn=read_raw_fif_fn,
+        finalize_reviewed_filter_fn=finalize_reviewed_filter_fn,
+    )
 
 
 def apply_bad_segment_step(
@@ -414,6 +444,10 @@ def preproc_filter_panel_state(
         h_freq=h_freq,
         advance_params=advance_params,
     )
+
+
+def preproc_filter_review_required(resolver: PathResolver) -> bool:
+    return _preproc_filter_review_required_impl(resolver)
 
 
 def preproc_annotations_panel_state(

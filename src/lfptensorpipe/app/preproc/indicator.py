@@ -11,7 +11,12 @@ import yaml
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import read_run_log
 
-from .paths import preproc_step_config_path, preproc_step_log_path
+from .paths import (
+    preproc_filter_preview_log_path,
+    preproc_filter_preview_raw_path,
+    preproc_step_config_path,
+    preproc_step_log_path,
+)
 from .steps.annotations import _normalize_annotation_rows
 from .steps.ecg import normalize_ecg_method_params
 from .steps.filter import normalize_filter_advance_params
@@ -126,6 +131,7 @@ def _filter_signature(
             else list(normalized_advance["p2p_thresh"])
         ),
         "autoreject_correct_factor": normalized_advance["autoreject_correct_factor"],
+        "boundary_isolated_filter": normalized_advance["boundary_isolated_filter"],
     }
 
 
@@ -142,6 +148,7 @@ def _filter_signature_from_log(payload: dict[str, Any]) -> dict[str, Any] | None
             "epoch_dur": params.get("epoch_dur"),
             "p2p_thresh": params.get("p2p_thresh"),
             "autoreject_correct_factor": params.get("autoreject_correct_factor"),
+            "boundary_isolated_filter": params.get("boundary_isolated_filter"),
         },
     )
 
@@ -155,6 +162,8 @@ def preproc_filter_panel_state(
     advance_params: dict[str, Any] | None,
 ) -> str:
     """Return `gray|yellow|green` for the editable Filter panel."""
+    if preproc_filter_review_required(resolver):
+        return "yellow"
     payload = _read_payload(preproc_step_log_path(resolver, "filter"))
     state = _preproc_log_state(resolver, "filter", payload)
     if state == "gray":
@@ -174,6 +183,21 @@ def preproc_filter_panel_state(
     if current_signature is None:
         return "yellow"
     return "green" if current_signature == completed_signature else "yellow"
+
+
+def preproc_filter_review_required(resolver: PathResolver) -> bool:
+    """Return whether one valid Filter detection Preview awaits review."""
+    payload = _read_payload(preproc_filter_preview_log_path(resolver))
+    if not isinstance(payload, dict) or payload.get("completed") is not False:
+        return False
+    params = payload.get("params")
+    if not isinstance(params, dict):
+        return False
+    return bool(
+        params.get("review_status") == "required"
+        and params.get("filter_output_role") == "preview"
+        and preproc_filter_preview_raw_path(resolver).exists()
+    )
 
 
 def _annotations_signature(rows: list[dict[str, Any]]) -> list[dict[str, Any]] | None:

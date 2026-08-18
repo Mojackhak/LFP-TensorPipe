@@ -250,6 +250,56 @@ def _finalize_tracked_browser_close(self, token: int, event: Any | None = None) 
     try:
         if step == "raw":
             self.statusBar().showMessage(f"{title_prefix} plot closed.")
+        elif step == "filter" and context is not None and isinstance(raw_path, Path):
+            opened_signature = entry.get("opened_signature")
+            closed_signature = _preproc_plot_raw_signature(raw)
+            output_role = str(entry.get("filter_output_role", "scientific"))
+            should_finalize = (
+                output_role == "preview" or opened_signature != closed_signature
+            )
+            if not should_finalize:
+                self.statusBar().showMessage(f"{title_prefix} plot closed.")
+            else:
+                stale_reason = _preproc_plot_stale_target_reason(
+                    raw_path,
+                    opened_disk_state=entry.get("opened_disk_state"),
+                )
+                if stale_reason is not None:
+                    message = (
+                        f"{title_prefix} plot closed: review discarded because "
+                        f"{raw_path.name} {stale_reason}."
+                    )
+                    self.statusBar().showMessage(message)
+                    self._show_warning(f"{title_prefix} Plot", message)
+                else:
+                    reviewed_annotations = raw.annotations.copy()
+                    reviewed_bads = list(raw.info.get("bads", []))
+                    active_figures = getattr(self, "_active_plot_figures", None)
+                    can_switch_to_busy = not registry and not active_figures
+                    if can_switch_to_busy:
+                        self._set_global_ui_lock("plot", False)
+
+                    def work() -> tuple[bool, str]:
+                        return self._finalize_filter_review_runtime(
+                            context,
+                            reviewed_annotations=reviewed_annotations,
+                            reviewed_bads=reviewed_bads,
+                        )
+
+                    if can_switch_to_busy and hasattr(self, "_run_with_busy"):
+                        ok, message = self._run_with_busy("Filter Finalize", work)
+                    else:
+                        ok, message = work()
+                    self._refresh_stage_states_from_context()
+                    self._refresh_preproc_controls()
+                    if ok:
+                        self.statusBar().showMessage(
+                            f"{title_prefix} plot closed: {message}"
+                        )
+                    else:
+                        warning = f"{title_prefix} plot close failed: {message}"
+                        self.statusBar().showMessage(warning)
+                        self._show_warning(f"{title_prefix} Plot", warning)
         elif (
             step in _PLOT_CHANGE_TRACKED_STEPS
             and context is not None
@@ -413,6 +463,11 @@ def _track_mne_browser(
             _preproc_plot_disk_state(raw_path)
             if step in _PLOT_CHANGE_TRACKED_STEPS
             else None
+        ),
+        "filter_output_role": (
+            "preview"
+            if step == "filter" and raw_path.name == "preview_raw.fif"
+            else "scientific"
         ),
         "close_requested": False,
         "closed": False,

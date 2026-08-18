@@ -29,6 +29,21 @@ def preproc_step_raw_path(resolver: PathResolver, step: str) -> Path:
     return resolver.preproc_step_dir(step, create=True) / "raw.fif"
 
 
+def preproc_filter_preview_raw_path(resolver: PathResolver) -> Path:
+    """Return the private detection-preview FIF path for Filter review."""
+    return resolver.preproc_step_dir("filter") / "qc" / "preview_raw.fif"
+
+
+def preproc_filter_preview_config_path(resolver: PathResolver) -> Path:
+    """Return the private detection-preview config path."""
+    return resolver.preproc_step_dir("filter") / "qc" / "preview_config.yml"
+
+
+def preproc_filter_preview_log_path(resolver: PathResolver) -> Path:
+    """Return the private detection-preview run-log path."""
+    return resolver.preproc_step_dir("filter") / "qc" / "preview_log.json"
+
+
 def preproc_step_log_path(resolver: PathResolver, step: str) -> Path:
     """Return `{step}/lfptensorpipe_log.json` path inside preproc root."""
     return resolver.preproc_step_dir(step, create=True) / "lfptensorpipe_log.json"

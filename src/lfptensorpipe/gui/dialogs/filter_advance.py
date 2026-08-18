@@ -19,7 +19,7 @@ class FilterAdvanceDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Filter Advance")
         self.setModal(True)
-        self.resize(520, 220)
+        self.resize(520, 250)
         self._selected_action: str | None = None
         self._selected_params: dict[str, Any] | None = None
         self._default_params = default_params
@@ -38,6 +38,7 @@ class FilterAdvanceDialog(QDialog):
         self._epoch_dur_edit = QLineEdit()
         self._p2p_thresh_edit = QLineEdit()
         self._autoreject_factor_edit = QLineEdit()
+        self._boundary_isolated_check = QCheckBox()
 
         notch_widths_tooltip = (
             "Notch filter bandwidth (Hz) used for each notch in Filter > Notches. "
@@ -56,6 +57,17 @@ class FilterAdvanceDialog(QDialog):
         autoreject_tooltip = (
             "Multiplier for AutoReject channel thresholds. Higher values are more "
             "tolerant (fewer rejections); lower values are stricter. Must be > 0."
+        )
+        boundary_isolated_tooltip = (
+            "Off (default): the reviewed Raw is filtered continuously, exactly like "
+            "whole-Raw filtering. Artifact energy inside a reviewed BAD interval can "
+            "ring into the retained signal on both sides.\n"
+            "On: every valid interval between BAD/EDGE boundaries is filtered "
+            "independently and the filter support at each interval edge is marked "
+            "EDGE_filter, which removes that leakage but also removes those edges "
+            "from the usable signal. One support radius is roughly 5 s at a 1 Hz "
+            "high-pass, so records with many BAD marks lose a large share of their "
+            "data."
         )
 
         notch_widths_label = QLabel("notch widths")
@@ -77,6 +89,11 @@ class FilterAdvanceDialog(QDialog):
         autoreject_label.setToolTip(autoreject_tooltip)
         self._autoreject_factor_edit.setToolTip(autoreject_tooltip)
         form.addRow(autoreject_label, self._autoreject_factor_edit)
+
+        boundary_isolated_label = QLabel("isolate BAD boundaries when filtering")
+        boundary_isolated_label.setToolTip(boundary_isolated_tooltip)
+        self._boundary_isolated_check.setToolTip(boundary_isolated_tooltip)
+        form.addRow(boundary_isolated_label, self._boundary_isolated_check)
         root.addLayout(form)
 
         button_row = QWidget()
@@ -157,6 +174,9 @@ class FilterAdvanceDialog(QDialog):
         self._autoreject_factor_edit.setText(
             f"{float(params.get('autoreject_correct_factor', 1.5)):g}"
         )
+        self._boundary_isolated_check.setChecked(
+            params.get("boundary_isolated_filter", False) is True
+        )
 
     @staticmethod
     def _parse_notch_widths(text: str) -> float | list[float]:
@@ -186,6 +206,7 @@ class FilterAdvanceDialog(QDialog):
             "autoreject_correct_factor": float(
                 self._autoreject_factor_edit.text().strip()
             ),
+            "boundary_isolated_filter": self._boundary_isolated_check.isChecked(),
         }
         valid, normalized, message = normalize_filter_advance_params(candidate)
         if not valid:

@@ -133,7 +133,9 @@ def build_preproc_filter_block(self, *, grid_spacing: int) -> QGroupBox:
     self._preproc_filter_plot_button = QPushButton("Plot")
     self._preproc_filter_advance_button.setToolTip("Open advanced filter parameters.")
     self._preproc_filter_apply_button.setToolTip("Run filter with current parameters.")
-    self._preproc_filter_plot_button.setToolTip("Plot filtered output.")
+    self._preproc_filter_plot_button.setToolTip(
+        "Review a pending Filter preview or open the accepted Filter result."
+    )
     self._preproc_filter_advance_button.clicked.connect(self._on_preproc_filter_advance)
     self._preproc_filter_apply_button.clicked.connect(self._on_preproc_filter_apply)
     self._preproc_filter_plot_button.clicked.connect(self._on_preproc_filter_plot)

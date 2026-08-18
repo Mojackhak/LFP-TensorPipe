@@ -7,10 +7,16 @@ import math
 import threading
 from typing import Any, Callable
 
+import yaml
+
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
+from lfptensorpipe.app.runlog_store import read_run_log
 from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
 
 from ..paths import (
+    preproc_filter_preview_config_path,
+    preproc_filter_preview_log_path,
+    preproc_filter_preview_raw_path,
     preproc_step_config_path,
     preproc_step_log_path,
     preproc_step_raw_path,
@@ -32,6 +38,7 @@ def default_filter_advance_params() -> dict[str, Any]:
         "epoch_dur": float(cfg.epoch_dur),
         "p2p_thresh": [float(cfg.p2p_thresh[0]), float(cfg.p2p_thresh[1])],
         "autoreject_correct_factor": float(cfg.autoreject_correct_factor),
+        "boundary_isolated_filter": False,
     }
 
 
@@ -147,9 +154,17 @@ def normalize_filter_advance_params(
         "epoch_dur",
         "p2p_thresh",
         "autoreject_correct_factor",
+        "boundary_isolated_filter",
     ):
         if key in params:
             merged[key] = params[key]
+
+    # A missing or null flag means the legacy whole-Raw contract, so results
+    # written before this option remain comparable instead of turning stale.
+    if merged["boundary_isolated_filter"] is None:
+        merged["boundary_isolated_filter"] = False
+    if not isinstance(merged["boundary_isolated_filter"], bool):
+        return False, defaults, "boundary_isolated_filter must be true or false."
 
     try:
         notch_widths = _normalize_notch_widths(merged["notch_widths"])
@@ -198,6 +213,7 @@ def normalize_filter_advance_params(
             "epoch_dur": epoch_dur,
             "p2p_thresh": p2p_thresh,
             "autoreject_correct_factor": autoreject_correct_factor,
+            "boundary_isolated_filter": merged["boundary_isolated_filter"],
         },
         "",
     )
@@ -211,17 +227,18 @@ def apply_filter_step(
     l_freq: float | None,
     h_freq: float | None,
     mark_preproc_step_fn: MarkStepFn,
-    invalidate_downstream_fn: InvalidateFn,
     thread_module: Any = threading,
     read_raw_fif_fn: Callable[..., Any] | None = None,
     mark_lfp_bad_segments_fn: Callable[..., Any] | None = None,
 ) -> tuple[bool, str]:
-    """Apply preprocess filter step using BAD-segment marker defaults."""
+    """Create a detection-filtered Preview for manual BAD review."""
     from lfptensorpipe.preproc.filter import BadAnnotationConfig, mark_lfp_bad_segments
 
     resolver = PathResolver(context)
     src = preproc_step_raw_path(resolver, "raw")
-    dst = preproc_step_raw_path(resolver, "filter")
+    preview = preproc_filter_preview_raw_path(resolver)
+    preview_config_path = preproc_filter_preview_config_path(resolver)
+    preview_log_path = preproc_filter_preview_log_path(resolver)
     reject_plot_path = (
         resolver.preproc_step_dir("filter", create=True) / "qc" / "reject.png"
     )
@@ -243,15 +260,6 @@ def apply_filter_step(
     runtime_notches = list(runtime_params["notches"])
 
     if not src.exists():
-        mark_preproc_step_fn(
-            resolver=resolver,
-            step="filter",
-            completed=False,
-            input_path=str(src),
-            output_path=str(dst),
-            message="Missing preprocess raw input for filter step.",
-        )
-        invalidate_downstream_fn(context, "filter")
         return False, "Missing preprocess raw input for filter step."
 
     try:
@@ -301,20 +309,18 @@ def apply_filter_step(
             cfg,
             reject_plot_path=runtime_reject_plot_path,
         )
-        config_path = preproc_step_config_path(resolver, "filter")
-        log_path = preproc_step_log_path(resolver, "filter")
         with AtomicOutputSet(
-            [dst, config_path, log_path],
+            [preview, preview_config_path, preview_log_path],
             cleanup_stale_residues=True,
         ) as output_set:
             raw_marked.save(
-                str(output_set.staged_path(dst)),
+                str(output_set.staged_path(preview)),
                 overwrite=True,
             )
             write_preproc_step_config(
                 resolver=resolver,
                 step="filter",
-                path=output_set.staged_path(config_path),
+                path=output_set.staged_path(preview_config_path),
                 config={
                     "low_freq": cfg.l_freq,
                     "high_freq": cfg.h_freq,
@@ -323,12 +329,17 @@ def apply_filter_step(
                     "bad_annotation_config": asdict(cfg),
                     "summary": summary,
                     "reject_plot_path": str(reject_plot_path),
+                    "boundary_isolated_filter": normalized_params[
+                        "boundary_isolated_filter"
+                    ],
+                    "review_status": "required",
+                    "filter_output_role": "preview",
                 },
             )
             mark_preproc_step_fn(
                 resolver=resolver,
                 step="filter",
-                completed=True,
+                completed=False,
                 params={
                     "low_freq": cfg.l_freq,
                     "high_freq": cfg.h_freq,
@@ -341,24 +352,178 @@ def apply_filter_step(
                     ),
                     "autoreject_correct_factor": cfg.autoreject_correct_factor,
                     "reject_plot_path": str(reject_plot_path),
+                    "boundary_isolated_filter": normalized_params[
+                        "boundary_isolated_filter"
+                    ],
+                    "review_status": "required",
+                    "filter_output_role": "preview",
                 },
                 input_path=str(src),
+                output_path=str(preview),
+                message="Filter preview ready; manual review is required.",
+                log_path=output_set.staged_path(preview_log_path),
+            )
+            output_set.commit()
+    except Exception as exc:
+        return False, f"Filter step failed: {exc}"
+
+    return True, "Filter preview ready; close Plot to finalize."
+
+
+def finalize_filter_review(
+    context: RecordContext,
+    *,
+    reviewed_annotations: Any,
+    reviewed_bads: list[str] | tuple[str, ...],
+    mark_preproc_step_fn: MarkStepFn,
+    invalidate_downstream_fn: InvalidateFn,
+    read_raw_fif_fn: Callable[..., Any] | None = None,
+    finalize_reviewed_filter_fn: Callable[..., Any] | None = None,
+) -> tuple[bool, str]:
+    """Regenerate and atomically accept Filter output from reviewed annotations."""
+    from lfptensorpipe.preproc.filter import finalize_reviewed_lfp_filter
+
+    resolver = PathResolver(context)
+    src = preproc_step_raw_path(resolver, "raw")
+    dst = preproc_step_raw_path(resolver, "filter")
+    preview = preproc_filter_preview_raw_path(resolver)
+    preview_config_path = preproc_filter_preview_config_path(resolver)
+    preview_log_path = preproc_filter_preview_log_path(resolver)
+    config_path = preproc_step_config_path(resolver, "filter")
+    log_path = preproc_step_log_path(resolver, "filter")
+    if not src.exists():
+        return False, "Missing preprocess raw input for Filter finalization."
+
+    preview_payload = read_run_log(preview_log_path)
+    preview_params = (
+        preview_payload.get("params") if isinstance(preview_payload, dict) else None
+    )
+    pending_preview = bool(
+        preview.exists()
+        and isinstance(preview_params, dict)
+        and preview_payload.get("completed") is False
+        and preview_params.get("review_status") == "required"
+        and preview_params.get("filter_output_role") == "preview"
+    )
+    state_log_path = preview_log_path if pending_preview else log_path
+    state_config_path = preview_config_path if pending_preview else config_path
+    payload = read_run_log(state_log_path)
+    params = payload.get("params") if isinstance(payload, dict) else None
+    if not isinstance(params, dict):
+        params = {}
+    config: dict[str, Any] = {}
+    if state_config_path.exists():
+        loaded = yaml.safe_load(state_config_path.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict):
+            config = loaded
+    detection_config = config.get("bad_annotation_config")
+    if not isinstance(detection_config, dict):
+        detection_config = {}
+
+    valid_runtime, runtime_params, runtime_message = normalize_filter_runtime_params(
+        notches=params.get("notches", config.get("notches", [])),
+        l_freq=params.get("low_freq", config.get("low_freq")),
+        h_freq=params.get("high_freq", config.get("high_freq")),
+    )
+    persisted_advance: dict[str, Any] = {}
+    for key in (
+        "notch_widths",
+        "epoch_dur",
+        "p2p_thresh",
+        "autoreject_correct_factor",
+        "boundary_isolated_filter",
+    ):
+        if key in params:
+            persisted_advance[key] = params[key]
+        elif key in config:
+            persisted_advance[key] = config[key]
+        elif key in detection_config:
+            persisted_advance[key] = detection_config[key]
+    valid_advance, advance, advance_message = normalize_filter_advance_params(
+        persisted_advance
+    )
+    if not valid_runtime:
+        return False, f"Invalid persisted Filter params: {runtime_message}"
+    if not valid_advance:
+        return False, f"Invalid persisted Filter Advance params: {advance_message}"
+
+    cleanup_warning = ""
+    try:
+        if read_raw_fif_fn is None:
+            import mne
+
+            read_raw_fif_fn = mne.io.read_raw_fif
+        runtime_finalize = finalize_reviewed_filter_fn or finalize_reviewed_lfp_filter
+        raw = read_raw_fif_fn(str(src), preload=True, verbose="ERROR")
+        finalized, support_report = runtime_finalize(
+            raw,
+            reviewed_annotations=reviewed_annotations,
+            reviewed_bads=reviewed_bads,
+            l_freq=runtime_params["l_freq"],
+            h_freq=runtime_params["h_freq"],
+            notches=runtime_params["notches"],
+            notch_widths=advance["notch_widths"],
+            boundary_isolated=advance["boundary_isolated_filter"],
+        )
+        final_params = {
+            **params,
+            "low_freq": runtime_params["l_freq"],
+            "high_freq": runtime_params["h_freq"],
+            "notches": runtime_params["notches"],
+            "notch_widths": advance["notch_widths"],
+            "epoch_dur": advance["epoch_dur"],
+            "p2p_thresh": advance["p2p_thresh"],
+            "autoreject_correct_factor": advance["autoreject_correct_factor"],
+            "boundary_isolated_filter": advance["boundary_isolated_filter"],
+            "review_status": "finalized",
+            "filter_output_role": "scientific",
+            "filter_support_radius_sec": support_report["support_radius_sec"],
+            "filter_edge_description": support_report["edge_description"],
+        }
+        final_config = {
+            **config,
+            "low_freq": runtime_params["l_freq"],
+            "high_freq": runtime_params["h_freq"],
+            "notches": runtime_params["notches"],
+            "boundary_isolated_filter": advance["boundary_isolated_filter"],
+            "review_status": "finalized",
+            "filter_output_role": "scientific",
+            "filter_support": support_report,
+        }
+        with AtomicOutputSet(
+            [dst, config_path, log_path],
+            cleanup_stale_residues=True,
+        ) as output_set:
+            finalized.save(str(output_set.staged_path(dst)), overwrite=True)
+            write_preproc_step_config(
+                resolver=resolver,
+                step="filter",
+                path=output_set.staged_path(config_path),
+                config=final_config,
+            )
+            mark_preproc_step_fn(
+                resolver=resolver,
+                step="filter",
+                completed=True,
+                params=final_params,
+                input_path=str(src),
                 output_path=str(dst),
-                message="Filter step completed with mark_lfp_bad_segments defaults.",
+                message="Filter review finalized from the original Raw.",
                 log_path=output_set.staged_path(log_path),
             )
             output_set.commit()
+        cleanup_errors: list[str] = []
+        for preview_artifact in (preview, preview_config_path, preview_log_path):
+            try:
+                preview_artifact.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                cleanup_errors.append(f"{preview_artifact.name}: {exc}")
+        if cleanup_errors:
+            cleanup_warning = " Preview cleanup warning: " + "; ".join(cleanup_errors)
         invalidate_downstream_fn(context, "filter")
     except Exception as exc:
-        mark_preproc_step_fn(
-            resolver=resolver,
-            step="filter",
-            completed=False,
-            input_path=str(src),
-            output_path=str(dst),
-            message=f"Filter step failed: {exc}",
-        )
-        invalidate_downstream_fn(context, "filter")
-        return False, f"Filter step failed: {exc}"
+        return False, f"Filter finalization failed: {exc}"
 
-    return True, "Filter step completed."
+    return True, "Filter review finalized." + cleanup_warning

@@ -29,6 +29,7 @@ from lfptensorpipe.app import (
     extract_features_indicator_state,
     features_panel_state,
     filter_nyquist_warning,
+    finalize_filter_review,
     finish_alignment_epochs,
     has_reconstruction_mat,
     import_record_from_raw,
@@ -48,6 +49,8 @@ from lfptensorpipe.app import (
     preproc_annotations_panel_state,
     preproc_ecg_panel_state,
     preproc_filter_panel_state,
+    preproc_filter_preview_raw_path,
+    preproc_filter_review_required,
     record_delete_scope_paths,
     recover_record_rename,
     rename_record,
@@ -439,6 +442,9 @@ class MainWindowRuntimeDependenciesMixin:
     def _apply_filter_step_runtime(self, context: Any, **kwargs: Any) -> Any:
         return apply_filter_step(context, **kwargs)
 
+    def _finalize_filter_review_runtime(self, context: Any, **kwargs: Any) -> Any:
+        return finalize_filter_review(context, **kwargs)
+
     def _filter_nyquist_warning_runtime(self, **kwargs: Any) -> str:
         return filter_nyquist_warning(**kwargs)
 
@@ -463,6 +469,12 @@ class MainWindowRuntimeDependenciesMixin:
         **kwargs: Any,
     ) -> str:
         return preproc_filter_panel_state(*args, **kwargs)
+
+    def _preproc_filter_preview_raw_path_runtime(self, resolver: Any) -> Path:
+        return preproc_filter_preview_raw_path(resolver)
+
+    def _preproc_filter_review_required_runtime(self, resolver: Any) -> bool:
+        return preproc_filter_review_required(resolver)
 
     def _preproc_annotations_panel_state_runtime(
         self,

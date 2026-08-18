@@ -175,6 +175,11 @@ class MainWindowPreprocStageMixin:
             h_freq=filter_high_freq,
             advance_params=self._preproc_filter_advance_params,
         )
+        filter_review_required = self._preproc_filter_review_required_runtime(resolver)
+        filter_preview_exists = self._preproc_filter_preview_raw_path_runtime(
+            resolver
+        ).exists()
+        downstream_allowed = not filter_review_required
         annotation_rows, _ = self._annotations_table_rows()
         annotations_panel_state = self._preproc_annotations_panel_state_runtime(
             resolver,
@@ -222,7 +227,8 @@ class MainWindowPreprocStageMixin:
             self._preproc_filter_apply_button.setEnabled(raw_ready)
         if self._preproc_filter_plot_button is not None:
             self._preproc_filter_plot_button.setEnabled(
-                filter_panel_state == "green" and filter_raw_exists
+                (filter_review_required and filter_preview_exists)
+                or (filter_panel_state == "green" and filter_raw_exists)
             )
         if self._preproc_filter_notches_edit is not None:
             self._preproc_filter_notches_edit.setEnabled(raw_ready)
@@ -231,36 +237,52 @@ class MainWindowPreprocStageMixin:
         if self._preproc_filter_high_freq_edit is not None:
             self._preproc_filter_high_freq_edit.setEnabled(raw_ready)
         if self._preproc_annotations_edit_button is not None:
-            self._preproc_annotations_edit_button.setEnabled(raw_ready)
+            self._preproc_annotations_edit_button.setEnabled(
+                raw_ready and downstream_allowed
+            )
         if self._preproc_annotations_save_button is not None:
-            self._preproc_annotations_save_button.setEnabled(raw_ready)
+            self._preproc_annotations_save_button.setEnabled(
+                raw_ready and downstream_allowed
+            )
         if self._preproc_annotations_import_button is not None:
-            self._preproc_annotations_import_button.setEnabled(raw_ready)
+            self._preproc_annotations_import_button.setEnabled(
+                raw_ready and downstream_allowed
+            )
         if self._preproc_annotations_plot_button is not None:
             self._preproc_annotations_plot_button.setEnabled(
-                annotations_panel_state == "green" and annotations_raw_exists
+                downstream_allowed
+                and annotations_panel_state == "green"
+                and annotations_raw_exists
             )
         if self._preproc_bad_segment_apply_button is not None:
-            self._preproc_bad_segment_apply_button.setEnabled(raw_ready)
+            self._preproc_bad_segment_apply_button.setEnabled(
+                raw_ready and downstream_allowed
+            )
         if self._preproc_bad_segment_plot_button is not None:
             self._preproc_bad_segment_plot_button.setEnabled(
-                bad_segment_log_state == "green" and bad_segment_raw_exists
+                downstream_allowed
+                and bad_segment_log_state == "green"
+                and bad_segment_raw_exists
             )
         if self._preproc_ecg_advance_button is not None:
-            self._preproc_ecg_advance_button.setEnabled(raw_ready)
+            self._preproc_ecg_advance_button.setEnabled(
+                raw_ready and downstream_allowed
+            )
         if self._preproc_ecg_apply_button is not None:
-            self._preproc_ecg_apply_button.setEnabled(raw_ready)
+            self._preproc_ecg_apply_button.setEnabled(raw_ready and downstream_allowed)
         if self._preproc_ecg_plot_button is not None:
             self._preproc_ecg_plot_button.setEnabled(
-                ecg_panel_state == "green" and ecg_raw_exists
+                downstream_allowed and ecg_panel_state == "green" and ecg_raw_exists
             )
         if self._preproc_ecg_method_combo is not None:
-            self._preproc_ecg_method_combo.setEnabled(raw_ready)
+            self._preproc_ecg_method_combo.setEnabled(raw_ready and downstream_allowed)
         if self._preproc_finish_apply_button is not None:
-            self._preproc_finish_apply_button.setEnabled(finish_source_exists)
+            self._preproc_finish_apply_button.setEnabled(
+                downstream_allowed and finish_source_exists
+            )
         if self._preproc_finish_plot_button is not None:
             self._preproc_finish_plot_button.setEnabled(
-                finish_log_state == "green" and finish_raw_exists
+                downstream_allowed and finish_log_state == "green" and finish_raw_exists
             )
         self._refresh_preproc_ecg_channel_state(context)
         self._refresh_preproc_visualization_controls(context)
