@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import math
+
 from .common import (
     AppConfigStore,
     Path,
@@ -22,6 +24,7 @@ from .common import (
     RECORD_CONFIG_FILENAME,
     RECORD_IMPORT_TYPES,
     RECORD_RESET_REFERENCE_DEFAULTS_KEY,
+    set_control_validation_error,
     validate_record_name,
 )
 from .dataset_types import ParsedImportPreview, ResetReferenceRow
@@ -124,6 +127,7 @@ class RecordImportDialog(QDialog):
         left_layout.addWidget(QLabel("Record Name"), row, 0)
         self._record_name_edit = QLineEdit()
         self._record_name_edit.textEdited.connect(self._on_record_name_edited)
+        self._record_name_edit.editingFinished.connect(self._refresh_input_validation)
         self._record_name_edit.setToolTip(
             "Record name to create under the current subject."
         )
@@ -335,12 +339,14 @@ class RecordImportDialog(QDialog):
             self._csv_sr_edit,
         ):
             edit.textChanged.connect(self._on_parse_inputs_changed)
+            edit.editingFinished.connect(self._refresh_input_validation)
         self._csv_unit_combo.currentTextChanged.connect(self._on_parse_inputs_changed)
         self._sync_check.toggled.connect(self._on_sync_toggled)
         self._reset_check.toggled.connect(self._on_reset_toggled)
 
         self._update_type_visibility()
         self._invalidate_parse_state()
+        self._refresh_input_validation()
 
     @property
     def selected_import_type(self) -> str:
@@ -478,10 +484,12 @@ class RecordImportDialog(QDialog):
     def _on_import_type_changed(self, _text: str) -> None:
         self._update_type_visibility()
         self._invalidate_parse_state()
+        self._refresh_input_validation()
 
     def _on_advanced_toggled(self, _checked: bool) -> None:
         self._update_type_visibility()
         self._invalidate_parse_state()
+        self._refresh_input_validation()
 
     def _on_parse_inputs_changed(self, _text: str) -> None:
         self._invalidate_parse_state()
@@ -492,12 +500,95 @@ class RecordImportDialog(QDialog):
         if self._parsed is not None:
             self._result_label.setText(self._format_parse_result(self._parsed))
         self._update_confirm_button_state()
+        self._refresh_input_validation()
 
     def _on_reset_toggled(self, _checked: bool) -> None:
         self._reset_configure_button.setEnabled(
             self._parsed is not None and self._reset_check.isChecked()
         )
         self._update_confirm_button_state()
+        self._refresh_input_validation()
+
+    def _refresh_input_validation(self) -> None:
+        for control in (
+            self._record_name_edit,
+            self._file_path_edit,
+            self._metadata_path_edit,
+            self._marker_path_edit,
+            self._csv_sr_edit,
+            self._sync_configure_button,
+            self._reset_configure_button,
+        ):
+            set_control_validation_error(control, None)
+
+        ok_name, normalized_name = validate_record_name(self.selected_record_name)
+        if not ok_name:
+            set_control_validation_error(self._record_name_edit, normalized_name)
+        elif self._record_name_is_occupied(normalized_name):
+            set_control_validation_error(
+                self._record_name_edit,
+                f"Record name is occupied: {normalized_name}",
+            )
+
+        path_text = self._file_path_edit.text().strip()
+        if not path_text:
+            set_control_validation_error(self._file_path_edit, "File Path is required.")
+        else:
+            source_path = Path(path_text).expanduser()
+            if not source_path.exists() or not source_path.is_file():
+                set_control_validation_error(
+                    self._file_path_edit,
+                    f"File Path must be an existing file: {source_path}",
+                )
+
+        import_type = self.selected_import_type
+        if self._advanced_check.isChecked() and import_type in {"PINS", "Sceneray"}:
+            optional_paths = [(self._metadata_path_edit, "Metadata")]
+            if import_type == "PINS":
+                optional_paths.append((self._marker_path_edit, "Marker"))
+            for edit, label in optional_paths:
+                value = edit.text().strip()
+                if value:
+                    sidecar = Path(value).expanduser()
+                    if not sidecar.exists() or not sidecar.is_file():
+                        set_control_validation_error(
+                            edit,
+                            f"{label} must be an existing file: {sidecar}",
+                        )
+
+        if import_type == "Legacy (CSV)":
+            sr_text = self._csv_sr_edit.text().strip()
+            try:
+                sr_value = float(sr_text)
+            except (TypeError, ValueError):
+                set_control_validation_error(
+                    self._csv_sr_edit, "Sampling rate must be numeric."
+                )
+            else:
+                if not math.isfinite(sr_value) or sr_value <= 0.0:
+                    set_control_validation_error(
+                        self._csv_sr_edit,
+                        "Sampling rate must be finite and > 0.",
+                    )
+
+        if self._parsed is not None and self._sync_check.isChecked():
+            set_control_validation_error(
+                self._sync_configure_button,
+                (
+                    None
+                    if self._sync_state is not None
+                    else "Sync configuration is required."
+                ),
+            )
+        if self._parsed is not None and self._reset_check.isChecked():
+            set_control_validation_error(
+                self._reset_configure_button,
+                (
+                    None
+                    if self._reset_rows
+                    else "At least one reset-reference pair is required."
+                ),
+            )
 
     def _update_type_visibility(self) -> None:
         _update_type_visibility_impl(self)

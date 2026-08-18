@@ -10,6 +10,7 @@ from lfptensorpipe.gui.shell.common import (
     Path,
     PathResolver,
     QDialog,
+    QMessageBox,
     RecordContext,
 )
 
@@ -284,7 +285,7 @@ class MainWindowLocalizeConfigMixin:
 
     def _normalize_localize_import_payload(
         self,
-    ) -> tuple[str, tuple[str, ...], dict[str, Any]]:
+    ) -> tuple[str, tuple[str, ...], dict[str, Any], list[str]]:
         context = self._record_context()
         if context is None:
             raise ValueError("Select project, subject, and record first.")
@@ -312,19 +313,49 @@ class MainWindowLocalizeConfigMixin:
         localize_node = payload.get("localize")
         if not isinstance(localize_node, dict):
             raise ValueError("Localize config is missing required `localize` object.")
+        warnings: list[str] = []
         atlas = str(localize_node.get("atlas", "")).strip()
         if atlas not in self._localize_available_atlases:
-            raise ValueError(
-                "Imported Localize atlas is unavailable for the current space."
-            )
+            default_atlas, _ = self._resolve_localize_dialog_seed()
+            if not default_atlas:
+                raise ValueError(
+                    "Imported Localize atlas is unavailable and no safe default exists."
+                )
+            atlas = default_atlas
+            warnings.append("Invalid value restored: localize.atlas.")
+        raw_regions = localize_node.get("selected_regions")
         selected_regions = self._normalize_localize_selected_regions(
             atlas,
-            localize_node.get("selected_regions"),
+            raw_regions,
         )
+        if isinstance(raw_regions, list) and len(selected_regions) < len(raw_regions):
+            warnings.append("Removed unavailable value(s): localize.selected_regions.")
         if not selected_regions:
-            raise ValueError(
-                "Imported Localize config does not select any valid region for the current atlas."
+            defaults = self._load_localize_defaults().get(
+                self._localize_inferred_space or ""
             )
+            default_regions = (
+                defaults.get("selected_regions", [])
+                if isinstance(defaults, dict)
+                and str(defaults.get("atlas", "")).strip() == atlas
+                else []
+            )
+            selected_regions = self._normalize_localize_selected_regions(
+                atlas,
+                default_regions,
+            )
+            if not selected_regions:
+                selected_regions = self._localize_region_names_for_atlas(atlas)
+            if not selected_regions:
+                raise ValueError(
+                    "Imported Localize region selection is invalid and no safe default exists."
+                )
+            category = (
+                "Missing default restored"
+                if "selected_regions" not in localize_node
+                else "Invalid value restored"
+            )
+            warnings.append(f"{category}: localize.selected_regions.")
         ok_channels, message_channels, channels = self._load_record_channels_for_match()
         if not ok_channels:
             raise ValueError(message_channels)
@@ -346,6 +377,15 @@ class MainWindowLocalizeConfigMixin:
             localize_node.get("match"),
             expected_channels=channels,
         )
+        raw_match = localize_node.get("match")
+        raw_mappings = raw_match.get("mappings") if isinstance(raw_match, dict) else []
+        if isinstance(raw_mappings, list) and any(
+            isinstance(item, dict)
+            and str(item.get("rep_coord", "Mid")).strip().title()
+            not in {"Anode", "Cathode", "Mid"}
+            for item in raw_mappings
+        ):
+            warnings.append("Invalid value restored: localize.match.rep_coord -> Mid.")
         match_payload.update(
             {
                 "subject": self._current_subject,
@@ -354,7 +394,7 @@ class MainWindowLocalizeConfigMixin:
                 "atlas": atlas,
             }
         )
-        return atlas, selected_regions, match_payload
+        return atlas, selected_regions, match_payload, warnings
 
     def _on_localize_export_config(self) -> None:
         context = self._record_context()
@@ -375,12 +415,17 @@ class MainWindowLocalizeConfigMixin:
         export_path = Path(file_path_text)
         if not export_path.suffix:
             export_path = export_path.with_suffix(".json")
-        export_path.parent.mkdir(parents=True, exist_ok=True)
-
         try:
             payload = self._build_localize_export_payload()
+            export_path.parent.mkdir(parents=True, exist_ok=True)
             with export_path.open("w", encoding="utf-8") as handle:
-                json.dump(payload, handle, ensure_ascii=False, indent=2)
+                json.dump(
+                    payload,
+                    handle,
+                    ensure_ascii=False,
+                    indent=2,
+                    allow_nan=False,
+                )
                 handle.write("\n")
         except Exception as exc:  # noqa: BLE001
             self._show_warning("Export Configs", f"Export failed:\n{exc}")
@@ -396,7 +441,7 @@ class MainWindowLocalizeConfigMixin:
             )
             return
         try:
-            atlas, selected_regions, match_payload = (
+            atlas, selected_regions, match_payload, warnings = (
                 self._normalize_localize_import_payload()
             )
         except ValueError as exc:
@@ -406,6 +451,25 @@ class MainWindowLocalizeConfigMixin:
             return
         except Exception as exc:  # noqa: BLE001
             self._show_warning("Import Configs", f"Import failed:\n{exc}")
+            return
+
+        preview_lines = [
+            "Review the Localize config normalization before importing:",
+            "",
+        ]
+        if warnings:
+            preview_lines.extend(f"- {warning}" for warning in warnings)
+        else:
+            preview_lines.append("- No normalization was required.")
+        preview_lines.extend(["", "Apply this imported configuration?"])
+        confirmed = self._ask_question(
+            "Import Localize Configs",
+            "\n".join(preview_lines),
+            buttons=QMessageBox.Yes | QMessageBox.No,
+            default_button=QMessageBox.No,
+        )
+        if confirmed != QMessageBox.Yes:
+            self.statusBar().showMessage("Localize config import cancelled.")
             return
 
         if not self._save_localize_draft(

@@ -18,6 +18,7 @@ from .common import (
     QVBoxLayout,
     QWidget,
     Qt,
+    set_control_validation_error,
 )
 from lfptensorpipe.gui.dialogs import (
     checked_item_texts as _dialog_checked_item_texts,
@@ -186,17 +187,24 @@ class LocalizeAtlasDialog(QDialog):
         total = len(self._current_region_names())
         suffix = f" {self._status_message}" if self._status_message else ""
         self._status_label.setText(f"Status: {selected}/{total} selected{suffix}")
-        self._save_button.setEnabled(selected > 0)
+        error = (
+            "At least one region must be selected."
+            if total > 0 and selected == 0
+            else ""
+        )
+        set_control_validation_error(self._region_list, error)
+        self._save_button.setEnabled(bool(self._current_atlas()))
 
     def _apply_region_selection(
         self,
         selected_regions: tuple[str, ...] | list[str] | None,
         *,
         message: str,
+        use_all_if_empty: bool = False,
     ) -> None:
         region_names = self._current_region_names()
         normalized = _normalize_region_selection(region_names, selected_regions)
-        if not normalized and region_names:
+        if use_all_if_empty and not normalized and region_names:
             normalized = tuple(region_names)
         self._status_message = message.strip()
         self._render_regions(normalized)
@@ -215,6 +223,8 @@ class LocalizeAtlasDialog(QDialog):
                 continue
             atlas = str(raw_entry.get("atlas", "")).strip()
             selected_regions = raw_entry.get("selected_regions", [])
+            if not isinstance(selected_regions, (list, tuple)):
+                selected_regions = []
             out[space] = {
                 "atlas": atlas,
                 "selected_regions": [
@@ -291,16 +301,20 @@ class LocalizeAtlasDialog(QDialog):
         self._atlas_combo.blockSignals(True)
         self._atlas_combo.setCurrentIndex(atlas_index)
         self._atlas_combo.blockSignals(False)
-        self._apply_region_selection(selected_regions, message=message)
+        self._apply_region_selection(
+            selected_regions,
+            message=message,
+            use_all_if_empty=True,
+        )
 
     def _on_save(self) -> None:
         atlas = self._current_atlas()
         selected_regions = self._current_selected_regions()
-        if not atlas or not selected_regions:
+        if not atlas:
             QMessageBox.warning(
                 self,
                 "Localize Atlas",
-                "Select one atlas and at least one region before saving.",
+                "Select one atlas before saving.",
             )
             return
         self._selected_payload = {

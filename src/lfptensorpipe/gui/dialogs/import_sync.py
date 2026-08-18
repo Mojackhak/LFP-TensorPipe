@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,7 @@ from .common import (
     build_import_sync_seed,
     build_import_synced_raw,
     estimate_import_sync,
+    set_control_validation_error,
 )
 
 
@@ -101,6 +103,14 @@ class SyncDetectAdvanceDialog(QDialog):
         footer.addStretch(1)
         footer.addWidget(save_button)
         root.addLayout(footer)
+        for edit in (
+            self._start_edit,
+            self._stop_edit,
+            self._height_edit,
+            self._prominence_edit,
+        ):
+            edit.editingFinished.connect(self._refresh_validation)
+        self._refresh_validation()
 
     @property
     def selected_config(self) -> PeakDetectConfig | None:
@@ -111,26 +121,65 @@ class SyncDetectAdvanceDialog(QDialog):
         text = edit.text().strip()
         return None if not text else float(text)
 
+    def _validated_config(self) -> PeakDetectConfig:
+        start = self._float_or_none(self._start_edit)
+        stop = self._float_or_none(self._stop_edit)
+        search_range_s = None
+        if start is not None or stop is not None:
+            if start is None or stop is None:
+                raise ValueError("Search range requires both start and stop values.")
+            if not math.isfinite(start) or not math.isfinite(stop):
+                raise ValueError("Search range values must be finite.")
+            if start < 0.0 or stop <= start:
+                raise ValueError("Search range must satisfy 0 <= start < stop.")
+            search_range_s = (start, stop)
+        height = self._float_or_none(self._height_edit)
+        if height is not None and not math.isfinite(height):
+            raise ValueError("Height must be finite when provided.")
+        prominence = self._float_or_none(self._prominence_edit)
+        if prominence is not None and (
+            not math.isfinite(prominence) or prominence < 0.0
+        ):
+            raise ValueError("Prominence must be finite and >= 0 when provided.")
+        return PeakDetectConfig(
+            search_range_s=search_range_s,
+            min_distance_s=self._current_config.min_distance_s,
+            height=height,
+            prominence=prominence,
+            max_peaks=self._current_config.max_peaks,
+            use_abs=self._current_config.use_abs,
+        )
+
+    def _refresh_validation(self) -> None:
+        controls = (
+            self._start_edit,
+            self._stop_edit,
+            self._height_edit,
+            self._prominence_edit,
+        )
+        for control in controls:
+            set_control_validation_error(control, None)
+        try:
+            self._validated_config()
+        except (TypeError, ValueError) as exc:
+            message = str(exc)
+            lowered = message.lower()
+            if "search range" in lowered:
+                targets = (self._start_edit, self._stop_edit)
+            elif "height" in lowered:
+                targets = (self._height_edit,)
+            elif "prominence" in lowered:
+                targets = (self._prominence_edit,)
+            else:
+                targets = controls
+            for control in targets:
+                set_control_validation_error(control, message)
+
     def _on_save(self) -> None:
         try:
-            start = self._float_or_none(self._start_edit)
-            stop = self._float_or_none(self._stop_edit)
-            search_range_s = None
-            if start is not None or stop is not None:
-                if start is None or stop is None:
-                    raise ValueError(
-                        "Search range requires both start and stop values."
-                    )
-                search_range_s = (start, stop)
-            self._selected_config = PeakDetectConfig(
-                search_range_s=search_range_s,
-                min_distance_s=self._current_config.min_distance_s,
-                height=self._float_or_none(self._height_edit),
-                prominence=self._float_or_none(self._prominence_edit),
-                max_peaks=self._current_config.max_peaks,
-                use_abs=self._current_config.use_abs,
-            )
+            self._selected_config = self._validated_config()
         except Exception as exc:  # noqa: BLE001
+            self._refresh_validation()
             QMessageBox.warning(self, "Sync Advance", str(exc))
             return
         self.accept()
@@ -243,6 +292,16 @@ class ImportSyncDialog(QDialog):
 
         self._load_initial_state()
         self._update_lfp_channel_enabled_state()
+        self._update_external_detect_enabled_state()
+        self._lfp_distance_edit.editingFinished.connect(self._refresh_validation)
+        self._external_distance_edit.editingFinished.connect(self._refresh_validation)
+        self._external_path_edit.editingFinished.connect(self._refresh_validation)
+        self._external_source_combo.currentTextChanged.connect(
+            self._on_external_source_changed
+        )
+        self._correct_sfreq_check.toggled.connect(
+            lambda _checked: self._refresh_validation()
+        )
         self._refresh_all()
 
     @property
@@ -387,11 +446,14 @@ class ImportSyncDialog(QDialog):
 
     def _build_detect_config(self, side: str) -> PeakDetectConfig:
         advanced = getattr(self, f"_{side}_advanced_detect_config")
+        raw_distance = self._float_or_none(getattr(self, f"_{side}_distance_edit"))
+        if raw_distance is None:
+            raise ValueError("Min distance is required.")
+        if not math.isfinite(raw_distance) or raw_distance <= 0.0:
+            raise ValueError("Min distance must be finite and > 0.")
         return PeakDetectConfig(
             search_range_s=advanced.search_range_s,
-            min_distance_s=(
-                self._float_or_none(getattr(self, f"_{side}_distance_edit")) or 1.0
-            ),
+            min_distance_s=raw_distance,
             height=advanced.height,
             prominence=advanced.prominence,
             max_peaks=advanced.max_peaks,
@@ -418,6 +480,50 @@ class ImportSyncDialog(QDialog):
 
     def _on_lfp_source_changed(self, _text: str) -> None:
         self._update_lfp_channel_enabled_state()
+        self._refresh_validation()
+
+    def _update_external_detect_enabled_state(self) -> None:
+        enabled = self._external_source_combo.currentText() == "Audio"
+        self._external_distance_label.setEnabled(enabled)
+        self._external_distance_edit.setEnabled(enabled)
+        self._external_advance_button.setEnabled(enabled)
+
+    def _on_external_source_changed(self, _text: str) -> None:
+        self._update_external_detect_enabled_state()
+        self._refresh_validation()
+
+    def _refresh_validation(self) -> None:
+        for control in (
+            self._lfp_distance_edit,
+            self._external_distance_edit,
+            self._external_path_edit,
+            self._pair_table,
+        ):
+            set_control_validation_error(control, None)
+        if self._lfp_source_combo.currentText() == "Channel peaks":
+            try:
+                self._build_detect_config("lfp")
+            except (TypeError, ValueError) as exc:
+                set_control_validation_error(self._lfp_distance_edit, str(exc))
+        if self._external_source_combo.currentText() == "Audio":
+            try:
+                self._build_detect_config("external")
+            except (TypeError, ValueError) as exc:
+                set_control_validation_error(self._external_distance_edit, str(exc))
+        path_text = self._external_path_edit.text().strip()
+        if path_text:
+            path = Path(path_text).expanduser()
+            if not path.exists() or not path.is_file():
+                set_control_validation_error(
+                    self._external_path_edit,
+                    f"External marker path must be an existing file: {path}",
+                )
+        required_pairs = 2 if self._correct_sfreq_check.isChecked() else 1
+        if len(self._pairs) < required_pairs:
+            set_control_validation_error(
+                self._pair_table,
+                f"At least {required_pairs} marker pair(s) are required.",
+            )
 
     def _on_external_browse(self) -> None:
         selected, _ = QFileDialog.getOpenFileName(
@@ -428,6 +534,7 @@ class ImportSyncDialog(QDialog):
         )
         if selected:
             self._external_path_edit.setText(str(Path(selected).expanduser().resolve()))
+            self._refresh_validation()
 
     def _reset_estimate(self) -> None:
         self._estimate = None
@@ -462,6 +569,15 @@ class ImportSyncDialog(QDialog):
         return (max(suffixes) + 1) if suffixes else 0
 
     def _on_lfp_reload(self) -> None:
+        if self._lfp_source_combo.currentText() == "Channel peaks":
+            try:
+                detect_config = self._build_detect_config("lfp")
+            except (TypeError, ValueError) as exc:
+                self._refresh_validation()
+                QMessageBox.warning(self, "Sync", str(exc))
+                return
+        else:
+            detect_config = None
         self._reset_estimate()
         self._pairs = []
         if self._lfp_source_combo.currentText() == "Parsed annotations":
@@ -471,22 +587,27 @@ class ImportSyncDialog(QDialog):
             markers, figure_data = detect_raw_channel_markers(
                 self._raw,
                 self._lfp_channel_combo.currentText().strip(),
-                self._build_detect_config("lfp"),
+                detect_config,
             )
             self._lfp_markers = list(markers)
             self._lfp_figure_data = figure_data
         self._refresh_all()
 
     def _on_external_reload(self) -> None:
+        self._refresh_validation()
         path = self._external_path_edit.text().strip()
         if not path:
+            set_control_validation_error(
+                self._external_path_edit, "External marker file path is required."
+            )
             QMessageBox.warning(self, "Sync", "External marker file path is required.")
             return
         try:
             if self._external_source_combo.currentText() == "Audio":
+                detect_config = self._build_detect_config("external")
                 markers, figure_data = load_external_markers_from_audio(
                     path,
-                    self._build_detect_config("external"),
+                    detect_config,
                 )
             else:
                 markers = load_external_markers_from_csv(path)
@@ -605,6 +726,7 @@ class ImportSyncDialog(QDialog):
         self._refresh_all()
 
     def _on_estimate(self) -> None:
+        self._refresh_validation()
         try:
             estimate = estimate_import_sync(
                 lfp_markers=self._lfp_markers,
@@ -629,6 +751,7 @@ class ImportSyncDialog(QDialog):
         self._show_preview_dialog(fig)
 
     def _on_save(self) -> None:
+        self._refresh_validation()
         if self._estimate is None:
             QMessageBox.warning(self, "Sync", "Run Sync before saving.")
             return
@@ -750,3 +873,4 @@ class ImportSyncDialog(QDialog):
         self._populate_marker_table(self._external_table, self._external_markers)
         self._refresh_pairs()
         self._refresh_summary()
+        self._refresh_validation()

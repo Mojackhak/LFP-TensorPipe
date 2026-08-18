@@ -142,6 +142,14 @@ def _show_status_message(dialog, message: str) -> None:
 
 
 def _on_set_default(dialog) -> None:
+    if len(dialog._mapping) != len(dialog._all_channels):
+        missing = len(dialog._all_channels) - len(dialog._mapping)
+        QMessageBox.warning(
+            dialog,
+            "Match",
+            f"All channels must be mapped before setting defaults. Missing: {missing}",
+        )
+        return
     if dialog._config_store is None:
         _show_status_message(
             dialog, "Match defaults unavailable: config store missing."
@@ -330,14 +338,6 @@ def _on_reset_all(dialog) -> None:
 
 
 def _on_save(dialog) -> None:
-    if len(dialog._mapping) != len(dialog._all_channels):
-        missing = len(dialog._all_channels) - len(dialog._mapping)
-        QMessageBox.warning(
-            dialog,
-            "Match",
-            f"All channels must be mapped before save. Missing: {missing}",
-        )
-        return
     rows: list[dict[str, str]] = []
     for channel in dialog._all_channels:
         mapping = dialog._mapping.get(channel)

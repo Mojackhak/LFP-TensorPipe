@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from .common import (
@@ -49,6 +50,7 @@ def _on_browse_main_file(dialog) -> None:
     if not dialog._record_name_edited and not dialog._record_name_edit.text().strip():
         dialog._record_name_edit.setText(path.stem)
     _invalidate_parse_state(dialog)
+    dialog._refresh_input_validation()
 
 
 def _browse_sidecar(dialog, *, title: str) -> str:
@@ -67,6 +69,7 @@ def _on_browse_metadata(dialog) -> None:
         return
     dialog._metadata_path_edit.setText(str(Path(selected).expanduser().resolve()))
     _invalidate_parse_state(dialog)
+    dialog._refresh_input_validation()
 
 
 def _on_browse_marker(dialog) -> None:
@@ -75,6 +78,7 @@ def _on_browse_marker(dialog) -> None:
         return
     dialog._marker_path_edit.setText(str(Path(selected).expanduser().resolve()))
     _invalidate_parse_state(dialog)
+    dialog._refresh_input_validation()
 
 
 def _collect_parse_request(
@@ -107,8 +111,8 @@ def _collect_parse_request(
             sr_val = float(sr_text)
         except Exception as exc:  # noqa: BLE001
             raise ValueError("Sampling rate must be numeric.") from exc
-        if sr_val <= 0:
-            raise ValueError("Sampling rate must be > 0.")
+        if not math.isfinite(sr_val) or sr_val <= 0:
+            raise ValueError("Sampling rate must be finite and > 0.")
         options = {"sr": sr_val, "unit": dialog._csv_unit_combo.currentText().strip()}
 
     return import_type, paths, options, source_path
@@ -166,6 +170,7 @@ def _format_parse_result(dialog, preview: ParsedImportPreview) -> str:
 
 
 def _on_parse(dialog) -> None:
+    dialog._refresh_input_validation()
     try:
         import_type, paths, options, source_path = _collect_parse_request(dialog)
     except Exception as exc:  # noqa: BLE001
@@ -209,6 +214,7 @@ def _on_parse(dialog) -> None:
     dialog._set_sync_summary()
     dialog._reset_configure_button.setEnabled(dialog._reset_check.isChecked())
     _update_confirm_button_state(dialog)
+    dialog._refresh_input_validation()
 
 
 def _on_sync_configure(dialog) -> None:
@@ -236,6 +242,7 @@ def _on_sync_configure(dialog) -> None:
     dialog._set_sync_summary()
     dialog._result_label.setText(_format_parse_result(dialog, dialog._parsed))
     _update_confirm_button_state(dialog)
+    dialog._refresh_input_validation()
 
 
 def _on_reset_configure(dialog) -> None:
@@ -257,9 +264,11 @@ def _on_reset_configure(dialog) -> None:
     dialog._reset_rows = reset_dialog.selected_rows
     dialog._set_reset_summary()
     _update_confirm_button_state(dialog)
+    dialog._refresh_input_validation()
 
 
 def _on_confirm(dialog) -> None:
+    dialog._refresh_input_validation()
     if dialog._parsed is None:
         return
     ok, normalized = validate_record_name(dialog.selected_record_name)

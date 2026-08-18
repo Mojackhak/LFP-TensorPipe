@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app import validate_record_name
+
 
 def _set_result_placeholder(dialog) -> None:
     dialog._result_label.setText("No parse result yet.")
@@ -57,6 +59,10 @@ def _update_confirm_button_state(dialog) -> None:
         dialog._confirm_button.setEnabled(False)
         return
     if dialog._record_name_is_occupied():
+        dialog._confirm_button.setEnabled(False)
+        return
+    ok_name, _ = validate_record_name(dialog.selected_record_name)
+    if not ok_name:
         dialog._confirm_button.setEnabled(False)
         return
     if dialog._sync_check.isChecked() and dialog._sync_state is None:

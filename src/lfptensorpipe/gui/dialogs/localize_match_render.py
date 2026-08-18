@@ -12,6 +12,7 @@ from .common import (
     QTableWidgetItem,
     QVBoxLayout,
     make_action_table_item,
+    set_control_validation_error,
 )
 
 
@@ -148,7 +149,15 @@ def _refresh_status(dialog) -> None:
     dialog._status_label.setText(f"Status: {mapped}/{total} mapped")
     dialog._status_label.setToolTip(
         "Mapped channels / total channels. "
-        f"Save requires full mapping ({mapped}/{total})."
+        f"Apply, Set as Default, and Export require full mapping ({mapped}/{total})."
+    )
+    set_control_validation_error(
+        dialog._mapping_table,
+        (
+            None
+            if mapped == total
+            else f"Map all channels before Apply. Missing: {total - mapped}."
+        ),
     )
 
 

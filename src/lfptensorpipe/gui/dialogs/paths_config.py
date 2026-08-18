@@ -55,6 +55,7 @@ class PathsConfigDialog(QDialog):
             row_layout.addWidget(browse_button, stretch=0)
             form.addRow(label, row)
             self._path_edits[key] = edit
+            edit.editingFinished.connect(self._refresh_validation)
 
         root.addLayout(form)
 
@@ -68,6 +69,7 @@ class PathsConfigDialog(QDialog):
         if cancel_button is not None:
             cancel_button.setToolTip("Close without saving path changes.")
         root.addWidget(footer)
+        self._refresh_validation()
 
     @property
     def selected_paths(self) -> dict[str, str] | None:
@@ -130,6 +132,24 @@ class PathsConfigDialog(QDialog):
         if not selected:
             return
         edit.setText(str(Path(selected).expanduser()))
+        self._refresh_validation()
+
+    def _refresh_validation(self) -> None:
+        for edit in self._path_edits.values():
+            set_control_validation_error(edit, None)
+        for key, label in LOCALIZE_PATH_FIELD_LABELS.items():
+            edit = self._path_edits.get(key)
+            raw_value = edit.text().strip() if edit is not None else ""
+            error = ""
+            if not raw_value:
+                error = f"{label} is required."
+            else:
+                resolved = Path(raw_value).expanduser()
+                if not resolved.exists():
+                    error = f"{label} does not exist: {resolved}"
+                elif not resolved.is_dir():
+                    error = f"{label} must be an existing directory: {resolved}"
+            set_control_validation_error(edit, error or None)
 
     def _collect_validated_paths(self) -> dict[str, str]:
         errors: list[str] = []
@@ -156,6 +176,7 @@ class PathsConfigDialog(QDialog):
         try:
             validated = self._collect_validated_paths()
         except Exception as exc:  # noqa: BLE001
+            self._refresh_validation()
             self._show_warning("Configs", f"Invalid paths:\n{exc}")
             return
         self._selected_paths = validated

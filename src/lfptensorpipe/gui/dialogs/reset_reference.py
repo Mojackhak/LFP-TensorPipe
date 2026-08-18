@@ -25,6 +25,7 @@ from .common import (
     QVBoxLayout,
     QWidget,
     make_action_table_item,
+    set_control_validation_error,
 )
 from .dataset_types import ResetReferenceRow
 
@@ -280,6 +281,10 @@ class ResetReferenceDialog(QDialog):
                     tool_tip="Delete this pair.",
                 ),
             )
+        set_control_validation_error(
+            self._pair_table,
+            None if self._rows else "At least one pair is required before import.",
+        )
         self._update_footer_states()
 
     def _on_draft_anode_changed(self, _text: str) -> None:
@@ -305,6 +310,27 @@ class ResetReferenceDialog(QDialog):
         cathode = self._draft_cathode_edit.text().strip()
         name = self._draft_name_edit.text().strip()
         self._draft_apply_button.setEnabled(bool((anode or cathode) and name))
+        has_draft = bool(anode or cathode or name)
+        set_control_validation_error(
+            self._draft_anode_edit,
+            (
+                "At least one endpoint is required."
+                if has_draft and not (anode or cathode)
+                else None
+            ),
+        )
+        set_control_validation_error(
+            self._draft_cathode_edit,
+            (
+                "At least one endpoint is required."
+                if has_draft and not (anode or cathode)
+                else None
+            ),
+        )
+        set_control_validation_error(
+            self._draft_name_edit,
+            "Name is required." if has_draft and not name else None,
+        )
 
     def _update_footer_states(self) -> None:
         has_rows = len(self._rows) > 0
@@ -387,6 +413,12 @@ class ResetReferenceDialog(QDialog):
 
     def _on_set_default(self) -> None:
         rows = self.selected_rows
+        if not rows:
+            self._show_warning(
+                "Reset Reference",
+                "At least one pair is required before setting defaults.",
+            )
+            return
         if self._set_default_callback is not None:
             try:
                 self._set_default_callback(rows)
@@ -404,9 +436,4 @@ class ResetReferenceDialog(QDialog):
         self._render_pairs()
 
     def _on_save(self) -> None:
-        if not self._rows:
-            self._show_warning(
-                "Reset Reference", "At least one pair is required to save."
-            )
-            return
         self.accept()

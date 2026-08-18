@@ -113,7 +113,7 @@ class LocalizeMatchDialog(QDialog):
         status_layout.setSpacing(6)
         self._status_label = QLabel("Status: 0/0 mapped")
         self._status_label.setToolTip(
-            "Mapped channels / total channels. Save requires full mapping."
+            "Mapped channels / total channels. Apply, Set as Default, and Export require full mapping."
         )
         status_layout.addWidget(self._status_label)
         status_layout.addStretch(1)
