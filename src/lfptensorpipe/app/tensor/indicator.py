@@ -346,7 +346,7 @@ def _metric_log_signature(
             or len(peak_width_limits) != 2
         ):
             return None
-        return {
+        signature = {
             "low_freq": float(params.get("low_freq")),
             "high_freq": float(params.get("high_freq")),
             "step_hz": float(params.get("step_hz")),
@@ -355,13 +355,7 @@ def _metric_log_signature(
             "hop_s": float(params.get("hop_s")),
             "freq_range_hz": freq_range,
             "freq_smooth_enabled": bool(params.get("freq_smooth_enabled", True)),
-            "freq_smooth_sigma": _as_optional_float(
-                params.get("freq_smooth_sigma"), 1.5
-            ),
             "time_smooth_enabled": bool(params.get("time_smooth_enabled", True)),
-            "time_smooth_kernel_size": _as_optional_int(
-                params.get("time_smooth_kernel_size")
-            ),
             "aperiodic_mode": str(params.get("aperiodic_mode", "fixed")),
             "peak_width_limits_hz": [
                 float(peak_width_limits[0]),
@@ -376,6 +370,15 @@ def _metric_log_signature(
             "notch_intervals_hz": notch_intervals,
             "selected_channels": channels,
         }
+        if signature["freq_smooth_enabled"]:
+            signature["freq_smooth_sigma"] = _as_optional_float(
+                params.get("freq_smooth_sigma"), 1.5
+            )
+        if signature["time_smooth_enabled"]:
+            signature["time_smooth_kernel_size"] = _as_optional_int(
+                params.get("time_smooth_kernel_size")
+            )
+        return signature
     if metric_key in {"coherence", "imcoh_abs", "plv", "ciplv", "pli", "wpli"}:
         if params.get("padding_mode") != CONNECTIVITY_PADDING_MODE:
             return None
@@ -410,7 +413,7 @@ def _metric_log_signature(
         pairs = _normalize_pairs(params.get("selected_pairs"), directed=True)
         if pairs is None:
             return None
-        return {
+        signature = {
             "low_freq": float(params.get("low_freq")),
             "high_freq": float(params.get("high_freq")),
             "step_hz": float(params.get("step_hz")),
@@ -421,11 +424,13 @@ def _metric_log_signature(
             **_spectral_method_signature(params, require_multitaper_fields=True),
             "gc_n_lags": _as_int(params.get("gc_n_lags"), 20),
             "group_by_samples": bool(params.get("group_by_samples", False)),
-            "round_ms": _as_float(params.get("round_ms"), 50.0),
             "mask_edge_effects": bool(params.get("mask_edge_effects", True)),
             "notch_intervals_hz": notch_intervals,
             "selected_pairs": pairs,
         }
+        if not signature["group_by_samples"]:
+            signature["round_ms"] = _as_float(params.get("round_ms"), 50.0)
+        return signature
     if metric_key == "psi":
         pairs = _normalize_pairs(params.get("selected_pairs"), directed=True)
         bands_used = _normalize_runtime_bands_signature(params.get("bands_used"))
@@ -568,10 +573,6 @@ def _current_metric_signature(
     spec = TENSOR_METRICS_BY_KEY.get(metric_key)
     if spec is None or not spec.supported:
         return None
-    notch_payload = _notch_payload(metric_params)
-    if notch_payload is None:
-        return None
-    notches, notch_radii = notch_payload
     prepared = prepare_metric_plan_inputs(
         _VALIDATION_SVC,
         context,
@@ -579,6 +580,11 @@ def _current_metric_signature(
         metric_label=spec.display_name,
         metric_params=dict(metric_params),
     )
+    params = prepared.metric_params
+    notch_payload = _notch_payload(params)
+    if notch_payload is None:
+        return None
+    notches, notch_radii = notch_payload
     notch_intervals = _notch_intervals_signature(
         notches=notches,
         notch_radii=notch_radii,
@@ -593,9 +599,9 @@ def _current_metric_signature(
             "low_freq": prepared.metric_low,
             "high_freq": prepared.metric_high,
             "step_hz": prepared.metric_step,
-            **_spectral_method_signature(metric_params),
-            "time_resolution_s": _as_float(metric_params.get("time_resolution_s"), 0.5),
-            "hop_s": _as_float(metric_params.get("hop_s"), 0.025),
+            **_spectral_method_signature(params),
+            "time_resolution_s": float(params["time_resolution_s"]),
+            "hop_s": float(params["hop_s"]),
             "mask_edge_effects": bool(mask_edge_effects),
             "notch_intervals_hz": notch_intervals,
             "selected_channels": channels,
@@ -605,41 +611,38 @@ def _current_metric_signature(
         if channels is None or prepared.parsed_freq_range is None:
             return None
         peak_width_limits = prepared.parsed_peak_width_limits
-        return {
+        signature = {
             "low_freq": prepared.metric_low,
             "high_freq": prepared.metric_high,
             "step_hz": prepared.metric_step,
-            **_spectral_method_signature(metric_params),
-            "time_resolution_s": _as_float(metric_params.get("time_resolution_s"), 0.5),
-            "hop_s": _as_float(metric_params.get("hop_s"), 0.025),
+            **_spectral_method_signature(params),
+            "time_resolution_s": float(params["time_resolution_s"]),
+            "hop_s": float(params["hop_s"]),
             "freq_range_hz": [
                 float(prepared.parsed_freq_range[0]),
                 float(prepared.parsed_freq_range[1]),
             ],
-            "freq_smooth_enabled": bool(metric_params.get("freq_smooth_enabled", True)),
-            "freq_smooth_sigma": _as_optional_float(
-                metric_params.get("freq_smooth_sigma"), 1.5
-            ),
-            "time_smooth_enabled": bool(metric_params.get("time_smooth_enabled", True)),
-            "time_smooth_kernel_size": _as_optional_int(
-                metric_params.get("time_smooth_kernel_size")
-            ),
-            "aperiodic_mode": str(metric_params.get("aperiodic_mode", "fixed")),
+            "freq_smooth_enabled": bool(params["freq_smooth_enabled"]),
+            "time_smooth_enabled": bool(params["time_smooth_enabled"]),
+            "aperiodic_mode": str(params["aperiodic_mode"]),
             "peak_width_limits_hz": [
                 float(peak_width_limits[0]),
                 float(peak_width_limits[1]),
             ],
-            "max_n_peaks": _max_n_peaks_signature(
-                metric_params.get("max_n_peaks", float(np.inf))
-            ),
-            "min_peak_height": _as_float(metric_params.get("min_peak_height"), 0.0),
-            "peak_threshold": _as_float(metric_params.get("peak_threshold"), 2.0),
-            "fit_qc_threshold": _as_float(metric_params.get("fit_qc_threshold"), 0.6),
+            "max_n_peaks": _max_n_peaks_signature(params["max_n_peaks"]),
+            "min_peak_height": float(params["min_peak_height"]),
+            "peak_threshold": float(params["peak_threshold"]),
+            "fit_qc_threshold": float(params["fit_qc_threshold"]),
             "mask_edge_effects": bool(mask_edge_effects),
             "mask_support_semantics": MASK_SUPPORT_SEMANTICS,
             "notch_intervals_hz": notch_intervals,
             "selected_channels": channels,
         }
+        if signature["freq_smooth_enabled"]:
+            signature["freq_smooth_sigma"] = params["freq_smooth_sigma"]
+        if signature["time_smooth_enabled"]:
+            signature["time_smooth_kernel_size"] = params["time_smooth_kernel_size"]
+        return signature
     if metric_key in {"coherence", "imcoh_abs", "plv", "ciplv", "pli", "wpli"}:
         pairs = _normalize_pairs(prepared.metric_pairs, directed=False)
         if pairs is None:
@@ -656,11 +659,11 @@ def _current_metric_signature(
             "low_freq": prepared.metric_low,
             "high_freq": prepared.metric_high,
             "step_hz": prepared.metric_step,
-            "time_resolution_s": _as_float(metric_params.get("time_resolution_s"), 0.5),
-            "hop_s": _as_float(metric_params.get("hop_s"), 0.025),
+            "time_resolution_s": float(params["time_resolution_s"]),
+            "hop_s": float(params["hop_s"]),
             "connectivity_metric": connectivity_metric_map[metric_key],
             "padding_mode": CONNECTIVITY_PADDING_MODE,
-            **_spectral_method_signature(metric_params),
+            **_spectral_method_signature(params),
             "mask_edge_effects": bool(mask_edge_effects),
             "notch_intervals_hz": notch_intervals,
             "selected_pairs": pairs,
@@ -669,25 +672,27 @@ def _current_metric_signature(
         pairs = _normalize_pairs(prepared.metric_pairs, directed=True)
         if pairs is None:
             return None
-        return {
+        signature = {
             "low_freq": prepared.metric_low,
             "high_freq": prepared.metric_high,
             "step_hz": prepared.metric_step,
-            "time_resolution_s": _as_float(metric_params.get("time_resolution_s"), 0.5),
-            "hop_s": _as_float(metric_params.get("hop_s"), 0.025),
+            "time_resolution_s": float(params["time_resolution_s"]),
+            "hop_s": float(params["hop_s"]),
             "connectivity_metric": "trgc",
             "padding_mode": CONNECTIVITY_PADDING_MODE,
-            **_spectral_method_signature(metric_params),
-            "gc_n_lags": _as_int(metric_params.get("gc_n_lags"), 20),
-            "group_by_samples": bool(metric_params.get("group_by_samples", False)),
-            "round_ms": _as_float(metric_params.get("round_ms"), 50.0),
+            **_spectral_method_signature(params),
+            "gc_n_lags": int(params["gc_n_lags"]),
+            "group_by_samples": bool(params["group_by_samples"]),
             "mask_edge_effects": bool(mask_edge_effects),
             "notch_intervals_hz": notch_intervals,
             "selected_pairs": pairs,
         }
+        if not signature["group_by_samples"]:
+            signature["round_ms"] = float(params["round_ms"])
+        return signature
     if metric_key == "psi":
         pairs = _normalize_pairs(prepared.metric_pairs, directed=True)
-        bands = normalize_metric_bands(metric_params.get("bands"))
+        bands = normalize_metric_bands(params.get("bands"))
         bands_used = _psi_or_burst_bands_signature(
             metric_key=metric_key,
             metric_low=prepared.metric_low,
@@ -698,14 +703,14 @@ def _current_metric_signature(
         )
         if pairs is None or bands_used is None:
             return None
-        method_signature = _spectral_method_signature(metric_params)
+        method_signature = _spectral_method_signature(params)
         method = str(method_signature["method"])
         signature = {
             "low_freq": prepared.metric_low,
             "high_freq": prepared.metric_high,
             **method_signature,
-            "time_resolution_s": _as_float(metric_params.get("time_resolution_s"), 0.5),
-            "hop_s": _as_float(metric_params.get("hop_s"), 0.025),
+            "time_resolution_s": float(params["time_resolution_s"]),
+            "hop_s": float(params["hop_s"]),
             "mask_edge_effects": bool(mask_edge_effects),
             "notch_intervals_hz": notch_intervals,
             "bands_used": bands_used,
@@ -718,7 +723,7 @@ def _current_metric_signature(
         return signature
     if metric_key == "burst":
         channels = _normalize_channels(prepared.metric_channels)
-        bands = normalize_metric_bands(metric_params.get("bands"))
+        bands = normalize_metric_bands(params.get("bands"))
         runtime_bands = _build_burst_runtime_bands(
             bands=bands,
             low_freq=prepared.metric_low,
@@ -732,13 +737,13 @@ def _current_metric_signature(
         )
         if channels is None or bands_used is None:
             return None
-        thresholds_payload = metric_params.get("thresholds")
+        thresholds_payload = params.get("thresholds")
         threshold_mode = "provided" if thresholds_payload is not None else "computed"
         signature = {
             "low_freq": prepared.metric_low,
             "high_freq": prepared.metric_high,
-            "min_cycles": _as_float(metric_params.get("min_cycles"), 2.0),
-            "max_cycles": _as_optional_float(metric_params.get("max_cycles")),
+            "min_cycles": float(params["min_cycles"]),
+            "max_cycles": params["max_cycles"],
             "hop_s": BURST_NATIVE_HOP_S,
             "decim": BURST_NATIVE_DECIM,
             "mask_edge_effects": bool(mask_edge_effects),
@@ -765,7 +770,7 @@ def _current_metric_signature(
             sorted(
                 {
                     str(item).strip()
-                    for item in (metric_params.get("baseline_keep") or [])
+                    for item in (params.get("baseline_keep") or [])
                     if str(item).strip()
                 }
             )
@@ -773,7 +778,7 @@ def _current_metric_signature(
         )
         signature.update(
             {
-                "percentile": _as_float(metric_params.get("percentile"), 75.0),
+                "percentile": float(params["percentile"]),
                 "baseline_keep": baseline_keep,
                 "baseline_match": "exact",
                 "baseline_fallback": (

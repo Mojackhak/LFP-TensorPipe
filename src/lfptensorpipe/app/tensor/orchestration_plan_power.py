@@ -19,34 +19,45 @@ def plan_raw_power(
     metric_params: dict[str, Any],
     mask_edge_effects: bool,
 ) -> RuntimePlan:
+    method = str(metric_params["method"])
+    runner_kwargs = {
+        "low_freq": float(metric_low),
+        "high_freq": float(metric_high),
+        "step_hz": float(metric_step),
+        "mask_edge_effects": mask_edge_effects,
+        "bands": metric_bands,
+        "selected_channels": metric_channels,
+        "method": method,
+        "time_resolution_s": float(metric_params["time_resolution_s"]),
+        "hop_s": float(metric_params["hop_s"]),
+        "notches": metric_params["notches"],
+        "notch_radii": metric_params["notch_radii"],
+    }
+    if method == "morlet":
+        runner_kwargs.update(
+            {
+                "min_cycles": float(metric_params["min_cycles"]),
+                "max_cycles": metric_params["max_cycles"],
+                "mt_time_bandwidth_product": 4.0,
+                "mt_min_cycles": 3.0,
+            }
+        )
+    else:
+        runner_kwargs.update(
+            {
+                "mt_time_bandwidth_product": float(
+                    metric_params["mt_time_bandwidth_product"]
+                ),
+                "mt_min_cycles": float(metric_params["mt_min_cycles"]),
+                "min_cycles": 3.0,
+                "max_cycles": None,
+            }
+        )
     return RuntimePlan(
         plan_key="raw_power",
         metric_label=svc.TENSOR_METRICS_BY_KEY["raw_power"].display_name,
         runner_key="raw_power",
-        runner_kwargs={
-            "low_freq": float(metric_low),
-            "high_freq": float(metric_high),
-            "step_hz": float(metric_step),
-            "mask_edge_effects": mask_edge_effects,
-            "bands": metric_bands,
-            "selected_channels": metric_channels,
-            "method": str(metric_params.get("method", "morlet")),
-            "time_resolution_s": svc._as_float(
-                metric_params.get("time_resolution_s"), 0.5
-            ),
-            "hop_s": svc._as_float(metric_params.get("hop_s"), 0.025),
-            "min_cycles": svc._as_optional_float(metric_params.get("min_cycles"), 3.0),
-            "max_cycles": svc._as_optional_float(metric_params.get("max_cycles")),
-            "mt_time_bandwidth_product": svc._as_float(
-                metric_params.get("mt_time_bandwidth_product"), 4.0
-            ),
-            "mt_min_cycles": svc._as_float(metric_params.get("mt_min_cycles"), 3.0),
-            "notches": metric_params.get("notches"),
-            "notch_radii": metric_params.get(
-                "notch_radii",
-                svc.DEFAULT_TENSOR_NOTCH_RADIUS,
-            ),
-        },
+        runner_kwargs=runner_kwargs,
     )
 
 
@@ -65,52 +76,60 @@ def plan_periodic_aperiodic(
     parsed_peak_width_limits: tuple[float, float],
     max_n_peaks: float,
 ) -> RuntimePlan:
+    method = str(metric_params["method"])
+    runner_kwargs = {
+        "low_freq": float(metric_low),
+        "high_freq": float(metric_high),
+        "step_hz": float(metric_step),
+        "mask_edge_effects": mask_edge_effects,
+        "bands": metric_bands,
+        "selected_channels": metric_channels,
+        "method": method,
+        "time_resolution_s": float(metric_params["time_resolution_s"]),
+        "hop_s": float(metric_params["hop_s"]),
+        "freq_range_hz": parsed_freq_range,
+        "freq_smooth_enabled": bool(metric_params["freq_smooth_enabled"]),
+        "time_smooth_enabled": bool(metric_params["time_smooth_enabled"]),
+        "aperiodic_mode": str(metric_params["aperiodic_mode"]),
+        "peak_width_limits_hz": parsed_peak_width_limits,
+        "max_n_peaks": max_n_peaks,
+        "min_peak_height": float(metric_params["min_peak_height"]),
+        "peak_threshold": float(metric_params["peak_threshold"]),
+        "fit_qc_threshold": float(metric_params["fit_qc_threshold"]),
+        "notches": metric_params["notches"],
+        "notch_radii": metric_params["notch_radii"],
+    }
+    if method == "morlet":
+        runner_kwargs.update(
+            {
+                "min_cycles": float(metric_params["min_cycles"]),
+                "max_cycles": metric_params["max_cycles"],
+                "mt_time_bandwidth_product": 4.0,
+                "mt_min_cycles": 3.0,
+            }
+        )
+    else:
+        runner_kwargs.update(
+            {
+                "mt_time_bandwidth_product": float(
+                    metric_params["mt_time_bandwidth_product"]
+                ),
+                "mt_min_cycles": float(metric_params["mt_min_cycles"]),
+                "min_cycles": 3.0,
+                "max_cycles": None,
+            }
+        )
+    if bool(metric_params["freq_smooth_enabled"]):
+        runner_kwargs["freq_smooth_sigma"] = float(metric_params["freq_smooth_sigma"])
+    if bool(metric_params["time_smooth_enabled"]):
+        runner_kwargs["time_smooth_kernel_size"] = metric_params[
+            "time_smooth_kernel_size"
+        ]
     return RuntimePlan(
         plan_key="periodic_aperiodic",
         metric_label=svc.TENSOR_METRICS_BY_KEY["periodic_aperiodic"].display_name,
         runner_key="periodic_aperiodic",
-        runner_kwargs={
-            "low_freq": float(metric_low),
-            "high_freq": float(metric_high),
-            "step_hz": float(metric_step),
-            "mask_edge_effects": mask_edge_effects,
-            "bands": metric_bands,
-            "selected_channels": metric_channels,
-            "method": str(metric_params.get("method", "morlet")),
-            "time_resolution_s": svc._as_float(
-                metric_params.get("time_resolution_s"), 0.5
-            ),
-            "hop_s": svc._as_float(metric_params.get("hop_s"), 0.025),
-            "min_cycles": svc._as_optional_float(metric_params.get("min_cycles"), 3.0),
-            "max_cycles": svc._as_optional_float(metric_params.get("max_cycles")),
-            "mt_time_bandwidth_product": svc._as_float(
-                metric_params.get("mt_time_bandwidth_product"), 4.0
-            ),
-            "mt_min_cycles": svc._as_float(metric_params.get("mt_min_cycles"), 3.0),
-            "freq_range_hz": parsed_freq_range,
-            "freq_smooth_enabled": bool(metric_params.get("freq_smooth_enabled", True)),
-            "freq_smooth_sigma": svc._as_optional_float(
-                metric_params.get("freq_smooth_sigma"),
-                1.5,
-            ),
-            "time_smooth_enabled": bool(metric_params.get("time_smooth_enabled", True)),
-            "time_smooth_kernel_size": svc._as_optional_int(
-                metric_params.get("time_smooth_kernel_size")
-            ),
-            "aperiodic_mode": str(metric_params.get("aperiodic_mode", "fixed")),
-            "peak_width_limits_hz": parsed_peak_width_limits,
-            "max_n_peaks": max_n_peaks,
-            "min_peak_height": svc._as_float(metric_params.get("min_peak_height"), 0.0),
-            "peak_threshold": svc._as_float(metric_params.get("peak_threshold"), 2.0),
-            "fit_qc_threshold": svc._as_float(
-                metric_params.get("fit_qc_threshold"), 0.6
-            ),
-            "notches": metric_params.get("notches"),
-            "notch_radii": metric_params.get(
-                "notch_radii",
-                svc.DEFAULT_TENSOR_NOTCH_RADIUS,
-            ),
-        },
+        runner_kwargs=runner_kwargs,
     )
 
 

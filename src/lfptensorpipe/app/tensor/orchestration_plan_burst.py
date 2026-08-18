@@ -38,36 +38,35 @@ def plan_burst(
     metric_params: dict[str, Any],
     mask_edge_effects: bool,
 ) -> RuntimePlan:
+    runner_kwargs = {
+        "low_freq": float(metric_low),
+        "high_freq": float(metric_high),
+        "mask_edge_effects": mask_edge_effects,
+        "bands": metric_bands,
+        "selected_channels": metric_channels,
+        "min_cycles": float(metric_params["min_cycles"]),
+        "max_cycles": metric_params["max_cycles"],
+        "hop_s": BURST_NATIVE_HOP_S,
+        "decim": BURST_NATIVE_DECIM,
+        "thresholds": metric_params.get("thresholds"),
+        "notches": metric_params["notches"],
+        "notch_radii": metric_params["notch_radii"],
+        "thresholds_source_path": (
+            str(metric_params.get("thresholds_source_path"))
+            if metric_params.get("thresholds_source_path") is not None
+            else None
+        ),
+    }
+    if metric_params.get("thresholds") is None:
+        runner_kwargs["percentile"] = float(metric_params["percentile"])
+        runner_kwargs["baseline_keep"] = _normalize_baseline_keep(
+            metric_params.get("baseline_keep")
+        )
     return RuntimePlan(
         plan_key="burst",
         metric_label=svc.TENSOR_METRICS_BY_KEY["burst"].display_name,
         runner_key="burst",
-        runner_kwargs={
-            "low_freq": float(metric_low),
-            "high_freq": float(metric_high),
-            "mask_edge_effects": mask_edge_effects,
-            "bands": metric_bands,
-            "selected_channels": metric_channels,
-            "percentile": svc._as_float(metric_params.get("percentile"), 75.0),
-            "baseline_keep": _normalize_baseline_keep(
-                metric_params.get("baseline_keep")
-            ),
-            "min_cycles": svc._as_float(metric_params.get("min_cycles"), 2.0),
-            "max_cycles": svc._as_optional_float(metric_params.get("max_cycles")),
-            "hop_s": BURST_NATIVE_HOP_S,
-            "decim": BURST_NATIVE_DECIM,
-            "thresholds": metric_params.get("thresholds"),
-            "notches": metric_params.get("notches"),
-            "notch_radii": metric_params.get(
-                "notch_radii",
-                svc.DEFAULT_TENSOR_NOTCH_RADIUS,
-            ),
-            "thresholds_source_path": (
-                str(metric_params.get("thresholds_source_path"))
-                if metric_params.get("thresholds_source_path") is not None
-                else None
-            ),
-        },
+        runner_kwargs=runner_kwargs,
     )
 
 

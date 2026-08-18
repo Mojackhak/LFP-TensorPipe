@@ -104,6 +104,8 @@ def build_runtime_plans(
             metric_statuses[metric_key] = "failed_invalid_params"
             continue
 
+        merged_metric_params_map[metric_key] = dict(prepared.metric_params)
+
         try:
             runtime_plans.update(
                 build_runtime_plan(

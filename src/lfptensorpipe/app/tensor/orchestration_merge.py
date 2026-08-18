@@ -25,9 +25,9 @@ def merge_metric_params_map(
     selected_pairs: dict[str, list[tuple[str, str]]] | None,
 ) -> dict[str, dict[str, Any]]:
     legacy_low, legacy_high, legacy_step = svc.load_tensor_frequency_defaults(context)
-    legacy_low = float(low_freq) if low_freq is not None else float(legacy_low)
-    legacy_high = float(high_freq) if high_freq is not None else float(legacy_high)
-    legacy_step = float(step_hz) if step_hz is not None else float(legacy_step)
+    legacy_low = low_freq if low_freq is not None else float(legacy_low)
+    legacy_high = high_freq if high_freq is not None else float(legacy_high)
+    legacy_step = step_hz if step_hz is not None else float(legacy_step)
     legacy_bands = (
         [dict(item) for item in bands]
         if isinstance(bands, list)
@@ -45,15 +45,15 @@ def merge_metric_params_map(
     for metric_key in metrics:
         merged = dict(provided_map.get(metric_key, {}))
         if metric_key in svc.TENSOR_COMMON_BASIC_KEYS:
-            merged.setdefault("low_freq_hz", float(legacy_low))
-            merged.setdefault("high_freq_hz", float(legacy_high))
-            merged.setdefault("freq_step_hz", float(legacy_step))
+            merged.setdefault("low_freq_hz", legacy_low)
+            merged.setdefault("high_freq_hz", legacy_high)
+            merged.setdefault("freq_step_hz", legacy_step)
         if metric_key == "periodic_aperiodic":
             merged.setdefault(
                 "freq_range_hz",
                 [
-                    float(merged.get("low_freq_hz", legacy_low)),
-                    float(merged.get("high_freq_hz", legacy_high)),
+                    merged.get("low_freq_hz", legacy_low),
+                    merged.get("high_freq_hz", legacy_high),
                 ],
             )
         if metric_key in svc.TENSOR_BAND_REQUIRED_KEYS:

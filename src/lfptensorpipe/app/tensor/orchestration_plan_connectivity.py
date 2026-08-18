@@ -12,6 +12,36 @@ from .runners.connectivity_trgc import (
 )
 
 
+def _spectral_runner_kwargs(metric_params: dict[str, Any]) -> dict[str, Any]:
+    method = str(metric_params["method"])
+    kwargs: dict[str, Any] = {
+        "time_resolution_s": float(metric_params["time_resolution_s"]),
+        "hop_s": float(metric_params["hop_s"]),
+        "method": method,
+    }
+    if method == "morlet":
+        kwargs.update(
+            {
+                "min_cycles": float(metric_params["min_cycles"]),
+                "max_cycles": metric_params["max_cycles"],
+                "mt_time_bandwidth_product": 4.0,
+                "mt_min_cycles": 3.0,
+            }
+        )
+    else:
+        kwargs.update(
+            {
+                "mt_time_bandwidth_product": float(
+                    metric_params["mt_time_bandwidth_product"]
+                ),
+                "mt_min_cycles": float(metric_params["mt_min_cycles"]),
+                "min_cycles": 3.0,
+                "max_cycles": None,
+            }
+        )
+    return kwargs
+
+
 def plan_undirected(
     svc: Any,
     context: Any,
@@ -49,22 +79,9 @@ def plan_undirected(
             "bands": metric_bands,
             "selected_channels": metric_channels,
             "selected_pairs": metric_pairs,
-            "time_resolution_s": svc._as_float(
-                metric_params.get("time_resolution_s"), 0.5
-            ),
-            "hop_s": svc._as_float(metric_params.get("hop_s"), 0.025),
-            "method": str(metric_params.get("method", "morlet")),
-            "mt_time_bandwidth_product": svc._as_float(
-                metric_params.get("mt_time_bandwidth_product"), 4.0
-            ),
-            "mt_min_cycles": svc._as_float(metric_params.get("mt_min_cycles"), 3.0),
-            "min_cycles": svc._as_optional_float(metric_params.get("min_cycles"), 3.0),
-            "max_cycles": svc._as_optional_float(metric_params.get("max_cycles")),
-            "notches": metric_params.get("notches"),
-            "notch_radii": metric_params.get(
-                "notch_radii",
-                svc.DEFAULT_TENSOR_NOTCH_RADIUS,
-            ),
+            **_spectral_runner_kwargs(metric_params),
+            "notches": metric_params["notches"],
+            "notch_radii": metric_params["notch_radii"],
         },
     )
 
@@ -88,7 +105,7 @@ def plan_trgc(
     def _backend_plan(
         plan_key: str, backend_method: str, label_suffix: str
     ) -> RuntimePlan:
-        return RuntimePlan(
+        plan = RuntimePlan(
             plan_key=plan_key,
             metric_label=f"{metric_label} {label_suffix}",
             runner_key="trgc_backend",
@@ -101,32 +118,19 @@ def plan_trgc(
                 "bands": metric_bands,
                 "selected_channels": metric_channels,
                 "selected_pairs": metric_pairs,
-                "time_resolution_s": svc._as_float(
-                    metric_params.get("time_resolution_s"), 0.5
-                ),
-                "hop_s": svc._as_float(metric_params.get("hop_s"), 0.025),
-                "method": str(metric_params.get("method", "morlet")),
-                "mt_time_bandwidth_product": svc._as_float(
-                    metric_params.get("mt_time_bandwidth_product"), 4.0
-                ),
-                "mt_min_cycles": svc._as_float(metric_params.get("mt_min_cycles"), 3.0),
-                "min_cycles": svc._as_optional_float(
-                    metric_params.get("min_cycles"), 3.0
-                ),
-                "max_cycles": svc._as_optional_float(metric_params.get("max_cycles")),
-                "gc_n_lags": svc._as_int(metric_params.get("gc_n_lags"), 20),
-                "group_by_samples": svc._as_bool(
-                    metric_params.get("group_by_samples"), False
-                ),
-                "round_ms": svc._as_float(metric_params.get("round_ms"), 50.0),
-                "notches": metric_params.get("notches"),
-                "notch_radii": metric_params.get(
-                    "notch_radii",
-                    svc.DEFAULT_TENSOR_NOTCH_RADIUS,
-                ),
+                **_spectral_runner_kwargs(metric_params),
+                "gc_n_lags": int(metric_params["gc_n_lags"]),
+                "group_by_samples": bool(metric_params["group_by_samples"]),
+                "notches": metric_params["notches"],
+                "notch_radii": metric_params["notch_radii"],
             },
             log_metric_key="trgc",
         )
+        if not bool(metric_params["group_by_samples"]):
+            plan.runner_kwargs["round_ms"] = float(metric_params["round_ms"])
+        else:
+            plan.runner_kwargs["round_ms"] = 50.0
+        return plan
 
     return {
         TRGC_GC_BACKEND_PLAN_KEY: _backend_plan(
@@ -176,22 +180,9 @@ def plan_psi(
             "bands": metric_bands,
             "selected_channels": metric_channels,
             "selected_pairs": metric_pairs,
-            "time_resolution_s": svc._as_float(
-                metric_params.get("time_resolution_s"), 0.5
-            ),
-            "hop_s": svc._as_float(metric_params.get("hop_s"), 0.025),
-            "method": str(metric_params.get("method", "morlet")),
-            "mt_time_bandwidth_product": svc._as_float(
-                metric_params.get("mt_time_bandwidth_product"), 4.0
-            ),
-            "mt_min_cycles": svc._as_float(metric_params.get("mt_min_cycles"), 3.0),
-            "min_cycles": svc._as_optional_float(metric_params.get("min_cycles"), 3.0),
-            "max_cycles": svc._as_optional_float(metric_params.get("max_cycles")),
-            "notches": metric_params.get("notches"),
-            "notch_radii": metric_params.get(
-                "notch_radii",
-                svc.DEFAULT_TENSOR_NOTCH_RADIUS,
-            ),
+            **_spectral_runner_kwargs(metric_params),
+            "notches": metric_params["notches"],
+            "notch_radii": metric_params["notch_radii"],
         },
     )
 
