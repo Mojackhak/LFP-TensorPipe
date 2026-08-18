@@ -40,7 +40,38 @@ class MainWindowRecordParamsApplyAlignmentMixin:
                 idx = self._alignment_method_combo.findData(method)
                 if idx < 0:
                     idx = 0
-                self._alignment_method_combo.setCurrentIndex(idx)
+                self._alignment_method_combo.blockSignals(True)
+                try:
+                    self._alignment_method_combo.setCurrentIndex(idx)
+                finally:
+                    self._alignment_method_combo.blockSignals(False)
+                selected_method = self._alignment_method_combo.currentData()
+                paradigm = self._current_alignment_paradigm()
+                if isinstance(selected_method, str) and isinstance(paradigm, dict):
+                    raw_cache = _nested_get(
+                        snapshot,
+                        ("alignment", "method_params_by_method"),
+                    )
+                    cache = (
+                        {
+                            str(key): dict(value)
+                            for key, value in raw_cache.items()
+                            if isinstance(key, str) and isinstance(value, dict)
+                        }
+                        if isinstance(raw_cache, dict)
+                        else {}
+                    )
+                    raw_params = _nested_get(
+                        snapshot,
+                        ("alignment", "method_params"),
+                    )
+                    if isinstance(raw_params, dict):
+                        cache[selected_method] = dict(raw_params)
+                    active_params = cache.get(selected_method)
+                    if isinstance(active_params, dict):
+                        paradigm["method"] = selected_method
+                        paradigm["method_params"] = dict(active_params)
+                        paradigm["method_params_by_method"] = cache
         else:
             skipped += 1
 

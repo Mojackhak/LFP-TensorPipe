@@ -8,6 +8,7 @@ from lfptensorpipe.gui.shell.common import (
     Any,
     Path,
     PathResolver,
+    QMessageBox,
     RecordContext,
 )
 
@@ -99,6 +100,10 @@ class MainWindowAlignmentConfigMixin:
         )
         if not ok:
             raise ValueError(message)
+        if method_key != "linear_warper" and not normalized_params.get("annotations"):
+            raise ValueError(
+                "Select at least one annotation before exporting Align Epochs configs."
+            )
         return {
             "schema": ALIGNMENT_CONFIG_SCHEMA,
             "version": ALIGNMENT_CONFIG_VERSION,
@@ -197,13 +202,80 @@ class MainWindowAlignmentConfigMixin:
             method_params,
             annotation_labels=annotation_labels,
         )
-        ok, normalized_params, message = self._validate_alignment_method_params_runtime(
-            method_key,
-            filtered_params,
-            annotation_labels=[],
-        )
-        if not ok:
-            raise ValueError(message)
+        defaults = self._default_alignment_method_params_runtime(method_key)
+        if not isinstance(defaults, dict):
+            raise ValueError(f"Unknown alignment method: {method_key}")
+        allowed_keys = set(defaults)
+        unknown_keys = sorted(set(filtered_params) - allowed_keys)
+        if unknown_keys:
+            warnings.append("Removed unknown field(s): " + ", ".join(unknown_keys))
+        candidate = {
+            key: filtered_params[key] for key in allowed_keys if key in filtered_params
+        }
+        for key, value in defaults.items():
+            if key in candidate:
+                continue
+            if key == "annotations" and method_key != "linear_warper":
+                raise ValueError(
+                    "Alignment annotation selection is required and has no safe automatic default."
+                )
+            candidate[key] = value
+            warnings.append(f"Missing default restored: alignment.method_params.{key}.")
+
+        if method_key != "linear_warper" and not candidate.get("annotations"):
+            raise ValueError(
+                "Alignment annotation selection is required and has no safe automatic default."
+            )
+
+        repair_keys_by_message = {
+            "sample_rate": ("sample_rate",),
+            "sample rate": ("sample_rate",),
+            "anchor": ("anchors_percent",),
+            "epoch duration": ("epoch_duration_range",),
+            "percent_tolerance": ("percent_tolerance",),
+            "duration": ("duration_range",),
+            "pad_left": ("pad_left",),
+            "anno_left": ("anno_left",),
+            "anno_right": ("anno_right",),
+            "pad_right": ("pad_right",),
+            "total window": ("pad_left", "anno_left", "anno_right", "pad_right"),
+        }
+        normalized_params: dict[str, Any] = {}
+        for _ in range(len(candidate) + 1):
+            ok, normalized_params, message = (
+                self._validate_alignment_method_params_runtime(
+                    method_key,
+                    candidate,
+                    annotation_labels=[],
+                )
+            )
+            if ok:
+                break
+            lowered = message.lower()
+            if "annotation" in lowered:
+                raise ValueError(
+                    "Alignment annotation selection is invalid and has no safe automatic default."
+                )
+            repair_keys = next(
+                (
+                    keys
+                    for token, keys in repair_keys_by_message.items()
+                    if token in lowered
+                ),
+                (),
+            )
+            repair_keys = tuple(key for key in repair_keys if key in defaults)
+            if not repair_keys or all(
+                candidate.get(key) == defaults[key] for key in repair_keys
+            ):
+                raise ValueError(message)
+            for key in repair_keys:
+                candidate[key] = defaults[key]
+                warnings.append(
+                    f"Invalid value restored: alignment.method_params.{key}."
+                )
+        else:
+            raise ValueError("Alignment config normalization did not converge.")
         return (
             {
                 "method": method_key,
@@ -238,12 +310,17 @@ class MainWindowAlignmentConfigMixin:
         export_path = Path(file_path_text)
         if not export_path.suffix:
             export_path = export_path.with_suffix(".json")
-        export_path.parent.mkdir(parents=True, exist_ok=True)
-
         try:
             payload = self._build_alignment_config_export_payload()
+            export_path.parent.mkdir(parents=True, exist_ok=True)
             with export_path.open("w", encoding="utf-8") as handle:
-                json.dump(payload, handle, ensure_ascii=False, indent=2)
+                json.dump(
+                    payload,
+                    handle,
+                    ensure_ascii=False,
+                    indent=2,
+                    allow_nan=False,
+                )
                 handle.write("\n")
         except Exception as exc:  # noqa: BLE001
             self._show_warning("Export Configs", f"Export failed:\n{exc}")
@@ -289,6 +366,25 @@ class MainWindowAlignmentConfigMixin:
             )
         except Exception as exc:  # noqa: BLE001
             self._show_warning("Import Configs", f"Import failed:\n{exc}")
+            return
+
+        preview_lines = [
+            "Review the Align Epochs config normalization before importing:",
+            "",
+        ]
+        if warnings:
+            preview_lines.extend(f"- {warning}" for warning in warnings)
+        else:
+            preview_lines.append("- No normalization was required.")
+        preview_lines.extend(["", "Apply this imported configuration?"])
+        confirmed = self._ask_question(
+            "Import Align Epochs Configs",
+            "\n".join(preview_lines),
+            buttons=QMessageBox.Yes | QMessageBox.No,
+            default_button=QMessageBox.No,
+        )
+        if confirmed != QMessageBox.Yes:
+            self.statusBar().showMessage("Align Epochs config import cancelled.")
             return
 
         ok, message = self._update_alignment_paradigm_runtime(

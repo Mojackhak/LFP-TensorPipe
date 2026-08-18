@@ -10,6 +10,7 @@ from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import read_run_log
 
 from .generation import metrics_from_alignment_entry
+from .method_params import validate_alignment_method_params
 from .method_specs import LINEAR_WARP_GEOMETRY, LINEAR_WARP_GEOMETRY_KEY
 from .trial_config import _load_trial_config_from_log, _normalize_paradigm
 
@@ -108,11 +109,15 @@ def _normalize_current_signature(
 ) -> tuple[str, str, dict[str, Any]] | None:
     if not isinstance(paradigm, dict):
         return None
-    normalized = _normalize_paradigm(dict(paradigm))
-    slug = str(normalized.get("slug", "")).strip()
-    method = str(normalized.get("method", "")).strip()
-    method_params = normalized.get("method_params", {})
-    if not slug or not method or not isinstance(method_params, dict):
+    slug = str(paradigm.get("trial_slug", paradigm.get("slug", ""))).strip()
+    method = str(paradigm.get("method", "")).strip()
+    raw_params = paradigm.get("method_params", {})
+    if not slug or not method or not isinstance(raw_params, dict):
+        return None
+    ok, method_params, _ = validate_alignment_method_params(method, raw_params)
+    if not ok:
+        return None
+    if method != "linear_warper" and not method_params.get("annotations"):
         return None
     return slug, method, dict(method_params)
 

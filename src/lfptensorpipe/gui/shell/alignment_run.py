@@ -299,6 +299,12 @@ class MainWindowAlignmentRunMixin:
         if not ok_params:
             self._show_warning("Run Align Epochs", message_params)
             return
+        if method_key != "linear_warper" and not normalized_params.get("annotations"):
+            self._show_warning(
+                "Run Align Epochs",
+                "Select at least one annotation before running Align Epochs.",
+            )
+            return
         ok_update, message_update = self._update_alignment_paradigm_runtime(
             self._config_store,
             slug=slug,

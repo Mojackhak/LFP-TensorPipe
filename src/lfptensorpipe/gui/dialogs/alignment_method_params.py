@@ -25,6 +25,8 @@ from .common import (
     QVBoxLayout,
     QWidget,
     Qt,
+    set_control_validation_error,
+    validate_alignment_method_params,
 )
 from .alignment_method_params_actions import (
     _collect_candidate_params as _collect_candidate_params_impl,
@@ -118,6 +120,7 @@ class AlignmentMethodParamsDialog(QDialog):
         )
         self._selected_params: dict[str, Any] | None = None
         self._table_validation_error = False
+        self._method_ui_ready = False
         self.setWindowTitle("Align Epochs Params")
         self.resize(620, 460)
 
@@ -177,6 +180,11 @@ class AlignmentMethodParamsDialog(QDialog):
         self._annotation_list = QListWidget()
         self._annotation_list.setMinimumHeight(140)
         self._annotation_list.setToolTip("Select annotation labels to keep.")
+        self._annotation_list.itemChanged.connect(
+            lambda _item: (
+                self._refresh_active_validation() if self._method_ui_ready else None
+            )
+        )
 
         self._method_box = QGroupBox("Method Params")
         self._method_layout = QVBoxLayout(self._method_box)
@@ -218,6 +226,7 @@ class AlignmentMethodParamsDialog(QDialog):
 
         self._apply_common(session_params)
         self._build_method_ui(session_params)
+        self._refresh_active_validation()
 
     @property
     def selected_params(self) -> dict[str, Any] | None:
@@ -244,15 +253,31 @@ class AlignmentMethodParamsDialog(QDialog):
         default_rate = (
             50.0 if self._method_key in {"pad_warper", "concat_warper"} else 5.0
         )
-        self._sample_rate_edit.setText(
-            f"{float(params.get('sample_rate', default_rate)):g}"
-        )
+        value = params.get("sample_rate", default_rate)
+        self._sample_rate_edit.setText(self._draft_text(value))
 
     def _clear_method_ui(self) -> None:
         _clear_method_ui_impl(self)
 
     def _build_method_ui(self, params: dict[str, Any]) -> None:
+        self._method_ui_ready = False
         _build_method_ui_impl(self, params)
+        self._method_ui_ready = True
+        for edit in (
+            self._sample_rate_edit,
+            self._duration_min_edit,
+            self._duration_max_edit,
+            self._percent_tolerance_edit,
+            self._pad_left_edit,
+            self._anno_left_edit,
+            self._anno_right_edit,
+            self._pad_right_edit,
+        ):
+            if edit is None or edit.property("lfptpValidationConnected"):
+                continue
+            edit.editingFinished.connect(self._refresh_active_validation)
+            edit.setProperty("lfptpValidationConnected", True)
+        self._refresh_active_validation()
 
     def _build_linear_ui(self, params: dict[str, Any]) -> None:
         _build_linear_ui_impl(self, params)
@@ -280,9 +305,90 @@ class AlignmentMethodParamsDialog(QDialog):
 
     def _on_select_all_annotations(self) -> None:
         _on_select_all_annotations_impl(self)
+        self._refresh_active_validation()
 
     def _on_clear_annotations(self) -> None:
         _on_clear_annotations_impl(self)
+        self._refresh_active_validation()
+
+    def _refresh_annotation_validation(self) -> None:
+        if self._method_key == "linear_warper":
+            set_control_validation_error(self._annotation_list, None)
+            return
+        selected = any(
+            self._annotation_list.item(row) is not None
+            and self._annotation_list.item(row).checkState() == Qt.Checked
+            for row in range(self._annotation_list.count())
+        )
+        set_control_validation_error(
+            self._annotation_list,
+            None if selected else "At least one annotation is required before Run.",
+        )
+
+    def _refresh_active_validation(self) -> None:
+        if not self._method_ui_ready:
+            return
+        controls = [
+            self._sample_rate_edit,
+            self._duration_min_edit,
+            self._duration_max_edit,
+            self._percent_tolerance_edit,
+            self._anchors_table,
+            self._annotation_list,
+            self._pad_left_edit,
+            self._anno_left_edit,
+            self._anno_right_edit,
+            self._pad_right_edit,
+        ]
+        for control in controls:
+            set_control_validation_error(control, None)
+        candidate = self._collect_candidate_params(strict=False)
+        ok, _, message = validate_alignment_method_params(
+            self._method_key,
+            candidate,
+            annotation_labels=self._annotation_labels,
+        )
+        if (
+            ok
+            and self._method_key != "linear_warper"
+            and not candidate.get("annotations")
+        ):
+            message = "Select at least one annotation label."
+            ok = False
+        if ok:
+            return
+
+        lowered = message.lower()
+        targets: list[QWidget] = []
+        if "sample_rate" in lowered or "sample rate" in lowered:
+            targets.append(self._sample_rate_edit)
+        elif "anchor" in lowered:
+            targets.append(self._anchors_table)
+        elif "annotation" in lowered:
+            targets.append(self._annotation_list)
+        elif "percent_tolerance" in lowered:
+            targets.append(self._percent_tolerance_edit)
+        elif "duration" in lowered:
+            targets.extend([self._duration_min_edit, self._duration_max_edit])
+        elif "pad_left" in lowered:
+            targets.append(self._pad_left_edit)
+        elif "anno_left" in lowered:
+            targets.append(self._anno_left_edit)
+        elif "anno_right" in lowered:
+            targets.append(self._anno_right_edit)
+        elif "pad_right" in lowered:
+            targets.append(self._pad_right_edit)
+        elif "total window" in lowered or "must be > 0" in lowered:
+            targets.extend(
+                [
+                    self._pad_left_edit,
+                    self._anno_left_edit,
+                    self._anno_right_edit,
+                    self._pad_right_edit,
+                ]
+            )
+        for control in targets or [self._sample_rate_edit]:
+            set_control_validation_error(control, message)
 
     @staticmethod
     def _set_cell_error(
@@ -314,8 +420,16 @@ class AlignmentMethodParamsDialog(QDialog):
     def _parse_optional_float(text: str) -> float | None:
         return _parse_optional_float_impl(text)
 
-    def _collect_candidate_params(self) -> dict[str, Any]:
-        return _collect_candidate_params_impl(self)
+    @staticmethod
+    def _draft_text(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return f"{value:g}"
+        return str(value)
+
+    def _collect_candidate_params(self, *, strict: bool = True) -> dict[str, Any]:
+        return _collect_candidate_params_impl(self, strict=strict)
 
     def _on_save(self) -> None:
         _on_save_impl(self)

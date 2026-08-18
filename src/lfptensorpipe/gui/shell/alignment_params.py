@@ -6,6 +6,29 @@ from PySide6.QtWidgets import QDialog
 
 
 class MainWindowAlignmentParamsMixin:
+    def _store_alignment_method_draft(
+        self,
+        paradigm: dict[str, object],
+        *,
+        method_key: str,
+        method_params: dict[str, object],
+    ) -> None:
+        raw_cache = paradigm.get("method_params_by_method", {})
+        cache = (
+            {
+                str(key): dict(value)
+                for key, value in raw_cache.items()
+                if isinstance(key, str) and isinstance(value, dict)
+            }
+            if isinstance(raw_cache, dict)
+            else {}
+        )
+        cache[method_key] = dict(method_params)
+        paradigm["method"] = method_key
+        paradigm["method_params"] = dict(method_params)
+        paradigm["method_params_by_method"] = cache
+        self._mark_record_param_dirty("alignment.method")
+
     @staticmethod
     def _trial_method_params_candidate(
         paradigm: dict[str, object],
@@ -56,39 +79,19 @@ class MainWindowAlignmentParamsMixin:
         if not isinstance(method_key, str):
             return
         self._update_alignment_method_description()
-        context = self._record_context()
-        labels = (
-            self._load_alignment_annotation_labels_runtime(context)
-            if context is not None
-            else []
-        )
         params = self._trial_method_params_candidate(
             paradigm,
             method_key=method_key,
         )
         if not params:
             params = self._default_alignment_method_params_runtime(method_key)
-        ok_norm, normalized_params, message_norm = (
-            self._validate_alignment_method_params_runtime(
-                method_key,
-                params,
-                annotation_labels=labels,
-            )
+        self._store_alignment_method_draft(
+            paradigm,
+            method_key=method_key,
+            method_params=params,
         )
-        if not ok_norm:
-            self._show_warning("Align Epochs", message_norm)
-            return
-        ok, message = self._update_alignment_paradigm_runtime(
-            self._config_store,
-            slug=slug,
-            method=method_key,
-            method_params=normalized_params,
-            context=context,
-        )
-        if not ok:
-            self._show_warning("Align Epochs", message)
-            return
-        self._reload_alignment_paradigms(preferred_slug=slug)
+        self._refresh_alignment_selected_paradigm()
+        self._persist_record_params_snapshot(reason="alignment_method_change")
 
     def _on_alignment_method_params(self) -> None:
         slug = self._current_alignment_paradigm_slug()
@@ -121,15 +124,10 @@ class MainWindowAlignmentParamsMixin:
         )
         if dialog.exec() != QDialog.Accepted or dialog.selected_params is None:
             return
-        ok, message = self._update_alignment_paradigm_runtime(
-            self._config_store,
-            slug=slug,
-            method=method_key,
+        self._store_alignment_method_draft(
+            paradigm,
+            method_key=method_key,
             method_params=dialog.selected_params,
-            context=context,
         )
-        if not ok:
-            self._show_warning("Align Epochs", message)
-            return
-        self._reload_alignment_paradigms(preferred_slug=slug)
+        self._refresh_alignment_selected_paradigm()
         self._persist_record_params_snapshot(reason="alignment_method_params_save")

@@ -88,15 +88,11 @@ def _build_linear_ui(dialog, params: dict[str, Any]) -> None:
     duration_range = params.get("epoch_duration_range", [None, None])
     if not isinstance(duration_range, (list, tuple)) or len(duration_range) != 2:
         duration_range = [None, None]
-    dialog._duration_min_edit.setText(
-        "" if duration_range[0] is None else f"{float(duration_range[0]):g}"
-    )
-    dialog._duration_max_edit.setText(
-        "" if duration_range[1] is None else f"{float(duration_range[1]):g}"
-    )
+    dialog._duration_min_edit.setText(dialog._draft_text(duration_range[0]))
+    dialog._duration_max_edit.setText(dialog._draft_text(duration_range[1]))
     dialog._linear_warp_check.setChecked(bool(params.get("linear_warp", True)))
     dialog._percent_tolerance_edit.setText(
-        f"{float(params.get('percent_tolerance', 15.0)):g}"
+        dialog._draft_text(params.get("percent_tolerance", 15.0))
     )
     dialog._duration_min_edit.setToolTip("Optional minimum epoch duration in seconds.")
     dialog._duration_max_edit.setToolTip("Optional maximum epoch duration in seconds.")
@@ -143,16 +139,10 @@ def _build_pad_ui(dialog, params: dict[str, Any]) -> None:
     dialog._anno_left_edit = QLineEdit()
     dialog._anno_right_edit = QLineEdit()
     dialog._pad_right_edit = QLineEdit()
-    try:
-        dialog._pad_left_edit.setText(f"{float(params.get('pad_left', 0.5)):g}")
-        dialog._anno_left_edit.setText(f"{float(params.get('anno_left', 0.5)):g}")
-        dialog._anno_right_edit.setText(f"{float(params.get('anno_right', 0.5)):g}")
-        dialog._pad_right_edit.setText(f"{float(params.get('pad_right', 0.5)):g}")
-    except Exception:
-        dialog._pad_left_edit.setText("0.5")
-        dialog._anno_left_edit.setText("0.5")
-        dialog._anno_right_edit.setText("0.5")
-        dialog._pad_right_edit.setText("0.5")
+    dialog._pad_left_edit.setText(dialog._draft_text(params.get("pad_left", 0.5)))
+    dialog._anno_left_edit.setText(dialog._draft_text(params.get("anno_left", 0.5)))
+    dialog._anno_right_edit.setText(dialog._draft_text(params.get("anno_right", 0.5)))
+    dialog._pad_right_edit.setText(dialog._draft_text(params.get("pad_right", 0.5)))
     dialog._pad_left_edit.setToolTip("Seconds before annotation start.")
     dialog._anno_left_edit.setToolTip("Seconds after annotation start.")
     dialog._anno_right_edit.setToolTip("Seconds before annotation end.")
@@ -161,8 +151,8 @@ def _build_pad_ui(dialog, params: dict[str, Any]) -> None:
     duration_range = params.get("duration_range", [0.0, 1_000_000.0])
     if not isinstance(duration_range, (list, tuple)) or len(duration_range) != 2:
         duration_range = [0.0, 1_000_000.0]
-    dialog._duration_min_edit.setText(f"{float(duration_range[0]):g}")
-    dialog._duration_max_edit.setText(f"{float(duration_range[1]):g}")
+    dialog._duration_min_edit.setText(dialog._draft_text(duration_range[0]))
+    dialog._duration_max_edit.setText(dialog._draft_text(duration_range[1]))
     dialog._duration_min_edit.setToolTip(
         "Minimum annotation duration in seconds (>= 0)."
     )
@@ -209,8 +199,8 @@ def _build_stack_concat_ui(dialog, params: dict[str, Any]) -> None:
     duration_range = params.get("duration_range", [0.0, 1_000_000.0])
     if not isinstance(duration_range, (list, tuple)) or len(duration_range) != 2:
         duration_range = [0.0, 1_000_000.0]
-    dialog._duration_min_edit.setText(f"{float(duration_range[0]):g}")
-    dialog._duration_max_edit.setText(f"{float(duration_range[1]):g}")
+    dialog._duration_min_edit.setText(dialog._draft_text(duration_range[0]))
+    dialog._duration_max_edit.setText(dialog._draft_text(duration_range[1]))
     dialog._duration_min_edit.setToolTip(
         "Minimum annotation duration in seconds (>= 0)."
     )
