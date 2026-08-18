@@ -25,6 +25,7 @@ from ..paths import (
 
 MarkStepFn = Callable[..., Any]
 InvalidateFn = Callable[[RecordContext, str], list[Any]]
+FILTER_EPOCH_COVERAGE_SEMANTICS = "grid_plus_end_aligned_tail"
 
 
 def default_filter_advance_params() -> dict[str, Any]:
@@ -332,6 +333,7 @@ def apply_filter_step(
                     "boundary_isolated_filter": normalized_params[
                         "boundary_isolated_filter"
                     ],
+                    "epoch_coverage_semantics": FILTER_EPOCH_COVERAGE_SEMANTICS,
                     "review_status": "required",
                     "filter_output_role": "preview",
                 },
@@ -355,6 +357,7 @@ def apply_filter_step(
                     "boundary_isolated_filter": normalized_params[
                         "boundary_isolated_filter"
                     ],
+                    "epoch_coverage_semantics": FILTER_EPOCH_COVERAGE_SEMANTICS,
                     "review_status": "required",
                     "filter_output_role": "preview",
                 },
@@ -490,6 +493,16 @@ def finalize_filter_review(
             "filter_output_role": "scientific",
             "filter_support": support_report,
         }
+        coverage_semantics = params.get(
+            "epoch_coverage_semantics",
+            config.get("epoch_coverage_semantics"),
+        )
+        if coverage_semantics == FILTER_EPOCH_COVERAGE_SEMANTICS:
+            final_params["epoch_coverage_semantics"] = FILTER_EPOCH_COVERAGE_SEMANTICS
+            final_config["epoch_coverage_semantics"] = FILTER_EPOCH_COVERAGE_SEMANTICS
+        else:
+            final_params.pop("epoch_coverage_semantics", None)
+            final_config.pop("epoch_coverage_semantics", None)
         with AtomicOutputSet(
             [dst, config_path, log_path],
             cleanup_stale_residues=True,

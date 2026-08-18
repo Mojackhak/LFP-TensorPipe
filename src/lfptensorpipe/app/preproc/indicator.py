@@ -19,7 +19,10 @@ from .paths import (
 )
 from .steps.annotations import _normalize_annotation_rows
 from .steps.ecg import normalize_ecg_method_params
-from .steps.filter import normalize_filter_advance_params
+from .steps.filter import (
+    FILTER_EPOCH_COVERAGE_SEMANTICS,
+    normalize_filter_advance_params,
+)
 
 _UPSTREAM_INVALIDATION_PREFIX = "Invalidated by upstream step re-apply:"
 
@@ -91,6 +94,7 @@ def _filter_signature(
     l_freq: Any,
     h_freq: Any,
     advance_params: dict[str, Any] | None,
+    epoch_coverage_semantics: Any = FILTER_EPOCH_COVERAGE_SEMANTICS,
 ) -> dict[str, Any] | None:
     ok_advance, normalized_advance, _ = normalize_filter_advance_params(advance_params)
     if not ok_advance:
@@ -132,6 +136,7 @@ def _filter_signature(
         ),
         "autoreject_correct_factor": normalized_advance["autoreject_correct_factor"],
         "boundary_isolated_filter": normalized_advance["boundary_isolated_filter"],
+        "epoch_coverage_semantics": epoch_coverage_semantics,
     }
 
 
@@ -150,6 +155,7 @@ def _filter_signature_from_log(payload: dict[str, Any]) -> dict[str, Any] | None
             "autoreject_correct_factor": params.get("autoreject_correct_factor"),
             "boundary_isolated_filter": params.get("boundary_isolated_filter"),
         },
+        epoch_coverage_semantics=params.get("epoch_coverage_semantics"),
     )
 
 

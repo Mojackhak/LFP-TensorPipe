@@ -743,12 +743,12 @@ def merge_contiguous_bad_annotations(
             ch_names=[combined.ch_names[index] for index in order],
         )
         out = raw.copy()
-        out.set_annotations(combined_sorted)
+        _set_annotations_from_attached_frame(out, combined_sorted)
         return out
 
     combined = (merged_ann + other_ann) if merged_first else (other_ann + merged_ann)
     out = raw.copy()
-    out.set_annotations(combined)
+    _set_annotations_from_attached_frame(out, combined)
     return out
 
 
@@ -965,6 +965,12 @@ def mark_lfp_bad_segments(
     raw_mark.load_data()
 
     sfreq = float(raw_mark.info["sfreq"])
+    epoch_n_times = int(np.round(sfreq * float(cfg.epoch_dur)))
+    if raw_mark.n_times < epoch_n_times:
+        raise ValueError(
+            "Recording duration is shorter than Filter epoch duration; "
+            "reduce Epoch duration."
+        )
     notches = np.asarray(cfg.notches, dtype=float) if cfg.notches is not None else None
     notch_widths = cfg.notch_widths
 
@@ -988,7 +994,7 @@ def mark_lfp_bad_segments(
         raw_mark.notch_filter(freqs=notches, notch_widths=notch_widths)
 
     # 3) Fixed-length epochs
-    epochs_all = mne.make_fixed_length_epochs(
+    epochs_regular = mne.make_fixed_length_epochs(
         raw_mark,
         duration=cfg.epoch_dur,
         overlap=cfg.overlap,
@@ -996,41 +1002,59 @@ def mark_lfp_bad_segments(
         reject_by_annotation=False,
     )
 
-    n_epochs = len(epochs_all)
+    n_regular_epochs = len(epochs_regular)
+    epoch_n_times = int(epochs_regular.get_data(copy=False).shape[-1])
+    last_regular_start = int(epochs_regular.events[-1, 0]) - int(raw_mark.first_samp)
+    tail_epoch_added = last_regular_start + epoch_n_times < raw_mark.n_times
+    if tail_epoch_added:
+        tail_event = np.array(
+            [
+                [
+                    int(raw_mark.first_samp) + raw_mark.n_times - epoch_n_times,
+                    0,
+                    int(epochs_regular.events[-1, 2]),
+                ]
+            ],
+            dtype=int,
+        )
+        evaluation_events = np.vstack([epochs_regular.events, tail_event])
+        epochs_evaluation = mne.Epochs(
+            raw_mark,
+            evaluation_events,
+            event_id=epochs_regular.event_id,
+            tmin=0.0,
+            tmax=(epoch_n_times - 1) / sfreq,
+            baseline=None,
+            preload=True,
+            reject_by_annotation=False,
+            proj=True,
+        )
+    else:
+        epochs_evaluation = epochs_regular
+
+    n_epochs = len(epochs_evaluation)
     win_len = float(cfg.epoch_dur)
 
-    if n_epochs == 0:
-        _restore_channel_types(raw_mark, original_types)
-        return (
-            raw_mark,
-            None,
-            {
-                "n_epochs": 0,
-                "n_bad_p2p": 0,
-                "n_bad_autoreject": 0,
-                "note": "No epochs created; skipping marking.",
-            },
-        )
-
     # 4) Hard p2p threshold (range)
-    data = epochs_all.get_data()  # (n_epochs, n_ch, n_times)
+    data = epochs_evaluation.get_data()  # (n_epochs, n_ch, n_times)
     p2p = np.ptp(data, axis=2)
     if cfg.p2p_thresh is None:
         bad_p2p = np.zeros(n_epochs, dtype=bool)
     else:
         bad_p2p = ((p2p < cfg.p2p_thresh[0]) | (p2p > cfg.p2p_thresh[1])).any(axis=1)
 
-    keep_idx = np.where(~bad_p2p)[0]
+    evaluation_keep_idx = np.where(~bad_p2p)[0]
+    training_keep_idx = np.where(~bad_p2p[:n_regular_epochs])[0]
 
     # Annotate BAD_p2p
-    on_p2p = epochs_all.events[bad_p2p, 0] / sfreq
+    on_p2p = epochs_evaluation.events[bad_p2p, 0] / sfreq
     ann_p2p = mne.Annotations(
         onset=on_p2p.tolist(),
         duration=[win_len] * int(bad_p2p.sum()),
         description=[cfg.desc_p2p] * int(bad_p2p.sum()),
         orig_time=raw_mark.annotations.orig_time,
     )
-    raw_mark.set_annotations(raw_mark.annotations + ann_p2p)
+    _set_annotations_from_attached_frame(raw_mark, raw_mark.annotations + ann_p2p)
 
     # 5) AutoReject thresholds on remaining epochs
     reject_log = None
@@ -1038,11 +1062,11 @@ def mark_lfp_bad_segments(
     autoreject_error: str | None = None
     autoreject_plot_error: str | None = None
 
-    epochs_thresh = epochs_all.copy().drop(np.where(bad_p2p)[0])
-    if len(epochs_thresh) >= 1:
+    epochs_training = epochs_evaluation[training_keep_idx]
+    if len(epochs_training) >= 1:
         try:
             threshes = compute_thresholds(
-                epochs_thresh,
+                epochs_training,
                 picks="eeg",
                 method=cfg.autoreject_method,
                 random_state=cfg.random_state,
@@ -1054,11 +1078,13 @@ def mark_lfp_bad_segments(
                 for ch, t in threshes.items()
             }
 
+            epochs_threshold_evaluation = epochs_evaluation[evaluation_keep_idx]
             p2p_thr = np.ptp(
-                epochs_thresh.get_data(), axis=2
+                epochs_threshold_evaluation.get_data(), axis=2
             )  # (n_epochs_remain, n_ch)
             thr_vec = np.array(
-                [threshes[ch] for ch in epochs_thresh.ch_names], dtype=float
+                [threshes[ch] for ch in epochs_threshold_evaluation.ch_names],
+                dtype=float,
             )
 
             bad_epochs_mask = (p2p_thr > thr_vec).any(axis=1)
@@ -1067,22 +1093,24 @@ def mark_lfp_bad_segments(
             reject_log = RejectLog(
                 bad_epochs=bad_epochs_mask,
                 labels=labels_int,
-                ch_names=epochs_thresh.ch_names,
+                ch_names=epochs_threshold_evaluation.ch_names,
             )
 
             # Map back to original epoch indices
-            bad_ar_orig = keep_idx[bad_epochs_mask]
+            bad_ar_orig = evaluation_keep_idx[bad_epochs_mask]
             n_bad_ar = int(np.sum(bad_epochs_mask))
 
             # Annotate BAD_autoreject
-            on_ar = epochs_all.events[bad_ar_orig, 0] / sfreq
+            on_ar = epochs_evaluation.events[bad_ar_orig, 0] / sfreq
             ann_ar = mne.Annotations(
                 onset=on_ar.tolist(),
                 duration=[win_len] * len(on_ar),
                 description=[cfg.desc_autoreject] * len(on_ar),
                 orig_time=raw_mark.annotations.orig_time,
             )
-            raw_mark.set_annotations(raw_mark.annotations + ann_ar)
+            _set_annotations_from_attached_frame(
+                raw_mark, raw_mark.annotations + ann_ar
+            )
 
             if reject_plot_path is not None:
                 try:
@@ -1131,7 +1159,10 @@ def mark_lfp_bad_segments(
                 description=[cfg.desc_gap] * len(gap_onsets),
                 orig_time=raw_mark.annotations.orig_time,
             )
-            raw_mark.set_annotations(raw_mark.annotations + ann_gap)
+            _set_annotations_from_attached_frame(
+                raw_mark,
+                raw_mark.annotations + ann_gap,
+            )
 
     # 7) Restore channel types
     _restore_channel_types(raw_mark, original_types)
@@ -1157,6 +1188,9 @@ def mark_lfp_bad_segments(
         "overlap": cfg.overlap,
         "p2p_thresh": cfg.p2p_thresh,
         "n_epochs": int(n_epochs),
+        "n_regular_epochs": int(n_regular_epochs),
+        "n_evaluation_epochs": int(n_epochs),
+        "tail_epoch_added": bool(tail_epoch_added),
         "n_bad_p2p": int(np.sum(bad_p2p)),
         "n_bad_autoreject": int(n_bad_ar),
         "notches": notches.tolist() if notches is not None else None,

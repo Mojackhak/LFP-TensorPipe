@@ -427,7 +427,7 @@ interval masks only that local channel and connectivity pairs containing it.
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | `Notch widths` | Sets the bandwidth used for each configured notch. Wider values remove more contamination around the notch center, but they also suppress more nearby neural signal. | Filter output. | Must parse as valid numeric input. |
-| `Epoch duration` | Sets the chunk length used by bad-span detection helpers. Shorter chunks react to brief artifacts, while longer chunks emphasize more sustained contamination patterns. | Filter-related artifact detection behavior. | Must parse as valid numeric input. |
+| `Epoch duration` | Sets the complete-window length used by bad-span detection helpers. Filter evaluates every complete regular-grid window and, when needed, one additional complete window aligned to the final Raw sample so the recording tail is covered. Shorter windows react to brief artifacts, while longer windows emphasize more sustained contamination patterns. | Filter-related artifact detection behavior. | Must be finite and positive. No samples are padded and no incomplete tail window is evaluated. If the recording is shorter than one complete window, Apply is rejected and asks the user to reduce Epoch duration. |
 | `Peak-to-peak threshold` | Defines the amplitude range treated as acceptable during bad-span detection. Tighter thresholds flag more segments as artifacts, while wider thresholds are more permissive. Leave the whole field blank to disable only fixed peak-to-peak rejection; AutoReject remains active. | Filter-related artifact detection behavior. | Must be blank or two finite values satisfying `0 <= min < max`; a partially filled pair is invalid. |
 | `AutoReject correct factor` | Scales the automatically estimated rejection thresholds. Use it when the default AutoReject behavior is systematically too strict or too permissive for the current recording. | Filter-related artifact detection behavior. | Must parse as valid numeric input. |
 | `Isolate BAD boundaries when filtering` | Selects how the accepted Filter result is produced when the review Preview is finalized. Unchecked (default) filters the reviewed recording continuously, exactly like whole-Raw filtering. Checked filters each valid interval between BAD/EDGE boundaries independently and marks the filter support at every interval edge as `EDGE_filter`. | Accepted Filter output values and `EDGE_filter` annotations. | Must be checked or unchecked; changing it makes an existing Filter result stale. |
@@ -435,6 +435,13 @@ interval masks only that local channel and connectivity pairs containing it.
 | `Set as Default` | Saves current advanced and basic filter values as defaults. | Future default filter settings. | Blocks on invalid values. |
 | `Restore Defaults` | Restores saved default values. | Current dialog fields. | Always available. |
 | `Cancel` | Closes the dialog without saving. | No session/default update. | Always available. |
+
+AutoReject estimates its channel thresholds from eligible regular-grid windows
+only, then evaluates those thresholds on all eligible windows, including the
+end-aligned tail window. A rejected window is marked over its complete duration.
+Filter results created before this end-tail coverage contract are retained but
+shown yellow because their logs cannot prove that the final samples were
+checked; a successful Apply and review finalization updates the result.
 
 ### 6.5 Configure Annotations
 
