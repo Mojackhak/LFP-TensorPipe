@@ -122,6 +122,12 @@ def build_preproc_filter_block(self, *, grid_spacing: int) -> QGroupBox:
     freq_layout.addWidget(self._preproc_filter_high_freq_edit, stretch=1)
     freq_layout.addStretch(1)
     layout.addWidget(freq_row)
+    for edit in (
+        self._preproc_filter_notches_edit,
+        self._preproc_filter_low_freq_edit,
+        self._preproc_filter_high_freq_edit,
+    ):
+        edit.editingFinished.connect(self._refresh_preproc_filter_basic_validation)
     self._apply_filter_basic_params_to_fields(self._load_filter_basic_defaults())
 
     action_row = QWidget()

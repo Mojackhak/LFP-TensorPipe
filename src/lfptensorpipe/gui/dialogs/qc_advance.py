@@ -96,6 +96,15 @@ class QcAdvanceDialog(QDialog):
         root.addWidget(button_row)
 
         self._apply_to_fields(session_params)
+        edits = [self._fmin_edit, self._fmax_edit]
+        if self._mode == "psd":
+            edits.append(self._n_fft_edit)
+        else:
+            edits.extend([self._n_freqs_edit, self._decim_edit])
+        for edit in edits:
+            if edit is not None:
+                edit.editingFinished.connect(self._refresh_validation)
+        self._refresh_validation()
 
     @property
     def selected_action(self) -> str | None:
@@ -109,31 +118,51 @@ class QcAdvanceDialog(QDialog):
         return QMessageBox.warning(self, title, message)
 
     def _apply_to_fields(self, params: dict[str, Any]) -> None:
-        self._fmin_edit.setText(f"{float(params.get('fmin', 1.0)):g}")
-        self._fmax_edit.setText(f"{float(params.get('fmax', 200.0)):g}")
+        self._fmin_edit.setText(self._draft_text(params.get("fmin", 1.0)))
+        self._fmax_edit.setText(self._draft_text(params.get("fmax", 200.0)))
         if self._mode == "psd":
             if self._n_fft_edit is not None:
-                self._n_fft_edit.setText(str(int(params.get("n_fft", 1024))))
+                self._n_fft_edit.setText(self._draft_text(params.get("n_fft", 1024)))
             if self._average_combo is not None:
                 target = bool(params.get("average", True))
                 index = self._average_combo.findData(target)
                 self._average_combo.setCurrentIndex(index if index >= 0 else 0)
         else:
             if self._n_freqs_edit is not None:
-                self._n_freqs_edit.setText(str(int(params.get("n_freqs", 40))))
+                self._n_freqs_edit.setText(self._draft_text(params.get("n_freqs", 40)))
             if self._decim_edit is not None:
-                self._decim_edit.setText(str(int(params.get("decim", 4))))
+                self._decim_edit.setText(self._draft_text(params.get("decim", 4)))
 
     def _on_restore_defaults(self) -> None:
         self._apply_to_fields(self._default_params)
+        self._refresh_validation()
 
-    def _collect_params(self) -> dict[str, Any]:
+    @staticmethod
+    def _draft_text(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return f"{value:g}"
+        return str(value)
+
+    @staticmethod
+    def _draft_number(text: str) -> float | str | None:
+        token = text.strip()
+        if not token:
+            return None
+        try:
+            value = float(token)
+        except Exception:
+            return token
+        return value if np.isfinite(value) else token
+
+    def _collect_draft_params(self) -> dict[str, Any]:
         if self._mode == "psd":
-            candidate = {
-                "fmin": float(self._fmin_edit.text().strip()),
-                "fmax": float(self._fmax_edit.text().strip()),
-                "n_fft": int(
-                    (self._n_fft_edit.text() if self._n_fft_edit else "").strip()
+            return {
+                "fmin": self._draft_number(self._fmin_edit.text()),
+                "fmax": self._draft_number(self._fmax_edit.text()),
+                "n_fft": self._draft_number(
+                    self._n_fft_edit.text() if self._n_fft_edit is not None else ""
                 ),
                 "average": bool(
                     self._average_combo.currentData()
@@ -141,36 +170,65 @@ class QcAdvanceDialog(QDialog):
                     else True
                 ),
             }
+        return {
+            "fmin": self._draft_number(self._fmin_edit.text()),
+            "fmax": self._draft_number(self._fmax_edit.text()),
+            "n_freqs": self._draft_number(
+                self._n_freqs_edit.text() if self._n_freqs_edit is not None else ""
+            ),
+            "decim": self._draft_number(
+                self._decim_edit.text() if self._decim_edit is not None else ""
+            ),
+        }
+
+    def _collect_params(self) -> dict[str, Any]:
+        candidate = self._collect_draft_params()
+        if self._mode == "psd":
             valid, normalized, message = normalize_preproc_viz_psd_params(candidate)
         else:
-            candidate = {
-                "fmin": float(self._fmin_edit.text().strip()),
-                "fmax": float(self._fmax_edit.text().strip()),
-                "n_freqs": int(
-                    (
-                        self._n_freqs_edit.text()
-                        if self._n_freqs_edit is not None
-                        else ""
-                    ).strip()
-                ),
-                "decim": int(
-                    (
-                        self._decim_edit.text() if self._decim_edit is not None else ""
-                    ).strip()
-                ),
-            }
             valid, normalized, message = normalize_preproc_viz_tfr_params(candidate)
         if not valid:
             raise ValueError(message)
         return normalized
 
-    def _on_submit(self, action: str) -> None:
-        try:
-            params = self._collect_params()
-        except Exception as exc:  # noqa: BLE001
-            self._show_warning(self.windowTitle(), f"Invalid parameters:\n{exc}")
+    def _refresh_validation(self) -> None:
+        controls = [self._fmin_edit, self._fmax_edit]
+        controls.extend(
+            [self._n_fft_edit]
+            if self._mode == "psd"
+            else [self._n_freqs_edit, self._decim_edit]
+        )
+        for control in controls:
+            set_control_validation_error(control, None)
+        candidate = self._collect_draft_params()
+        if self._mode == "psd":
+            valid, _, message = normalize_preproc_viz_psd_params(candidate)
+        else:
+            valid, _, message = normalize_preproc_viz_tfr_params(candidate)
+        if valid:
             return
+        lowered = message.lower()
+        if "frequency" in lowered or "fmin" in lowered or "fmax" in lowered:
+            targets = [self._fmin_edit, self._fmax_edit]
+        elif "n_fft" in lowered:
+            targets = [self._n_fft_edit]
+        elif "n_freqs" in lowered and "decim" not in lowered:
+            targets = [self._n_freqs_edit]
+        elif "decim" in lowered and "n_freqs" not in lowered:
+            targets = [self._decim_edit]
+        else:
+            targets = controls
+        for control in targets:
+            set_control_validation_error(control, message)
+
+    def _on_submit(self, action: str) -> None:
         if action == "set_default":
+            try:
+                params = self._collect_params()
+            except Exception as exc:  # noqa: BLE001
+                self._refresh_validation()
+                self._show_warning(self.windowTitle(), f"Invalid parameters:\n{exc}")
+                return
             if self._set_default_callback is not None:
                 try:
                     self._set_default_callback(dict(params))
@@ -183,6 +241,7 @@ class QcAdvanceDialog(QDialog):
             self._selected_action = action
             self._selected_params = params
             return
+        params = self._collect_draft_params()
         self._selected_action = action
         self._selected_params = params
         self.accept()

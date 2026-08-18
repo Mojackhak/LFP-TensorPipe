@@ -8,6 +8,7 @@ from lfptensorpipe.gui.shell.common import (
     PathResolver,
     QDialog,
     normalize_filter_advance_params,
+    normalize_ecg_method_params,
     preproc_step_log_path,
     preproc_step_raw_path,
     read_run_log,
@@ -288,13 +289,29 @@ class MainWindowPreprocActionsMixin:
         if self._preproc_ecg_method_combo is not None:
             method = str(self._preproc_ecg_method_combo.currentData() or "svd")
         picks = list(self._preproc_ecg_selected_channels)
+        valid_params, normalized_params, params_message = normalize_ecg_method_params(
+            method,
+            self._preproc_ecg_params_by_method.get(method),
+        )
+        errors: list[str] = []
+        if not valid_params:
+            errors.append(params_message)
+        if not picks:
+            errors.append("Select at least one ECG channel.")
+        if errors:
+            self._show_warning(
+                "ECG Apply",
+                "Invalid ECG parameters:\n- " + "\n- ".join(errors),
+            )
+            self._refresh_preproc_controls()
+            return
         ok, message = self._run_with_busy(
             "ECG Apply",
             lambda: self._apply_ecg_step_runtime(
                 context,
                 method=method,
                 picks=picks,
-                method_kwargs=self._preproc_ecg_params_by_method[method],
+                method_kwargs=normalized_params,
             ),
         )
         self._refresh_stage_states_from_context()

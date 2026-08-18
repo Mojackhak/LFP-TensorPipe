@@ -9,10 +9,13 @@ from lfptensorpipe.gui.shell.common import (
     QLabel,
     QWidget,
     _stage_preproc_panel,
+    normalize_ecg_method_params,
+    normalize_filter_advance_params,
     preproc_step_indicator_state,
     preproc_step_raw_path,
     rawdata_input_fif_path,
     resolve_finish_source,
+    set_control_validation_error,
 )
 
 
@@ -143,6 +146,15 @@ class MainWindowPreprocStageMixin:
                 self._preproc_finish_plot_button.setEnabled(False)
             self._refresh_preproc_ecg_channel_state(None)
             self._refresh_preproc_visualization_controls(None)
+            for control in (
+                self._preproc_filter_notches_edit,
+                self._preproc_filter_low_freq_edit,
+                self._preproc_filter_high_freq_edit,
+                self._preproc_filter_advance_button,
+                self._preproc_ecg_advance_button,
+                self._preproc_ecg_channels_button,
+            ):
+                set_control_validation_error(control, None)
             return
 
         raw_input_exists = rawdata_input_fif_path(context).exists()
@@ -236,6 +248,22 @@ class MainWindowPreprocStageMixin:
             self._preproc_filter_low_freq_edit.setEnabled(raw_ready)
         if self._preproc_filter_high_freq_edit is not None:
             self._preproc_filter_high_freq_edit.setEnabled(raw_ready)
+        if raw_ready:
+            self._refresh_preproc_filter_basic_validation()
+        else:
+            for control in (
+                self._preproc_filter_notches_edit,
+                self._preproc_filter_low_freq_edit,
+                self._preproc_filter_high_freq_edit,
+            ):
+                set_control_validation_error(control, None)
+        valid_advance, _, advance_message = normalize_filter_advance_params(
+            self._preproc_filter_advance_params
+        )
+        set_control_validation_error(
+            self._preproc_filter_advance_button,
+            advance_message if raw_ready and not valid_advance else None,
+        )
         if self._preproc_annotations_edit_button is not None:
             self._preproc_annotations_edit_button.setEnabled(
                 raw_ready and downstream_allowed
@@ -268,6 +296,25 @@ class MainWindowPreprocStageMixin:
             self._preproc_ecg_advance_button.setEnabled(
                 raw_ready and downstream_allowed
             )
+        valid_ecg, _, ecg_message = normalize_ecg_method_params(
+            str(ecg_method),
+            self._preproc_ecg_params_by_method.get(str(ecg_method)),
+        )
+        ecg_editable = raw_ready and downstream_allowed
+        set_control_validation_error(
+            self._preproc_ecg_advance_button,
+            ecg_message if ecg_editable and not valid_ecg else None,
+        )
+        set_control_validation_error(
+            self._preproc_ecg_channels_button,
+            (
+                "Select at least one ECG channel."
+                if ecg_editable
+                and self._preproc_ecg_available_channels
+                and not self._preproc_ecg_selected_channels
+                else None
+            ),
+        )
         if self._preproc_ecg_apply_button is not None:
             self._preproc_ecg_apply_button.setEnabled(raw_ready and downstream_allowed)
         if self._preproc_ecg_plot_button is not None:

@@ -131,6 +131,14 @@ class FilterAdvanceDialog(QDialog):
         root.addWidget(button_row)
 
         self._apply_to_fields(session_params)
+        for edit in (
+            self._notch_widths_edit,
+            self._epoch_dur_edit,
+            self._p2p_thresh_edit,
+            self._autoreject_factor_edit,
+        ):
+            edit.editingFinished.connect(self._refresh_validation)
+        self._refresh_validation()
 
     @property
     def selected_action(self) -> str | None:
@@ -148,6 +156,7 @@ class FilterAdvanceDialog(QDialog):
 
     def _on_restore_defaults(self) -> None:
         self._apply_to_fields(self._default_params)
+        self._refresh_validation()
         if self._restore_callback is not None:
             self._restore_callback()
 
@@ -157,22 +166,33 @@ class FilterAdvanceDialog(QDialog):
             return ", ".join(f"{item:g}" for item in value)
         return f"{float(value):g}"
 
+    @staticmethod
+    def _draft_text(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return f"{value:g}"
+        return str(value)
+
     def _apply_to_fields(self, params: dict[str, Any]) -> None:
         notch_value = params.get("notch_widths", 2.0)
         p2p_value = params.get("p2p_thresh", [1e-6, 1e-3])
         if p2p_value is None:
             p2p_text = ""
         elif isinstance(p2p_value, (list, tuple)) and len(p2p_value) == 2:
-            p2p_text = f"{float(p2p_value[0]):g}, {float(p2p_value[1]):g}"
+            p2p_text = ", ".join(self._draft_text(item) for item in p2p_value)
         else:
-            p2p_value = [1e-6, 1e-3]
-            p2p_text = f"{float(p2p_value[0]):g}, {float(p2p_value[1]):g}"
+            p2p_text = str(p2p_value)
 
-        self._notch_widths_edit.setText(self._stringify_notch_widths(notch_value))
-        self._epoch_dur_edit.setText(f"{float(params.get('epoch_dur', 1.0)):g}")
+        if isinstance(notch_value, list):
+            notch_text = ", ".join(self._draft_text(item) for item in notch_value)
+        else:
+            notch_text = self._draft_text(notch_value)
+        self._notch_widths_edit.setText(notch_text)
+        self._epoch_dur_edit.setText(self._draft_text(params.get("epoch_dur", 1.0)))
         self._p2p_thresh_edit.setText(p2p_text)
         self._autoreject_factor_edit.setText(
-            f"{float(params.get('autoreject_correct_factor', 1.5)):g}"
+            self._draft_text(params.get("autoreject_correct_factor", 1.5))
         )
         self._boundary_isolated_check.setChecked(
             params.get("boundary_isolated_filter", False) is True
@@ -198,28 +218,95 @@ class FilterAdvanceDialog(QDialog):
             )
         return [float(parts[0]), float(parts[1])]
 
-    def _collect_params(self) -> dict[str, Any]:
-        candidate = {
-            "notch_widths": self._parse_notch_widths(self._notch_widths_edit.text()),
-            "epoch_dur": float(self._epoch_dur_edit.text().strip()),
-            "p2p_thresh": self._parse_p2p_thresh(self._p2p_thresh_edit.text()),
-            "autoreject_correct_factor": float(
-                self._autoreject_factor_edit.text().strip()
+    @staticmethod
+    def _draft_number(text: str) -> float | str | None:
+        token = text.strip()
+        if not token:
+            return None
+        try:
+            value = float(token)
+        except Exception:
+            return token
+        return value if np.isfinite(value) else token
+
+    @classmethod
+    def _draft_number_list(
+        cls,
+        text: str,
+        *,
+        empty_value: Any,
+    ) -> Any:
+        token = text.strip()
+        if not token:
+            return empty_value
+        parts = [item.strip() for item in token.split(",")]
+        if any(not item for item in parts):
+            return token
+        parsed = [cls._draft_number(item) for item in parts]
+        if any(not isinstance(item, float) for item in parsed):
+            return token
+        return parsed[0] if len(parsed) == 1 else parsed
+
+    def _collect_draft_params(self) -> dict[str, Any]:
+        return {
+            "notch_widths": self._draft_number_list(
+                self._notch_widths_edit.text(),
+                empty_value=None,
+            ),
+            "epoch_dur": self._draft_number(self._epoch_dur_edit.text()),
+            "p2p_thresh": self._draft_number_list(
+                self._p2p_thresh_edit.text(),
+                empty_value=None,
+            ),
+            "autoreject_correct_factor": self._draft_number(
+                self._autoreject_factor_edit.text()
             ),
             "boundary_isolated_filter": self._boundary_isolated_check.isChecked(),
         }
+
+    def _collect_params(self) -> dict[str, Any]:
+        candidate = self._collect_draft_params()
         valid, normalized, message = normalize_filter_advance_params(candidate)
         if not valid:
             raise ValueError(message)
         return normalized
 
-    def _on_submit(self, action: str) -> None:
-        try:
-            params = self._collect_params()
-        except Exception as exc:  # noqa: BLE001
-            self._show_warning("Filter Advance", f"Invalid parameters:\n{exc}")
+    def _refresh_validation(self) -> None:
+        controls = (
+            self._notch_widths_edit,
+            self._epoch_dur_edit,
+            self._p2p_thresh_edit,
+            self._autoreject_factor_edit,
+        )
+        for control in controls:
+            set_control_validation_error(control, None)
+        valid, _, message = normalize_filter_advance_params(
+            self._collect_draft_params()
+        )
+        if valid:
             return
+        lowered = message.lower()
+        if "notch_width" in lowered:
+            targets = (self._notch_widths_edit,)
+        elif "epoch_dur" in lowered:
+            targets = (self._epoch_dur_edit,)
+        elif "p2p" in lowered:
+            targets = (self._p2p_thresh_edit,)
+        elif "autoreject" in lowered:
+            targets = (self._autoreject_factor_edit,)
+        else:
+            targets = controls
+        for control in targets:
+            set_control_validation_error(control, message)
+
+    def _on_submit(self, action: str) -> None:
         if action == "set_default":
+            try:
+                params = self._collect_params()
+            except Exception as exc:  # noqa: BLE001
+                self._refresh_validation()
+                self._show_warning("Filter Advance", f"Invalid parameters:\n{exc}")
+                return
             if self._set_default_callback is not None:
                 try:
                     self._set_default_callback(dict(params))
@@ -232,6 +319,7 @@ class FilterAdvanceDialog(QDialog):
             self._selected_action = action
             self._selected_params = params
             return
+        params = self._collect_draft_params()
         self._selected_action = action
         self._selected_params = params
         self.accept()

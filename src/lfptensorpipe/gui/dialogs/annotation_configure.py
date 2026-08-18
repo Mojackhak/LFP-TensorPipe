@@ -111,6 +111,13 @@ class AnnotationConfigureDialog(QDialog):
         end_row_layout.addWidget(self._draft_apply_button)
         draft_layout.addWidget(end_row, 3, 1)
         root.addWidget(draft)
+        for edit in (
+            self._draft_description_edit,
+            self._draft_start_edit,
+            self._draft_duration_edit,
+            self._draft_end_edit,
+        ):
+            edit.editingFinished.connect(self._refresh_draft_validation)
 
         footer = QWidget()
         footer_layout = QHBoxLayout(footer)
@@ -282,11 +289,78 @@ class AnnotationConfigureDialog(QDialog):
             bool(description and start and (has_duration or has_end))
         )
 
+    def _refresh_draft_validation(self) -> None:
+        controls = (
+            self._draft_description_edit,
+            self._draft_start_edit,
+            self._draft_duration_edit,
+            self._draft_end_edit,
+        )
+        for control in controls:
+            set_control_validation_error(control, None)
+        description = self._draft_description_edit.text().strip()
+        start_text = self._draft_start_edit.text().strip()
+        duration_text = self._draft_duration_edit.text().strip()
+        end_text = self._draft_end_edit.text().strip()
+        if not any((description, start_text, duration_text, end_text)):
+            return
+        if not description:
+            set_control_validation_error(
+                self._draft_description_edit, "Description is required."
+            )
+        start: float | None = None
+        try:
+            start = float(start_text)
+        except (TypeError, ValueError):
+            set_control_validation_error(
+                self._draft_start_edit, "Start must be a valid number."
+            )
+        else:
+            if not math.isfinite(start) or start < 0.0:
+                set_control_validation_error(
+                    self._draft_start_edit,
+                    "Start must be a finite number >= 0.",
+                )
+        if duration_text:
+            try:
+                duration = float(duration_text)
+            except (TypeError, ValueError):
+                set_control_validation_error(
+                    self._draft_duration_edit,
+                    "Duration must be a valid number.",
+                )
+            else:
+                if not math.isfinite(duration) or duration < 0.0:
+                    set_control_validation_error(
+                        self._draft_duration_edit,
+                        "Duration must be a finite number >= 0.",
+                    )
+        elif not end_text:
+            message = "Provide Duration or End(optional)."
+            set_control_validation_error(self._draft_duration_edit, message)
+            set_control_validation_error(self._draft_end_edit, message)
+        if end_text and not duration_text:
+            try:
+                end_value = float(end_text)
+            except (TypeError, ValueError):
+                set_control_validation_error(
+                    self._draft_end_edit,
+                    "End(optional) must be a valid number.",
+                )
+            else:
+                if not math.isfinite(end_value) or (
+                    start is not None and math.isfinite(start) and end_value < start
+                ):
+                    message = "End(optional) must be a finite number >= Start."
+                    set_control_validation_error(self._draft_start_edit, message)
+                    set_control_validation_error(self._draft_end_edit, message)
+
     def _update_footer_states(self) -> None:
         has_rows = bool(self._rows)
         self._clear_all_button.setEnabled(has_rows)
 
     def _on_apply_draft(self) -> None:
+        self._refresh_draft_validation()
         description = self._draft_description_edit.text().strip()
         start_text = self._draft_start_edit.text().strip()
         duration_text = self._draft_duration_edit.text().strip()
@@ -364,6 +438,7 @@ class AnnotationConfigureDialog(QDialog):
         self._draft_duration_edit.clear()
         self._draft_end_edit.clear()
         self._update_apply_state()
+        self._refresh_draft_validation()
 
     def _on_clear_all(self) -> None:
         self._rows = []

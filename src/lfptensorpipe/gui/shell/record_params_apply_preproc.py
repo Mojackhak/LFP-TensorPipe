@@ -6,10 +6,10 @@ from lfptensorpipe.gui.shell.common import (
     Any,
     QTableWidgetItem,
     _nested_get,
-    normalize_ecg_params_by_method,
-    normalize_filter_advance_params,
-    normalize_preproc_viz_psd_params,
-    normalize_preproc_viz_tfr_params,
+    default_filter_advance_params,
+    default_preproc_viz_psd_params,
+    default_preproc_viz_tfr_params,
+    default_ecg_params_by_method,
 )
 
 
@@ -23,11 +23,11 @@ class MainWindowRecordParamsApplyPreprocMixin:
                 self._apply_filter_basic_params_to_fields(basic)
             advance = _nested_get(snapshot, ("preproc", "filter", "advance"))
             if isinstance(advance, dict):
-                ok_advance, normalized_advance, _ = normalize_filter_advance_params(
-                    advance
-                )
-                if ok_advance:
-                    self._preproc_filter_advance_params = normalized_advance
+                defaults = default_filter_advance_params()
+                self._preproc_filter_advance_params = {
+                    key: advance[key] if key in advance else value
+                    for key, value in defaults.items()
+                }
         else:
             skipped += 1
 
@@ -62,21 +62,24 @@ class MainWindowRecordParamsApplyPreprocMixin:
             skipped += 1
 
         if "preproc.ecg" not in self._record_param_dirty_keys:
-            global_ecg_params = self._load_ecg_advance_defaults()
             params_by_method = _nested_get(
                 snapshot,
                 ("preproc", "ecg", "params_by_method"),
             )
-            ok_ecg, normalized_ecg, ecg_message = normalize_ecg_params_by_method(
-                params_by_method,
-                base_by_method=global_ecg_params,
-            )
-            self._preproc_ecg_params_by_method = normalized_ecg
-            if not ok_ecg:
-                self._show_ecg_params_warning_once(
-                    "Invalid record ECG Advance parameters were replaced in "
-                    f"memory: {ecg_message}"
+            defaults_by_method = default_ecg_params_by_method()
+            self._preproc_ecg_params_by_method = {}
+            for method_key, defaults in defaults_by_method.items():
+                raw_method = (
+                    params_by_method.get(method_key)
+                    if isinstance(params_by_method, dict)
+                    else None
                 )
+                candidate = dict(defaults)
+                if isinstance(raw_method, dict):
+                    candidate.update(
+                        {key: raw_method[key] for key in defaults if key in raw_method}
+                    )
+                self._preproc_ecg_params_by_method[method_key] = candidate
             method = _nested_get(snapshot, ("preproc", "ecg", "method"))
             if isinstance(method, str) and self._preproc_ecg_method_combo is not None:
                 idx = self._preproc_ecg_method_combo.findData(method)
@@ -101,14 +104,18 @@ class MainWindowRecordParamsApplyPreprocMixin:
         if "preproc.viz" not in self._record_param_dirty_keys:
             psd_params = _nested_get(snapshot, ("preproc", "viz", "psd_params"))
             if isinstance(psd_params, dict):
-                ok_psd, normalized_psd, _ = normalize_preproc_viz_psd_params(psd_params)
-                if ok_psd:
-                    self._preproc_viz_psd_params = normalized_psd
+                defaults = default_preproc_viz_psd_params()
+                self._preproc_viz_psd_params = {
+                    key: psd_params[key] if key in psd_params else value
+                    for key, value in defaults.items()
+                }
             tfr_params = _nested_get(snapshot, ("preproc", "viz", "tfr_params"))
             if isinstance(tfr_params, dict):
-                ok_tfr, normalized_tfr, _ = normalize_preproc_viz_tfr_params(tfr_params)
-                if ok_tfr:
-                    self._preproc_viz_tfr_params = normalized_tfr
+                defaults = default_preproc_viz_tfr_params()
+                self._preproc_viz_tfr_params = {
+                    key: tfr_params[key] if key in tfr_params else value
+                    for key, value in defaults.items()
+                }
             step = _nested_get(snapshot, ("preproc", "viz", "selected_step"))
             if isinstance(step, str):
                 self._preproc_viz_last_step = step

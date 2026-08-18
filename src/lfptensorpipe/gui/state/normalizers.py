@@ -137,9 +137,17 @@ def normalize_preproc_viz_psd_params(
     merged = dict(defaults)
     merged.update({key: params[key] for key in defaults if key in params})
     try:
+        if isinstance(merged["fmin"], bool) or isinstance(merged["fmax"], bool):
+            raise ValueError("PSD frequency bounds must be numeric.")
         fmin = float(merged["fmin"])
         fmax = float(merged["fmax"])
-        n_fft = int(merged["n_fft"])
+        raw_n_fft = merged["n_fft"]
+        if isinstance(raw_n_fft, bool):
+            raise ValueError("PSD n_fft must be an integer.")
+        n_fft_number = float(raw_n_fft)
+        if not math.isfinite(n_fft_number) or not n_fft_number.is_integer():
+            raise ValueError("PSD n_fft must be an integer.")
+        n_fft = int(n_fft_number)
         average_raw = merged["average"]
         if isinstance(average_raw, str):
             average = average_raw.strip().lower() in {"1", "true", "yes", "on"}
@@ -148,6 +156,8 @@ def normalize_preproc_viz_psd_params(
     except Exception as exc:  # noqa: BLE001
         return False, defaults, str(exc)
 
+    if not math.isfinite(fmin) or not math.isfinite(fmax):
+        return False, defaults, "PSD frequency bounds must be finite."
     if fmin < 0.0:
         return False, defaults, "PSD fmin must be >= 0."
     if fmax <= fmin:
@@ -179,13 +189,30 @@ def normalize_preproc_viz_tfr_params(
     merged = dict(defaults)
     merged.update({key: params[key] for key in defaults if key in params})
     try:
+        if isinstance(merged["fmin"], bool) or isinstance(merged["fmax"], bool):
+            raise ValueError("TFR frequency bounds must be numeric.")
         fmin = float(merged["fmin"])
         fmax = float(merged["fmax"])
-        n_freqs = int(merged["n_freqs"])
-        decim = int(merged["decim"])
+        raw_n_freqs = merged["n_freqs"]
+        raw_decim = merged["decim"]
+        if isinstance(raw_n_freqs, bool) or isinstance(raw_decim, bool):
+            raise ValueError("TFR n_freqs and decim must be integers.")
+        n_freqs_number = float(raw_n_freqs)
+        decim_number = float(raw_decim)
+        if (
+            not math.isfinite(n_freqs_number)
+            or not n_freqs_number.is_integer()
+            or not math.isfinite(decim_number)
+            or not decim_number.is_integer()
+        ):
+            raise ValueError("TFR n_freqs and decim must be integers.")
+        n_freqs = int(n_freqs_number)
+        decim = int(decim_number)
     except Exception as exc:  # noqa: BLE001
         return False, defaults, str(exc)
 
+    if not math.isfinite(fmin) or not math.isfinite(fmax):
+        return False, defaults, "TFR frequency bounds must be finite."
     if fmin <= 0.0:
         return False, defaults, "TFR fmin must be > 0."
     if fmax <= fmin:

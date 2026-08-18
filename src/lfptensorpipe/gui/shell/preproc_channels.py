@@ -9,8 +9,11 @@ from lfptensorpipe.gui.shell.common import (
     PathResolver,
     QDialog,
     RecordContext,
+    normalize_preproc_viz_psd_params,
+    normalize_preproc_viz_tfr_params,
     preproc_step_raw_path,
     resolve_preproc_step_source,
+    set_control_validation_error,
 )
 
 
@@ -179,6 +182,8 @@ class MainWindowPreprocChannelsMixin:
                 self._preproc_viz_tfr_advance_button.setEnabled(False)
             if self._preproc_viz_tfr_plot_button is not None:
                 self._preproc_viz_tfr_plot_button.setEnabled(False)
+            set_control_validation_error(self._preproc_viz_psd_advance_button, None)
+            set_control_validation_error(self._preproc_viz_tfr_advance_button, None)
             return
 
         available_steps = self._available_preproc_viz_steps(context)
@@ -225,6 +230,8 @@ class MainWindowPreprocChannelsMixin:
                 self._preproc_viz_tfr_advance_button.setEnabled(False)
             if self._preproc_viz_tfr_plot_button is not None:
                 self._preproc_viz_tfr_plot_button.setEnabled(False)
+            set_control_validation_error(self._preproc_viz_psd_advance_button, None)
+            set_control_validation_error(self._preproc_viz_tfr_advance_button, None)
             return
 
         resolver = PathResolver(context)
@@ -276,6 +283,20 @@ class MainWindowPreprocChannelsMixin:
             self._preproc_viz_tfr_advance_button.setEnabled(has_source)
         if self._preproc_viz_tfr_plot_button is not None:
             self._preproc_viz_tfr_plot_button.setEnabled(has_source)
+        valid_psd, _, psd_message = normalize_preproc_viz_psd_params(
+            self._preproc_viz_psd_params
+        )
+        valid_tfr, _, tfr_message = normalize_preproc_viz_tfr_params(
+            self._preproc_viz_tfr_params
+        )
+        set_control_validation_error(
+            self._preproc_viz_psd_advance_button,
+            psd_message if has_source and not valid_psd else None,
+        )
+        set_control_validation_error(
+            self._preproc_viz_tfr_advance_button,
+            tfr_message if has_source and not valid_tfr else None,
+        )
 
     def _on_preproc_viz_channels_select(self) -> None:
         if not self._preproc_viz_available_channels:
@@ -288,6 +309,7 @@ class MainWindowPreprocChannelsMixin:
             title="Visualization Channels",
             available=self._preproc_viz_available_channels,
             selected=self._preproc_viz_selected_channels,
+            allow_empty=True,
         )
         if chosen is None:
             return

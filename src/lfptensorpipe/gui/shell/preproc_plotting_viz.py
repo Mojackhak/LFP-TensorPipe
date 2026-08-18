@@ -6,6 +6,8 @@ from lfptensorpipe.lfp.common import decimated_times_from_raw
 from lfptensorpipe.gui.shell.common import (
     Any,
     QDialog,
+    normalize_preproc_viz_psd_params,
+    normalize_preproc_viz_tfr_params,
 )
 
 
@@ -33,6 +35,8 @@ def _on_preproc_viz_psd_advance(self) -> None:
     if dialog.exec() != QDialog.Accepted or dialog.selected_params is None:
         return
     self._preproc_viz_psd_params = dict(dialog.selected_params)
+    self._mark_record_param_dirty("preproc.viz")
+    self._refresh_preproc_visualization_controls(self._record_context())
     self.statusBar().showMessage("Visualization PSD session parameters updated.")
     self._persist_record_params_snapshot(reason="preproc_viz_psd_save")
 
@@ -61,11 +65,19 @@ def _on_preproc_viz_tfr_advance(self) -> None:
     if dialog.exec() != QDialog.Accepted or dialog.selected_params is None:
         return
     self._preproc_viz_tfr_params = dict(dialog.selected_params)
+    self._mark_record_param_dirty("preproc.viz")
+    self._refresh_preproc_visualization_controls(self._record_context())
     self.statusBar().showMessage("Visualization TFR session parameters updated.")
     self._persist_record_params_snapshot(reason="preproc_viz_tfr_save")
 
 
 def _on_preproc_viz_psd_plot(self) -> None:
+    valid, plot_params, message = normalize_preproc_viz_psd_params(
+        self._preproc_viz_psd_params
+    )
+    if not valid:
+        self._show_warning("Visualization PSD", f"Invalid parameters:\n{message}")
+        return
     source = self._current_preproc_viz_source()
     if source is None:
         self._show_warning(
@@ -84,13 +96,13 @@ def _on_preproc_viz_psd_plot(self) -> None:
         raw = self._read_raw_fif(raw_path, preload=False, verbose="ERROR")
         spectrum = raw.compute_psd(
             method="welch",
-            fmin=float(self._preproc_viz_psd_params["fmin"]),
-            fmax=float(self._preproc_viz_psd_params["fmax"]),
-            n_fft=int(self._preproc_viz_psd_params["n_fft"]),
+            fmin=float(plot_params["fmin"]),
+            fmax=float(plot_params["fmax"]),
+            n_fft=int(plot_params["n_fft"]),
             picks=picks,
             verbose="ERROR",
         )
-        figure = spectrum.plot(average=bool(self._preproc_viz_psd_params["average"]))
+        figure = spectrum.plot(average=bool(plot_params["average"]))
         self._track_plot_figure(figure)
         if hasattr(raw, "close"):
             raw.close()
@@ -99,6 +111,12 @@ def _on_preproc_viz_psd_plot(self) -> None:
 
 
 def _on_preproc_viz_tfr_plot(self) -> None:
+    valid, plot_params, message = normalize_preproc_viz_tfr_params(
+        self._preproc_viz_tfr_params
+    )
+    if not valid:
+        self._show_warning("Visualization TFR", f"Invalid parameters:\n{message}")
+        return
     source = self._current_preproc_viz_source()
     if source is None:
         self._show_warning(
@@ -122,10 +140,10 @@ def _on_preproc_viz_tfr_plot(self) -> None:
         data = raw.get_data(picks=picks, start=0, stop=raw.n_times)
         if data.shape[0] == 0 or data.shape[1] == 0:
             raise ValueError("No samples available for selected channels.")
-        fmin = float(self._preproc_viz_tfr_params["fmin"])
-        fmax = float(self._preproc_viz_tfr_params["fmax"])
-        n_freqs = int(self._preproc_viz_tfr_params["n_freqs"])
-        decim = int(self._preproc_viz_tfr_params["decim"])
+        fmin = float(plot_params["fmin"])
+        fmax = float(plot_params["fmax"])
+        n_freqs = int(plot_params["n_freqs"])
+        decim = int(plot_params["decim"])
         freqs = np.logspace(np.log10(fmin), np.log10(fmax), n_freqs, dtype=float)
         n_cycles = np.maximum(2.0, freqs / 4.0)
         power = self._compute_tfr_array_morlet(

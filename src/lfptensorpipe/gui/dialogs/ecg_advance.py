@@ -81,7 +81,21 @@ class ECGAdvanceDialog(QDialog):
         button_layout.addStretch(1)
         root.addWidget(button_row)
 
-        self._apply_to_fields(self._normalized_or_builtin(session_params))
+        session_candidate = dict(default_ecg_method_params(self._method))
+        if isinstance(session_params, dict):
+            session_candidate.update(
+                {
+                    key: session_params[key]
+                    for key in session_candidate
+                    if key in session_params
+                }
+            )
+        try:
+            self._apply_to_fields(session_candidate)
+        except (KeyError, TypeError, ValueError):
+            self._apply_to_fields(default_ecg_method_params(self._method))
+        self._connect_validation_signals()
+        self._refresh_validation()
 
     @property
     def selected_action(self) -> str | None:
@@ -474,7 +488,7 @@ class ECGAdvanceDialog(QDialog):
             bool(params["enforce_max_interval"])
         )
 
-    def _collect_params(self) -> dict[str, Any]:
+    def _collect_draft_params(self) -> dict[str, Any]:
         if self._method in {"template", "svd"}:
             candidate: dict[str, Any] = {
                 "window_ms": self._window_ms_spin.value(),
@@ -517,9 +531,12 @@ class ECGAdvanceDialog(QDialog):
                 "after_ms": self._after_ms_spin.value(),
                 "enforce_max_interval": (self._enforce_max_interval_check.isChecked()),
             }
+        return candidate
+
+    def _collect_params(self) -> dict[str, Any]:
         valid, normalized, message = normalize_ecg_method_params(
             self._method,
-            candidate,
+            self._collect_draft_params(),
         )
         if not valid:
             raise ValueError(message)
@@ -527,17 +544,91 @@ class ECGAdvanceDialog(QDialog):
 
     def _on_restore_defaults(self) -> None:
         self._apply_to_fields(self._default_params)
+        self._refresh_validation()
+
+    def _connect_validation_signals(self) -> None:
+        for widget in self.findChildren(QDoubleSpinBox):
+            widget.valueChanged.connect(lambda _value: self._refresh_validation())
+        for widget in self.findChildren(QSpinBox):
+            widget.valueChanged.connect(lambda _value: self._refresh_validation())
+        for widget in self.findChildren(QComboBox):
+            widget.currentIndexChanged.connect(
+                lambda _index: self._refresh_validation()
+            )
+        for widget in self.findChildren(QCheckBox):
+            widget.toggled.connect(lambda _checked: self._refresh_validation())
+
+    def _refresh_validation(self) -> None:
+        widgets = [
+            *self.findChildren(QDoubleSpinBox),
+            *self.findChildren(QSpinBox),
+            *self.findChildren(QComboBox),
+        ]
+        for widget in widgets:
+            set_control_validation_error(widget, None)
+        valid, _, message = normalize_ecg_method_params(
+            self._method,
+            self._collect_draft_params(),
+        )
+        if valid:
+            return
+        lowered = message.lower()
+        if self._method == "perceive":
+            field_widgets = {
+                "epoch_length_ms": [self._epoch_length_ms_spin],
+                "window_ms": [self._window_ms_spin],
+                "threshold_v": [self._threshold_uv_spin],
+                "pad_ms": [self._pad_ms_spin],
+                "min_bpm": [self._min_bpm_spin, self._max_bpm_spin],
+                "max_bpm": [self._min_bpm_spin, self._max_bpm_spin],
+                "threshold_start": [
+                    self._threshold_start_spin,
+                    self._threshold_step_spin,
+                ],
+                "threshold_step": [
+                    self._threshold_start_spin,
+                    self._threshold_step_spin,
+                ],
+                "max_threshold_tries": [self._max_threshold_tries_spin],
+                "pass_rate": [self._pass_rate_spin],
+                "before_ms": [self._before_ms_spin],
+                "after_ms": [self._after_ms_spin],
+            }
+        else:
+            field_widgets = {
+                "window_ms": [self._window_ms_spin],
+                "peak_height_range": [self._peak_min_spin, self._peak_max_spin],
+                "min_interpeak_ms": [self._min_interpeak_ms_spin],
+                "pre_ms": [self._pre_ms_spin],
+                "post_ms": [self._post_ms_spin],
+                "tail_ms": [self._tail_ms_spin],
+                "qrs_duration_ms": [self._qrs_duration_ms_spin],
+            }
+            if self._method == "svd":
+                field_widgets["components"] = [self._components_spin]
+        targets = next(
+            (
+                candidate_widgets
+                for token, candidate_widgets in field_widgets.items()
+                if token in lowered
+            ),
+            widgets,
+        )
+        for widget in targets:
+            if widget.isEnabled():
+                set_control_validation_error(widget, message)
 
     def _show_warning(self, title: str, message: str) -> int:
         return QMessageBox.warning(self, title, message)
 
     def _on_submit(self, action: str) -> None:
-        try:
-            params = self._collect_params()
-        except Exception as exc:  # noqa: BLE001
-            self._show_warning(self.windowTitle(), f"Invalid parameters:\n{exc}")
-            return
         if action == "set_default":
+            try:
+                params = self._collect_params()
+            except Exception as exc:  # noqa: BLE001
+                self._refresh_validation()
+                self._show_warning(self.windowTitle(), f"Invalid parameters:\n{exc}")
+                return
             if self._set_default_callback is not None:
                 try:
                     self._set_default_callback(dict(params))
@@ -551,6 +642,7 @@ class ECGAdvanceDialog(QDialog):
             self._selected_action = action
             self._selected_params = dict(params)
             return
+        params = self._collect_draft_params()
         self._selected_action = action
         self._selected_params = dict(params)
         self.accept()
