@@ -16,9 +16,9 @@ MATLAB-backed actions.
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
-| `Lead-DBS Directory` | Points the app to the local Lead-DBS installation root. | Localize atlas discovery and MATLAB-side Lead-DBS helpers. | Must be a valid Lead-DBS directory before Localize can become ready. |
+| `Lead-DBS Directory` | Points the app to the local Lead-DBS installation root. | Localize atlas discovery and MATLAB-side Lead-DBS helpers. | Must be a valid Lead-DBS directory before Localize can become ready; an empty or invalid path is marked red after editing finishes. |
 | `Browse` (Lead-DBS) | Opens a directory chooser for the Lead-DBS root. | Fills the `Lead-DBS Directory` field. | Always available. |
-| `MATLAB Installation Path` | Points the app to the local MATLAB application or executable path. | MATLAB-backed actions such as Localize Apply and Contact Viewer launch. | Must resolve to a working MATLAB install before MATLAB status can turn ready. |
+| `MATLAB Installation Path` | Points the app to the local MATLAB application or executable path. | MATLAB-backed actions such as Localize Apply and Contact Viewer launch. | Must resolve to a working MATLAB install before MATLAB status can turn ready; an empty or invalid path is marked red after editing finishes. |
 | `Browse` (MATLAB) | Opens a chooser for the MATLAB application path. | Fills the `MATLAB Installation Path` field. | Always available. |
 | `Save` | Validates and stores the current dependency paths in app storage. | Future Localize runtime checks. | Blocks on invalid paths. |
 | `Cancel` | Closes the dialog without saving path changes. | No persisted state. | Always available. |
@@ -106,6 +106,48 @@ workspace area shows whichever stage page is currently active.
 | Stage buttons | Open the corresponding stage page in the workspace area. | Which control surface is shown on the right. | Usually enabled only when upstream requirements are satisfied. |
 | Active workspace page | Hosts the full controls for the selected stage. | The current page-specific actions and state. | Depends on the active stage. |
 
+### 2.4 Empty Values, Drafts, and Validation
+
+GUI controls use one visible-value contract across every stage:
+
+- A blank single-value control represents `None`. An empty collection remains
+  an empty collection; it is not rewritten to `None`.
+- `None` is valid only where the individual control explicitly documents an
+  optional meaning. A required empty value or any other invalid active value is
+  shown with a red control background or border. Resource states such as
+  loading or no available annotations/channels are shown as unavailable rather
+  than as user-input errors.
+- Invalid draft values do not block navigation, method changes, Cancel,
+  Restore Default, or ordinary record-scoped Save. Record UI state preserves
+  those values exactly and recomputes validation when reloaded. Uncommitted
+  draft rows are not part of the saved configuration until their Add/Apply
+  action succeeds.
+- Set as Default, Export Configs, scientific Apply, and Run require a valid
+  active configuration. A Run request with invalid values reports all current
+  errors before starting a worker and does not modify logs or artifacts.
+- A control disabled by the selected method or mode preserves its draft value,
+  but is not validated, marked invalid, or included in the active computation
+  payload.
+- Build Tensor active scalar fields recompute their validation state immediately
+  after each user edit. Switching the metric parameter panel clears validation
+  marks inherited from the previous metric and explicitly validates the newly
+  active metric, so a valid value or selector cannot remain red because of an
+  earlier draft.
+- App defaults and exported configurations must be valid. A required field with
+  no scientifically safe automatic value uses an empty initial draft template,
+  not an invalid saved default. Examples include Alignment annotation choices
+  and channel-to-contact mappings.
+- External configuration import previews every normalization before acceptance.
+  Missing keys, repaired empty values, legacy-field conversions, and removed
+  unavailable values are reported separately. A required value is restored
+  only when a documented safe default exists; otherwise import fails.
+
+An invalid or changed draft makes the affected panel stale without deleting its
+last accepted artifacts. Returning to the exact normalized configuration of the
+still-current successful artifact restores the green indicator and downstream
+availability without rerunning. Formatting, key ordering, and equivalent
+numeric serialization do not affect that comparison.
+
 ## 3. Import Record
 
 The import dialog defines a new record, parses the selected source, and runs any
@@ -122,12 +164,13 @@ inputs.
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | `Import Type` | Chooses the parser family for the source file. | Which fields, validation rules, and sidecars are required. | Always available. |
-| `Record Name` | Defines the record name that will be created under the current subject and reports any occupied standard record paths. | Record folder name and downstream artifact paths. | Required before import can succeed. A conflict does not block Parse, but it disables `Confirm Import`. |
-| `File Path` | Points to the primary source file. | Parse result and final imported record contents. | Required before parse. |
+| `Record Name` | Defines the record name that will be created under the current subject and reports any occupied standard record paths. | Record folder name and downstream artifact paths. | Required before import can succeed. An empty, malformed, or occupied name is marked red; a conflict does not block Parse, but it disables `Confirm Import`. |
+| `File Path` | Points to the primary source file. | Parse result and final imported record contents. | Required before parse. An empty or nonexistent path is marked red after editing finishes. |
 | `Browse` | Opens a file chooser for the primary source file. | Fills `File Path`. | Always available. |
 | `Advanced` | Reveals optional sidecar inputs supported by the selected import type. | Whether auxiliary import fields are shown. | Always available. |
 | `Metadata` | Points to an optional metadata sidecar. | Import metadata enrichment for supported parsers. | Visible only when `Advanced` is enabled and the import type supports it. |
 | `Browse` (metadata) | Opens a file chooser for the metadata sidecar. | Fills the metadata path field. | Same gating as `Metadata`. |
+| `Sampling rate` | Sets the source sampling rate for Legacy CSV input. | Legacy CSV time axis and all derived timing. | Visible only for Legacy CSV; must be a finite number greater than zero. |
 | `Parse` | Reads the selected source and previews import metadata without committing the record. | Parsed channels, sample rate, duration, and parser-dependent import state. | Requires a valid source path and any required parser inputs. |
 | `Sync` | Enables import-time timeline synchronization. | Whether a saved sync state becomes part of the import requirements. | Requires a successful parse. |
 | `Configure...` (Sync) | Opens the sync configuration dialog. | Saved import-time sync state. | Enabled when `Sync` is checked and parse state exists. |
@@ -163,7 +206,7 @@ external marker stream.
 | `External` source | Chooses the external marker input type. | External marker list content. | Always available after the dialog opens. |
 | `File Path` | Points to the external timing source, such as CSV or audio. | External marker detection input. | Enabled for file-backed external sources. |
 | `Browse` | Opens a chooser for the external source file. | Fills the external file path. | Enabled with the external file path field. |
-| `Min distance` | Sets the minimum separation between detected markers on that side. | Marker detection sensitivity. | Always available. |
+| `Min distance` | Sets the minimum separation between detected markers on that side. | Marker detection sensitivity. | Enabled only for peak/audio detection; must be a finite number greater than zero. |
 | `Advance` | Opens side-specific detection settings for the selected marker source. | Saved marker-detection configuration for that side. | Always available, but the child dialogs are not illustrated in this screenshot set. |
 | `Detect / Reload` or `Load / Detect` | Rebuilds the marker list from the current source settings. | Marker table rows. | Requires the source definition to be valid. |
 | `Add` | Adds a marker row manually. | Marker table rows. | Always available. |
@@ -176,6 +219,11 @@ times and extra columns are invalid. Blank rows are ignored, and accepted times
 are sorted chronologically. If reload validation fails, the dialog reports the
 original CSV line numbers and preserves the currently loaded markers, pairs,
 and estimate.
+
+The peak-detection Advance dialog treats blank search-range, height, and
+prominence fields as `None`. If either search-range endpoint is supplied, both
+must be finite and satisfy `0 <= start < stop`; an optional prominence must be
+finite and nonnegative.
 
 #### Pairing and save area
 
@@ -209,9 +257,9 @@ record is imported.
 | `Apply` | Adds the draft pair to the table. | Pair table rows. | Requires a valid draft. |
 | `Clear Draft` | Clears the current draft row. | Draft fields only. | Always available. |
 | `Clear All` | Removes all configured pairs. | Pair table rows. | Always available. |
-| `Set as Default` | Saves the current pair list as the app default. | Future reset-reference defaults. | Always available. |
+| `Set as Default` | Saves the current pair list as the app default. | Future reset-reference defaults. | Requires at least one valid committed pair; an empty initial table is a draft template, not an app default. |
 | `Restore Default` | Restores the saved default pair list. | Current draft table. | Always available; falls back to an empty list if no default exists. |
-| `Save` | Saves the pair list back to Import Record. | Import gating and imported channel names. | Blocks on invalid or empty required state. |
+| `Save` | Saves the pair list back to Import Record. | Import gating and imported channel names. | May retain an empty red draft; Import confirmation remains blocked until valid. |
 | `Cancel` | Closes the dialog without saving pair changes. | No reset-reference update. | Always available. |
 
 ## 4. Localize
@@ -258,9 +306,9 @@ coordinate mode.
 | `Rep. coord` | Chooses the representative coordinate mode exported for this channel. | Representative-coordinate outputs for that channel. | Requires an active channel. |
 | `Bind/Update` | Commits the current draft for the active channel. | Mapping table. | Requires a valid draft. |
 | `Mapping Table` | Lists committed bindings for this record. | Saved payload and row editing entrypoint. | Read-only except for row selection and row delete actions. |
-| `Set as Default` | Saves the current mapping table as the app default. | Future default mappings. | Always available. |
+| `Set as Default` | Saves the current mapping table as the app default. | Future default mappings. | Requires a complete valid mapping; no mapping is synthesized when a safe default does not exist. |
 | `Restore Default` | Restores compatible saved mappings from app defaults. | Current mapping table. | Always available. |
-| `Save` | Saves the committed mappings back to the Localize page. | Localize readiness and Apply input. | Blocks until all channels are mapped. |
+| `Save` | Saves the committed mappings back to the Localize page. | Localize readiness and Apply input. | May retain an incomplete red draft; Apply, Set as Default, and Export remain blocked. |
 | `Cancel` | Closes the dialog without saving. | No payload change. | Always available. |
 
 ### 4.3 Configure Localize Atlas
@@ -278,7 +326,7 @@ representative coordinates are evaluated against atlas membership.
 | Region checklist | Chooses which atlas regions are considered during Apply. | Interested-region payload. | Requires an atlas. |
 | `Select All` | Selects every region in the current atlas. | Region checklist. | Requires an atlas. |
 | `Clear` | Clears the current region selection. | Region checklist. | Requires an atlas. |
-| `Save` | Saves the current atlas configuration back to the Localize page. | Atlas summary and Apply input. | Blocks on invalid space/atlas combinations. |
+| `Save` | Saves the current atlas configuration back to the Localize page. | Atlas summary and Apply input. | May retain an empty interested-region draft; Apply, Set as Default, and Export remain blocked. |
 | `Cancel` | Closes the dialog without saving changes. | No atlas payload update. | Always available. |
 
 ## 5. Stages Overview
@@ -383,7 +431,7 @@ interval masks only that local channel and connectivity pairs containing it.
 | `Peak-to-peak threshold` | Defines the amplitude range treated as acceptable during bad-span detection. Tighter thresholds flag more segments as artifacts, while wider thresholds are more permissive. Leave the whole field blank to disable only fixed peak-to-peak rejection; AutoReject remains active. | Filter-related artifact detection behavior. | Must be blank or two finite values satisfying `0 <= min < max`; a partially filled pair is invalid. |
 | `AutoReject correct factor` | Scales the automatically estimated rejection thresholds. Use it when the default AutoReject behavior is systematically too strict or too permissive for the current recording. | Filter-related artifact detection behavior. | Must parse as valid numeric input. |
 | `Isolate BAD boundaries when filtering` | Selects how the accepted Filter result is produced when the review Preview is finalized. Unchecked (default) filters the reviewed recording continuously, exactly like whole-Raw filtering. Checked filters each valid interval between BAD/EDGE boundaries independently and marks the filter support at every interval edge as `EDGE_filter`. | Accepted Filter output values and `EDGE_filter` annotations. | Must be checked or unchecked; changing it makes an existing Filter result stale. |
-| `Save` | Saves current advanced values to the session. | Current filter session parameters. | Blocks on invalid values. |
+| `Save` | Saves current advanced values to the session. | Current filter session parameters. | May retain invalid values as a red record draft; Filter Apply and valid-only persistence remain blocked. |
 | `Set as Default` | Saves current advanced and basic filter values as defaults. | Future default filter settings. | Blocks on invalid values. |
 | `Restore Defaults` | Restores saved default values. | Current dialog fields. | Always available. |
 | `Cancel` | Closes the dialog without saving. | No session/default update. | Always available. |
@@ -419,7 +467,7 @@ as the method-selector reference and does not illustrate the Advance dialog.
 | --- | --- | --- | --- |
 | `Method` | Chooses the ECG artifact-removal algorithm. Each method retains independent parameters. | ECG method used by Apply. | Requires successful bad-segment removal. |
 | `Advance` | Opens parameters for the selected method. | Current-record ECG parameters. | Requires successful bad-segment removal. |
-| `Save` | Saves the displayed parameters for the current record and method without running ECG removal. | Current-record ECG parameters and freshness state. | Blocks on invalid values. |
+| `Save` | Saves the displayed parameters for the current record and method without running ECG removal. | Current-record ECG parameters and freshness state. | May retain an invalid cross-field combination as a red record draft; ECG Apply and valid-only persistence remain blocked. |
 | `Set as Default` | Saves the displayed values as global defaults for the selected method. | Future records without saved ECG parameters. | Blocks on invalid values. |
 | `Restore Defaults` | Loads the selected method's global defaults into the dialog. | Dialog fields only until Save is selected. | Always available. |
 | `Cancel` | Closes the dialog without changing record parameters. | No record update. | Always available. |
@@ -506,7 +554,7 @@ Further reading:
 | `High freq` | Sets the upper frequency bound shown in the PSD figure. Keep it within the range that remains meaningful for the current sampling rate and preprocessing. | PSD QC output. | Must be numeric. |
 | `n_fft` | Sets the FFT length used for PSD estimation. Larger values produce denser frequency sampling, but they also require longer effective data segments and increase runtime. | PSD QC behavior only. | PSD dialog only. |
 | `Average` | Chooses whether PSD is averaged across the selected channels before plotting. Turn it off when you need to compare channels individually rather than as one summary trace. | PSD QC behavior only. | PSD dialog only. |
-| `Save` | Saves the current PSD QC settings to the session. | Current PSD session parameters. | Blocks on invalid values. |
+| `Save` | Saves the current PSD QC settings to the session. | Current PSD session parameters. | May retain invalid values as a red record draft; plotting and valid-only persistence remain blocked. |
 | `Set as Default` | Saves the current PSD QC settings as future defaults. | Future PSD defaults. | Blocks on invalid values. |
 | `Restore Defaults` | Restores the saved PSD defaults. | Current dialog fields. | Always available. |
 | `Cancel` | Closes the dialog without saving. | No session/default update. | Always available. |
@@ -526,7 +574,7 @@ Further reading:
 | `High freq` | Sets the upper frequency bound shown in the TFR figure. Keep it within the range supported by the current preprocessing and sampling rate. | TFR QC output. | Must be numeric. |
 | `n_freqs` | Sets how many frequency samples are drawn between `Low freq` and `High freq`. More samples create a denser frequency axis, but also increase runtime and memory use. | TFR QC behavior only. | TFR dialog only. |
 | `Decim` | Sets the downsampling factor applied to the TFR time axis. Higher decimation speeds up plotting and reduces figure size, but it also makes short-lived structure harder to see. | TFR QC behavior only. | TFR dialog only. |
-| `Save` | Saves the current TFR QC settings to the session. | Current TFR session parameters. | Blocks on invalid values. |
+| `Save` | Saves the current TFR QC settings to the session. | Current TFR session parameters. | May retain invalid values as a red record draft; plotting and valid-only persistence remain blocked. |
 | `Set as Default` | Saves the current TFR QC settings as future defaults. | Future TFR defaults. | Blocks on invalid values. |
 | `Restore Defaults` | Restores the saved TFR defaults. | Current dialog fields. | Always available. |
 | `Cancel` | Closes the dialog without saving. | No session/default update. | Always available. |
@@ -545,7 +593,7 @@ Further reading:
 | Channel list | Chooses which channels are used by PSD/TFR QC plots. | QC plotting channel subset. | Requires a channel inventory. |
 | `Select All` | Selects every available channel. | Current channel subset. | Always available. |
 | `Clear` | Clears the current selection. | Current channel subset. | Always available. |
-| `Save` | Saves the selected channel subset back to Preprocess. | Visualization channel payload. | Requires at least the app's accepted selection state. |
+| `Save` | Saves the selected channel subset back to Preprocess. | Visualization channel draft. | May retain an empty red record draft; PSD/TFR plotting remains blocked until at least one channel is selected. |
 | `Cancel` | Closes the dialog without saving. | No channel-subset update. | Always available. |
 
 ## 7. Build Tensor
@@ -592,6 +640,20 @@ and the execution of tensor generation.
 - `Mask Edge Effects` controls annotation-derived masking, not frequency
   cropping or algorithmic availability. PSI-Multitaper output centers without
   a complete centered analysis window remain `NaN` when this control is off.
+- An empty required control is an invalid draft. It may be retained by ordinary
+  record-scoped Save, but blocks Set as Default, Export Configs, and
+  computation. A documented optional control may be left empty and is stored
+  as `None`. Controls disabled by the selected method or mode retain their draft
+  value but are not validated or used.
+- Active Tensor controls are revalidated after each user edit and after metric
+  selection changes. Red invalid-draft highlighting is removed immediately when
+  the active value or collection becomes valid; a previous error must not leave
+  persistent red styling on a valid control.
+- Configuration compatibility applies only to keys that are absent from an
+  older payload. Explicit `NaN`, `Inf`, non-numeric, negative, out-of-range, or
+  fractional integer values are rejected rather than repaired or truncated.
+  The documented exception is `max_n_peaks=inf`, which means no peak-count
+  limit.
 
 ### 7.3 Periodic/Aperiodic Basic Panel Variant
 
@@ -639,9 +701,9 @@ not make an otherwise current Burst result stale.
 | Channel list | Chooses channels for the active metric. | Active metric channel subset. | Requires a channel inventory. |
 | `Select All` | Selects every channel. | Current channel subset. | Always available. |
 | `Clear` | Clears the current selection. | Current channel subset. | Always available. |
-| `Set as Default` | Saves the current channel subset as the default for this control. | Future defaults. | Always available. |
+| `Set as Default` | Saves the current channel subset as the default for this control. | Future defaults. | Requires a non-empty valid subset for an active channel-based metric. |
 | `Restore Defaults` | Restores the saved default subset. | Current dialog state. | Always available. |
-| `Save` | Saves the selected subset back to Build Tensor. | Active metric channel selection. | Requires an accepted selection state. |
+| `Save` | Saves the selected subset back to Build Tensor. | Active metric channel-selection draft. | May retain an empty red draft; Set as Default, Export, and Build Tensor remain blocked until the subset is valid. |
 | `Cancel` | Closes the dialog without saving. | No channel-subset update. | Always available. |
 
 ### 7.7 Raw Power Advance
@@ -657,7 +719,7 @@ not make an otherwise current Burst result stale.
 | `MT minimum cycles` | Sets the minimum oscillation cycles in a Multitaper window. Low frequencies use a longer window when needed. The default is `3.0`. | Multitaper low-frequency stability and temporal support. | Enabled only for Multitaper; must be greater than `0`. |
 | `Notches` | Adds metric-local notch exclusions on top of any preprocess filtering. Use this when a metric still needs narrowband suppression that should not be baked into preprocess globally. | Metric-local runtime filtering. | Supported tensor metrics only. |
 | `Notch radius (Hz)` | Sets the half-width on each side of a metric-local notch center. A `50 Hz` center with a `2 Hz` radius excludes `48–52 Hz`, for a complete excluded width of `4 Hz`. | Metric-local runtime filtering. | Use one positive value for every center or one value per center. |
-| `Save` | Saves the dialog values to the current session. | Current raw-power advanced settings. | Blocks on invalid values. |
+| `Save` | Saves the dialog values to the current session. | Current raw-power advanced settings. | Preserves invalid values as a red draft; computation and valid-only persistence remain blocked. |
 | `Set as Default` | Saves the current advanced settings as defaults. | Future raw-power defaults. | Blocks on invalid values. |
 | `Restore Defaults` | Restores saved defaults. | Current dialog values. | Always available. |
 | `Cancel` | Closes the dialog without saving. | No advanced update. | Always available. |
@@ -742,7 +804,7 @@ not make an otherwise current Burst result stale.
 | `Morlet max cycles` | Sets the optional maximum Morlet cycle count. | Morlet PLV time/frequency trade-off. | Enabled only for Morlet. |
 | `Notches` | Adds metric-local notch exclusions before PLV is computed. | Metric-local runtime filtering. | Supported tensor metrics only. |
 | `Notch radius (Hz)` | Sets the half-width on each side of a metric-local notch center. | Metric-local runtime filtering. | Use one positive value for every center or one value per center. |
-| `Save` | Saves the dialog values to the current session. | Current PLV advanced settings. | Blocks on invalid values. |
+| `Save` | Saves the dialog values to the current session. | Current PLV advanced settings. | Preserves invalid values as a red draft; computation and valid-only persistence remain blocked. |
 | `Set as Default` | Saves the current advanced settings as defaults. | Future PLV defaults. | Blocks on invalid values. |
 | `Restore Defaults` | Restores saved defaults. | Current dialog values. | Always available. |
 | `Cancel` | Closes the dialog without saving. | No advanced update. | Always available. |
@@ -763,7 +825,7 @@ not make an otherwise current Burst result stale.
 | `Round ms` | Sets the millisecond grid used to group TRGC window lengths when `Group by samples` is off. Smaller values preserve finer distinctions but can create more groups and noisier summaries. | TRGC grouping strategy. | TRGC dialog only; disabled when `Group by samples` is enabled. |
 | `Notches` | Adds metric-local notch exclusions before TRGC is computed. | Metric-local runtime filtering. | Supported tensor metrics only. |
 | `Notch radius (Hz)` | Sets the half-width on each side of a metric-local notch center. | Metric-local runtime filtering. | Use one positive value for every center or one value per center. |
-| `Save` | Saves the dialog values to the current session. | Current TRGC advanced settings. | Blocks on invalid values. |
+| `Save` | Saves the dialog values to the current session. | Current TRGC advanced settings. | Preserves invalid values as a red draft; computation and valid-only persistence remain blocked. |
 | `Set as Default` | Saves the current advanced settings as defaults. | Future TRGC defaults. | Blocks on invalid values. |
 | `Restore Defaults` | Restores saved defaults. | Current dialog values. | Always available. |
 | `Cancel` | Closes the dialog without saving. | No advanced update. | Always available. |
@@ -801,7 +863,7 @@ not make an otherwise current Burst result stale.
 | `Morlet max cycles` | Sets the optional maximum Morlet cycle count. | Morlet PSI time/frequency trade-off. | Enabled only for Morlet. |
 | `Notches` | Adds metric-local notch exclusions before PSI is computed. | Metric-local runtime filtering. | Supported tensor metrics only. |
 | `Notch radius (Hz)` | Sets the half-width on each side of a metric-local notch center. | Metric-local runtime filtering. | Use one positive value for every center or one value per center. |
-| `Save` | Saves the dialog values to the current session. | Current PSI advanced settings. | Blocks on invalid values. |
+| `Save` | Saves the dialog values to the current session. | Current PSI advanced settings. | Preserves invalid values as a red draft; computation and valid-only persistence remain blocked. |
 | `Set as Default` | Saves the current advanced settings as defaults. | Future PSI defaults. | Blocks on invalid values. |
 | `Restore Defaults` | Restores saved defaults. | Current dialog values. | Always available. |
 | `Cancel` | Closes the dialog without saving. | No advanced update. | Always available. |
@@ -820,7 +882,7 @@ not make an otherwise current Burst result stale.
 | `Max cycles` | Sets an optional ceiling on burst cycle count. Use it when you want to stop very long cycle assumptions from oversmoothing burst detection. | Burst duration sensitivity. | Burst dialog only. |
 | `Notches` | Adds metric-local notch exclusions before burst detection is computed. | Metric-local runtime filtering. | Supported tensor metrics only. |
 | `Notch radius (Hz)` | Sets the half-width on each side of a metric-local notch center. | Metric-local runtime filtering. | Use one positive value for every center or one value per center. |
-| `Save` | Saves the dialog values to the current session. | Current burst advanced settings. | Blocks on invalid values. |
+| `Save` | Saves the dialog values to the current session. | Current burst advanced settings. | Preserves invalid values as a red draft; computation and valid-only persistence remain blocked. |
 | `Set as Default` | Saves the current advanced settings as defaults. | Future burst defaults. | Blocks on invalid values. |
 | `Restore Defaults` | Restores saved defaults. | Current dialog values. | Always available. |
 | `Cancel` | Closes the dialog without saving. | No advanced update. | Always available. |
@@ -854,9 +916,9 @@ not make an otherwise current Burst result stale.
 | `Apply` | Adds the current draft pair. | Pair table rows. | Requires a valid draft. |
 | `Clear Draft` | Clears the current draft pair. | Draft fields only. | Always available. |
 | `Clear All` | Removes all configured pairs. | Pair table rows. | Always available. |
-| `Set as Default` | Saves the current pair list as the default. | Future default pair sets. | Always available. |
+| `Set as Default` | Saves the current pair list as the default. | Future default pair sets. | Requires at least one valid pair. |
 | `Restore Defaults` | Restores the saved default pair list. | Current pair table. | Always available. |
-| `Save` | Saves the selected pairs back to Build Tensor. | Active metric pair subset. | Requires an accepted pair set. |
+| `Save` | Saves the selected pairs back to Build Tensor. | Active metric pair-selection draft. | May retain an empty red draft; Set as Default, Export, and Build Tensor remain blocked until the pair set is valid. |
 | `Cancel` | Closes the dialog without saving. | No pair update. | Always available. |
 
 **Notes**
@@ -880,9 +942,9 @@ not make an otherwise current Burst result stale.
 | `Apply` | Adds the current draft pair. | Pair table rows. | Requires a valid draft. |
 | `Clear Draft` | Clears the current draft pair. | Draft fields only. | Always available. |
 | `Clear All` | Removes all configured pairs. | Pair table rows. | Always available. |
-| `Set as Default` | Saves the current pair list as the default. | Future default pair sets. | Always available. |
+| `Set as Default` | Saves the current pair list as the default. | Future default pair sets. | Requires at least one valid pair. |
 | `Restore Defaults` | Restores the saved default pair list. | Current pair table. | Always available. |
-| `Save` | Saves the selected pairs back to Build Tensor. | Active metric pair subset. | Requires an accepted pair set. |
+| `Save` | Saves the selected pairs back to Build Tensor. | Active metric pair-selection draft. | May retain an empty red draft; Set as Default, Export, and Build Tensor remain blocked until the pair set is valid. |
 | `Cancel` | Closes the dialog without saving. | No pair update. | Always available. |
 
 **Notes**
@@ -960,7 +1022,7 @@ dialog draft and does not modify the saved app default.
 | `percent tolerance` | Sets how far an observed anchor can deviate from its requested target position before the epoch is treated as a poor fit. Larger values are more permissive; smaller values enforce stricter geometric consistency. | Anchor-warp validation. | Anchor methods only. |
 | `Set as Default` | Saves the complete displayed parameter set as the app default for this alignment method. | Active method app default; the current trial is unchanged. | Blocks on invalid values. |
 | `Restore Default` | Loads the saved default for this alignment method into the dialog draft. | Current dialog values; the current trial is unchanged until `Save` is selected. | Always available. |
-| `Save` | Applies the displayed dialog values to the current trial. | Method configuration payload. | Blocks on invalid values. |
+| `Save` | Applies the displayed dialog values to the current trial. | Method configuration payload. | May retain an invalid red draft; Set as Default, Export, and Run remain blocked. |
 | `Cancel` | Closes the dialog without saving. | No parameter update. | Always available. |
 
 **Notes**
@@ -991,7 +1053,7 @@ dialog draft and does not modify the saved app default.
 | `duration max` | Sets a maximum annotation duration in seconds for an event to be eligible. | Epoch eligibility before clipping. | Clip-style methods only. |
 | `Set as Default` | Saves the complete displayed parameter set as the app default for this alignment method. | Active method app default; the current trial is unchanged. | Blocks on invalid values. |
 | `Restore Default` | Loads the saved default for this alignment method into the dialog draft. | Current dialog values; the current trial is unchanged until `Save` is selected. | Always available. |
-| `Save` | Applies the displayed dialog values to the current trial. | Method configuration payload. | Blocks on invalid values. |
+| `Save` | Applies the displayed dialog values to the current trial. | Method configuration payload. | May retain an invalid red draft, including an empty annotation selection; Set as Default, Export, and Run remain blocked. |
 | `Cancel` | Closes the dialog without saving. | No parameter update. | Always available. |
 
 **Notes**
@@ -1013,7 +1075,7 @@ dialog draft and does not modify the saved app default.
 | `duration max` | Sets a maximum annotation duration in seconds. | Epoch eligibility before stacking. | Stack-style methods only. |
 | `Set as Default` | Saves the complete displayed parameter set as the app default for this alignment method. | Active method app default; the current trial is unchanged. | Blocks on invalid values. |
 | `Restore Default` | Loads the saved default for this alignment method into the dialog draft. | Current dialog values; the current trial is unchanged until `Save` is selected. | Always available. |
-| `Save` | Applies the displayed dialog values to the current trial. | Method configuration payload. | Blocks on invalid values. |
+| `Save` | Applies the displayed dialog values to the current trial. | Method configuration payload. | May retain an invalid red draft, including an empty annotation selection; Set as Default, Export, and Run remain blocked. |
 | `Cancel` | Closes the dialog without saving. | No parameter update. | Always available. |
 
 **Notes**
@@ -1033,7 +1095,7 @@ dialog draft and does not modify the saved app default.
 | `Select All` / `Clear` | Select or clear all labels in the checklist. | Annotation checklist. | Visible for annotation-list methods. |
 | `Set as Default` | Saves the complete displayed parameter set as the app default for this alignment method. | Active method app default; the current trial is unchanged. | Blocks on invalid values. |
 | `Restore Default` | Loads the saved default for this alignment method into the dialog draft. | Current dialog values; the current trial is unchanged until `Save` is selected. | Always available. |
-| `Save` | Applies the displayed dialog values to the current trial. | Method configuration payload. | Blocks on invalid values. |
+| `Save` | Applies the displayed dialog values to the current trial. | Method configuration payload. | May retain an invalid red draft, including an empty annotation selection; Set as Default, Export, and Run remain blocked. |
 | `Cancel` | Closes the dialog without saving. | No parameter update. | Always available. |
 
 **Notes**
@@ -1118,9 +1180,9 @@ contract; legacy tensor values are never reinterpreted heuristically.
 | `End` | Sets the upper frequency bound of the draft band in Hz. | Draft row. | Must be numeric and greater than `Start`. |
 | `Add` | Adds the draft band to the current band table. | Current band table. | Requires a valid draft. |
 | `Clear All` | Removes all configured bands. | Current band table. | Always available. |
-| `Set as Default` | Saves the current bands as defaults. | Future band defaults. | Always available. |
+| `Set as Default` | Saves the current bands as defaults. | Future band defaults. | Requires a non-empty valid committed band set for a manually banded metric. |
 | `Restore Default` | Restores saved defaults. | Current dialog values. | Always available. |
-| `Save` | Saves the band definitions back to the Features page. | Selected metric feature-band axis. | Blocks on invalid rows or empty required state. |
+| `Save` | Saves the band definitions back to the Features page. | Selected metric feature-band axis. | May retain an empty red draft; Set as Default, Export, and Extract remain blocked. |
 | `Cancel` | Closes the dialog without saving. | No band update. | Always available. |
 
 **Notes**
@@ -1140,9 +1202,9 @@ contract; legacy tensor values are never reinterpreted heuristically.
 | `End` | Sets the upper bound of the draft phase range in the same unit. | Draft row. | Must be numeric and greater than `Start`. |
 | `Add` | Adds the draft phase row to the current table. | Current phase table. | Requires a valid draft. |
 | `Clear All` | Removes all configured phases. | Current phase table. | Always available. |
-| `Set as Default` | Saves the current phases as defaults. | Future phase defaults. | Always available. |
+| `Set as Default` | Saves the current phases as defaults. | Future phase defaults. | Requires a non-empty valid committed phase set. |
 | `Restore Default` | Restores saved defaults. | Current dialog values. | Always available. |
-| `Save` | Saves the phase definitions back to the Features page. | Selected metric feature-phase axis. | Blocks on invalid rows or empty required state. |
+| `Save` | Saves the phase definitions back to the Features page. | Selected metric feature-phase axis. | May retain an empty red draft; Set as Default, Export, and Extract remain blocked. |
 | `Cancel` | Closes the dialog without saving. | No phase update. | Always available. |
 
 **Notes**
@@ -1163,7 +1225,7 @@ contract; legacy tensor values are never reinterpreted heuristically.
 | `Colormap` | Chooses the colormap used by matrix-style plots. It affects appearance only, not the underlying numbers. | Plot appearance only. | Always available. |
 | `x_log` | Uses a logarithmic x-axis when the current feature type supports numeric x values. | Plot appearance only. | Availability depends on the selected feature type. |
 | `y_log` | Uses a logarithmic y-axis when the current feature type supports numeric y values. | Plot appearance only. | Availability depends on the selected feature type. |
-| `Save` | Saves plot settings to the session. | Current plot settings. | Blocks on invalid combinations. |
+| `Save` | Saves plot settings to the session. | Current plot-settings draft. | May retain an invalid red draft; Plot, Set as Default, and plot export remain blocked until the active settings are valid. |
 | `Set as Default` | Saves plot settings as defaults. | Future plot defaults. | Blocks on invalid combinations. |
 | `Restore Defaults` | Restores saved defaults. | Current dialog state. | Always available. |
 | `Cancel` | Closes the dialog without saving. | No plot-settings update. | Always available. |

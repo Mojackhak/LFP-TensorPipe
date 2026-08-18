@@ -4,13 +4,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from lfptensorpipe.app.tensor.cpu_budget import (
-    DEFAULT_TENSOR_CPU_PERCENT,
-    normalize_tensor_cpu_percent,
-)
 from lfptensorpipe.gui.shell.common import (
     Any,
-    normalize_preproc_filter_basic_params,
     np,
 )
 
@@ -25,6 +20,30 @@ class MainWindowRecordParamsSnapshotCollectMixin:
         if not np.isfinite(parsed):
             return float(fallback)
         return float(parsed)
+
+    @staticmethod
+    def _draft_number(value: Any) -> float | str | None:
+        token = str(value).strip() if value is not None else ""
+        if not token:
+            return None
+        try:
+            parsed = float(token)
+        except Exception:
+            return token
+        return parsed if np.isfinite(parsed) else token
+
+    @classmethod
+    def _draft_number_list(cls, value: Any) -> list[float] | str:
+        token = str(value).strip() if value is not None else ""
+        if not token:
+            return []
+        parts = [item.strip() for item in token.split(",")]
+        if any(not item for item in parts):
+            return token
+        parsed = [cls._draft_number(item) for item in parts]
+        if any(not isinstance(item, float) for item in parsed):
+            return token
+        return [float(item) for item in parsed]
 
     def _collect_annotations_rows_for_params(self) -> list[dict[str, str]]:
         rows: list[dict[str, str]] = []
@@ -79,15 +98,11 @@ class MainWindowRecordParamsSnapshotCollectMixin:
             if self._preproc_filter_high_freq_edit is not None
             else basic_defaults.get("h_freq")
         )
-        valid_basic, basic, _ = normalize_preproc_filter_basic_params(
-            {
-                "notches": notches_text,
-                "l_freq": low_freq_value,
-                "h_freq": high_freq_value,
-            }
-        )
-        if not valid_basic:
-            basic = dict(basic_defaults)
+        basic = {
+            "notches": self._draft_number_list(notches_text),
+            "l_freq": self._draft_number(low_freq_value),
+            "h_freq": self._draft_number(high_freq_value),
+        }
         ecg_params_by_method = deepcopy(self._preproc_ecg_params_by_method)
         return {
             "filter": {
@@ -137,14 +152,20 @@ class MainWindowRecordParamsSnapshotCollectMixin:
 
     def _collect_tensor_record_params_snapshot(self) -> dict[str, Any]:
         active_metric = self._tensor_active_metric_key
-        try:
-            cpu_percent = normalize_tensor_cpu_percent(
-                self._tensor_cpu_percent_edit.text().strip()
-                if self._tensor_cpu_percent_edit is not None
-                else DEFAULT_TENSOR_CPU_PERCENT
-            )
-        except ValueError:
-            cpu_percent = DEFAULT_TENSOR_CPU_PERCENT
+        cpu_text = (
+            self._tensor_cpu_percent_edit.text().strip()
+            if self._tensor_cpu_percent_edit is not None
+            else ""
+        )
+        if not cpu_text:
+            cpu_percent: Any = None
+        else:
+            try:
+                parsed_cpu = float(cpu_text)
+            except (TypeError, ValueError):
+                cpu_percent = cpu_text
+            else:
+                cpu_percent = parsed_cpu if np.isfinite(parsed_cpu) else cpu_text
         return {
             "selected_metrics": self._selected_tensor_metrics_snapshot(),
             "active_metric": active_metric,
@@ -161,6 +182,7 @@ class MainWindowRecordParamsSnapshotCollectMixin:
         }
 
     def _collect_alignment_record_params_snapshot(self) -> dict[str, Any]:
+        paradigm = self._current_alignment_paradigm()
         alignment_method = (
             self._alignment_method_combo.currentData()
             if self._alignment_method_combo is not None
@@ -176,11 +198,33 @@ class MainWindowRecordParamsSnapshotCollectMixin:
             if self._alignment_epoch_channel_combo is not None
             else None
         )
+        method_params = (
+            deepcopy(paradigm.get("method_params", {}))
+            if isinstance(paradigm, dict)
+            and isinstance(paradigm.get("method_params"), dict)
+            else {}
+        )
+        raw_cache = (
+            paradigm.get("method_params_by_method", {})
+            if isinstance(paradigm, dict)
+            else {}
+        )
+        method_params_by_method = (
+            {
+                str(key): deepcopy(value)
+                for key, value in raw_cache.items()
+                if isinstance(key, str) and isinstance(value, dict)
+            }
+            if isinstance(raw_cache, dict)
+            else {}
+        )
         return {
             "trial_slug": self._current_alignment_paradigm_slug(),
             "method": (
                 str(alignment_method) if isinstance(alignment_method, str) else None
             ),
+            "method_params": method_params,
+            "method_params_by_method": method_params_by_method,
             "sample_rate": (
                 float(self._alignment_n_samples_edit.text().strip())
                 if self._alignment_n_samples_edit is not None
@@ -206,13 +250,30 @@ class MainWindowRecordParamsSnapshotCollectMixin:
             self._features_trial_params_by_slug[current_slug] = (
                 self._collect_current_features_trial_params()
             )
+        trial_params_by_slug: dict[str, dict[str, Any]] = {}
+        for slug, node in self._features_trial_params_by_slug.items():
+            if (
+                not isinstance(slug, str)
+                or not slug.strip()
+                or not isinstance(node, dict)
+            ):
+                continue
+            normalized = self._normalize_features_trial_params(slug, node)
+            for key in ("active_metric", "selected_relative_stem"):
+                if normalized.get(key) == "":
+                    normalized[key] = None
+            for mapping_key in ("subset", "filters", "plot_labels"):
+                mapping = normalized.get(mapping_key)
+                if not isinstance(mapping, dict):
+                    continue
+                normalized[mapping_key] = {
+                    key: (None if value == "" else value)
+                    for key, value in mapping.items()
+                }
+            trial_params_by_slug[slug] = normalized
         return {
             "paradigm_slug": self._shared_stage_trial_slug(),
-            "trial_params_by_slug": {
-                slug: self._normalize_features_trial_params(slug, node)
-                for slug, node in self._features_trial_params_by_slug.items()
-                if isinstance(slug, str) and slug.strip() and isinstance(node, dict)
-            },
+            "trial_params_by_slug": trial_params_by_slug,
         }
 
     def _collect_localize_record_params_snapshot(self) -> dict[str, Any]:

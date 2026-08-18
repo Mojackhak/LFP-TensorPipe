@@ -54,7 +54,9 @@ class ChannelSelectDialog(QDialog):
         if cancel_button is not None:
             cancel_button.setToolTip("Close without changing the selection.")
         root.addWidget(footer)
+        self._list.itemChanged.connect(self._refresh_validation)
         self._render()
+        self._refresh_validation()
 
     @property
     def selected_channels(self) -> tuple[str, ...]:
@@ -75,3 +77,9 @@ class ChannelSelectDialog(QDialog):
 
     def _on_clear(self) -> None:
         _dialog_set_all_check_state(self._list, checked=False)
+
+    def _refresh_validation(self, _item: QListWidgetItem | None = None) -> None:
+        set_control_validation_error(
+            self._list,
+            None if self.selected_channels else "At least one channel is required.",
+        )

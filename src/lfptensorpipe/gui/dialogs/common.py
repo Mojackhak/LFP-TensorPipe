@@ -180,6 +180,42 @@ from lfptensorpipe.stats.preproc.transform import transform_df
 
 ACTION_PAYLOAD_ROLE = Qt.UserRole + 1
 
+_VALIDATION_STYLE_CAPTURED_PROPERTY = "lfptpValidationStyleCaptured"
+_VALIDATION_BASE_STYLE_PROPERTY = "lfptpValidationBaseStyle"
+_VALIDATION_ERROR_PROPERTY = "lfptpValidationError"
+_INVALID_CONTROL_STYLE = "background-color: #ffe8e8; border: 1px solid #b3261e;"
+
+
+def _refresh_control_style(widget: QWidget) -> None:
+    style = widget.style()
+    style.unpolish(widget)
+    style.polish(widget)
+    QWidget.update(widget)
+
+
+def set_control_validation_error(widget: QWidget | None, message: str | None) -> None:
+    """Show or clear the shared invalid-draft state on one GUI control."""
+    if widget is None:
+        return
+    if not bool(widget.property(_VALIDATION_STYLE_CAPTURED_PROPERTY)):
+        widget.setProperty(_VALIDATION_BASE_STYLE_PROPERTY, widget.styleSheet())
+        widget.setProperty(_VALIDATION_STYLE_CAPTURED_PROPERTY, True)
+    base_style = str(widget.property(_VALIDATION_BASE_STYLE_PROPERTY) or "")
+    error = str(message or "").strip()
+    widget.setProperty(_VALIDATION_ERROR_PROPERTY, error)
+    widget.setProperty("lfptpInvalid", bool(error))
+    widget.setStyleSheet(
+        f"{base_style}\n{_INVALID_CONTROL_STYLE}" if error else base_style
+    )
+    _refresh_control_style(widget)
+
+
+def control_validation_error(widget: QWidget | None) -> str:
+    """Return the current validation message attached to a GUI control."""
+    if widget is None:
+        return ""
+    return str(widget.property(_VALIDATION_ERROR_PROPERTY) or "")
+
 
 def make_action_table_item(
     text: str,
