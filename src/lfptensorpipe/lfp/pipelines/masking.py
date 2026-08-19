@@ -41,7 +41,6 @@ from ..mask.annotations import (
     ANNOTATION_SCOPE_SEMANTICS,
     MatchMode,
     OverlapPolicy,
-    annotation_scope_affects_output,
     drop_raw_annotations,
     filter_raw_annotations,
     normalize_annotation_scope,
@@ -508,9 +507,6 @@ def mask_tensor_dynamic(
     raw_mask_info["kind"] = "drop_dynamic"
     raw_mask_info["pad_s_dynamic_max"] = float(pad_s_max)
 
-    t_min = float(raw.times[0])
-    t_max = float(raw.times[-1])
-
     # Collect base matched intervals (without padding) for provenance.
     drop_lower = [str(x).strip().lower() for x in drop if str(x).strip()]
     matched_base: list[dict[str, Any]] = []
@@ -639,36 +635,31 @@ def mask_tensor_dynamic(
             )
             keep_mask &= finite[None, :]
 
-        for itv in matched_base:
-            onset_s = float(itv["onset_s"])
-            dur_s = float(itv["duration_s"])
-            base_start = float(onset_s)
-            base_end = float(onset_s + dur_s)
-
-            affected_outputs = (
-                [
-                    output_index
-                    for output_index, output_scope in enumerate(output_scopes)
-                    if annotation_scope_affects_output(itv["ch_names"], output_scope)
-                ]
-                if output_scopes
-                else []
-            )
-            for fi in range(int(len(freq_axis_items))):
-                pad = float(radii[fi])
-                start = base_start - pad
-                end = base_end + pad
-                if clip_to_raw:
-                    start = max(start, t_min)
-                    end = min(end, t_max)
-                if end < start:
-                    continue
-                interval_mask = finite & (times >= start) & (times <= end)
-                if output_scopes:
-                    for output_index in affected_outputs:
-                        keep_mask[output_index, fi, :] &= ~interval_mask
-                else:
-                    keep_mask[fi, :] &= ~interval_mask
+        for fi in range(int(len(freq_axis_items))):
+            pad = float(radii[fi])
+            if output_scopes:
+                drop_mask, _ = output_time_mask_by_annotations(
+                    raw,
+                    times_s=times,
+                    output_channels=output_scopes,
+                    keep=drop,
+                    mode=mode,
+                    pad_s=pad,
+                    clip_to_raw=clip_to_raw,
+                    require_match=False,
+                )
+                keep_mask[:, fi, :] &= ~drop_mask
+            else:
+                drop_mask, _ = time_mask_by_annotations(
+                    raw,
+                    times_s=times,
+                    keep=drop,
+                    mode=mode,
+                    pad_s=pad,
+                    clip_to_raw=clip_to_raw,
+                    require_match=False,
+                )
+                keep_mask[fi, :] &= ~drop_mask
 
         arr = tensor["tensor"]
         tensor_masked = (

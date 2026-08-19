@@ -292,6 +292,59 @@ def _iter_matched_intervals(
     return matched
 
 
+def _iter_matched_sample_intervals(
+    raw: "mne.io.BaseRaw",
+    *,
+    keep: Sequence[str],
+    mode: MatchMode,
+    pad_s: float,
+    clip_to_raw: bool,
+) -> list[dict[str, Any]]:
+    """Collect intervals using half-open positive-duration sample support."""
+    matched = _iter_matched_intervals(
+        raw,
+        keep=keep,
+        mode=mode,
+        pad_s=pad_s,
+        clip_to_raw=False,
+    )
+    if not clip_to_raw:
+        return matched
+
+    raw_start = float(raw.times[0])
+    raw_stop = raw_start + (float(raw.n_times) / float(raw.info["sfreq"]))
+    clipped: list[dict[str, Any]] = []
+    for interval in matched:
+        start = float(interval["start_s"])
+        stop = float(interval["end_s"])
+        is_point = stop == start
+        if is_point:
+            if not (raw_start <= start < raw_stop):
+                continue
+        else:
+            start = max(start, raw_start)
+            stop = min(stop, raw_stop)
+            if stop <= start:
+                continue
+        clipped.append({**interval, "start_s": start, "end_s": stop})
+    return clipped
+
+
+def _interval_time_mask(
+    times: np.ndarray,
+    finite: np.ndarray,
+    *,
+    start: float,
+    stop: float,
+) -> np.ndarray:
+    """Return half-open support, retaining true zero-duration point events."""
+    if stop > start:
+        return finite & (times >= start) & (times < stop)
+    if stop == start:
+        return finite & (times == start)
+    return np.zeros(times.shape, dtype=bool)
+
+
 def filter_raw_annotations(
     raw: "mne.io.BaseRaw",
     *,
@@ -672,7 +725,9 @@ def time_mask_by_annotations(
         mode: 'substring' (default) matches keep labels as substrings (case-insensitive);
             'exact' requires an exact string match after lowercasing.
         pad_s: Optional padding (seconds) applied on both sides of each matched interval.
-        clip_to_raw: If True, clip intervals to [raw.times[0], raw.times[-1]].
+        clip_to_raw: If True, clip positive intervals to the Raw's half-open
+            sample support. Zero-duration point events are retained only inside
+            that support.
         require_match: If True, raise if no annotations match `keep`.
 
     Returns:
@@ -686,7 +741,7 @@ def time_mask_by_annotations(
     if keep is None:
         raise ValueError("`keep` must be a sequence of strings, not None.")
 
-    matched = _iter_matched_intervals(
+    matched = _iter_matched_sample_intervals(
         raw, keep=keep, mode=mode, pad_s=pad_s, clip_to_raw=clip_to_raw
     )
     if require_match and len(matched) == 0:
@@ -698,7 +753,12 @@ def time_mask_by_annotations(
     for itv in matched:
         start = float(itv["start_s"])
         end = float(itv["end_s"])
-        keep_mask |= finite & (times >= start) & (times <= end)
+        keep_mask |= _interval_time_mask(
+            times,
+            finite,
+            start=start,
+            stop=end,
+        )
 
     info: dict[str, Any] = dict(
         keep=[str(x) for x in keep],
@@ -736,7 +796,7 @@ def output_time_mask_by_annotations(
         raise ValueError("`keep` must be a sequence of strings, not None.")
 
     output_scopes = [tuple(str(name) for name in scope) for scope in output_channels]
-    matched = _iter_matched_intervals(
+    matched = _iter_matched_sample_intervals(
         raw,
         keep=keep,
         mode=mode,
@@ -749,10 +809,11 @@ def output_time_mask_by_annotations(
     finite = np.isfinite(times)
     output_mask = np.zeros((len(output_scopes), times.size), dtype=bool)
     for interval in matched:
-        interval_time_mask = (
-            finite
-            & (times >= float(interval["start_s"]))
-            & (times <= float(interval["end_s"]))
+        interval_time_mask = _interval_time_mask(
+            times,
+            finite,
+            start=float(interval["start_s"]),
+            stop=float(interval["end_s"]),
         )
         for output_index, output_scope in enumerate(output_scopes):
             if annotation_scope_affects_output(interval["ch_names"], output_scope):
