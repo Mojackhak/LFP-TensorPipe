@@ -51,7 +51,8 @@ def _append_info_description(raw: mne.io.BaseRaw, text: str) -> None:
 
 
 def _startswith_any(s: str, prefixes: Sequence[str]) -> bool:
-    return any(s.startswith(p) for p in prefixes)
+    normalized = s.casefold()
+    return any(normalized.startswith(prefix.casefold()) for prefix in prefixes)
 
 
 def _safe_makedirs(p: Optional[Union[str, Path]]) -> None:
@@ -194,7 +195,9 @@ def _build_bad_sample_mask(
     Build a boolean mask of bad samples (length = raw.n_times) from annotations.
 
     IMPORTANT:
-        Only annotations with description starting with any of bad_prefixes are treated as bad.
+        Only annotations with a description starting with any of ``bad_prefixes``
+        are treated as bad. Prefix matching is case-insensitive, matching MNE's
+        BAD-annotation semantics.
         This prevents accidental masking of task/event annotations (gait/pain).
         With ``channel=None``, only global annotations are included. With a
         channel name, global annotations plus annotations assigned to that

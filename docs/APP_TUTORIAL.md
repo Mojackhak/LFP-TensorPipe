@@ -517,6 +517,11 @@ clean, and use `Advance` when the method defaults need adjustment. The Advance
 dialog shows only the selected method's parameters and retains independent
 values for all three methods.
 
+ECG cleanup excludes positive-duration annotations whose descriptions begin
+with `BAD`, using the same case-insensitive prefix rule as MNE. For example,
+`BAD artifact`, `Bad artifact`, and `bad artifact` are equivalent. The original
+annotation descriptions and channel scopes are preserved.
+
 ### 5.6 Step 5: Finish
 
 This step exports the finalized preprocess result that downstream modules read.

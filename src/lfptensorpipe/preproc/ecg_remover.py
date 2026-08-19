@@ -1978,7 +1978,10 @@ def raw_call_ecgremover(
     fs_local = float(raw.info["sfreq"])
     data = raw.get_data(picks=picks_list)  # (n_sel, n_times)
 
-    from lfptensorpipe.preproc.filter import _build_bad_sample_mask
+    from lfptensorpipe.preproc.filter import (
+        _build_bad_sample_mask,
+        _startswith_any,
+    )
 
     if verbose:
         logger.info("Running ECG remover '%s' on channels: %s", method_name, picks_list)
@@ -2057,7 +2060,7 @@ def raw_call_ecgremover(
             if int(item["corrected_beats"]) == 0
         ]
         n_bad_annotations = sum(
-            str(description).startswith("BAD")
+            _startswith_any(str(description), ("BAD",))
             for description in raw.annotations.description
         )
         union_bad_sample_mask = (
