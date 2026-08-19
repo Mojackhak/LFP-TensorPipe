@@ -41,7 +41,7 @@ def pad_warper(
     anno_allowed: Dict[str, Tuple[float, float, float, float]],
     mode: MatchMode = "exact",
     drop_mode: MatchMode = "substring",
-    duration_range: Tuple[float, float] = (0.0, np.inf),
+    duration_range: Tuple[float | None, float | None] = (None, None),
     anno_drop: Sequence[str] | None = None,
 ) -> Tuple[Dict[str, List[PadEpoch]], Callable | None]:
     """Label epochs from Raw annotations and build a pad+concat warper.
@@ -83,6 +83,22 @@ def pad_warper(
     t_min, t_stop = raw_sample_time_bounds(raw)
 
     label_cfg = {str(k): tuple(map(float, v)) for k, v in anno_allowed.items()}
+    for values in label_cfg.values():
+        if not all(np.isfinite(value) for value in values):
+            raise ValueError("`anno_allowed` window values must be finite.")
+    min_dur_raw, max_dur_raw = duration_range
+    min_dur = None if min_dur_raw is None else float(min_dur_raw)
+    max_dur = None if max_dur_raw is None else float(max_dur_raw)
+    if min_dur is not None and not np.isfinite(min_dur):
+        raise ValueError("`duration_range[0]` must be finite or None.")
+    if max_dur is not None and not np.isfinite(max_dur):
+        raise ValueError("`duration_range[1]` must be finite or None.")
+    if min_dur is not None and min_dur < 0:
+        raise ValueError("`duration_range[0]` must be >= 0 or None.")
+    if max_dur is not None and max_dur < 0:
+        raise ValueError("`duration_range[1]` must be >= 0 or None.")
+    if min_dur is not None and max_dur is not None and max_dur < min_dur:
+        raise ValueError("`duration_range[1]` must be >= `duration_range[0]`.")
     labels_lower = {k.lower(): k for k in label_cfg.keys()}
     if mode not in ("substring", "exact"):
         raise ValueError("`mode` must be 'substring' or 'exact'.")
@@ -115,7 +131,9 @@ def pad_warper(
         anno_end = float(onset + dur)
         anno_dur = anno_end - anno_start
 
-        if anno_dur < float(duration_range[0]) or anno_dur > float(duration_range[1]):
+        if min_dur is not None and anno_dur < min_dur:
+            continue
+        if max_dur is not None and anno_dur > max_dur:
             continue
 
         matched_labels: List[str] = []

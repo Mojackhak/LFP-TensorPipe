@@ -43,10 +43,11 @@ def _normalize_duration_range(
     *,
     allow_none: bool,
 ) -> tuple[bool, list[float | None], str]:
+    fallback: list[float | None] = [None, None] if allow_none else [0.0, 1_000_000.0]
     if not isinstance(value, (list, tuple)) or len(value) != 2:
         return (
             False,
-            [None, None] if allow_none else [0.0, 1_000_000.0],
+            fallback,
             "duration range must have 2 values.",
         )
     out: list[float | None] = []
@@ -55,13 +56,15 @@ def _normalize_duration_range(
             if allow_none:
                 out.append(None)
                 continue
-            return False, [0.0, 1_000_000.0], "duration range values cannot be null."
+            return False, fallback, "duration range values cannot be null."
         try:
             parsed = float(item)
         except Exception:  # noqa: BLE001
-            return False, [0.0, 1_000_000.0], "duration range values must be numbers."
+            return False, fallback, "duration range values must be numbers."
+        if not np.isfinite(parsed):
+            return False, fallback, "duration range values must be finite."
         if parsed < 0.0:
-            return False, [0.0, 1_000_000.0], "duration range values must be >= 0."
+            return False, fallback, "duration range values must be >= 0."
         out.append(parsed)
     if out[0] is not None and out[1] is not None and float(out[1]) < float(out[0]):
         return False, out, "duration max must be >= duration min."
@@ -114,6 +117,8 @@ def _normalize_anchors(value: Any) -> tuple[bool, dict[float, str], str]:
             percent = float(key)
         except Exception:  # noqa: BLE001
             return False, {}, "anchor percents must be numeric."
+        if not np.isfinite(percent):
+            return False, {}, "anchor percents must be finite."
         if percent < 0.0 or percent > 100.0:
             return False, {}, "anchor percents must be within [0, 100]."
         parsed.append((percent, label))

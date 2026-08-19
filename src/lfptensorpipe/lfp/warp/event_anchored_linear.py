@@ -148,7 +148,7 @@ def linear_warper(
     drop_mode: MatchMode = "substring",
     epoch_duration_range: Tuple[float | None, float | None] = (None, None),
     linear_warp: bool = True,
-    percent_tolerance: float = 5.0,
+    percent_tolerance: float | None = None,
     anno_drop: Sequence[str] | None = None,
 ) -> Tuple[Dict[str, List[LinearEpoch]], Callable]:
     """Build a generic event-anchored epoch warper from annotation events.
@@ -178,14 +178,24 @@ def linear_warper(
     min_dur_raw, max_dur_raw = epoch_duration_range
     min_dur = None if min_dur_raw is None else float(min_dur_raw)
     max_dur = None if max_dur_raw is None else float(max_dur_raw)
+    if min_dur is not None and not np.isfinite(min_dur):
+        raise ValueError("`epoch_duration_range[0]` must be finite or None.")
+    if max_dur is not None and not np.isfinite(max_dur):
+        raise ValueError("`epoch_duration_range[1]` must be finite or None.")
     if min_dur is not None and min_dur < 0:
         raise ValueError("`epoch_duration_range[0]` must be >= 0 or None.")
     if max_dur is not None and max_dur <= 0:
         raise ValueError("`epoch_duration_range[1]` must be > 0 or None.")
     if min_dur is not None and max_dur is not None and max_dur < min_dur:
         raise ValueError("`epoch_duration_range` max must be >= min.")
-    if float(percent_tolerance) < 0:
-        raise ValueError("`percent_tolerance` must be >= 0.")
+    percent_tolerance_f = (
+        None if percent_tolerance is None else float(percent_tolerance)
+    )
+    if percent_tolerance_f is not None:
+        if not np.isfinite(percent_tolerance_f):
+            raise ValueError("`percent_tolerance` must be finite or None.")
+        if percent_tolerance_f < 0:
+            raise ValueError("`percent_tolerance` must be >= 0 or None.")
 
     drop_substrings_use: tuple[str, ...] | None
     if anno_drop is None:
@@ -254,7 +264,9 @@ def linear_warper(
                     continue
 
                 perc_vec = (np.asarray(seq, dtype=float) - t_start) / dur * 100.0
-                if np.any(np.abs(perc_vec - target_perc) > float(percent_tolerance)):
+                if percent_tolerance_f is not None and np.any(
+                    np.abs(perc_vec - target_perc) > percent_tolerance_f
+                ):
                     continue
 
                 bounds_key = (round(t_start, 9), round(t_end, 9))

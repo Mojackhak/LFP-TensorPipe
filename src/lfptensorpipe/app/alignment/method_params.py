@@ -25,7 +25,7 @@ def default_alignment_method_params(method_key: str) -> dict[str, Any]:
             "anchors_percent": {},
             "epoch_duration_range": [None, None],
             "linear_warp": True,
-            "percent_tolerance": 15.0,
+            "percent_tolerance": None,
             "drop_bad": True,
             "drop_fields": list(DEFAULT_DROP_FIELDS),
             "sample_rate": 5.0,
@@ -37,7 +37,7 @@ def default_alignment_method_params(method_key: str) -> dict[str, Any]:
             "anno_left": 0.5,
             "anno_right": 0.5,
             "pad_right": 0.5,
-            "duration_range": [0.0, 1_000_000.0],
+            "duration_range": [None, None],
             "drop_bad": True,
             "drop_fields": list(DEFAULT_DROP_FIELDS),
             "sample_rate": 50.0,
@@ -51,7 +51,7 @@ def default_alignment_method_params(method_key: str) -> dict[str, Any]:
         }
     return {
         "annotations": [],
-        "duration_range": [0.0, 1_000_000.0],
+        "duration_range": [None, None],
         "drop_bad": True,
         "drop_fields": list(DEFAULT_DROP_FIELDS),
         "sample_rate": 5.0,
@@ -98,14 +98,21 @@ def validate_alignment_method_params(
         )
         if not ok_range:
             return False, defaults, msg_range
-        try:
-            percent_tolerance = float(
-                candidate.get("percent_tolerance", defaults["percent_tolerance"])
+        tolerance_value = candidate.get(
+            "percent_tolerance", defaults["percent_tolerance"]
+        )
+        if tolerance_value is None:
+            percent_tolerance = None
+        else:
+            ok_tolerance, percent_tolerance, msg_tolerance = (
+                _normalize_nonnegative_float(
+                    tolerance_value,
+                    field_name="percent_tolerance",
+                    fallback=0.0,
+                )
             )
-        except Exception:  # noqa: BLE001
-            return False, defaults, "percent_tolerance must be numeric."
-        if percent_tolerance < 0.0:
-            return False, defaults, "percent_tolerance must be >= 0."
+            if not ok_tolerance:
+                return False, defaults, msg_tolerance
         linear_warp = bool(candidate.get("linear_warp", defaults["linear_warp"]))
         n_samples = int(round(sample_rate * 100.0))
         if n_samples < 2:
@@ -149,7 +156,7 @@ def validate_alignment_method_params(
             return False, defaults, msg_annotations
         ok_range, duration_range, msg_range = _normalize_duration_range(
             candidate.get("duration_range", defaults["duration_range"]),
-            allow_none=False,
+            allow_none=True,
         )
         if not ok_range:
             return False, defaults, msg_range
@@ -233,10 +240,8 @@ def validate_alignment_method_params(
             "",
         )
     ok_range, duration_range, msg_range = _normalize_duration_range(
-        candidate.get(
-            "duration_range", defaults.get("duration_range", [0.0, 1_000_000.0])
-        ),
-        allow_none=False,
+        candidate.get("duration_range", defaults.get("duration_range", [None, None])),
+        allow_none=True,
     )
     if not ok_range:
         return False, defaults, msg_range

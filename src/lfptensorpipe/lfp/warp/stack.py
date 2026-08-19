@@ -54,7 +54,7 @@ def stack_warper(
     keep: Sequence[str],
     mode: MatchMode = "exact",
     drop_mode: MatchMode = "substring",
-    duration_range: Tuple[float, float] = (0.0, np.inf),
+    duration_range: Tuple[float | None, float | None] = (None, None),
     anno_drop: Sequence[str] | None = None,
     pad_s: float = 0.0,
     clip_to_raw: bool = True,
@@ -87,14 +87,23 @@ def stack_warper(
         raise ValueError("`keep` must be a non-empty sequence of strings.")
 
     pad = float(pad_s)
+    if not np.isfinite(pad):
+        raise ValueError("`pad_s` must be finite.")
     if pad < 0:
         raise ValueError("`pad_s` must be >= 0.")
 
-    min_dur = float(duration_range[0])
-    max_dur = float(duration_range[1])
-    if min_dur < 0:
-        raise ValueError("`duration_range[0]` must be >= 0.")
-    if max_dur < min_dur:
+    min_dur_raw, max_dur_raw = duration_range
+    min_dur = None if min_dur_raw is None else float(min_dur_raw)
+    max_dur = None if max_dur_raw is None else float(max_dur_raw)
+    if min_dur is not None and not np.isfinite(min_dur):
+        raise ValueError("`duration_range[0]` must be finite or None.")
+    if max_dur is not None and not np.isfinite(max_dur):
+        raise ValueError("`duration_range[1]` must be finite or None.")
+    if min_dur is not None and min_dur < 0:
+        raise ValueError("`duration_range[0]` must be >= 0 or None.")
+    if max_dur is not None and max_dur < 0:
+        raise ValueError("`duration_range[1]` must be >= 0 or None.")
+    if min_dur is not None and max_dur is not None and max_dur < min_dur:
         raise ValueError("`duration_range[1]` must be >= `duration_range[0]`.")
     if drop_mode not in ("substring", "exact"):
         raise ValueError("`drop_mode` must be 'substring' or 'exact'.")
@@ -125,7 +134,9 @@ def stack_warper(
             continue
 
         anno_dur = float(dur)
-        if anno_dur < min_dur or anno_dur > max_dur:
+        if min_dur is not None and anno_dur < min_dur:
+            continue
+        if max_dur is not None and anno_dur > max_dur:
             continue
 
         start = float(onset) - pad

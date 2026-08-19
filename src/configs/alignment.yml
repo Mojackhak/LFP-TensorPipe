@@ -10,7 +10,7 @@ defaults:
       - 0.6
       - 2.0
       linear_warp: true
-      percent_tolerance: 15.0
+      percent_tolerance: null
       drop_bad: true
       drop_fields:
       - bad
@@ -23,8 +23,8 @@ defaults:
       anno_right: 0.5
       pad_right: 0.5
       duration_range:
-      - 0.0
-      - 1000000.0
+      - null
+      - null
       drop_bad: true
       drop_fields:
       - bad
@@ -33,8 +33,8 @@ defaults:
     stack_warper:
       annotations: []
       duration_range:
-      - 0.0
-      - 1000000.0
+      - null
+      - null
       drop_bad: true
       drop_fields:
       - bad

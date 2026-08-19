@@ -990,6 +990,20 @@ method without changing the other method defaults or the current trial.
 draft; it uses the built-in method default only when no saved entry exists.
 The current trial changes only after `Save` is selected.
 
+Every supplied numeric method parameter must be finite. `NaN`, positive
+infinity, and negative infinity are invalid for sample rates, target
+percentages, duration bounds, clip-window offsets, and percentage tolerance.
+The duration minimum and maximum fields for Line Up Key Events, Clip Around
+Event, and Stack Trials may be blank independently; blank is stored as `None`
+and means that the corresponding lower or upper duration limit is not applied.
+`percent tolerance` may also be blank; its `None` value disables anchor-geometry
+deviation filtering while retaining the configured target anchors. Clip/Stack
+duration bounds and percentage tolerance default to `None`, so these filters are
+off until the user supplies a finite value. An invalid draft may remain in
+record-scoped state after ordinary `Save`, but it cannot be
+saved as an app default, exported as a valid configuration, or used to run Align
+Epochs.
+
 During restore, annotations that are unavailable in the current trial remain
 unselected. For `linear_warper`, anchors that reference unavailable annotations
 are removed. If the remaining anchors do not form a valid mapping, the anchor
@@ -1026,7 +1040,7 @@ dialog draft and does not modify the saved app default.
 | `epoch duration min` | Sets an optional lower bound on accepted epoch duration in seconds. | Epoch eligibility before alignment. | Optional. |
 | `epoch duration max` | Sets an optional upper bound on accepted epoch duration in seconds. | Epoch eligibility before alignment. | Optional. |
 | `linear warp` | Enables piecewise linear warping between anchors. | Anchor-to-anchor interpolation behavior. | Line-up-by-key-events methods only. |
-| `percent tolerance` | Sets how far an observed anchor can deviate from its requested target position before the epoch is treated as a poor fit. Larger values are more permissive; smaller values enforce stricter geometric consistency. | Anchor-warp validation. | Anchor methods only. |
+| `percent tolerance` | Sets how far an observed anchor can deviate from its requested target position before the epoch is treated as a poor fit. Larger values are more permissive; smaller values enforce stricter geometric consistency. Leave blank to disable this eligibility filter. | Anchor-warp validation. | Optional for anchor methods. |
 | `Set as Default` | Saves the complete displayed parameter set as the app default for this alignment method. | Active method app default; the current trial is unchanged. | Blocks on invalid values. |
 | `Restore Default` | Loads the saved default for this alignment method into the dialog draft. | Current dialog values; the current trial is unchanged until `Save` is selected. | Always available. |
 | `Save` | Applies the displayed dialog values to the current trial. | Method configuration payload. | May retain an invalid red draft; Set as Default, Export, and Run remain blocked. |
@@ -1036,6 +1050,8 @@ dialog draft and does not modify the saved app default.
 
 - `sample rate (n/%)` is a normalized-timeline density, not a real-time Hz value.
 - `target percent` describes where an event should end up after warping, while `percent tolerance` describes how strictly that target should be enforced.
+- Blank `percent tolerance` is stored as `None` and applies no target-deviation
+  rejection. It does not remove or alter the target anchors.
 - The output grid is uniform from 0% through 100%. Line Up Key Events evaluates
   each output percent directly against the configured target anchors. An anchor
   is an exact output sample when that percentage is representable on the chosen
@@ -1056,8 +1072,8 @@ dialog draft and does not modify the saved app default.
 | `anno left` | Keeps a window immediately after annotation start. | Event-anchored clip window. | Clip-style methods only. |
 | `anno right` | Keeps a window immediately before annotation end. | Event-anchored clip window. | Clip-style methods only. |
 | `pad right` | Adds extra time after annotation end. Use it to capture post-event context. | Event-anchored clip window. | Clip-style methods only. |
-| `duration min` | Sets a minimum annotation duration in seconds for an event to be eligible. | Epoch eligibility before clipping. | Clip-style methods only. |
-| `duration max` | Sets a maximum annotation duration in seconds for an event to be eligible. | Epoch eligibility before clipping. | Clip-style methods only. |
+| `duration min` | Sets a minimum annotation duration in seconds for an event to be eligible. The default blank value means no lower limit. | Epoch eligibility before clipping. | Optional for Clip-style methods. |
+| `duration max` | Sets a maximum annotation duration in seconds for an event to be eligible. The default blank value means no upper limit. | Epoch eligibility before clipping. | Optional for Clip-style methods. |
 | `Set as Default` | Saves the complete displayed parameter set as the app default for this alignment method. | Active method app default; the current trial is unchanged. | Blocks on invalid values. |
 | `Restore Default` | Loads the saved default for this alignment method into the dialog draft. | Current dialog values; the current trial is unchanged until `Save` is selected. | Always available. |
 | `Save` | Applies the displayed dialog values to the current trial. | Method configuration payload. | May retain an invalid red draft, including an empty annotation selection; Set as Default, Export, and Run remain blocked. |
@@ -1085,8 +1101,8 @@ dialog draft and does not modify the saved app default.
 | `drop bad/edge` | Drops epochs overlapping annotations containing `bad` or `edge`. | Which epochs remain eligible for alignment. | Always available. |
 | `annotations` checklist | Chooses which labels are kept when building stacked trials. | Alignment input event set. | Visible for annotation-list methods. |
 | `Select All` / `Clear` | Select or clear all labels in the checklist. | Annotation checklist. | Visible for annotation-list methods. |
-| `duration min` | Sets a minimum annotation duration in seconds. | Epoch eligibility before stacking. | Stack-style methods only. |
-| `duration max` | Sets a maximum annotation duration in seconds. | Epoch eligibility before stacking. | Stack-style methods only. |
+| `duration min` | Sets a minimum annotation duration in seconds. The default blank value means no lower limit. | Epoch eligibility before stacking. | Optional for Stack-style methods. |
+| `duration max` | Sets a maximum annotation duration in seconds. The default blank value means no upper limit. | Epoch eligibility before stacking. | Optional for Stack-style methods. |
 | `Set as Default` | Saves the complete displayed parameter set as the app default for this alignment method. | Active method app default; the current trial is unchanged. | Blocks on invalid values. |
 | `Restore Default` | Loads the saved default for this alignment method into the dialog draft. | Current dialog values; the current trial is unchanged until `Save` is selected. | Always available. |
 | `Save` | Applies the displayed dialog values to the current trial. | Method configuration payload. | May retain an invalid red draft, including an empty annotation selection; Set as Default, Export, and Run remain blocked. |

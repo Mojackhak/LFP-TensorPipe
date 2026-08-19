@@ -92,7 +92,7 @@ def _build_linear_ui(dialog, params: dict[str, Any]) -> None:
     dialog._duration_max_edit.setText(dialog._draft_text(duration_range[1]))
     dialog._linear_warp_check.setChecked(bool(params.get("linear_warp", True)))
     dialog._percent_tolerance_edit.setText(
-        dialog._draft_text(params.get("percent_tolerance", 15.0))
+        dialog._draft_text(params.get("percent_tolerance"))
     )
     dialog._duration_min_edit.setToolTip("Optional minimum epoch duration in seconds.")
     dialog._duration_max_edit.setToolTip("Optional maximum epoch duration in seconds.")
@@ -100,7 +100,7 @@ def _build_linear_ui(dialog, params: dict[str, Any]) -> None:
         "Enable piecewise linear warp between anchors."
     )
     dialog._percent_tolerance_edit.setToolTip(
-        "Allowed anchor timing deviation in percent (>= 0)."
+        "Optional anchor timing deviation in percent (>= 0); blank disables this filter."
     )
 
     form = QFormLayout()
@@ -148,16 +148,16 @@ def _build_pad_ui(dialog, params: dict[str, Any]) -> None:
     dialog._anno_right_edit.setToolTip("Seconds before annotation end.")
     dialog._pad_right_edit.setToolTip("Seconds after annotation end.")
 
-    duration_range = params.get("duration_range", [0.0, 1_000_000.0])
+    duration_range = params.get("duration_range", [None, None])
     if not isinstance(duration_range, (list, tuple)) or len(duration_range) != 2:
-        duration_range = [0.0, 1_000_000.0]
+        duration_range = [None, None]
     dialog._duration_min_edit.setText(dialog._draft_text(duration_range[0]))
     dialog._duration_max_edit.setText(dialog._draft_text(duration_range[1]))
     dialog._duration_min_edit.setToolTip(
-        "Minimum annotation duration in seconds (>= 0)."
+        "Optional minimum annotation duration in seconds (>= 0); blank sets no lower limit."
     )
     dialog._duration_max_edit.setToolTip(
-        "Maximum annotation duration in seconds (>= duration min)."
+        "Optional maximum annotation duration in seconds; blank sets no upper limit."
     )
     form = QFormLayout()
     form.addRow("pad left", dialog._pad_left_edit)
@@ -196,16 +196,16 @@ def _build_stack_concat_ui(dialog, params: dict[str, Any]) -> None:
     if dialog._method_key == "concat_warper":
         return
 
-    duration_range = params.get("duration_range", [0.0, 1_000_000.0])
+    duration_range = params.get("duration_range", [None, None])
     if not isinstance(duration_range, (list, tuple)) or len(duration_range) != 2:
-        duration_range = [0.0, 1_000_000.0]
+        duration_range = [None, None]
     dialog._duration_min_edit.setText(dialog._draft_text(duration_range[0]))
     dialog._duration_max_edit.setText(dialog._draft_text(duration_range[1]))
     dialog._duration_min_edit.setToolTip(
-        "Minimum annotation duration in seconds (>= 0)."
+        "Optional minimum annotation duration in seconds (>= 0); blank sets no lower limit."
     )
     dialog._duration_max_edit.setToolTip(
-        "Maximum annotation duration in seconds (>= duration min)."
+        "Optional maximum annotation duration in seconds; blank sets no upper limit."
     )
     form = QFormLayout()
     form.addRow("duration min", dialog._duration_min_edit)

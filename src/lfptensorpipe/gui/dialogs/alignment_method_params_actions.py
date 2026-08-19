@@ -66,8 +66,10 @@ def _collect_candidate_params(
                 _draft_float(dialog._duration_max_edit.text()),
             ]
         candidate["linear_warp"] = dialog._linear_warp_check.isChecked()
-        candidate["percent_tolerance"] = parse_float(
-            dialog._percent_tolerance_edit.text()
+        candidate["percent_tolerance"] = (
+            _parse_optional_float(dialog._percent_tolerance_edit.text())
+            if strict
+            else _draft_float(dialog._percent_tolerance_edit.text())
         )
         return candidate
     if dialog._method_key == "pad_warper":
@@ -81,10 +83,17 @@ def _collect_candidate_params(
         candidate["anno_left"] = parse_float(dialog._anno_left_edit.text())
         candidate["anno_right"] = parse_float(dialog._anno_right_edit.text())
         candidate["pad_right"] = parse_float(dialog._pad_right_edit.text())
-        candidate["duration_range"] = [
-            parse_float(dialog._duration_min_edit.text()),
-            parse_float(dialog._duration_max_edit.text()),
-        ]
+        candidate["duration_range"] = (
+            [
+                _parse_optional_float(dialog._duration_min_edit.text()),
+                _parse_optional_float(dialog._duration_max_edit.text()),
+            ]
+            if strict
+            else [
+                _draft_float(dialog._duration_min_edit.text()),
+                _draft_float(dialog._duration_max_edit.text()),
+            ]
+        )
         return candidate
 
     annotations: list[str] = []
@@ -94,10 +103,17 @@ def _collect_candidate_params(
             annotations.append(item.text().strip())
     candidate["annotations"] = [item for item in annotations if item]
     if dialog._method_key == "stack_warper":
-        candidate["duration_range"] = [
-            parse_float(dialog._duration_min_edit.text()),
-            parse_float(dialog._duration_max_edit.text()),
-        ]
+        candidate["duration_range"] = (
+            [
+                _parse_optional_float(dialog._duration_min_edit.text()),
+                _parse_optional_float(dialog._duration_max_edit.text()),
+            ]
+            if strict
+            else [
+                _draft_float(dialog._duration_min_edit.text()),
+                _draft_float(dialog._duration_max_edit.text()),
+            ]
+        )
     return candidate
 
 

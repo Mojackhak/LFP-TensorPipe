@@ -111,6 +111,8 @@ def concat_warper(
         raise ValueError("`keep` must be a non-empty sequence of strings.")
 
     pad = float(pad_s)
+    if not np.isfinite(pad):
+        raise ValueError("`pad_s` must be finite.")
     if pad < 0:
         raise ValueError("`pad_s` must be >= 0.")
     if drop_mode not in ("substring", "exact"):

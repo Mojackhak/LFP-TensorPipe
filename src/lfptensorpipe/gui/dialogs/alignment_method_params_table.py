@@ -21,6 +21,9 @@ def _on_add_anchor_row(dialog) -> None:
     except Exception:
         dialog._show_warning("Align Epochs Params", "target percent must be numeric.")
         return
+    if not np.isfinite(percent):  # noqa: F405
+        dialog._show_warning("Align Epochs Params", "target percent must be finite.")
+        return
     if percent < 0.0 or percent > 100.0:
         dialog._show_warning(
             "Align Epochs Params", "target percent must be within [0, 100]."
@@ -89,7 +92,9 @@ def _validate_anchor_cell(dialog, row: int, col: int) -> None:
     elif col == 1:
         try:
             value = float(text)
-            if value < 0.0 or value > 100.0:
+            if not np.isfinite(value):  # noqa: F405
+                error = "target percent must be finite."
+            elif value < 0.0 or value > 100.0:
                 error = "target percent must be within [0, 100]."
         except Exception:
             error = "target percent must be numeric."

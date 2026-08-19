@@ -56,6 +56,7 @@ def _build_warper(
             method_params.get("epoch_duration_range"),
             (None, None),
         )
+        tolerance_value = method_params.get("percent_tolerance")
         return linear_warper_fn(
             raw,
             anchors_percent=anchors,
@@ -63,7 +64,9 @@ def _build_warper(
             drop_mode=drop_mode,
             epoch_duration_range=epoch_duration_range,
             linear_warp=bool(method_params.get("linear_warp", True)),
-            percent_tolerance=float(method_params.get("percent_tolerance", 15.0)),
+            percent_tolerance=(
+                None if tolerance_value is None else float(tolerance_value)
+            ),
             anno_drop=anno_drop,
         )
     if method == "pad_warper":
@@ -84,7 +87,7 @@ def _build_warper(
         }
         duration_range = svc._float_pair_list(
             method_params.get("duration_range"),
-            (0.0, 1_000_000.0),
+            (None, None),
         )
         return pad_warper_fn(
             raw,
@@ -123,7 +126,7 @@ def _build_warper(
         raise ValueError("No annotation labels selected for stack warper.")
     duration_range = svc._float_pair_list(
         method_params.get("duration_range"),
-        (0.0, 1_000_000.0),
+        (None, None),
     )
     return stack_warper_fn(
         raw,
