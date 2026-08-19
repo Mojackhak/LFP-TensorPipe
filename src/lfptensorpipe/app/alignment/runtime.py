@@ -23,7 +23,12 @@ from lfptensorpipe.utils.transforms import (
 )
 
 from . import service as svc
-from .method_specs import LINEAR_WARP_GEOMETRY, LINEAR_WARP_GEOMETRY_KEY
+from .method_specs import (
+    CLIP_STITCH_GEOMETRY,
+    CLIP_STITCH_GEOMETRY_KEY,
+    LINEAR_WARP_GEOMETRY,
+    LINEAR_WARP_GEOMETRY_KEY,
+)
 from .epoch_view import _epoch_duration_s
 
 
@@ -61,6 +66,7 @@ def run_align_epochs(
     )
     _build_warper = build_warper_fn or svc._build_warper
     _resolve_target_n_samples = svc._resolve_target_n_samples
+    _resolve_target_duration_s = svc._resolve_target_duration_s
     save_pkl = save_pkl_fn or svc.save_pkl
     alignment_warp_fn_path = svc.alignment_warp_fn_path
     alignment_warp_labels_path = svc.alignment_warp_labels_path
@@ -206,6 +212,19 @@ def run_align_epochs(
             and bool(method_params.get("linear_warp", True))
             and any(metric_key != "burst" for metric_key in metrics)
         )
+        uses_current_clip_stitch_geometry = method in {
+            "pad_warper",
+            "concat_warper",
+        }
+        target_duration_s = (
+            _resolve_target_duration_s(
+                method=method,
+                method_params=method_params,
+                epochs_by_label=epochs_by_label,
+            )
+            if uses_current_clip_stitch_geometry
+            else None
+        )
         log_path = alignment_paradigm_log_path(resolver, slug)
         with AtomicOutputSet(
             [warp_fn_path, warp_labels_path, *metric_output_paths.values(), log_path],
@@ -297,6 +316,10 @@ def run_align_epochs(
                     np.asarray(percent_axis, dtype=float),
                     meta_epochs,
                     source_meta=meta_in,
+                    target_duration_s=target_duration_s,
+                    requested_sample_rate_hz=(
+                        sample_rate if uses_current_clip_stitch_geometry else None
+                    ),
                 )
                 if metric_key == "burst":
                     meta_warped["burst_display_aggregation"] = {
@@ -306,6 +329,8 @@ def run_align_epochs(
                     }
                 elif uses_current_linear_warp_geometry:
                     meta_warped[LINEAR_WARP_GEOMETRY_KEY] = LINEAR_WARP_GEOMETRY
+                if uses_current_clip_stitch_geometry:
+                    meta_warped[CLIP_STITCH_GEOMETRY_KEY] = CLIP_STITCH_GEOMETRY
                 out_path = metric_output_paths[metric_key]
                 save_pkl(
                     {"tensor": warped_arr, "meta": meta_warped},
@@ -325,6 +350,8 @@ def run_align_epochs(
             }
             if uses_current_linear_warp_geometry:
                 run_params[LINEAR_WARP_GEOMETRY_KEY] = LINEAR_WARP_GEOMETRY
+            if uses_current_clip_stitch_geometry:
+                run_params[CLIP_STITCH_GEOMETRY_KEY] = CLIP_STITCH_GEOMETRY
             _append_alignment_history(
                 output_set.staged_path(log_path),
                 entry=RunLogRecord(

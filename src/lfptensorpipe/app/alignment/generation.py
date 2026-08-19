@@ -18,6 +18,10 @@ ALIGNMENT_FINISH_MANIFEST_RERUN_MESSAGE = (
     "Latest Align Finish uses a legacy or incomplete metric manifest. "
     "Rerun Align Finish before Extract Features."
 )
+ALIGNMENT_CLIP_STITCH_GEOMETRY_RERUN_MESSAGE = (
+    "Latest Clip/Stitch alignment uses legacy seam or physical-time geometry. "
+    "Rerun Align Epochs and Finish before Extract Features."
+)
 
 
 def _history_entries(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -122,6 +126,20 @@ def alignment_generation_rerun_message(
     except Exception:
         return None
     entries = _history_entries(payload)
+    latest_run = _latest_step(entries, "run_align_epochs")
+    if latest_run is not None and latest_run[1].get("completed") is True:
+        params = latest_run[1].get("params")
+        if isinstance(params, dict) and str(params.get("method", "")) in {
+            "pad_warper",
+            "concat_warper",
+        }:
+            from .method_specs import (
+                CLIP_STITCH_GEOMETRY,
+                CLIP_STITCH_GEOMETRY_KEY,
+            )
+
+            if params.get(CLIP_STITCH_GEOMETRY_KEY) != CLIP_STITCH_GEOMETRY:
+                return ALIGNMENT_CLIP_STITCH_GEOMETRY_RERUN_MESSAGE
     step = "run_align_epochs" if stage == "run" else "build_raw_table"
     latest = _latest_step(entries, step)
     if (
@@ -157,6 +175,7 @@ def accepted_alignment_artifact_paths(
 
 
 __all__ = [
+    "ALIGNMENT_CLIP_STITCH_GEOMETRY_RERUN_MESSAGE",
     "ALIGNMENT_FINISH_MANIFEST_RERUN_MESSAGE",
     "ALIGNMENT_RUN_MANIFEST_RERUN_MESSAGE",
     "accepted_alignment_artifact_paths",

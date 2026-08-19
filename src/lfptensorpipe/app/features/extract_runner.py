@@ -28,6 +28,7 @@ from lfptensorpipe.app.shared.atomic_outputs import (
 from lfptensorpipe.io.pkl_io import load_pkl, save_pkl
 from lfptensorpipe.stats.preproc.transform import transform_df
 from lfptensorpipe.tabular.grid import (
+    GridResultColumns,
     ReducerKind,
     grid_nested_values,
     split_nested_values,
@@ -48,6 +49,7 @@ from .burst_native import (
     normalize_burst_reducers,
 )
 from .generation import NUMERIC_MEAN_SEMANTICS, NUMERIC_MEAN_SEMANTICS_KEY
+from .piecewise_native import build_piecewise_mean_outputs
 
 
 @dataclass(frozen=True)
@@ -470,6 +472,47 @@ def _extract_metric_outputs(
     errors: list[str] = []
     xlsx_warnings: list[str] = []
 
+    piecewise_mean_outputs: dict[str, pd.DataFrame] = {}
+    piecewise_mean_error: Exception | None = None
+    uses_piecewise_native_mean = (
+        alignment_method in {"pad_warper", "concat_warper"}
+        and "mean" in reducers
+        and any(outputs.get(name, False) for name in ("spectral", "scalar"))
+    )
+    if uses_piecewise_native_mean:
+        try:
+            if resolver is None or not trial_slug:
+                raise ValueError("Clip/Stitch mean extraction requires record context.")
+            if not time_axis:
+                raise ValueError("times axis is required for piecewise mean outputs.")
+            out_cols = collapse_base_cfg.get("out_cols", GridResultColumns())
+            if not isinstance(out_cols, GridResultColumns):
+                raise ValueError("Feature output-column configuration is invalid.")
+            piecewise_mean_outputs = build_piecewise_mean_outputs(
+                resolver,
+                trial_slug=trial_slug,
+                metric_key=metric_key,
+                aligned_payload=payload,
+                phases=time_axis,
+                bands=freqs_axis,
+                transform_policy=transform_policy,
+                include_spectral=bool(outputs.get("spectral", False)),
+                include_scalar=bool(outputs.get("scalar", False)),
+                time_interval_mode=str(
+                    collapse_base_cfg.get("time_interval_mode", "percent")
+                ),
+                freq_interval_mode=str(
+                    collapse_base_cfg.get("freq_interval_mode", "absolute")
+                ),
+                inclusive=bool(collapse_base_cfg.get("inclusive", True)),
+                keep_full_dim_cols=bool(
+                    collapse_base_cfg.get("keep_full_dim_cols", False)
+                ),
+                out_cols=out_cols,
+            )
+        except Exception as exc:  # noqa: BLE001
+            piecewise_mean_error = exc
+
     if outputs.get("raw", False):
         total_targets += 1
         out_pkl = (
@@ -505,7 +548,15 @@ def _extract_metric_outputs(
                     raise ValueError(f"Missing assigned output path: {stem}")
                 if export_xlsx and not _should_export_xlsx(enabled_output):
                     _remove_stale_xlsx(out_xlsx)
-                if enabled_output == "spectral":
+                if (
+                    uses_piecewise_native_mean
+                    and reducer == "mean"
+                    and enabled_output in {"spectral", "scalar"}
+                ):
+                    if piecewise_mean_error is not None:
+                        raise piecewise_mean_error
+                    derived = piecewise_mean_outputs[enabled_output]
+                elif enabled_output == "spectral":
                     if not time_axis:
                         raise ValueError("times axis is required for spectral.")
                     derived = split_nested_values(
@@ -588,6 +639,13 @@ def run_extract_features(
             False,
             "Selected alignment trial must be green before Extract Features.",
         )
+    alignment_rerun_message = alignment_generation_rerun_message(
+        resolver,
+        trial_slug=slug,
+        stage="finish",
+    )
+    if alignment_rerun_message is not None:
+        return False, alignment_rerun_message
 
     raw_tables = svc._iter_alignment_raw_tables(resolver, trial_slug=slug)
     if selected_metrics is not None:

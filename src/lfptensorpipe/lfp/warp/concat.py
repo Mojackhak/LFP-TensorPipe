@@ -20,9 +20,9 @@ import mne
 
 from ..mask.annotations import MatchMode
 from .utils import (
-    interp_along_last_axis,
     intervals_overlap_half_open,
     raw_sample_time_bounds,
+    resample_piecewise_segments,
     time_s_to_sample_index,
 )
 
@@ -191,6 +191,7 @@ def concat_warper(
 
         T_total = int(x.shape[-1])
         segs: List[np.ndarray] = []
+        segment_weights: List[float] = []
 
         for start_s, end_s in epoch.intervals_s:
             i_start = max(time_s_to_sample_index(start_s, sr), 0)
@@ -203,6 +204,7 @@ def concat_warper(
                 continue
 
             segs.append(x[..., i_start:i_end])
+            segment_weights.append(float(end_s - start_s))
 
         if len(segs) == 0:
             raise RuntimeError(
@@ -220,8 +222,15 @@ def concat_warper(
         if not (isinstance(n_samples, int) and int(n_samples) >= 2):
             raise ValueError("`n_samples` must be an integer >= 2 or None.")
 
-        idx = np.linspace(0.0, max(L - 1, 0), int(n_samples), dtype=float)
-        resamp = interp_along_last_axis(concat, idx)
+        resamp = resample_piecewise_segments(
+            segs,
+            n_samples=int(n_samples),
+            segment_weights=(
+                segment_weights
+                if all(weight > 0.0 for weight in segment_weights)
+                else None
+            ),
+        )
         out = resamp[np.newaxis, ...]
         percent = np.linspace(0.0, 100.0, int(n_samples), dtype=float)
         return out.astype(np.result_type(out, np.float64)), percent, [epoch]

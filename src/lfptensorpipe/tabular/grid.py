@@ -690,6 +690,32 @@ def _finite_values(arr: np.ndarray) -> np.ndarray:
     return arr[np.isfinite(arr)]
 
 
+def mean_sufficient_statistics(
+    axis: AxisInfo,
+    values: np.ndarray,
+    selection: AxisSelection,
+) -> tuple[float, float]:
+    """Return the numerator and support denominator of one mean reduction."""
+    y = np.asarray(values, dtype=float)
+    if y.ndim != 1 or y.shape[0] != selection.mask.shape[0]:
+        raise ValueError("Shape mismatch between values and selection mask.")
+    finite = np.isfinite(y)
+    if axis.is_numeric:
+        valid = finite
+        if selection.intervals is not None:
+            valid &= _interval_support_mask(axis.coords, selection.intervals)
+        else:
+            valid &= selection.mask
+        return _integrate_over_interval_selection(
+            axis.coords,
+            y,
+            selection,
+            valid,
+        )
+    valid = selection.mask & finite
+    return float(np.sum(y[valid])), float(np.sum(valid))
+
+
 def _reduce_1d_with_mask(
     axis: AxisInfo, y: np.ndarray, sel: AxisSelection, *, reducer: ReducerKind
 ) -> float:
@@ -705,23 +731,8 @@ def _reduce_1d_with_mask(
         return float(np.median(vals)) if vals.size else np.nan
 
     if reducer is ReducerKind.MEAN:
-        if axis.is_numeric:
-            integration_valid = finite if sel.intervals is not None else valid
-            if sel.intervals is not None:
-                integration_valid &= _interval_support_mask(
-                    axis.coords,
-                    sel.intervals,
-                )
-            num, den = _integrate_over_interval_selection(
-                axis.coords,
-                y,
-                sel,
-                integration_valid,
-            )
-            return np.nan if den == 0.0 else float(num / den)
-        # Categorical axis: fall back to arithmetic mean over finite points in selection.
-        vals = y[valid]
-        return float(np.mean(vals)) if vals.size else np.nan
+        num, den = mean_sufficient_statistics(axis, y, sel)
+        return np.nan if den == 0.0 else float(num / den)
 
     count, dur = _count_and_duration(axis.coords, valid)
 

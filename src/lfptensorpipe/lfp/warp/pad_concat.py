@@ -18,9 +18,9 @@ import mne
 
 from ..mask.annotations import MatchMode
 from .utils import (
-    interp_along_last_axis,
     intervals_overlap_half_open,
     raw_sample_time_bounds,
+    resample_piecewise_segments,
     time_s_to_sample_index,
 )
 
@@ -214,6 +214,8 @@ def pad_warper(
 
         lead_shape = x.shape[:-1]
         warped_list: List[np.ndarray] = []
+        segment_list: List[tuple[np.ndarray, np.ndarray]] = []
+        segment_weight_list: List[tuple[float, float]] = []
         native_lengths: List[int] = []
 
         T_total = x.shape[-1]
@@ -242,6 +244,8 @@ def pad_warper(
             concat = np.concatenate([seg1, seg2], axis=-1)
 
             warped_list.append(concat)
+            segment_list.append((seg1, seg2))
+            segment_weight_list.append((float(al - pl), float(pr - ar)))
             native_lengths.append(int(concat.shape[-1]))
 
         if len(warped_list) == 0:
@@ -273,15 +277,18 @@ def pad_warper(
                 (len(warped_list),) + lead_shape + (n_out,),
                 dtype=np.result_type(x, np.float64),
             )
-            for ei, ep_data in enumerate(warped_list):
-                L = int(ep_data.shape[-1])
-                if L <= 1:
-                    out[ei, ...] = np.repeat(ep_data, n_out, axis=-1)
-                elif L == n_out:
-                    out[ei, ...] = ep_data
-                else:
-                    idx_local = np.linspace(0.0, float(L - 1), num=n_out, endpoint=True)
-                    out[ei, ...] = interp_along_last_axis(ep_data, idx_local)
+            for ei, (segments, segment_weights) in enumerate(
+                zip(segment_list, segment_weight_list)
+            ):
+                out[ei, ...] = resample_piecewise_segments(
+                    segments,
+                    n_samples=n_out,
+                    segment_weights=(
+                        segment_weights
+                        if all(weight > 0.0 for weight in segment_weights)
+                        else None
+                    ),
+                )
 
         percent_axis = np.linspace(0.0, 100.0, int(out.shape[-1]), endpoint=True)
         return out, percent_axis, selected_eps

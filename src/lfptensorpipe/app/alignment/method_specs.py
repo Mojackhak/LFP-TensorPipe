@@ -26,6 +26,8 @@ DEFAULT_DROP_MODE = "substring"
 DEFAULT_DROP_FIELDS = ("bad", "edge")
 LINEAR_WARP_GEOMETRY_KEY = "linear_warp_geometry"
 LINEAR_WARP_GEOMETRY = "piecewise_target_percent"
+CLIP_STITCH_GEOMETRY_KEY = "clip_stitch_geometry"
+CLIP_STITCH_GEOMETRY = "piecewise_half_open_support"
 
 
 __all__ = [
@@ -34,6 +36,8 @@ __all__ = [
     "ALIGNMENT_METHODS_BY_LABEL",
     "DEFAULT_DROP_FIELDS",
     "DEFAULT_DROP_MODE",
+    "CLIP_STITCH_GEOMETRY",
+    "CLIP_STITCH_GEOMETRY_KEY",
     "LINEAR_WARP_GEOMETRY",
     "LINEAR_WARP_GEOMETRY_KEY",
     "AlignmentMethodSpec",

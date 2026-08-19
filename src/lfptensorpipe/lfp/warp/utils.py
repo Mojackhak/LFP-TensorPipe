@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -77,6 +77,73 @@ def interp_along_last_axis(data: np.ndarray, idx_grid: np.ndarray) -> np.ndarray
         alpha = (idx[fractional] - i0[fractional])[None, :]
         Y[:, fractional] = (1.0 - alpha) * v0[:, fractional] + alpha * v1[:, fractional]
     return Y.reshape((*x.shape[:-1], idx.size))
+
+
+def resample_piecewise_segments(
+    segments: Sequence[np.ndarray],
+    *,
+    n_samples: int,
+    segment_weights: Sequence[float] | None = None,
+) -> np.ndarray:
+    """Resample concatenated segments without interpolating across their seams."""
+    pieces = [np.asarray(segment) for segment in segments]
+    if not pieces:
+        raise ValueError("`segments` must contain at least one array.")
+    if not isinstance(n_samples, (int, np.integer)) or isinstance(
+        n_samples, (bool, np.bool_)
+    ):
+        raise ValueError("`n_samples` must be an integer >= 2.")
+    n_out = int(n_samples)
+    if n_out < 2:
+        raise ValueError("`n_samples` must be an integer >= 2.")
+
+    lead_shape = pieces[0].shape[:-1]
+    lengths: list[int] = []
+    for piece in pieces:
+        if piece.ndim < 1 or piece.shape[:-1] != lead_shape:
+            raise ValueError("All piecewise segments must share leading dimensions.")
+        length = int(piece.shape[-1])
+        if length < 1:
+            raise ValueError("Piecewise segments must contain at least one sample.")
+        lengths.append(length)
+
+    weights = (
+        np.asarray(lengths, dtype=float)
+        if segment_weights is None
+        else np.asarray(segment_weights, dtype=float)
+    )
+    if (
+        weights.ndim != 1
+        or weights.size != len(pieces)
+        or not np.all(np.isfinite(weights))
+        or np.any(weights <= 0.0)
+    ):
+        raise ValueError("`segment_weights` must be finite and positive per segment.")
+    cumulative = np.cumsum(weights)
+    target = np.arange(n_out, dtype=float) * float(cumulative[-1]) / float(n_out)
+    seam_tolerance = 64.0 * np.finfo(float).eps * max(1.0, abs(float(cumulative[-1])))
+    segment_indices = np.searchsorted(
+        cumulative,
+        target + seam_tolerance,
+        side="right",
+    )
+    segment_indices = np.minimum(segment_indices, len(pieces) - 1)
+    starts = np.concatenate(([0.0], cumulative[:-1]))
+    out = np.empty(
+        lead_shape + (n_out,),
+        dtype=np.result_type(*(piece.dtype for piece in pieces), np.float64),
+    )
+    for segment_index, piece in enumerate(pieces):
+        output_mask = segment_indices == segment_index
+        if not np.any(output_mask):
+            continue
+        local_fraction = (target[output_mask] - starts[segment_index]) / weights[
+            segment_index
+        ]
+        local_fraction = np.clip(local_fraction, 0.0, np.nextafter(1.0, 0.0))
+        local_indices = local_fraction * float(lengths[segment_index])
+        out[..., output_mask] = interp_along_last_axis(piece, local_indices)
+    return out
 
 
 def time_s_to_sample_index(time_s: float, sr_hz: float) -> int:

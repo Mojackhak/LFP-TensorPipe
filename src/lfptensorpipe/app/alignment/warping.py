@@ -19,7 +19,11 @@ from .repcoord_merge import (
     _repcoord_conflict_column_name,
 )
 from .tensor_inventory import _coerce_alignment_tensor, _completed_tensor_metrics
-from .warper_builder import _build_warper, _resolve_target_n_samples
+from .warper_builder import (
+    _build_warper,
+    _resolve_target_duration_s,
+    _resolve_target_n_samples,
+)
 
 __all__ = [
     "_localize_representative_csv_path",
@@ -36,6 +40,7 @@ __all__ = [
     "_float_pair_list",
     "_filter_raw_annotations_by_duration",
     "_build_warper",
+    "_resolve_target_duration_s",
     "_resolve_target_n_samples",
     "_coerce_alignment_tensor",
 ]

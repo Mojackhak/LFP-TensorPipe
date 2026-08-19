@@ -118,6 +118,8 @@ def build_warped_tensor_metadata(
     ch_names: Optional[Sequence[Any]] = None,
     freqs: Optional[Sequence[float]] = None,
     source_meta: Optional[Dict[str, Any]] = None,
+    target_duration_s: float | None = None,
+    requested_sample_rate_hz: float | None = None,
 ) -> Dict[str, Any]:
     """Assemble a metadata dict for warped tensor outputs.
 
@@ -162,16 +164,32 @@ def build_warped_tensor_metadata(
     shape = (n_epochs, n_channels, n_freqs, n_times)
 
     kind_major, duration_s, durations_per_epoch = _robust_duration_s(meta_epochs)
+    has_explicit_target_duration = target_duration_s is not None
+    if has_explicit_target_duration:
+        duration_s = float(target_duration_s)
+        if not np.isfinite(duration_s) or duration_s <= 0.0:
+            raise ValueError("`target_duration_s` must be finite and > 0.")
+    has_half_open_support = has_explicit_target_duration or kind_major in {
+        "pad",
+        "concat",
+    }
 
     if n_times is None:
         time_axis = None
     elif n_times <= 1:
         time_axis = np.array([0.0], dtype=float)
     elif np.isfinite(duration_s) and duration_s > 0:
-        # "Warped time" axis in seconds (0..duration_s).
-        time_axis = np.linspace(
-            0.0, duration_s, int(n_times), endpoint=True, dtype=float
-        )
+        if has_half_open_support:
+            time_axis = (
+                np.arange(int(n_times), dtype=float)
+                * float(duration_s)
+                / float(n_times)
+            )
+        else:
+            # Normalized warpers retain their endpoint-inclusive display axis.
+            time_axis = np.linspace(
+                0.0, duration_s, int(n_times), endpoint=True, dtype=float
+            )
     else:
         # Fallback: preserve a unit interval so downstream code always has a `time` axis.
         time_axis = np.linspace(0.0, 1.0, int(n_times), endpoint=True, dtype=float)
@@ -204,37 +222,45 @@ def build_warped_tensor_metadata(
             item["intervals_s"] = list(getattr(ep, "intervals_s"))
         warp_events.append(item)
 
-    metadata: Dict[str, Any] = dict(
-        axes=dict(
-            epoch=epoch_labels,
-            channel=(
-                np.fromiter(chan_axis, dtype=object, count=len(chan_axis))
-                if chan_axis is not None
-                else None
-            ),
-            freq=(
-                list(freq_axis)
-                if isinstance(freq_axis, list)
-                else (
-                    np.asarray(freq_axis, dtype=float)
-                    if (
-                        freq_axis is not None
-                        and np.issubdtype(np.asarray(freq_axis).dtype, np.number)
-                    )
-                    else (
-                        np.asarray(freq_axis, dtype=object)
-                        if freq_axis is not None
-                        else None
-                    )
-                )
-            ),
-            time=time_axis,
-            percent=np.array(percent_axis, dtype=float),
-            shape=shape,
-            kind=str(kind_major),
-            duration_s=float(duration_s) if np.isfinite(duration_s) else np.nan,
-            duration_s_per_epoch=durations_per_epoch,
+    axes: Dict[str, Any] = dict(
+        epoch=epoch_labels,
+        channel=(
+            np.fromiter(chan_axis, dtype=object, count=len(chan_axis))
+            if chan_axis is not None
+            else None
         ),
+        freq=(
+            list(freq_axis)
+            if isinstance(freq_axis, list)
+            else (
+                np.asarray(freq_axis, dtype=float)
+                if (
+                    freq_axis is not None
+                    and np.issubdtype(np.asarray(freq_axis).dtype, np.number)
+                )
+                else (
+                    np.asarray(freq_axis, dtype=object)
+                    if freq_axis is not None
+                    else None
+                )
+            )
+        ),
+        time=time_axis,
+        percent=np.array(percent_axis, dtype=float),
+        shape=shape,
+        kind=str(kind_major),
+        duration_s=float(duration_s) if np.isfinite(duration_s) else np.nan,
+        duration_s_per_epoch=durations_per_epoch,
+    )
+    if has_half_open_support:
+        axes["time_support_s"] = np.asarray([0.0, duration_s], dtype=float)
+        axes["time_support_interval"] = "half_open"
+        axes["effective_sample_rate_hz"] = float(n_times) / float(duration_s)
+        if requested_sample_rate_hz is not None:
+            axes["requested_sample_rate_hz"] = float(requested_sample_rate_hz)
+
+    metadata: Dict[str, Any] = dict(
+        axes=axes,
         source=source_meta,
         warp_epochs=warp_events,
     )

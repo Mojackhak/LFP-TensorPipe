@@ -153,31 +153,12 @@ def _resolve_target_n_samples(
     )
     if method in {"linear_warper", "stack_warper"}:
         n_samples = int(round(sample_rate * 100.0))
-    elif method == "pad_warper":
-        total_window_s = (
-            float(method_params.get("pad_left", 0.5))
-            + float(method_params.get("anno_left", 0.5))
-            + float(method_params.get("anno_right", 0.5))
-            + float(method_params.get("pad_right", 0.5))
+    elif method in {"pad_warper", "concat_warper"}:
+        total_window_s = _resolve_target_duration_s(
+            method=method,
+            method_params=method_params,
+            epochs_by_label=epochs_by_label,
         )
-        n_samples = int(round(sample_rate * total_window_s))
-    elif method == "concat_warper":
-        all_epochs = epochs_by_label.get("ALL", [])
-        if not all_epochs:
-            raise ValueError("No epochs available to derive concat duration.")
-        epoch0 = all_epochs[0]
-        if hasattr(epoch0, "total_duration_s"):
-            total_window_s = float(getattr(epoch0, "total_duration_s"))
-        elif hasattr(epoch0, "intervals_s"):
-            intervals = getattr(epoch0, "intervals_s")
-            total_window_s = float(
-                sum(
-                    max(0.0, float(end) - float(start))
-                    for start, end in (intervals or [])
-                )
-            )
-        else:
-            raise ValueError("Unable to infer concat total duration.")
         n_samples = int(round(sample_rate * total_window_s))
     else:
         raise ValueError(f"Unknown alignment method: {method}")
@@ -188,4 +169,38 @@ def _resolve_target_n_samples(
     return int(n_samples)
 
 
-__all__ = ["_build_warper", "_resolve_target_n_samples"]
+def _resolve_target_duration_s(
+    *,
+    method: str,
+    method_params: dict[str, Any],
+    epochs_by_label: dict[str, list[Any]],
+) -> float:
+    """Return the physical half-open support duration for Clip or Stitch."""
+    if method == "pad_warper":
+        return float(
+            float(method_params.get("pad_left", 0.5))
+            + float(method_params.get("anno_left", 0.5))
+            + float(method_params.get("anno_right", 0.5))
+            + float(method_params.get("pad_right", 0.5))
+        )
+    if method != "concat_warper":
+        raise ValueError(f"Method has no physical target duration: {method}")
+    all_epochs = epochs_by_label.get("ALL", [])
+    if not all_epochs:
+        raise ValueError("No epochs available to derive concat duration.")
+    epoch0 = all_epochs[0]
+    if hasattr(epoch0, "total_duration_s"):
+        return float(getattr(epoch0, "total_duration_s"))
+    if hasattr(epoch0, "intervals_s"):
+        intervals = getattr(epoch0, "intervals_s")
+        return float(
+            sum(max(0.0, float(end) - float(start)) for start, end in (intervals or []))
+        )
+    raise ValueError("Unable to infer concat total duration.")
+
+
+__all__ = [
+    "_build_warper",
+    "_resolve_target_duration_s",
+    "_resolve_target_n_samples",
+]

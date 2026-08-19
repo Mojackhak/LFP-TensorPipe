@@ -11,7 +11,12 @@ from lfptensorpipe.app.runlog_store import read_run_log
 
 from .generation import metrics_from_alignment_entry
 from .method_params import validate_alignment_method_params
-from .method_specs import LINEAR_WARP_GEOMETRY, LINEAR_WARP_GEOMETRY_KEY
+from .method_specs import (
+    CLIP_STITCH_GEOMETRY,
+    CLIP_STITCH_GEOMETRY_KEY,
+    LINEAR_WARP_GEOMETRY,
+    LINEAR_WARP_GEOMETRY_KEY,
+)
 from .trial_config import _load_trial_config_from_log, _normalize_paradigm
 
 
@@ -151,6 +156,20 @@ def _has_current_linear_warp_geometry(
     )
 
 
+def _has_current_clip_stitch_geometry(
+    entry: dict[str, Any],
+    *,
+    method: str,
+) -> bool:
+    if method not in {"pad_warper", "concat_warper"}:
+        return True
+    params = entry.get("params")
+    return (
+        isinstance(params, dict)
+        and params.get(CLIP_STITCH_GEOMETRY_KEY) == CLIP_STITCH_GEOMETRY
+    )
+
+
 def _run_artifacts_exist(
     resolver: PathResolver,
     slug: str,
@@ -273,6 +292,11 @@ def alignment_method_panel_state(
         latest_successful_run[1],
         method=run_method,
         method_params=run_params,
+    ):
+        return "yellow"
+    if not _has_current_clip_stitch_geometry(
+        latest_successful_run[1],
+        method=run_method,
     ):
         return "yellow"
     if not _run_artifacts_exist(resolver, slug, latest_successful_run[1]):

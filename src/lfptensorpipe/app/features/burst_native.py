@@ -8,16 +8,7 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
-from lfptensorpipe.app.alignment.paths import (
-    alignment_paradigm_log_path,
-    alignment_warp_labels_path,
-)
-from lfptensorpipe.app.alignment.generation import (
-    accepted_alignment_metrics,
-    alignment_generation_rerun_message,
-)
 from lfptensorpipe.app.path_resolver import PathResolver
-from lfptensorpipe.app.runlog_store import read_run_log
 from lfptensorpipe.app.tensor.paths import tensor_metric_tensor_path
 from lfptensorpipe.io.pkl_io import load_pkl
 from lfptensorpipe.lfp.burst.semantics import (
@@ -37,6 +28,8 @@ from lfptensorpipe.utils.transforms import (
     transform_policy_metadata,
     transform_policy_from_metadata,
 )
+
+from .native_mapping import aligned_row_metadata, load_alignment_mapping_state
 
 BURST_REDUCERS = ("mean", "rate", "duration", "occupancy")
 LEGACY_BURST_REDUCER_WARNING = (
@@ -62,96 +55,6 @@ def normalize_burst_reducers(reducers: Iterable[str]) -> list[str]:
         if value not in normalized:
             normalized.append(value)
     return normalized or list(BURST_REDUCERS)
-
-
-def _latest_successful_entry(
-    payload: dict[str, Any],
-    step: str,
-) -> tuple[int, dict[str, Any]] | None:
-    history = payload.get("history")
-    if not isinstance(history, list):
-        return None
-    for index in range(len(history) - 1, -1, -1):
-        entry = history[index]
-        if (
-            isinstance(entry, dict)
-            and str(entry.get("step", "")) == step
-            and entry.get("completed") is True
-        ):
-            return index, entry
-    return None
-
-
-def _load_alignment_mapping_state(
-    resolver: PathResolver,
-    trial_slug: str,
-) -> tuple[str, dict[str, Any], list[Any], list[int]]:
-    run_metrics = accepted_alignment_metrics(
-        resolver,
-        trial_slug=trial_slug,
-        stage="run",
-    )
-    if run_metrics is None:
-        raise ValueError(
-            alignment_generation_rerun_message(
-                resolver,
-                trial_slug=trial_slug,
-                stage="run",
-            )
-            or "Alignment has no accepted Run metric generation."
-        )
-    finish_metrics = accepted_alignment_metrics(
-        resolver,
-        trial_slug=trial_slug,
-        stage="finish",
-    )
-    if finish_metrics is None:
-        raise ValueError(
-            alignment_generation_rerun_message(
-                resolver,
-                trial_slug=trial_slug,
-                stage="finish",
-            )
-            or "Latest Alignment Run has not been finished."
-        )
-    if "burst" not in finish_metrics:
-        raise ValueError("Accepted Alignment Finish does not include Burst.")
-    log_payload = read_run_log(alignment_paradigm_log_path(resolver, trial_slug))
-    if not isinstance(log_payload, dict):
-        raise ValueError("Alignment log payload is invalid.")
-    run_match = _latest_successful_entry(log_payload, "run_align_epochs")
-    finish_match = _latest_successful_entry(log_payload, "build_raw_table")
-    if run_match is None or finish_match is None:
-        raise ValueError(
-            "Burst features require successful Align Run and Finish entries."
-        )
-    run_index, run_entry = run_match
-    finish_index, finish_entry = finish_match
-    if finish_index <= run_index:
-        raise ValueError("Latest successful Alignment Run has not been finished.")
-    run_params = run_entry.get("params")
-    finish_params = finish_entry.get("params")
-    if not isinstance(run_params, dict) or not isinstance(finish_params, dict):
-        raise ValueError("Alignment mapping log parameters are invalid.")
-    method = str(run_params.get("method", "")).strip()
-    method_params = run_params.get("method_params")
-    picks_raw = finish_params.get("picked_epoch_indices")
-    if (
-        not method
-        or not isinstance(method_params, dict)
-        or not isinstance(picks_raw, list)
-    ):
-        raise ValueError("Alignment mapping state is incomplete.")
-    picks = sorted({int(value) for value in picks_raw if int(value) >= 0})
-    labels_payload = load_pkl(alignment_warp_labels_path(resolver, trial_slug))
-    epochs = labels_payload.get("ALL") if isinstance(labels_payload, dict) else None
-    if not isinstance(epochs, list) or not picks:
-        raise ValueError("Persisted Alignment epochs or Finish picks are missing.")
-    if any(index >= len(epochs) for index in picks):
-        raise ValueError(
-            "Finish picked epoch indices exceed persisted Alignment epochs."
-        )
-    return method, method_params, epochs, picks
 
 
 def _load_native_burst_tensor(
@@ -200,35 +103,6 @@ def _load_native_burst_tensor(
     return tensor[0], channels, bands, times
 
 
-def _aligned_row_metadata(
-    aligned_payload: pd.DataFrame,
-    *,
-    selected_count: int,
-    channels: list[str],
-) -> list[dict[str, Any]]:
-    expected_rows = selected_count * len(channels)
-    if len(aligned_payload) != expected_rows:
-        raise ValueError(
-            "Alignment Burst raw-table rows do not match Finish picks and channels."
-        )
-    metadata_rows: list[dict[str, Any]] = []
-    for epoch_position in range(selected_count):
-        for channel_index, channel in enumerate(channels):
-            row = aligned_payload.iloc[epoch_position * len(channels) + channel_index]
-            if str(row.get("Channel", "")) != channel:
-                raise ValueError(
-                    "Alignment Burst raw-table channel order is inconsistent."
-                )
-            metadata_rows.append(
-                {
-                    column: row[column]
-                    for column in aligned_payload.columns
-                    if column != "Value"
-                }
-            )
-    return metadata_rows
-
-
 def build_burst_scalar_tables(
     resolver: PathResolver,
     *,
@@ -241,11 +115,13 @@ def build_burst_scalar_tables(
     reducer_names = list(reducers) or list(BURST_REDUCERS)
     if not phases:
         raise ValueError("Burst scalar extraction requires at least one Feature phase.")
-    method, method_params, all_epochs, picks = _load_alignment_mapping_state(
-        resolver, trial_slug
+    method, method_params, all_epochs, picks = load_alignment_mapping_state(
+        resolver,
+        trial_slug,
+        metric_key="burst",
     )
     tensor, channels, bands, source_times = _load_native_burst_tensor(resolver)
-    metadata_rows = _aligned_row_metadata(
+    metadata_rows = aligned_row_metadata(
         aligned_payload,
         selected_count=len(picks),
         channels=channels,

@@ -95,6 +95,7 @@ from .warping import (
     _merge_channel_representative_coords,
     _merge_representative_coords_for_metric,
     _repcoord_conflict_column_name,
+    _resolve_target_duration_s,
     _resolve_target_n_samples,
     load_alignment_annotation_labels,
 )
@@ -146,6 +147,7 @@ __all__ = [
     "_float_pair_list",
     "_filter_raw_annotations_by_duration",
     "_build_warper",
+    "_resolve_target_duration_s",
     "_resolve_target_n_samples",
     "_coerce_alignment_tensor",
     "run_align_epochs",

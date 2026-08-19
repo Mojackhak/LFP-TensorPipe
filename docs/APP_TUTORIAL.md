@@ -794,6 +794,14 @@ coordinate width, the mean is `NaN`. An explicitly configured zero-width
 interval remains a point query. Other reducers retain their discrete sample or
 event-selection semantics.
 
+For `Clip Around Event` and `Stitch Trials`, every retained source fragment is
+a discontinuous piece even though the display places the pieces next to each
+other. Alignment interpolates only within a piece. Non-Burst spectral and
+scalar `mean` Features map each phase back to the original Tensor timeline,
+integrate each mapped fragment separately, and combine the fragment numerators
+and valid physical durations. The first and last sample of every fragment both
+participate, but no trapezoid is drawn across a stitched boundary.
+
 ### Feature value transformations
 
 Feature processing distinguishes between two numerical domains:

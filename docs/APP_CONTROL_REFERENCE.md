@@ -1067,6 +1067,13 @@ dialog draft and does not modify the saved app default.
 
 - `sample rate (Hz)` is a real-time resampling density because this method keeps a real-time window around the event.
 - `pad left`, `anno left`, `anno right`, and `pad right` jointly define the total window. They are four pieces of one clip geometry, not four unrelated paddings.
+- The two retained source pieces are hard boundaries. Each output sample is
+  interpolated within its own piece; the software never interpolates from the
+  end of one piece to the beginning of the other.
+- If the configured window duration is `D` and rounding produces `N` samples,
+  their physical coordinates are `0, D/N, ..., (N-1)D/N` and represent
+  half-open support `[0,D)`. The saved metadata records both the requested rate
+  and the effective rate `N/D`.
 
 ### 8.5 Stack Trials Params
 
@@ -1109,6 +1116,12 @@ dialog draft and does not modify the saved app default.
 
 - This method keeps real-time spacing, so `sample rate (Hz)` is a physical resampling density rather than a normalized per-percent density.
 - Stitching is useful when you want one continuous output built from repeated event windows rather than one normalized epoch per event.
+- Every stitched interval remains a hard boundary for interpolation and Feature
+  integration. No transition is synthesized between the final sample of one
+  interval and the first sample of the next.
+- For total retained duration `D` and `N` output samples, physical coordinates
+  are `0, D/N, ..., (N-1)D/N`, representing `[0,D)`. Saved metadata distinguishes
+  the requested rate from the effective rate `N/D` after sample-count rounding.
 
 ## 9. Extract Features and Available Features
 
