@@ -476,6 +476,10 @@ def _metric_log_signature(
         threshold_mode = params.get("threshold_mode")
         if threshold_mode not in {"computed", "provided"}:
             return None
+        mask_edge_effects = bool(params.get("mask_edge_effects", True))
+        boundary_isolated_filter_effective = bool(
+            mask_edge_effects and bool(params.get("boundary_isolated_filter", False))
+        )
         signature = {
             "low_freq": float(params.get("low_freq")),
             "high_freq": float(params.get("high_freq")),
@@ -483,7 +487,8 @@ def _metric_log_signature(
             "max_cycles": _as_optional_float(params.get("max_cycles")),
             "hop_s": BURST_NATIVE_HOP_S,
             "decim": BURST_NATIVE_DECIM,
-            "mask_edge_effects": bool(params.get("mask_edge_effects", True)),
+            "mask_edge_effects": mask_edge_effects,
+            "boundary_isolated_filter_effective": (boundary_isolated_filter_effective),
             "threshold_mode": threshold_mode,
             "notch_intervals_hz": notch_intervals,
             "bands_used": bands_used,
@@ -739,6 +744,9 @@ def _current_metric_signature(
             return None
         thresholds_payload = params.get("thresholds")
         threshold_mode = "provided" if thresholds_payload is not None else "computed"
+        boundary_isolated_filter_effective = bool(
+            mask_edge_effects and bool(params.get("boundary_isolated_filter", True))
+        )
         signature = {
             "low_freq": prepared.metric_low,
             "high_freq": prepared.metric_high,
@@ -747,6 +755,7 @@ def _current_metric_signature(
             "hop_s": BURST_NATIVE_HOP_S,
             "decim": BURST_NATIVE_DECIM,
             "mask_edge_effects": bool(mask_edge_effects),
+            "boundary_isolated_filter_effective": (boundary_isolated_filter_effective),
             "threshold_mode": threshold_mode,
             "notch_intervals_hz": notch_intervals,
             "bands_used": bands_used,

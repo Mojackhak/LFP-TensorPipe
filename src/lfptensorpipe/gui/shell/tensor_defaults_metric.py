@@ -135,6 +135,7 @@ def _default_tensor_metric_params(
             ],
             "percentile": 75.0,
             "baseline_keep": None,
+            "boundary_isolated_filter": True,
             "min_cycles": 2.0,
             "max_cycles": None,
             "hop_s": None,

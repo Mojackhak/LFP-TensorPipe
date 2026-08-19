@@ -31,7 +31,11 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import mne
-from ..lfp.mask.annotations import MatchMode
+from ..lfp.mask.annotations import (
+    MatchMode,
+    annotation_sample_support_by_channel,
+    valid_segments_from_annotation_support,
+)
 
 FILTER_EDGE_DESCRIPTION = "EDGE_filter"
 
@@ -271,35 +275,13 @@ def _filter_boundary_support(
     channel: str,
 ) -> tuple[np.ndarray, tuple[int, ...]]:
     """Return invalid samples and point boundaries for one channel."""
-    sfreq = float(raw.info["sfreq"])
-    n_times = int(raw.n_times)
-    sample_shift = int(raw.first_samp)
-    invalid = np.zeros(n_times, dtype=bool)
-    point_boundaries: set[int] = set()
-
-    for onset, duration, description, ch_names in zip(
-        raw.annotations.onset,
-        raw.annotations.duration,
-        raw.annotations.description,
-        raw.annotations.ch_names,
-    ):
-        desc_upper = str(description).upper()
-        if not desc_upper.startswith(("BAD", "EDGE")):
-            continue
-        scope = tuple(str(name) for name in ch_names)
-        if scope and channel not in scope:
-            continue
-
-        start = int(round(float(onset) * sfreq)) - sample_shift
-        stop = int(round((float(onset) + float(duration)) * sfreq)) - sample_shift
-        start = int(np.clip(start, 0, n_times))
-        stop = int(np.clip(stop, 0, n_times))
-        if stop > start:
-            invalid[start:stop] = True
-        elif 0 < start < n_times:
-            point_boundaries.add(start)
-
-    return invalid, tuple(sorted(point_boundaries))
+    invalid, point_boundaries, _ = annotation_sample_support_by_channel(
+        raw,
+        channels=(channel,),
+        keep=("bad", "edge"),
+        mode="prefix",
+    )
+    return invalid[0], point_boundaries[0]
 
 
 def _valid_filter_segments(
@@ -307,27 +289,7 @@ def _valid_filter_segments(
     point_boundaries: Sequence[int],
 ) -> list[tuple[int, int]]:
     """Return half-open valid runs split at zero-duration EDGE/BAD points."""
-    valid = ~np.asarray(invalid, dtype=bool)
-    if not np.any(valid):
-        return []
-    changes = np.diff(valid.astype(np.int8))
-    starts = list(np.where(changes == 1)[0] + 1)
-    stops = list(np.where(changes == -1)[0] + 1)
-    if valid[0]:
-        starts.insert(0, 0)
-    if valid[-1]:
-        stops.append(int(valid.size))
-
-    split_points = tuple(int(value) for value in point_boundaries)
-    segments: list[tuple[int, int]] = []
-    for start, stop in zip(starts, stops):
-        cuts = [start]
-        cuts.extend(point for point in split_points if start < point < stop)
-        cuts.append(stop)
-        segments.extend(
-            (left, right) for left, right in zip(cuts[:-1], cuts[1:]) if right > left
-        )
-    return segments
+    return valid_segments_from_annotation_support(invalid, point_boundaries)
 
 
 def _resolved_notch_widths(

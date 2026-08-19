@@ -640,6 +640,21 @@ For this walkthrough:
    boundaries stay masked during downstream analysis
 4. click `Build Tensor`
 
+For Burst, keep `Isolate BAD/EDGE boundaries` enabled in Burst Advance for the
+recommended scientific path. The option prevents annotated signal from entering
+the neighboring valid segment's zero-phase band-pass and Hilbert-envelope
+calculation. Burst then masks the automatic transform guard at both ends of each
+valid segment. Disabling the option retains the historical whole-record
+transform followed by BAD/EDGE masking, which is useful only for controlled
+comparison. Global `Mask Edge Effects` off is a diagnostic mode and makes Burst
+boundary isolation dormant.
+
+Isolation can reduce usable duration when BAD/EDGE annotations are dense. A
+segment that is too short to support filtering plus both guards is represented
+as invalid `NaN`, not as an unfiltered or non-Burst zero. Review the completed
+Burst tensor metadata's retained-support fractions before interpreting rate or
+occupancy.
+
 ### 6.1 Reconstructing Periodic/Aperiodic Notch Intervals
 
 Periodic/Aperiodic notch intervals are reconstructed in

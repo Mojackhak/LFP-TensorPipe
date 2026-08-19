@@ -29,6 +29,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 MatchMode = Literal["substring", "exact"]
+BoundaryMatchMode = Literal["substring", "exact", "prefix"]
 OverlapPolicy = Literal["split", "drop"]
 ANNOTATION_SCOPE_SEMANTICS = "channel_aware"
 
@@ -50,6 +51,114 @@ def annotation_scope_affects_output(
     if not annotation_scope:
         return True
     return not set(annotation_scope).isdisjoint(str(name) for name in output_channels)
+
+
+def annotation_sample_support_by_channel(
+    raw: "mne.io.BaseRaw",
+    *,
+    channels: Sequence[str],
+    keep: Sequence[str],
+    mode: BoundaryMatchMode = "substring",
+) -> tuple[np.ndarray, tuple[tuple[int, ...], ...], dict[str, Any]]:
+    """Return half-open annotation support and point boundaries by channel.
+
+    Positive-duration annotations mark sample support. Zero-duration annotations
+    split continuous processing support without inventing an invalid sample.
+    Global annotations affect every requested channel; channel-specific
+    annotations affect only their assigned channels.
+    """
+    if mode not in {"substring", "exact", "prefix"}:
+        raise ValueError("mode must be 'substring', 'exact', or 'prefix'.")
+    channel_names = tuple(str(name) for name in channels)
+    keep_lower = tuple(
+        str(label).strip().lower() for label in keep if str(label).strip()
+    )
+    if not keep_lower:
+        raise ValueError("keep must contain at least one non-empty label.")
+
+    sfreq = float(raw.info["sfreq"])
+    n_times = int(raw.n_times)
+    first_samp = int(raw.first_samp)
+    support = np.zeros((len(channel_names), n_times), dtype=bool)
+    point_boundaries: list[set[int]] = [set() for _ in channel_names]
+    matched_by_channel = [0 for _ in channel_names]
+
+    def _matches(description: str) -> bool:
+        normalized = str(description).strip().lower()
+        if mode == "exact":
+            return any(normalized == label for label in keep_lower)
+        if mode == "prefix":
+            return any(normalized.startswith(label) for label in keep_lower)
+        return any(label in normalized for label in keep_lower)
+
+    matched_annotations = 0
+    for onset, duration, description, annotation_channels in zip(
+        raw.annotations.onset,
+        raw.annotations.duration,
+        raw.annotations.description,
+        raw.annotations.ch_names,
+    ):
+        if not _matches(str(description)):
+            continue
+        matched_annotations += 1
+        start = int(round(float(onset) * sfreq)) - first_samp
+        stop = int(round((float(onset) + float(duration)) * sfreq)) - first_samp
+        start = int(np.clip(start, 0, n_times))
+        stop = int(np.clip(stop, 0, n_times))
+        scope = normalize_annotation_scope(annotation_channels)
+        for channel_index, channel_name in enumerate(channel_names):
+            if not annotation_scope_affects_output(scope, (channel_name,)):
+                continue
+            matched_by_channel[channel_index] += 1
+            if stop > start:
+                support[channel_index, start:stop] = True
+            elif 0 < start < n_times:
+                point_boundaries[channel_index].add(start)
+
+    normalized_points = tuple(tuple(sorted(points)) for points in point_boundaries)
+    info = {
+        "keep": list(keep_lower),
+        "mode": str(mode),
+        "annotation_scope_semantics": ANNOTATION_SCOPE_SEMANTICS,
+        "n_matched_annotations": int(matched_annotations),
+        "n_matched_by_channel": [int(value) for value in matched_by_channel],
+        "n_supported_by_channel": [int(value) for value in support.sum(axis=1)],
+        "point_boundaries_by_channel": [
+            [int(value) for value in points] for points in normalized_points
+        ],
+    }
+    return support, normalized_points, info
+
+
+def valid_segments_from_annotation_support(
+    invalid: np.ndarray,
+    point_boundaries: Sequence[int] = (),
+) -> list[tuple[int, int]]:
+    """Return half-open valid runs split at zero-duration boundaries."""
+    invalid_mask = np.asarray(invalid, dtype=bool)
+    if invalid_mask.ndim != 1:
+        raise ValueError("invalid must be one-dimensional.")
+    valid = ~invalid_mask
+    if not np.any(valid):
+        return []
+    changes = np.diff(valid.astype(np.int8))
+    starts = list(np.flatnonzero(changes == 1) + 1)
+    stops = list(np.flatnonzero(changes == -1) + 1)
+    if valid[0]:
+        starts.insert(0, 0)
+    if valid[-1]:
+        stops.append(int(valid.size))
+
+    split_points = tuple(int(value) for value in point_boundaries)
+    segments: list[tuple[int, int]] = []
+    for start, stop in zip(starts, stops):
+        cuts = [int(start)]
+        cuts.extend(point for point in split_points if start < point < stop)
+        cuts.append(int(stop))
+        segments.extend(
+            (left, right) for left, right in zip(cuts[:-1], cuts[1:]) if right > left
+        )
+    return segments
 
 
 def has_channel_specific_mask_annotations(raw: "mne.io.BaseRaw") -> bool:

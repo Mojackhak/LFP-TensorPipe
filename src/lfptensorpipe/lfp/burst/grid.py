@@ -28,7 +28,9 @@ from scipy.signal import hilbert
 
 from ..mask.annotations import (
     ANNOTATION_SCOPE_SEMANTICS,
+    annotation_sample_support_by_channel,
     output_time_mask_by_annotations,
+    valid_segments_from_annotation_support,
 )
 from .semantics import burst_value_semantics
 
@@ -260,6 +262,7 @@ def _compute_iir_guard_samples(
     filter_order: int,
     ftype: str = "butter",
     phase: str = "zero",
+    strict: bool = False,
 ) -> int:
     """Compute a conservative guard size (in samples) for IIR filtering.
 
@@ -292,8 +295,12 @@ def _compute_iir_guard_samples(
             return_copy=True,
             verbose=False,
         )
-    except Exception:
+    except Exception as exc:
         # If filter construction fails for any reason, fall back to no dilation.
+        if strict:
+            raise RuntimeError(
+                "Could not determine Burst segment transform support."
+            ) from exc
         return 0
 
     padlen = int(iir_params.get("padlen", 0) or 0)
@@ -364,6 +371,7 @@ def grid(
     edge_anno: Sequence[str] | None = ("bad", "edge"),
     mode: MatchMode = "substring",
     edge_guard_s: EdgeGuard = "auto",
+    boundary_isolated_filter: bool = True,
 ) -> Tuple[np.ndarray, Dict[str, Any]]:
     """
     Compute burst envelope tensor aligned to the TFR time grid.
@@ -430,6 +438,10 @@ def grid(
         - "auto" (default): compute a conservative per-band guard using the
           band-pass IIR filter design (max(padlen, estimated ringing)).
         - float: fixed guard (seconds) applied to all bands.
+    boundary_isolated_filter:
+        When True and ``edge_anno`` is active, filter and Hilbert-transform each
+        channel's continuous valid segment independently. When False, preserve
+        the legacy whole-channel transform followed by annotation masking.
 
     Returns
     -------
@@ -462,6 +474,8 @@ def grid(
             raise ValueError("max_cycles must be >= min_cycles when provided.")
     if baseline_fallback not in {"full", "raise"}:
         raise ValueError("baseline_fallback must be 'full' or 'raise'.")
+    if not isinstance(boundary_isolated_filter, (bool, np.bool_)):
+        raise TypeError("boundary_isolated_filter must be true or false.")
 
     sfreq = float(raw.info["sfreq"])
     decim_eff = _compute_decim(sfreq, hop_s, decim)
@@ -486,11 +500,42 @@ def grid(
     edge_anno_eff: Sequence[str] | None = edge_anno
     if edge_anno_eff is not None and len(edge_anno_eff) > 0:
         edge_intervals = _annotation_intervals(raw, edge_anno_eff, match=mode)
+    boundary_isolated_requested = bool(boundary_isolated_filter)
+    boundary_isolated_effective = bool(
+        boundary_isolated_requested
+        and edge_anno_eff is not None
+        and len(edge_anno_eff) > 0
+    )
+    boundary_invalid = np.zeros((n_channels, n_times), dtype=bool)
+    boundary_points: tuple[tuple[int, ...], ...] = tuple(() for _ in ch_names)
+    boundary_support_info: Dict[str, Any] = {}
+    valid_segments_by_channel: list[list[tuple[int, int]]] = [
+        [(0, n_times)] for _ in ch_names
+    ]
+    if edge_anno_eff is not None and len(edge_anno_eff) > 0:
+        boundary_invalid, boundary_points, boundary_support_info = (
+            annotation_sample_support_by_channel(
+                raw,
+                channels=ch_names,
+                keep=edge_anno_eff,
+                mode=mode,
+            )
+        )
+    if boundary_isolated_effective:
+        valid_segments_by_channel = [
+            valid_segments_from_annotation_support(
+                boundary_invalid[channel_index],
+                boundary_points[channel_index],
+            )
+            for channel_index in range(n_channels)
+        ]
 
     # Baseline mask (sample domain)
     # NOTE: When user-provided thresholds are used, baseline_keep/baseline_* are
     # ignored for threshold computation.
     baseline_mask_base = np.ones(n_times, dtype=bool)
+    baseline_mask_by_channel = np.ones((n_channels, n_times), dtype=bool)
+    baseline_support_info: Dict[str, Any] = {}
     baseline_intervals: List[Tuple[float, float]] = []
     baseline_keep_eff = baseline_keep if thresholds is None else None
     if baseline_keep_eff is not None:
@@ -509,6 +554,17 @@ def grid(
                     f"{list(baseline_keep_eff)} with match='{baseline_match}'."
                 )
             baseline_mask_base = np.ones(n_times, dtype=bool)
+        if boundary_isolated_effective:
+            baseline_mask_by_channel, _, baseline_support_info = (
+                annotation_sample_support_by_channel(
+                    raw,
+                    channels=ch_names,
+                    keep=baseline_keep_eff,
+                    mode=baseline_match,
+                )
+            )
+    elif boundary_isolated_effective:
+        baseline_mask_by_channel = np.ones((n_channels, n_times), dtype=bool)
 
     band_names, band_segments, band_union_edges = _normalize_bands(bands)
     band_centers = band_union_edges.mean(axis=1)
@@ -579,6 +635,10 @@ def grid(
     baseline_coverage_by_band: List[float] = []
     edge_intervals_dilated_by_band: List[List[Tuple[float, float]]] = []
     edge_mask_info_by_band: List[Dict[str, Any]] = []
+    segment_count_by_band_channel: List[List[int]] = []
+    short_segment_count_by_band_channel: List[List[int]] = []
+    valid_fraction_by_band_channel: List[List[float]] = []
+    guard_fraction_by_band_channel: List[List[float]] = []
 
     # Band-pass + Hilbert per band. Notch exclusions are denoising only: if a
     # band contains multiple surviving segments, reconstruct that band by
@@ -596,11 +656,12 @@ def grid(
         edge_mask = np.zeros((n_channels, n_times), dtype=bool)
         edge_mask_info: Dict[str, Any] = {}
 
-        if (
+        legacy_annotation_mask_active = bool(
             len(edge_intervals) > 0
             and edge_anno_eff is not None
             and len(edge_anno_eff) > 0
-        ):
+        )
+        if boundary_isolated_effective or legacy_annotation_mask_active:
             if edge_guard_s == "auto":
                 # If a band has multiple segments, take the maximum guard across
                 # segments (conservative).
@@ -615,6 +676,7 @@ def grid(
                             filter_order=int(filter_order),
                             ftype="butter",
                             phase="zero",
+                            strict=boundary_isolated_effective,
                         ),
                     )
                 guard_s = float(edge_guard_samples) / float(sfreq)
@@ -626,47 +688,147 @@ def grid(
                     )
                 edge_guard_samples = int(np.ceil(guard_s * float(sfreq)))
 
-            edge_intervals_dilated = _expand_intervals(
-                edge_intervals,
-                guard_s=guard_s,
-                t_min_s=float(raw_times[0]),
-                t_max_s=float(raw_times[-1]),
-            )
-            edge_mask, edge_mask_info = output_time_mask_by_annotations(
-                raw,
-                times_s=raw_times,
-                output_channels=[(str(channel),) for channel in ch_names],
-                keep=edge_anno_eff,
-                mode=mode,
-                pad_s=guard_s,
-                clip_to_raw=True,
-                require_match=False,
-            )
+            if edge_intervals:
+                edge_intervals_dilated = _expand_intervals(
+                    edge_intervals,
+                    guard_s=guard_s,
+                    t_min_s=float(raw_times[0]),
+                    t_max_s=float(raw_times[-1]),
+                )
 
-        # Baseline samples used for percentile thresholding are restricted to
-        # the baseline_keep intervals (if provided) and always exclude edges.
-        baseline_mask_band = baseline_mask_base[None, :] & ~edge_mask
-        if thresholds_by_band is None:
-            channels_with_baseline = np.any(baseline_mask_band, axis=1)
-            if (
-                not np.any(channels_with_baseline)
-                and baseline_keep_eff is not None
-                and baseline_fallback == "raise"
+        if boundary_isolated_effective:
+            env = np.full((n_channels, n_times), np.nan, dtype=np.float64)
+            edge_mask = boundary_invalid.copy()
+            analysis_interiors_by_channel: list[list[tuple[int, int]]] = [
+                [] for _ in ch_names
+            ]
+            processed_counts = [0 for _ in ch_names]
+            short_counts = [0 for _ in ch_names]
+            for channel_index, segments_for_channel in enumerate(
+                valid_segments_by_channel
             ):
-                raise ValueError(
-                    "No baseline samples remain after excluding edge segments. "
-                    "Try changing baseline_keep/baseline_match, disabling edge masking, "
-                    "or using baseline_fallback='full'."
+                for start, stop in segments_for_channel:
+                    if stop - start <= 2 * edge_guard_samples:
+                        edge_mask[channel_index, start:stop] = True
+                        short_counts[channel_index] += 1
+                        continue
+                    filtered_segment: np.ndarray | None = None
+                    segment_data = data[channel_index, start:stop]
+                    for l_freq, h_freq in segs:
+                        filt = mne.filter.filter_data(
+                            segment_data,
+                            sfreq=sfreq,
+                            l_freq=float(l_freq),
+                            h_freq=float(h_freq),
+                            method="iir",
+                            iir_params=iir_params,
+                            verbose=False,
+                        )
+                        if filtered_segment is None:
+                            filtered_segment = filt.astype(np.float64, copy=True)
+                        else:
+                            filtered_segment += filt.astype(np.float64, copy=False)
+                    if filtered_segment is None:  # pragma: no cover
+                        raise RuntimeError(f"No valid segments for band '{band_name}'.")
+                    env[channel_index, start:stop] = np.abs(
+                        hilbert(filtered_segment)
+                    ).astype(np.float64, copy=False)
+                    interior_start = start + edge_guard_samples
+                    interior_stop = stop - edge_guard_samples
+                    if edge_guard_samples > 0:
+                        edge_mask[channel_index, start:interior_start] = True
+                        edge_mask[channel_index, interior_stop:stop] = True
+                    analysis_interiors_by_channel[channel_index].append(
+                        (interior_start, interior_stop)
+                    )
+                    processed_counts[channel_index] += 1
+            edge_mask_info = {
+                **boundary_support_info,
+                "boundary_processing": "per_valid_segment_iir_hilbert",
+                "segment_count_by_channel": [int(value) for value in processed_counts],
+                "short_segment_count_by_channel": [
+                    int(value) for value in short_counts
+                ],
+            }
+            baseline_mask_band = (
+                baseline_mask_by_channel & ~edge_mask & np.isfinite(env)
+            )
+            if thresholds_by_band is None:
+                channels_with_baseline = np.any(baseline_mask_band, axis=1)
+                if baseline_fallback == "full":
+                    baseline_mask_band[~channels_with_baseline] = ~edge_mask[
+                        ~channels_with_baseline
+                    ] & np.isfinite(env[~channels_with_baseline])
+                    channels_with_baseline = np.any(baseline_mask_band, axis=1)
+                if not np.all(channels_with_baseline):
+                    missing_channels = [
+                        ch_names[index]
+                        for index, has_baseline in enumerate(channels_with_baseline)
+                        if not has_baseline
+                    ]
+                    raise ValueError(
+                        "No baseline samples remain for Burst channel(s): "
+                        + ", ".join(missing_channels)
+                        + "."
+                    )
+        else:
+            if legacy_annotation_mask_active:
+                edge_mask, edge_mask_info = output_time_mask_by_annotations(
+                    raw,
+                    times_s=raw_times,
+                    output_channels=[(str(channel),) for channel in ch_names],
+                    keep=edge_anno_eff,
+                    mode=mode,
+                    pad_s=guard_s,
+                    clip_to_raw=True,
+                    require_match=False,
                 )
-            if baseline_fallback == "full":
-                baseline_mask_band[~channels_with_baseline] = ~edge_mask[
-                    ~channels_with_baseline
-                ]
-            if not np.any(baseline_mask_band):
-                raise ValueError(
-                    "All samples are marked as edge after dilation. "
-                    "Disable edge masking (edge_anno=None) or reduce edge_guard_s."
+            baseline_mask_band = baseline_mask_base[None, :] & ~edge_mask
+            if thresholds_by_band is None:
+                channels_with_baseline = np.any(baseline_mask_band, axis=1)
+                if (
+                    not np.any(channels_with_baseline)
+                    and baseline_keep_eff is not None
+                    and baseline_fallback == "raise"
+                ):
+                    raise ValueError(
+                        "No baseline samples remain after excluding edge segments. "
+                        "Try changing baseline_keep/baseline_match, disabling edge "
+                        "masking, or using baseline_fallback='full'."
+                    )
+                if baseline_fallback == "full":
+                    baseline_mask_band[~channels_with_baseline] = ~edge_mask[
+                        ~channels_with_baseline
+                    ]
+                if not np.any(baseline_mask_band):
+                    raise ValueError(
+                        "All samples are marked as edge after dilation. "
+                        "Disable edge masking (edge_anno=None) or reduce edge_guard_s."
+                    )
+
+            filtered_band: np.ndarray | None = None
+            for l_freq, h_freq in segs:
+                filt = mne.filter.filter_data(
+                    data,
+                    sfreq=sfreq,
+                    l_freq=float(l_freq),
+                    h_freq=float(h_freq),
+                    method="iir",
+                    iir_params=iir_params,
+                    verbose=False,
                 )
+                if filtered_band is None:
+                    filtered_band = filt.astype(np.float64, copy=True)
+                else:
+                    filtered_band += filt.astype(np.float64, copy=False)
+
+            if filtered_band is None:  # pragma: no cover
+                raise RuntimeError(f"No valid segments for band '{band_name}'.")
+
+            env = np.abs(hilbert(filtered_band, axis=-1)).astype(np.float64, copy=False)
+            analysis_interiors_by_channel = [[(0, n_times)] for _ in ch_names]
+            processed_counts = [1 for _ in ch_names]
+            short_counts = [0 for _ in ch_names]
 
         edge_guard_samples_by_band.append(int(edge_guard_samples))
         edge_guard_seconds_by_band.append(float(guard_s))
@@ -674,27 +836,20 @@ def grid(
         baseline_coverage_by_band.append(float(np.mean(baseline_mask_band)))
         edge_intervals_dilated_by_band.append(list(edge_intervals_dilated))
         edge_mask_info_by_band.append(edge_mask_info)
-
-        filtered_band: np.ndarray | None = None
-        for l_freq, h_freq in segs:
-            filt = mne.filter.filter_data(
-                data,
-                sfreq=sfreq,
-                l_freq=float(l_freq),
-                h_freq=float(h_freq),
-                method="iir",
-                iir_params=iir_params,
-                verbose=False,
-            )
-            if filtered_band is None:
-                filtered_band = filt.astype(np.float64, copy=True)
-            else:
-                filtered_band += filt.astype(np.float64, copy=False)
-
-        if filtered_band is None:  # pragma: no cover
-            raise RuntimeError(f"No valid segments for band '{band_name}'.")
-
-        env = np.abs(hilbert(filtered_band, axis=-1)).astype(np.float64, copy=False)
+        segment_count_by_band_channel.append([int(value) for value in processed_counts])
+        short_segment_count_by_band_channel.append(
+            [int(value) for value in short_counts]
+        )
+        valid_fraction_by_band_channel.append(
+            [
+                float(np.mean(np.isfinite(env[index]) & ~edge_mask[index]))
+                for index in range(n_channels)
+            ]
+        )
+        guard_only_mask = edge_mask & ~boundary_invalid
+        guard_fraction_by_band_channel.append(
+            [float(np.mean(guard_only_mask[index])) for index in range(n_channels)]
+        )
 
         # Threshold is either user-provided, or computed on baseline samples only
         # (if provided), per channel.
@@ -725,11 +880,19 @@ def grid(
 
         burst_mask = np.zeros_like(above, dtype=bool)
         for ci in range(n_channels):
-            burst_mask[ci] = _filter_runs_by_length(
-                above[ci],
-                min_len=min_len,
-                max_len=max_len,
-            )
+            if boundary_isolated_effective:
+                for start, stop in analysis_interiors_by_channel[ci]:
+                    burst_mask[ci, start:stop] = _filter_runs_by_length(
+                        above[ci, start:stop],
+                        min_len=min_len,
+                        max_len=max_len,
+                    )
+            else:
+                burst_mask[ci] = _filter_runs_by_length(
+                    above[ci],
+                    min_len=min_len,
+                    max_len=max_len,
+                )
 
         invalid_mask = ~np.isfinite(env)
         if np.any(edge_mask):
@@ -817,6 +980,13 @@ def grid(
             edge_anno=(list(edge_anno_eff) if edge_anno_eff is not None else None),
             edge_match=str(mode),
             edge_guard_s=("auto" if edge_guard_s == "auto" else float(edge_guard_s)),
+            boundary_isolated_filter_requested=boundary_isolated_requested,
+            boundary_isolated_filter_effective=boundary_isolated_effective,
+            boundary_processing=(
+                "per_valid_segment_iir_hilbert"
+                if boundary_isolated_effective
+                else "continuous_iir_hilbert_postmask"
+            ),
             edge_intervals=[[float(a0), float(a1)] for (a0, a1) in edge_intervals],
             edge_intervals_dilated_by_band=[
                 [[float(a0), float(a1)] for (a0, a1) in ints]
@@ -825,17 +995,32 @@ def grid(
             edge_guard_samples_by_band=[int(x) for x in edge_guard_samples_by_band],
             edge_guard_seconds_by_band=[float(x) for x in edge_guard_seconds_by_band],
             annotation_scope_semantics=ANNOTATION_SCOPE_SEMANTICS,
+            boundary_support_info=boundary_support_info,
+            baseline_support_info=baseline_support_info,
             edge_mask_info_by_band=edge_mask_info_by_band,
         ),
         qc=dict(
             thresholds=thresholds_arr.astype(np.float64),
             baseline_coverage=(
-                float(np.mean(baseline_mask_base))
+                float(
+                    np.mean(
+                        baseline_mask_by_channel
+                        if boundary_isolated_effective
+                        else baseline_mask_base
+                    )
+                )
                 if baseline_keep_eff is not None
                 else None
             ),
             baseline_coverage_by_band=[float(x) for x in baseline_coverage_by_band],
             edge_coverage_by_band=[float(x) for x in edge_coverage_by_band],
+            bad_fraction_by_channel=[
+                float(np.mean(boundary_invalid[index])) for index in range(n_channels)
+            ],
+            guard_fraction_by_band_channel=guard_fraction_by_band_channel,
+            valid_fraction_by_band_channel=valid_fraction_by_band_channel,
+            segment_count_by_band_channel=segment_count_by_band_channel,
+            short_segment_count_by_band_channel=(short_segment_count_by_band_channel),
         ),
     )
 

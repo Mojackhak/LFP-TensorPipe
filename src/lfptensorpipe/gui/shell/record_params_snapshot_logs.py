@@ -242,6 +242,7 @@ class MainWindowRecordParamsSnapshotLogsMixin:
                     "thresholds_artifact_path",
                     "thresholds_used",
                     "thresholds_written",
+                    "boundary_isolated_filter_effective",
                 }:
                     continue
                 if (

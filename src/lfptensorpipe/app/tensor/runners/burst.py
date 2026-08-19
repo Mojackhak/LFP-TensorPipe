@@ -91,6 +91,7 @@ def run_burst_metric(
     mask_edge_effects: bool,
     bands: list[dict[str, Any]],
     selected_channels: list[str] | None,
+    boundary_isolated_filter: bool = True,
     percentile: float = 75.0,
     baseline_keep: list[str] | None = None,
     min_cycles: float = 2.0,
@@ -160,6 +161,10 @@ def run_burst_metric(
     effective_baseline_match = None if threshold_mode == "provided" else "exact"
     effective_baseline_fallback = (
         None if threshold_mode == "provided" else BURST_BASELINE_FALLBACK
+    )
+    boundary_isolated_filter_requested = bool(boundary_isolated_filter)
+    boundary_isolated_filter_effective = bool(
+        mask_edge_effects and boundary_isolated_filter_requested
     )
     inheritance = load_tensor_filter_inheritance(context)
     runtime_notch_payload = svc.build_tensor_metric_notch_payload(notches, notch_radii)
@@ -260,6 +265,7 @@ def run_burst_metric(
             decim=decim_use,
             picks=picks,
             edge_anno=("bad", "edge") if mask_edge_effects else None,
+            boundary_isolated_filter=boundary_isolated_filter,
         )
         tensor4d = np.asarray(tensor, dtype=float)
         if tensor4d.ndim == 3:
@@ -284,6 +290,12 @@ def run_burst_metric(
                 "inherited_filter_notch_widths": [
                     float(item) for item in inheritance.notch_widths
                 ],
+                "boundary_isolated_filter_requested": (
+                    boundary_isolated_filter_requested
+                ),
+                "boundary_isolated_filter_effective": (
+                    boundary_isolated_filter_effective
+                ),
             }
         )
 
@@ -322,6 +334,8 @@ def run_burst_metric(
             "hop_s": hop_s_use,
             "decim": decim_use,
             "mask_edge_effects": bool(mask_edge_effects),
+            "boundary_isolated_filter": boundary_isolated_filter_requested,
+            "boundary_isolated_filter_effective": (boundary_isolated_filter_effective),
             "bands": bands,
             "bands_used": _serialize_runtime_bands(burst_bands),
             "channels": picks,
@@ -361,6 +375,8 @@ def run_burst_metric(
             "hop_s": hop_s_use,
             "decim": decim_use,
             "mask_edge_effects": bool(mask_edge_effects),
+            "boundary_isolated_filter": boundary_isolated_filter_requested,
+            "boundary_isolated_filter_effective": (boundary_isolated_filter_effective),
             "threshold_mode": threshold_mode,
             "thresholds_source_path": normalized_source_path,
             "thresholds_artifact_path": str(thresholds_artifact_path),
@@ -430,6 +446,10 @@ def run_burst_metric(
                 "hop_s": hop_s_use,
                 "decim": decim_use,
                 "mask_edge_effects": bool(mask_edge_effects),
+                "boundary_isolated_filter": boundary_isolated_filter_requested,
+                "boundary_isolated_filter_effective": (
+                    boundary_isolated_filter_effective
+                ),
                 "thresholds_source_path": normalized_source_path,
                 "thresholds_artifact_path": str(thresholds_artifact_path),
                 "notches": [float(item) for item in runtime_notches],

@@ -887,6 +887,7 @@ not make an otherwise current Burst result stale.
 | `Baseline annotations` | Chooses which finished annotation label should define the baseline segments used for burst thresholding. Pick a label that represents the reference state you want burst thresholds to reflect. | Burst threshold derivation. | Burst dialog only. Disabled while a structured threshold snapshot is loaded. When deriving thresholds from data, the run fails if the exact selected label is absent or has no samples remaining after BAD/EDGE exclusion. |
 | `Min cycles` | Sets the minimum cycles used for burst detection. Lower values allow shorter events to qualify; higher values demand more sustained oscillatory content. | Burst duration sensitivity. | Burst dialog only. |
 | `Max cycles` | Sets an optional ceiling on burst cycle count. Use it when you want to stop very long cycle assumptions from oversmoothing burst detection. | Burst duration sensitivity. | Burst dialog only. |
+| `Isolate BAD/EDGE boundaries` | Prevents samples inside global or channel-specific BAD/EDGE annotations from entering the band-pass or Hilbert transform of adjacent valid support. Each valid continuous segment is processed independently and loses only its own automatic transform guard. | Burst envelope, data-derived thresholds, event topology, and retained valid duration. | Burst dialog only; checked by default and disabled while global `Mask Edge Effects` is unchecked. Unchecking selects the legacy whole-record transform followed by post-computation masking. |
 | `Notches` | Adds metric-local notch exclusions before burst detection is computed. | Metric-local runtime filtering. | Supported tensor metrics only. |
 | `Notch radius (Hz)` | Sets the half-width on each side of a metric-local notch center. | Metric-local runtime filtering. | Use one positive value for every center or one value per center. |
 | `Save` | Saves the dialog values to the current session. | Current burst advanced settings. | Preserves invalid values as a red draft; computation and valid-only persistence remain blocked. |
@@ -906,6 +907,11 @@ not make an otherwise current Burst result stale.
 - Successful Burst runs write `thresholds.json` for the actual runtime subset.
   The source file path is provenance only and is never reopened for the run.
 - `Baseline annotations` determines which labeled baseline periods define the burst threshold context when thresholds are derived from data rather than loaded from file. Missing or wholly excluded baseline data blocks the run; Burst does not fall back to the full recording.
+- Boundary isolation changes the transform input, not only the display mask.
+  Short valid segments with no interior after both transform guards remain
+  `NaN`; the application never substitutes unfiltered data or valid non-Burst
+  zeros. The disabled legacy mode is retained for explicit comparison and
+  diagnostic workflows.
 
 ### 7.13 Undirected Tensor Pairs
 

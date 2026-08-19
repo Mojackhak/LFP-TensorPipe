@@ -151,6 +151,7 @@ _METRIC_PASSTHROUGH_KEYS: dict[str, frozenset[str]] = {
             "thresholds",
             "thresholds_source_path",
             "baseline_keep",
+            "boundary_isolated_filter",
         }
     ),
 }
@@ -473,6 +474,11 @@ def _normalize_metric_compute_params(
             raise ValueError("max_cycles must be >= min_cycles.")
         normalized["min_cycles"] = min_cycles
         normalized["max_cycles"] = max_cycles
+        normalized["boundary_isolated_filter"] = _strict_bool(
+            metric_params,
+            "boundary_isolated_filter",
+            default=True,
+        )
         normalized["hop_s"] = None
         normalized["decim"] = 1
         if metric_params.get("thresholds") is None:

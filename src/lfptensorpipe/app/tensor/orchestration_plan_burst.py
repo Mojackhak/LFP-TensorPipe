@@ -44,6 +44,9 @@ def plan_burst(
         "mask_edge_effects": mask_edge_effects,
         "bands": metric_bands,
         "selected_channels": metric_channels,
+        "boundary_isolated_filter": bool(
+            metric_params.get("boundary_isolated_filter", True)
+        ),
         "min_cycles": float(metric_params["min_cycles"]),
         "max_cycles": metric_params["max_cycles"],
         "hop_s": BURST_NATIVE_HOP_S,

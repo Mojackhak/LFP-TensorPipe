@@ -31,6 +31,7 @@ class TensorMetricAdvanceDialog(QDialog):
         session_params: dict[str, Any],
         default_params: dict[str, Any],
         burst_baseline_annotations: tuple[str, ...] = (),
+        mask_edge_effects: bool = True,
         set_default_callback: Callable[[dict[str, Any]], None] | None = None,
         validate_callback: Callable[[dict[str, Any]], None] | None = None,
         parent: QWidget | None = None,
@@ -43,11 +44,15 @@ class TensorMetricAdvanceDialog(QDialog):
         self._selected_params: dict[str, Any] | None = None
         self._default_params = dict(default_params)
         self._working_base_params = dict(session_params)
+        if metric_key == "burst":
+            self._default_params.setdefault("boundary_isolated_filter", True)
+            self._working_base_params.setdefault("boundary_isolated_filter", True)
         self._burst_baseline_annotations = tuple(
             str(item).strip()
             for item in burst_baseline_annotations
             if str(item).strip()
         )
+        self._mask_edge_effects = bool(mask_edge_effects)
         self._set_default_callback = set_default_callback
         self._validate_callback = validate_callback
         self._fields: dict[str, Any] = {}
@@ -426,11 +431,24 @@ class TensorMetricAdvanceDialog(QDialog):
                 "Maximum allowed burst duration in cycles. Longer bursts are "
                 "excluded; leave blank for no maximum."
             )
+            boundary_isolated_filter = QCheckBox()
+            boundary_isolated_filter.setToolTip(
+                "Process each channel's continuous valid BAD/EDGE-delimited "
+                "segments independently during Burst band-pass filtering and "
+                "Hilbert-envelope calculation. This control is effective only "
+                "while global Mask Edge Effects is enabled."
+            )
+            boundary_isolated_filter.setEnabled(self._mask_edge_effects)
             form.addRow("Thresholds", thresholds_row)
             form.addRow("Baseline annotations", baseline_combo)
             form.addRow("Min cycles", min_cycles)
             form.addRow("Max cycles", max_cycles)
-            self._fields = {"min_cycles": min_cycles, "max_cycles": max_cycles}
+            form.addRow("Isolate BAD/EDGE boundaries", boundary_isolated_filter)
+            self._fields = {
+                "min_cycles": min_cycles,
+                "max_cycles": max_cycles,
+                "boundary_isolated_filter": boundary_isolated_filter,
+            }
             self._append_shared_notch_fields(form)
             return
 

@@ -313,6 +313,7 @@ class MainWindowTensorDialogsMixin:
             return (
                 "thresholds_source_path",
                 "thresholds",
+                "boundary_isolated_filter",
                 "min_cycles",
                 "max_cycles",
                 "notches",
@@ -370,6 +371,11 @@ class MainWindowTensorDialogsMixin:
             session_params=session_params,
             default_params=default_params,
             burst_baseline_annotations=burst_baseline_annotations,
+            mask_edge_effects=(
+                bool(self._tensor_mask_edge_checkbox.isChecked())
+                if self._tensor_mask_edge_checkbox is not None
+                else True
+            ),
             set_default_callback=_save_metric_defaults,
             validate_callback=_validate_metric_params,
             parent=self,

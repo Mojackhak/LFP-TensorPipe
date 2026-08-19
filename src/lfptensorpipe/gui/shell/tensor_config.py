@@ -223,6 +223,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "bands",
         "percentile",
         "baseline_keep",
+        "boundary_isolated_filter",
         "min_cycles",
         "max_cycles",
         "thresholds",
@@ -645,6 +646,14 @@ class MainWindowTensorConfigMixin:
                     seen.add(label)
                     labels.append(label)
                 out[key] = labels or None
+                continue
+            if key == "boundary_isolated_filter":
+                if not isinstance(value, bool):
+                    raise ValueError(
+                        "tensor.metric_params.burst.boundary_isolated_filter "
+                        "must be true or false."
+                    )
+                out[key] = bool(value)
                 continue
             if key == "mt_time_bandwidth_product":
                 try:
