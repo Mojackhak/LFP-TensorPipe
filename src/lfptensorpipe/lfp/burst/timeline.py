@@ -55,30 +55,32 @@ def _positive_duration(start: float, end: float) -> bool:
 
 
 def sample_cell_edges(times: Sequence[float]) -> np.ndarray:
-    """Build midpoint cell edges for strictly increasing sample centers."""
-    centers = np.asarray(times, dtype=float)
-    if centers.ndim != 1 or centers.size < 2:
+    """Build left-edge half-open support for native Burst state samples."""
+    timestamps = np.asarray(times, dtype=float)
+    if timestamps.ndim != 1 or timestamps.size < 2:
         raise ValueError("Burst source time axis must contain at least two samples.")
-    if not np.all(np.isfinite(centers)) or np.any(np.diff(centers) <= 0.0):
+    if not np.all(np.isfinite(timestamps)) or np.any(np.diff(timestamps) <= 0.0):
         raise ValueError(
             "Burst source time axis must be finite and strictly increasing."
         )
-    edges = np.empty(centers.size + 1, dtype=float)
-    edges[1:-1] = (centers[:-1] + centers[1:]) / 2.0
-    edges[0] = centers[0] - (centers[1] - centers[0]) / 2.0
-    edges[-1] = centers[-1] + (centers[-1] - centers[-2]) / 2.0
+    edges = np.empty(timestamps.size + 1, dtype=float)
+    edges[:-1] = timestamps
+    edges[-1] = timestamps[-1] + (timestamps[-1] - timestamps[-2])
     return edges
 
 
-def _trailing_support_bound(edges: np.ndarray) -> float:
-    """Return the largest fragment end accepted by the sampled cell support.
-
-    Crop warpers own the half-open Raw support `[t_first, t_last + 1 / sfreq)`,
-    whose end reaches half a cell past the final midpoint edge. That overhang
-    holds no sample, so it must not invalidate an otherwise complete display
-    bin. Anything beyond it is a genuinely out-of-range mapping.
-    """
-    return float(edges[-1]) + (float(edges[-1]) - float(edges[-2])) / 2.0
+def _display_bin_edges(points: Sequence[float]) -> np.ndarray:
+    """Build midpoint boundaries for target display points."""
+    axis = np.asarray(points, dtype=float)
+    if axis.ndim != 1 or axis.size < 2:
+        raise ValueError("Burst display axis must contain at least two points.")
+    if not np.all(np.isfinite(axis)) or np.any(np.diff(axis) <= 0.0):
+        raise ValueError("Burst display axis must be finite and strictly increasing.")
+    edges = np.empty(axis.size + 1, dtype=float)
+    edges[1:-1] = (axis[:-1] + axis[1:]) / 2.0
+    edges[0] = axis[0] - (axis[1] - axis[0]) / 2.0
+    edges[-1] = axis[-1] + (axis[-1] - axis[-2]) / 2.0
+    return edges
 
 
 def _validated_segment(
@@ -447,7 +449,7 @@ def display_bin_value(
         raise ValueError("Burst values and source time axis have inconsistent lengths.")
     burst_duration = 0.0
     log_amplitude_integral = 0.0
-    trailing_bound = _trailing_support_bound(edges)
+    trailing_bound = float(edges[-1])
     for fragment in fragments:
         if _positive_duration(fragment.source_start, edges[0]) or _positive_duration(
             trailing_bound, fragment.source_end
@@ -478,7 +480,7 @@ def _display_bin_values(
     output = np.full(values.shape[0], np.nan, dtype=float)
     index_parts: list[np.ndarray] = []
     duration_parts: list[np.ndarray] = []
-    trailing_bound = _trailing_support_bound(source_edges)
+    trailing_bound = float(source_edges[-1])
     for fragment in fragments:
         if _positive_duration(
             fragment.source_start, source_edges[0]
@@ -529,7 +531,7 @@ def warp_burst_for_display(
     if values.ndim != 3:
         raise ValueError("Burst source tensor must have shape (channel, band, time).")
     axis = np.asarray(percent_axis, dtype=float)
-    bin_edges = sample_cell_edges(axis)
+    bin_edges = _display_bin_edges(axis)
     bin_edges[0] = 0.0
     bin_edges[-1] = 100.0
     out = np.full(

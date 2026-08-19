@@ -1167,9 +1167,15 @@ cell duration as the weight, then converted back to volts. Therefore Burst
 valid non-Burst support and never enter the logarithm. The `mean` output keeps
 the `log10` transform policy; `rate`, `duration`, and `occupancy` keep the
 identity policy. Their Unit values are `V`, `bursts/s`, `s`, and `%`.
-Existing Burst tensors or `occupation-*` results are legacy outputs. Rerun
-Burst, Align Run, Finish, and Extract Features to produce the current scalar
-contract; legacy tensor values are never reinterpreted heuristically.
+Each native timestamp begins one half-open Burst state cell ending at the next
+timestamp; the final cell uses the last observed sample interval. This makes
+`N` samples at sampling rate `f_s` contribute exactly `N/f_s` seconds without
+changing the Tensor timestamps or detected values.
+Burst tensors that lack the current value-semantics metadata and existing
+`occupation-*` results require Burst, Align Run, Finish, and Extract Features
+to be rerun. If only the downstream native-sample-support marker is missing,
+the Burst tensor remains current; rerun Align Run, Finish, and Extract Features
+for that trial. Legacy values are never reinterpreted heuristically.
 
 ### 9.2 Available Features, Subset Selection, and Plot Settings
 

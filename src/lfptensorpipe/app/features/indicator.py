@@ -176,6 +176,7 @@ def extract_features_indicator_state(
         return state
     from .generation import (
         accepted_feature_artifact_paths,
+        feature_generation_requires_burst_sample_support_rerun,
         feature_generation_requires_numeric_mean_rerun,
     )
 
@@ -183,7 +184,10 @@ def extract_features_indicator_state(
     if not accepted_feature_artifact_paths(resolver, trial_slug=slug):
         return "yellow"
     payload = _read_payload(log_path)
-    if payload is None or feature_generation_requires_numeric_mean_rerun(payload):
+    if payload is None or (
+        feature_generation_requires_burst_sample_support_rerun(payload)
+        or feature_generation_requires_numeric_mean_rerun(payload)
+    ):
         return "yellow"
     return "green"
 
@@ -211,6 +215,7 @@ def features_panel_state(
         return "gray"
     from .generation import (
         accepted_feature_artifact_paths,
+        feature_generation_requires_burst_sample_support_rerun,
         feature_generation_requires_numeric_mean_rerun,
     )
 
@@ -219,7 +224,9 @@ def features_panel_state(
         trial_slug=str(trial_slug if trial_slug is not None else paradigm_slug),
     ):
         return "yellow"
-    if feature_generation_requires_numeric_mean_rerun(payload):
+    if feature_generation_requires_burst_sample_support_rerun(
+        payload
+    ) or feature_generation_requires_numeric_mean_rerun(payload):
         return "yellow"
     params = payload.get("params")
     logged_axes = None

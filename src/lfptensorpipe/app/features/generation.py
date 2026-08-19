@@ -7,6 +7,10 @@ from typing import Any
 
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import read_run_log
+from lfptensorpipe.lfp.burst.semantics import (
+    BURST_SAMPLE_SUPPORT,
+    BURST_SAMPLE_SUPPORT_KEY,
+)
 
 from .indicator import features_derivatives_log_path, features_derivatives_root
 
@@ -19,6 +23,10 @@ NUMERIC_MEAN_SEMANTICS = "continuous_interval_trapezoid_positive_width_runs"
 NUMERIC_MEAN_RERUN_MESSAGE = (
     "Latest Extract Features result uses legacy numeric mean interval semantics. "
     "Rerun Extract Features."
+)
+BURST_SAMPLE_SUPPORT_RERUN_MESSAGE = (
+    "Latest Extract Features result uses legacy Burst native sample-support "
+    "semantics. Rerun Extract Features."
 )
 
 
@@ -127,6 +135,20 @@ def feature_generation_requires_numeric_mean_rerun(entry: dict[str, Any]) -> boo
     )
 
 
+def feature_generation_requires_burst_sample_support_rerun(
+    entry: dict[str, Any],
+) -> bool:
+    """Return whether one accepted Burst generation predates current support."""
+    outputs = outputs_from_features_entry(entry)
+    if outputs is None or "burst" not in outputs:
+        return False
+    params = entry.get("params")
+    return not (
+        isinstance(params, dict)
+        and params.get(BURST_SAMPLE_SUPPORT_KEY) == BURST_SAMPLE_SUPPORT
+    )
+
+
 def feature_generation_rerun_message(
     resolver: PathResolver,
     *,
@@ -141,6 +163,8 @@ def feature_generation_rerun_message(
     if not isinstance(payload, dict) or payload.get("completed") is not True:
         return None
     if outputs_from_features_entry(payload) is not None:
+        if feature_generation_requires_burst_sample_support_rerun(payload):
+            return BURST_SAMPLE_SUPPORT_RERUN_MESSAGE
         return (
             NUMERIC_MEAN_RERUN_MESSAGE
             if feature_generation_requires_numeric_mean_rerun(payload)
@@ -150,11 +174,13 @@ def feature_generation_rerun_message(
 
 
 __all__ = [
+    "BURST_SAMPLE_SUPPORT_RERUN_MESSAGE",
     "FEATURE_MANIFEST_RERUN_MESSAGE",
     "NUMERIC_MEAN_RERUN_MESSAGE",
     "NUMERIC_MEAN_SEMANTICS",
     "NUMERIC_MEAN_SEMANTICS_KEY",
     "accepted_feature_artifact_paths",
+    "feature_generation_requires_burst_sample_support_rerun",
     "feature_generation_requires_numeric_mean_rerun",
     "feature_generation_rerun_message",
     "outputs_from_features_entry",

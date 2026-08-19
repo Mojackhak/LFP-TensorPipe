@@ -8,6 +8,8 @@ from typing import Any, Mapping
 BURST_NATIVE_DECIM = 1
 BURST_NATIVE_HOP_S = None
 BURST_NOTCH_SPLIT_COMBINATION = "analytic_sum_before_magnitude"
+BURST_SAMPLE_SUPPORT_KEY = "burst_sample_support"
+BURST_SAMPLE_SUPPORT = "left_edge_half_open"
 BURST_VALUE_SEMANTICS: Mapping[str, Any] = {
     "non_burst_value": 0.0,
     "invalid_value": "nan",
@@ -85,6 +87,8 @@ __all__ = [
     "BURST_NATIVE_DECIM",
     "BURST_NATIVE_HOP_S",
     "BURST_NOTCH_SPLIT_COMBINATION",
+    "BURST_SAMPLE_SUPPORT",
+    "BURST_SAMPLE_SUPPORT_KEY",
     "BURST_VALUE_SEMANTICS",
     "burst_bands_use_notch_split",
     "burst_value_semantics",

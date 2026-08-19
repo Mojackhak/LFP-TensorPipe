@@ -7,6 +7,10 @@ from typing import Any, Literal
 
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import read_run_log
+from lfptensorpipe.lfp.burst.semantics import (
+    BURST_SAMPLE_SUPPORT,
+    BURST_SAMPLE_SUPPORT_KEY,
+)
 
 AlignmentGenerationStage = Literal["run", "finish"]
 
@@ -20,6 +24,10 @@ ALIGNMENT_FINISH_MANIFEST_RERUN_MESSAGE = (
 )
 ALIGNMENT_CLIP_STITCH_GEOMETRY_RERUN_MESSAGE = (
     "Latest Clip/Stitch alignment uses legacy seam or physical-time geometry. "
+    "Rerun Align Epochs and Finish before Extract Features."
+)
+ALIGNMENT_BURST_SAMPLE_SUPPORT_RERUN_MESSAGE = (
+    "Latest Burst alignment uses legacy native sample-support semantics. "
     "Rerun Align Epochs and Finish before Extract Features."
 )
 
@@ -70,6 +78,20 @@ def metrics_from_alignment_entry(entry: dict[str, Any]) -> list[str] | None:
         except (TypeError, ValueError):
             return None
     return metrics
+
+
+def alignment_generation_requires_burst_sample_support_rerun(
+    entry: dict[str, Any],
+) -> bool:
+    """Return whether one accepted Burst alignment predates current support."""
+    metrics = metrics_from_alignment_entry(entry)
+    if metrics is None or "burst" not in metrics:
+        return False
+    params = entry.get("params")
+    return not (
+        isinstance(params, dict)
+        and params.get(BURST_SAMPLE_SUPPORT_KEY) == BURST_SAMPLE_SUPPORT
+    )
 
 
 def accepted_alignment_metrics(
@@ -140,6 +162,8 @@ def alignment_generation_rerun_message(
 
             if params.get(CLIP_STITCH_GEOMETRY_KEY) != CLIP_STITCH_GEOMETRY:
                 return ALIGNMENT_CLIP_STITCH_GEOMETRY_RERUN_MESSAGE
+        if alignment_generation_requires_burst_sample_support_rerun(latest_run[1]):
+            return ALIGNMENT_BURST_SAMPLE_SUPPORT_RERUN_MESSAGE
     step = "run_align_epochs" if stage == "run" else "build_raw_table"
     latest = _latest_step(entries, step)
     if (
@@ -175,11 +199,13 @@ def accepted_alignment_artifact_paths(
 
 
 __all__ = [
+    "ALIGNMENT_BURST_SAMPLE_SUPPORT_RERUN_MESSAGE",
     "ALIGNMENT_CLIP_STITCH_GEOMETRY_RERUN_MESSAGE",
     "ALIGNMENT_FINISH_MANIFEST_RERUN_MESSAGE",
     "ALIGNMENT_RUN_MANIFEST_RERUN_MESSAGE",
     "accepted_alignment_artifact_paths",
     "accepted_alignment_metrics",
+    "alignment_generation_requires_burst_sample_support_rerun",
     "alignment_generation_rerun_message",
     "metrics_from_alignment_entry",
 ]

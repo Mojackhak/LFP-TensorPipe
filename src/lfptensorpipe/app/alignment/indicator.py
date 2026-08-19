@@ -9,7 +9,10 @@ from lfptensorpipe.app.localize_service import localize_indicator_state
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import read_run_log
 
-from .generation import metrics_from_alignment_entry
+from .generation import (
+    alignment_generation_requires_burst_sample_support_rerun,
+    metrics_from_alignment_entry,
+)
 from .method_params import validate_alignment_method_params
 from .method_specs import (
     CLIP_STITCH_GEOMETRY,
@@ -297,6 +300,10 @@ def alignment_method_panel_state(
     if not _has_current_clip_stitch_geometry(
         latest_successful_run[1],
         method=run_method,
+    ):
+        return "yellow"
+    if alignment_generation_requires_burst_sample_support_rerun(
+        latest_successful_run[1]
     ):
         return "yellow"
     if not _run_artifacts_exist(resolver, slug, latest_successful_run[1]):

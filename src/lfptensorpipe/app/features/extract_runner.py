@@ -26,6 +26,10 @@ from lfptensorpipe.app.shared.atomic_outputs import (
     write_outputs_atomically,
 )
 from lfptensorpipe.io.pkl_io import load_pkl, save_pkl
+from lfptensorpipe.lfp.burst.semantics import (
+    BURST_SAMPLE_SUPPORT,
+    BURST_SAMPLE_SUPPORT_KEY,
+)
 from lfptensorpipe.stats.preproc.transform import transform_df
 from lfptensorpipe.tabular.grid import (
     GridResultColumns,
@@ -821,6 +825,8 @@ def run_extract_features(
                 "axes_by_metric": axes_signature_by_metric,
                 NUMERIC_MEAN_SEMANTICS_KEY: NUMERIC_MEAN_SEMANTICS,
             }
+            if any(metric == "burst" for metric, _path in raw_tables):
+                params_payload[BURST_SAMPLE_SUPPORT_KEY] = BURST_SAMPLE_SUPPORT
             success_record = RunLogRecord(
                 step="run_extract_features",
                 completed=True,

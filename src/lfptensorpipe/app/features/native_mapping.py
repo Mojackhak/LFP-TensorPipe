@@ -44,6 +44,13 @@ def load_alignment_mapping_state(
     metric_key: str,
 ) -> tuple[str, dict[str, Any], list[Any], list[int]]:
     """Load the accepted method, epoch mappings, and Finish picks for a metric."""
+    rerun_message = alignment_generation_rerun_message(
+        resolver,
+        trial_slug=trial_slug,
+        stage="finish",
+    )
+    if rerun_message is not None:
+        raise ValueError(rerun_message)
     run_metrics = accepted_alignment_metrics(
         resolver,
         trial_slug=trial_slug,

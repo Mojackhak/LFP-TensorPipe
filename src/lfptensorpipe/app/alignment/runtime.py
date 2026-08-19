@@ -13,6 +13,8 @@ from lfptensorpipe.app.shared.downstream_invalidation import (
     invalidate_after_alignment_run,
 )
 from lfptensorpipe.lfp.burst.semantics import (
+    BURST_SAMPLE_SUPPORT,
+    BURST_SAMPLE_SUPPORT_KEY,
     has_compatible_burst_value_semantics,
 )
 from lfptensorpipe.lfp.burst.timeline import warp_burst_for_display
@@ -327,6 +329,7 @@ def run_align_epochs(
                         "non_burst_only": "nan",
                         "positive": "duration_weighted_geometric_envelope",
                     }
+                    meta_warped[BURST_SAMPLE_SUPPORT_KEY] = BURST_SAMPLE_SUPPORT
                 elif uses_current_linear_warp_geometry:
                     meta_warped[LINEAR_WARP_GEOMETRY_KEY] = LINEAR_WARP_GEOMETRY
                 if uses_current_clip_stitch_geometry:
@@ -352,6 +355,8 @@ def run_align_epochs(
                 run_params[LINEAR_WARP_GEOMETRY_KEY] = LINEAR_WARP_GEOMETRY
             if uses_current_clip_stitch_geometry:
                 run_params[CLIP_STITCH_GEOMETRY_KEY] = CLIP_STITCH_GEOMETRY
+            if "burst" in metrics:
+                run_params[BURST_SAMPLE_SUPPORT_KEY] = BURST_SAMPLE_SUPPORT
             _append_alignment_history(
                 output_set.staged_path(log_path),
                 entry=RunLogRecord(
