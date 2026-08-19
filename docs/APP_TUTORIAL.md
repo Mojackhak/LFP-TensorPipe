@@ -720,6 +720,14 @@ source-signal position. A target anchor is a discrete output sample only when
 its percentage is representable on that grid; otherwise it remains the exact
 continuous breakpoint between neighboring output samples.
 
+Starts are evaluated chronologically. Each start uses the earliest
+duration-eligible end not already consumed by an accepted group, and accepted
+groups may overlap in time. Once that end is fixed, exactly one complete
+strictly ordered anchor sequence must satisfy the percentage tolerance.
+Missing or ambiguous anchors, or a BAD/EDGE overlap when dropping is enabled,
+reject the group rather than selecting an arbitrary candidate or rematching the
+same start to a later end.
+
 ### 7.1 Pick, Preview, and Finish
 
 This QC step decides which aligned epochs are trustworthy enough to keep. In

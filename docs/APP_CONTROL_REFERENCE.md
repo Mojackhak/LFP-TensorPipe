@@ -1061,6 +1061,18 @@ dialog draft and does not modify the saved app default.
 - `target percent` describes where an event should end up after warping, while `percent tolerance` describes how strictly that target should be enforced.
 - Blank `percent tolerance` is stored as `None` and applies no target-deviation
   rejection. It does not remove or alter the target anchors.
+- Starts are processed chronologically. Each start is paired with the earliest
+  duration-eligible end that has not already been consumed by an accepted
+  event group. This pairing is not bounded by the next start, so valid aligned
+  epochs may overlap.
+- After the end is fixed, the event group is accepted only when exactly one
+  complete, strictly ordered intermediate-anchor sequence satisfies the
+  configured tolerance. A missing or ambiguous sequence rejects that start;
+  the method does not silently choose one candidate or rematch the start to a
+  later end.
+- With `drop bad/edge` enabled, a BAD/EDGE overlap rejects the fixed event
+  group. Rejected groups do not consume their end, while an end accepted for
+  one group is not reused as another group's end.
 - The output grid is uniform from 0% through 100%. Line Up Key Events evaluates
   each output percent directly against the configured target anchors. An anchor
   is an exact output sample when that percentage is representable on the chosen

@@ -26,6 +26,9 @@ DEFAULT_DROP_MODE = "substring"
 DEFAULT_DROP_FIELDS = ("bad", "edge")
 LINEAR_WARP_GEOMETRY_KEY = "linear_warp_geometry"
 LINEAR_WARP_GEOMETRY = "piecewise_target_percent"
+LINEAR_EVENT_PAIRING_KEY = "linear_event_pairing"
+LINEAR_EVENT_PAIRING = "earliest_unused_end_unique_anchors"
+LINEAR_EVENT_PAIRING_DIAGNOSTICS_KEY = "linear_event_pairing_diagnostics"
 CLIP_STITCH_GEOMETRY_KEY = "clip_stitch_geometry"
 CLIP_STITCH_GEOMETRY = "piecewise_half_open_support"
 ZERO_DURATION_ALIGNMENT_KEY = "zero_duration_alignment"
@@ -45,6 +48,9 @@ __all__ = [
     "CLIP_STITCH_GEOMETRY_KEY",
     "LINEAR_WARP_GEOMETRY",
     "LINEAR_WARP_GEOMETRY_KEY",
+    "LINEAR_EVENT_PAIRING",
+    "LINEAR_EVENT_PAIRING_DIAGNOSTICS_KEY",
+    "LINEAR_EVENT_PAIRING_KEY",
     "ZERO_DURATION_ALIGNMENT",
     "ZERO_DURATION_ALIGNMENT_KEY",
     "ZERO_DURATION_ALIGNMENT_METHODS",

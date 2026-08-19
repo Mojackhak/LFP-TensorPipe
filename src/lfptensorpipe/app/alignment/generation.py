@@ -34,6 +34,10 @@ ALIGNMENT_ZERO_DURATION_RERUN_MESSAGE = (
     "Latest Stack/Clip/Stitch alignment uses legacy point-event signal-support "
     "semantics. Rerun Align Epochs and Finish before Extract Features."
 )
+ALIGNMENT_LINEAR_EVENT_PAIRING_RERUN_MESSAGE = (
+    "Latest Line Up Key Events alignment uses legacy event-pairing semantics. "
+    "Rerun Align Epochs and Finish before Extract Features."
+)
 
 
 def _history_entries(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -155,6 +159,17 @@ def alignment_generation_rerun_message(
     latest_run = _latest_step(entries, "run_align_epochs")
     if latest_run is not None and latest_run[1].get("completed") is True:
         params = latest_run[1].get("params")
+        if (
+            isinstance(params, dict)
+            and str(params.get("method", "")) == "linear_warper"
+        ):
+            from .method_specs import (
+                LINEAR_EVENT_PAIRING,
+                LINEAR_EVENT_PAIRING_KEY,
+            )
+
+            if params.get(LINEAR_EVENT_PAIRING_KEY) != LINEAR_EVENT_PAIRING:
+                return ALIGNMENT_LINEAR_EVENT_PAIRING_RERUN_MESSAGE
         if isinstance(params, dict) and str(params.get("method", "")) in {
             "pad_warper",
             "concat_warper",
@@ -221,6 +236,7 @@ __all__ = [
     "ALIGNMENT_BURST_SAMPLE_SUPPORT_RERUN_MESSAGE",
     "ALIGNMENT_CLIP_STITCH_GEOMETRY_RERUN_MESSAGE",
     "ALIGNMENT_FINISH_MANIFEST_RERUN_MESSAGE",
+    "ALIGNMENT_LINEAR_EVENT_PAIRING_RERUN_MESSAGE",
     "ALIGNMENT_RUN_MANIFEST_RERUN_MESSAGE",
     "ALIGNMENT_ZERO_DURATION_RERUN_MESSAGE",
     "accepted_alignment_artifact_paths",

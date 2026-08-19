@@ -140,6 +140,88 @@ def _extract_named_events_from_annotations(
     return {k: np.asarray(sorted(v), dtype=float) for k, v in out.items()}
 
 
+def _resolve_unique_intermediate_sequence(
+    event_arrays: Sequence[np.ndarray],
+    target_perc: np.ndarray,
+    *,
+    start_t: float,
+    end_t: float,
+    percent_tolerance: float | None,
+) -> tuple[int, tuple[float, ...] | None]:
+    """Return the clipped path count and the unique intermediate sequence."""
+    intermediate_arrays = event_arrays[1:-1]
+    if not intermediate_arrays:
+        return 1, ()
+
+    duration = float(end_t) - float(start_t)
+    candidate_arrays: list[np.ndarray] = []
+    for arr, target in zip(intermediate_arrays, target_perc[1:-1]):
+        idx0 = int(np.searchsorted(arr, start_t, side="right"))
+        idx1 = int(np.searchsorted(arr, end_t, side="left"))
+        candidates = np.asarray(arr[idx0:idx1], dtype=float)
+        if percent_tolerance is not None and candidates.size > 0:
+            actual = (candidates - float(start_t)) / duration * 100.0
+            candidates = candidates[
+                np.abs(actual - float(target)) <= float(percent_tolerance)
+            ]
+        if candidates.size == 0:
+            return 0, None
+        candidate_arrays.append(candidates)
+
+    previous_values = candidate_arrays[0]
+    previous_counts = [1] * int(previous_values.size)
+    previous_paths: list[tuple[float, ...] | None] = [
+        (float(value),) for value in previous_values
+    ]
+
+    for current_values in candidate_arrays[1:]:
+        current_counts: list[int] = []
+        current_paths: list[tuple[float, ...] | None] = []
+        previous_index = 0
+        running_count = 0
+        running_path: tuple[float, ...] | None = None
+
+        for current_value_raw in current_values:
+            current_value = float(current_value_raw)
+            while (
+                previous_index < int(previous_values.size)
+                and float(previous_values[previous_index]) < current_value
+            ):
+                candidate_count = int(previous_counts[previous_index])
+                if candidate_count > 0:
+                    if running_count == 0 and candidate_count == 1:
+                        running_count = 1
+                        running_path = previous_paths[previous_index]
+                    else:
+                        running_count = 2
+                        running_path = None
+                previous_index += 1
+
+            current_counts.append(running_count)
+            current_paths.append(
+                None
+                if running_count != 1 or running_path is None
+                else running_path + (current_value,)
+            )
+
+        previous_values = current_values
+        previous_counts = current_counts
+        previous_paths = current_paths
+
+    total_count = 0
+    unique_path: tuple[float, ...] | None = None
+    for candidate_count, candidate_path in zip(previous_counts, previous_paths):
+        if candidate_count == 0:
+            continue
+        if total_count == 0 and candidate_count == 1:
+            total_count = 1
+            unique_path = candidate_path
+        else:
+            return 2, None
+
+    return total_count, unique_path
+
+
 def linear_warper(
     raw: mne.io.BaseRaw,
     *,
@@ -212,86 +294,92 @@ def linear_warper(
         drop_substrings_use = tuple(keep)
 
     selected_epochs: List[LinearEpoch] = []
+    starts = event_arrays[0]
+    ends = event_arrays[-1]
+    used_end_times: set[float] = set()
+    pairing_diagnostics = {
+        "n_starts": int(len(starts)),
+        "n_accepted": 0,
+        "excluded_no_end": 0,
+        "excluded_duration": 0,
+        "excluded_no_anchor_sequence": 0,
+        "excluded_ambiguous_anchor_sequence": 0,
+        "excluded_bad_edge": 0,
+    }
 
-    # Build ordered event sequences: choose one valid candidate per start event.
-    if all(len(arr) > 0 for arr in event_arrays):
-        starts = event_arrays[0]
-        max_candidates = 200000
-        candidate_count = 0
-        seen_bounds: set[tuple[float, float]] = set()
+    for start_raw in starts:
+        start_t = float(start_raw)
+        end_index = int(np.searchsorted(ends, start_t, side="right"))
+        selected_end: float | None = None
+        has_unused_end = False
 
-        def _dfs(level: int, prev_t: float, chosen: List[float], t0: float):
-            nonlocal candidate_count
-            if candidate_count >= max_candidates:
-                return
-            arr = event_arrays[level]
-            idx0 = int(np.searchsorted(arr, prev_t, side="right"))
-            for ii in range(idx0, len(arr)):
-                t_cur = float(arr[ii])
-                if max_dur is not None and (t_cur - t0) > max_dur:
-                    break
-                chosen.append(t_cur)
-                if level == len(event_arrays) - 1:
-                    candidate_count += 1
-                    yield tuple(chosen)
-                else:
-                    yield from _dfs(level + 1, t_cur, chosen, t0)
-                chosen.pop()
-                if candidate_count >= max_candidates:
-                    return
-
-        for t0 in starts:
-            t0_f = float(t0)
-            chosen0 = [t0_f]
-            for seq in _dfs(1, t0_f, chosen0, t0_f):
-                t_start = float(seq[0])
-                t_end = float(seq[-1])
-                dur = t_end - t_start
-                if dur <= 0:
-                    continue
-                if min_dur is not None and dur < min_dur:
-                    continue
-                if max_dur is not None and dur > max_dur:
-                    continue
-
-                if drop_substrings_use is not None and has_drop_annotations_between(
-                    raw,
-                    t_start,
-                    t_end,
-                    drop_substrings=drop_substrings_use,
-                    drop_mode=drop_mode,
-                ):
-                    continue
-
-                perc_vec = (np.asarray(seq, dtype=float) - t_start) / dur * 100.0
-                if percent_tolerance_f is not None and np.any(
-                    np.abs(perc_vec - target_perc) > percent_tolerance_f
-                ):
-                    continue
-
-                bounds_key = (round(t_start, 9), round(t_end, 9))
-                if bounds_key in seen_bounds:
-                    continue
-
-                events_t = {name: float(t) for name, t in zip(anchor_keys, seq)}
-                events_t["start"] = float(t_start)
-                events_t["end"] = float(t_end)
-                perc_actual = {name: float(p) for name, p in zip(anchor_keys, perc_vec)}
-
-                selected_epochs.append(
-                    LinearEpoch(
-                        label="+".join(event_order),
-                        start_t=float(t_start),
-                        end_t=float(t_end),
-                        events_t=events_t,
-                        perc_actual=perc_actual,
-                    )
-                )
-                seen_bounds.add(bounds_key)
+        for end_raw in ends[end_index:]:
+            end_t = float(end_raw)
+            if end_t in used_end_times:
+                continue
+            has_unused_end = True
+            duration = end_t - start_t
+            if min_dur is not None and duration < min_dur:
+                continue
+            if max_dur is not None and duration > max_dur:
                 break
+            selected_end = end_t
+            break
 
-            if candidate_count >= max_candidates:
-                break
+        if selected_end is None:
+            diagnostic_key = (
+                "excluded_duration" if has_unused_end else "excluded_no_end"
+            )
+            pairing_diagnostics[diagnostic_key] += 1
+            continue
+
+        duration = selected_end - start_t
+        path_count, intermediate_sequence = _resolve_unique_intermediate_sequence(
+            event_arrays,
+            target_perc,
+            start_t=start_t,
+            end_t=selected_end,
+            percent_tolerance=percent_tolerance_f,
+        )
+        if path_count > 1:
+            pairing_diagnostics["excluded_ambiguous_anchor_sequence"] += 1
+            continue
+        if path_count == 0 or intermediate_sequence is None:
+            pairing_diagnostics["excluded_no_anchor_sequence"] += 1
+            continue
+
+        if drop_substrings_use is not None and has_drop_annotations_between(
+            raw,
+            start_t,
+            selected_end,
+            drop_substrings=drop_substrings_use,
+            drop_mode=drop_mode,
+        ):
+            pairing_diagnostics["excluded_bad_edge"] += 1
+            continue
+
+        sequence = (start_t, *intermediate_sequence, selected_end)
+        perc_vec = (np.asarray(sequence, dtype=float) - start_t) / duration * 100.0
+        events_t = {
+            name: float(event_t) for name, event_t in zip(anchor_keys, sequence)
+        }
+        events_t["start"] = start_t
+        events_t["end"] = selected_end
+        perc_actual = {
+            name: float(percent) for name, percent in zip(anchor_keys, perc_vec)
+        }
+
+        selected_epochs.append(
+            LinearEpoch(
+                label="+".join(event_order),
+                start_t=start_t,
+                end_t=selected_end,
+                events_t=events_t,
+                perc_actual=perc_actual,
+            )
+        )
+        used_end_times.add(selected_end)
+        pairing_diagnostics["n_accepted"] += 1
 
     epochs_all: List[LinearEpoch] = list(selected_epochs)
     epochs_by_label: Dict[str, List[LinearEpoch]] = {"ALL": epochs_all}
@@ -359,5 +447,9 @@ def linear_warper(
             out[ei, ...] = interp_along_last_axis(x, idx_grid)
 
         return out, percent_axis, list(epochs_all)
+
+    warp_fn.alignment_diagnostics = {  # type: ignore[attr-defined]
+        "linear_event_pairing_diagnostics": dict(pairing_diagnostics)
+    }
 
     return epochs_by_label, warp_fn

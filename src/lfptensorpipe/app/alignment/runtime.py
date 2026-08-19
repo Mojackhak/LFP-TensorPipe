@@ -28,6 +28,9 @@ from . import service as svc
 from .method_specs import (
     CLIP_STITCH_GEOMETRY,
     CLIP_STITCH_GEOMETRY_KEY,
+    LINEAR_EVENT_PAIRING,
+    LINEAR_EVENT_PAIRING_DIAGNOSTICS_KEY,
+    LINEAR_EVENT_PAIRING_KEY,
     LINEAR_WARP_GEOMETRY,
     LINEAR_WARP_GEOMETRY_KEY,
     ZERO_DURATION_ALIGNMENT,
@@ -124,6 +127,8 @@ def run_align_epochs(
     method_params = paradigm.get("method_params", {})
     if not isinstance(method_params, dict):
         method_params = {}
+    warper_diagnostics: dict[str, Any] = {}
+    linear_pairing_diagnostics: dict[str, Any] = {}
 
     try:
         raw = _load_raw_for_warp(finish_raw)
@@ -171,6 +176,12 @@ def run_align_epochs(
         warper_diagnostics = getattr(warp_fn, "alignment_diagnostics", {})
         if not isinstance(warper_diagnostics, dict):
             warper_diagnostics = {}
+        linear_pairing_diagnostics = warper_diagnostics.get(
+            LINEAR_EVENT_PAIRING_DIAGNOSTICS_KEY,
+            {},
+        )
+        if not isinstance(linear_pairing_diagnostics, dict):
+            linear_pairing_diagnostics = {}
         excluded_zero_duration = warper_diagnostics.get(
             "excluded_zero_duration_annotations", {}
         )
@@ -225,6 +236,7 @@ def run_align_epochs(
             and bool(method_params.get("linear_warp", True))
             and any(metric_key != "burst" for metric_key in metrics)
         )
+        uses_current_linear_event_pairing = method == "linear_warper"
         uses_current_clip_stitch_geometry = method in {
             "pad_warper",
             "concat_warper",
@@ -344,6 +356,8 @@ def run_align_epochs(
                     meta_warped[BURST_SAMPLE_SUPPORT_KEY] = BURST_SAMPLE_SUPPORT
                 elif uses_current_linear_warp_geometry:
                     meta_warped[LINEAR_WARP_GEOMETRY_KEY] = LINEAR_WARP_GEOMETRY
+                if uses_current_linear_event_pairing:
+                    meta_warped[LINEAR_EVENT_PAIRING_KEY] = LINEAR_EVENT_PAIRING
                 if uses_current_clip_stitch_geometry:
                     meta_warped[CLIP_STITCH_GEOMETRY_KEY] = CLIP_STITCH_GEOMETRY
                 if uses_current_zero_duration_alignment:
@@ -367,6 +381,11 @@ def run_align_epochs(
             }
             if uses_current_linear_warp_geometry:
                 run_params[LINEAR_WARP_GEOMETRY_KEY] = LINEAR_WARP_GEOMETRY
+            if uses_current_linear_event_pairing:
+                run_params[LINEAR_EVENT_PAIRING_KEY] = LINEAR_EVENT_PAIRING
+                run_params[LINEAR_EVENT_PAIRING_DIAGNOSTICS_KEY] = dict(
+                    linear_pairing_diagnostics
+                )
             if uses_current_clip_stitch_geometry:
                 run_params[CLIP_STITCH_GEOMETRY_KEY] = CLIP_STITCH_GEOMETRY
             if uses_current_zero_duration_alignment:
@@ -420,17 +439,22 @@ def run_align_epochs(
                 ),
             }
         )
+        failure_params = {
+            "trial_slug": slug,
+            "name": trial_config_payload.get("name", slug),
+            "method": method,
+            "method_params": method_params,
+        }
+        if method == "linear_warper" and linear_pairing_diagnostics:
+            failure_params[LINEAR_EVENT_PAIRING_DIAGNOSTICS_KEY] = dict(
+                linear_pairing_diagnostics
+            )
         _append_alignment_history(
             alignment_paradigm_log_path(resolver, slug),
             entry=RunLogRecord(
                 step="run_align_epochs",
                 completed=False,
-                params={
-                    "trial_slug": slug,
-                    "name": trial_config_payload.get("name", slug),
-                    "method": method,
-                    "method_params": method_params,
-                },
+                params=failure_params,
                 input_path=str(resolver.tensor_root),
                 output_path=str(alignment_paradigm_dir(resolver, slug)),
                 message=f"Align Epochs failed: {exc}",

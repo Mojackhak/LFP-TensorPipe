@@ -17,6 +17,8 @@ from .method_params import validate_alignment_method_params
 from .method_specs import (
     CLIP_STITCH_GEOMETRY,
     CLIP_STITCH_GEOMETRY_KEY,
+    LINEAR_EVENT_PAIRING,
+    LINEAR_EVENT_PAIRING_KEY,
     LINEAR_WARP_GEOMETRY,
     LINEAR_WARP_GEOMETRY_KEY,
     ZERO_DURATION_ALIGNMENT,
@@ -159,6 +161,20 @@ def _has_current_linear_warp_geometry(
     return (
         isinstance(params, dict)
         and params.get(LINEAR_WARP_GEOMETRY_KEY) == LINEAR_WARP_GEOMETRY
+    )
+
+
+def _has_current_linear_event_pairing(
+    entry: dict[str, Any],
+    *,
+    method: str,
+) -> bool:
+    if method != "linear_warper":
+        return True
+    params = entry.get("params")
+    return (
+        isinstance(params, dict)
+        and params.get(LINEAR_EVENT_PAIRING_KEY) == LINEAR_EVENT_PAIRING
     )
 
 
@@ -312,6 +328,11 @@ def alignment_method_panel_state(
         latest_successful_run[1],
         method=run_method,
         method_params=run_params,
+    ):
+        return "yellow"
+    if not _has_current_linear_event_pairing(
+        latest_successful_run[1],
+        method=run_method,
     ):
         return "yellow"
     if not _has_current_clip_stitch_geometry(
