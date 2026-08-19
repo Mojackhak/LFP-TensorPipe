@@ -53,6 +53,8 @@ def _union_intervals(
             continue
         if b_f < a_f:
             a_f, b_f = b_f, a_f
+        if b_f <= a_f:
+            continue
         cleaned.append((a_f, b_f))
     if not cleaned:
         return []
@@ -134,6 +136,7 @@ def concat_warper(
     t_min, t_stop = raw_sample_time_bounds(raw)
 
     intervals: List[Tuple[float, float]] = []
+    excluded_zero_duration: dict[str, int] = {}
     for onset, dur, desc in zip(
         raw.annotations.onset, raw.annotations.duration, raw.annotations.description
     ):
@@ -156,10 +159,24 @@ def concat_warper(
             if has_drop:
                 continue
 
+        if end <= start:
+            label = str(desc)
+            excluded_zero_duration[label] = excluded_zero_duration.get(label, 0) + 1
+            continue
+
         intervals.append((start, end))
 
     intervals_u = _union_intervals(intervals)
     if require_match and len(intervals_u) == 0:
+        if excluded_zero_duration:
+            count = sum(excluded_zero_duration.values())
+            labels = ", ".join(sorted(excluded_zero_duration))
+            raise RuntimeError(
+                "No positive-duration annotation intervals remain for Stitch "
+                f"Trials. Ignored {count} zero-duration point event(s) from: "
+                f"{labels}. Use Clip Around Event for windows around points or "
+                "Line Up Key Events for point anchors."
+            )
         raise RuntimeError("No matching annotation intervals found for concat warper.")
 
     total_duration = float(sum((b - a) for a, b in intervals_u))
@@ -197,13 +214,17 @@ def concat_warper(
 
         for start_s, end_s in epoch.intervals_s:
             i_start = max(time_s_to_sample_index(start_s, sr), 0)
-            i_end = max(time_s_to_sample_index(end_s, sr), i_start + 1)
+            i_end = time_s_to_sample_index(end_s, sr)
 
             i_start = min(i_start, T_total - 1)
             i_end = min(i_end, T_total)
 
             if i_end <= i_start:
-                continue
+                raise RuntimeError(
+                    "A positive-duration Stitch Trials interval contains no "
+                    "source samples at the supplied sampling rate. "
+                    f"interval=({start_s:.6f}, {end_s:.6f})"
+                )
 
             segs.append(x[..., i_start:i_end])
             segment_weights.append(float(end_s - start_s))
@@ -227,14 +248,16 @@ def concat_warper(
         resamp = resample_piecewise_segments(
             segs,
             n_samples=int(n_samples),
-            segment_weights=(
-                segment_weights
-                if all(weight > 0.0 for weight in segment_weights)
-                else None
-            ),
+            segment_weights=segment_weights,
         )
         out = resamp[np.newaxis, ...]
         percent = np.linspace(0.0, 100.0, int(n_samples), dtype=float)
         return out.astype(np.result_type(out, np.float64)), percent, [epoch]
 
+    warp_fn.alignment_diagnostics = {  # type: ignore[attr-defined]
+        "excluded_zero_duration_annotations": {
+            "count": sum(excluded_zero_duration.values()),
+            "labels": dict(sorted(excluded_zero_duration.items())),
+        }
+    }
     return epochs_by_label, warp_fn

@@ -19,6 +19,9 @@ from .method_specs import (
     CLIP_STITCH_GEOMETRY_KEY,
     LINEAR_WARP_GEOMETRY,
     LINEAR_WARP_GEOMETRY_KEY,
+    ZERO_DURATION_ALIGNMENT,
+    ZERO_DURATION_ALIGNMENT_KEY,
+    ZERO_DURATION_ALIGNMENT_METHODS,
 )
 from .trial_config import _load_trial_config_from_log, _normalize_paradigm
 
@@ -173,6 +176,20 @@ def _has_current_clip_stitch_geometry(
     )
 
 
+def _has_current_zero_duration_alignment(
+    entry: dict[str, Any],
+    *,
+    method: str,
+) -> bool:
+    if method not in ZERO_DURATION_ALIGNMENT_METHODS:
+        return True
+    params = entry.get("params")
+    return (
+        isinstance(params, dict)
+        and params.get(ZERO_DURATION_ALIGNMENT_KEY) == ZERO_DURATION_ALIGNMENT
+    )
+
+
 def _run_artifacts_exist(
     resolver: PathResolver,
     slug: str,
@@ -298,6 +315,11 @@ def alignment_method_panel_state(
     ):
         return "yellow"
     if not _has_current_clip_stitch_geometry(
+        latest_successful_run[1],
+        method=run_method,
+    ):
+        return "yellow"
+    if not _has_current_zero_duration_alignment(
         latest_successful_run[1],
         method=run_method,
     ):

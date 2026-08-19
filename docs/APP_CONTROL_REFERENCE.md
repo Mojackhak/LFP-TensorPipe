@@ -1004,6 +1004,15 @@ record-scoped state after ordinary `Save`, but it cannot be
 saved as an app default, exported as a valid configuration, or used to run Align
 Epochs.
 
+Zero-duration annotations remain valid point events. `Line Up Key Events` uses
+them as anchors, and `Clip Around Event` can build real pre/post windows around
+their timestamps. `Stack Trials` and `Stitch Trials` omit point instances that
+have no effective signal duration while retaining positive-duration instances
+with the same label. A successful run reports the omitted count; if no
+positive-duration instance remains, the run fails without replacing the prior
+Alignment artifacts. No Alignment method promotes a zero-width interval to an
+implicit one-sample signal.
+
 During restore, annotations that are unavailable in the current trial remain
 unselected. For `linear_warper`, anchors that reference unavailable annotations
 are removed. If the remaining anchors do not form a valid mapping, the anchor
@@ -1083,6 +1092,9 @@ dialog draft and does not modify the saved app default.
 
 - `sample rate (Hz)` is a real-time resampling density because this method keeps a real-time window around the event.
 - `pad left`, `anno left`, `anno right`, and `pad right` jointly define the total window. They are four pieces of one clip geometry, not four unrelated paddings.
+- A zero-duration annotation is a valid event timestamp for this method. An
+  explicitly zero-width left or right piece contributes no sample; at least one
+  configured piece must have positive width.
 - The two retained source pieces are hard boundaries. Each output sample is
   interpolated within its own piece; the software never interpolates from the
   end of one piece to the beginning of the other.
@@ -1112,6 +1124,10 @@ dialog draft and does not modify the saved app default.
 
 - `sample rate (n/%)` again refers to density over a normalized 0-100% axis, not to physical Hz.
 - The duration limits are useful when the same label occurs with variable lengths and you want to exclude unusually short or long instances before stacking.
+- A zero-duration instance has no interval to normalize and is omitted at run
+  time. Positive-duration instances with the same label remain eligible. If
+  none remain, Run reports the condition instead of repeating one point sample
+  across the normalized timeline.
 
 ### 8.6 Stitch Trials Params
 
@@ -1132,6 +1148,9 @@ dialog draft and does not modify the saved app default.
 
 - This method keeps real-time spacing, so `sample rate (Hz)` is a physical resampling density rather than a normalized per-percent density.
 - Stitching is useful when you want one continuous output built from repeated event windows rather than one normalized epoch per event.
+- A zero-duration instance contributes no interval and is omitted. Other
+  positive-duration instances with the same selected label are still stitched;
+  if none remain, Run fails instead of inserting a point sample.
 - Every stitched interval remains a hard boundary for interpolation and Feature
   integration. No transition is synthesized between the final sample of one
   interval and the first sample of the next.

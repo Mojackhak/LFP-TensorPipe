@@ -30,6 +30,9 @@ from .method_specs import (
     CLIP_STITCH_GEOMETRY_KEY,
     LINEAR_WARP_GEOMETRY,
     LINEAR_WARP_GEOMETRY_KEY,
+    ZERO_DURATION_ALIGNMENT,
+    ZERO_DURATION_ALIGNMENT_KEY,
+    ZERO_DURATION_ALIGNMENT_METHODS,
 )
 from .epoch_view import _epoch_duration_s
 
@@ -165,6 +168,14 @@ def run_align_epochs(
             method=method,
             method_params=method_params,
         )
+        warper_diagnostics = getattr(warp_fn, "alignment_diagnostics", {})
+        if not isinstance(warper_diagnostics, dict):
+            warper_diagnostics = {}
+        excluded_zero_duration = warper_diagnostics.get(
+            "excluded_zero_duration_annotations", {}
+        )
+        if not isinstance(excluded_zero_duration, dict):
+            excluded_zero_duration = {}
         n_samples = _resolve_target_n_samples(
             method=method,
             method_params=method_params,
@@ -218,6 +229,7 @@ def run_align_epochs(
             "pad_warper",
             "concat_warper",
         }
+        uses_current_zero_duration_alignment = method in ZERO_DURATION_ALIGNMENT_METHODS
         target_duration_s = (
             _resolve_target_duration_s(
                 method=method,
@@ -334,6 +346,8 @@ def run_align_epochs(
                     meta_warped[LINEAR_WARP_GEOMETRY_KEY] = LINEAR_WARP_GEOMETRY
                 if uses_current_clip_stitch_geometry:
                     meta_warped[CLIP_STITCH_GEOMETRY_KEY] = CLIP_STITCH_GEOMETRY
+                if uses_current_zero_duration_alignment:
+                    meta_warped[ZERO_DURATION_ALIGNMENT_KEY] = ZERO_DURATION_ALIGNMENT
                 out_path = metric_output_paths[metric_key]
                 save_pkl(
                     {"tensor": warped_arr, "meta": meta_warped},
@@ -355,8 +369,23 @@ def run_align_epochs(
                 run_params[LINEAR_WARP_GEOMETRY_KEY] = LINEAR_WARP_GEOMETRY
             if uses_current_clip_stitch_geometry:
                 run_params[CLIP_STITCH_GEOMETRY_KEY] = CLIP_STITCH_GEOMETRY
+            if uses_current_zero_duration_alignment:
+                run_params[ZERO_DURATION_ALIGNMENT_KEY] = ZERO_DURATION_ALIGNMENT
+            excluded_count = int(excluded_zero_duration.get("count", 0) or 0)
+            excluded_labels = excluded_zero_duration.get("labels", {})
+            if excluded_count > 0 and isinstance(excluded_labels, dict):
+                run_params["excluded_zero_duration_annotations"] = {
+                    "count": excluded_count,
+                    "labels": dict(excluded_labels),
+                }
             if "burst" in metrics:
                 run_params[BURST_SAMPLE_SUPPORT_KEY] = BURST_SAMPLE_SUPPORT
+            completion_message = "Align Epochs completed."
+            if excluded_count > 0:
+                completion_message += (
+                    f" Ignored {excluded_count} zero-duration point event(s) "
+                    "without signal support."
+                )
             _append_alignment_history(
                 output_set.staged_path(log_path),
                 entry=RunLogRecord(
@@ -365,7 +394,7 @@ def run_align_epochs(
                     params=run_params,
                     input_path=str(resolver.tensor_root),
                     output_path=str(alignment_paradigm_dir(resolver, slug)),
-                    message="Align Epochs completed.",
+                    message=completion_message,
                 ).to_dict(),
                 keep_top_level=False,
                 trial_config=trial_config_payload,
@@ -373,7 +402,7 @@ def run_align_epochs(
             )
             output_set.commit()
         invalidate_after_alignment_run(context, paradigm_slug=slug)
-        return True, "Align Epochs completed.", epoch_rows
+        return True, completion_message, epoch_rows
     except Exception as exc:  # noqa: BLE001
         trial_config_payload = _normalize_paradigm(
             {

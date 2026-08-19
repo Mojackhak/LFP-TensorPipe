@@ -182,15 +182,12 @@ def build_warp_segments(
             for index in range(len(target_anchors) - 1)
         ]
     if method_key == "pad_warper":
+        from ..warp.pad_concat import positive_pad_intervals
+
         events_t = getattr(epoch, "events_t", None)
         if not isinstance(events_t, dict):
             raise ValueError("Pad Burst mapping is missing persisted event bounds.")
-        return _cumulative_segments(
-            [
-                (float(events_t["pad_left"]), float(events_t["anno_left"])),
-                (float(events_t["anno_right"]), float(events_t["pad_right"])),
-            ]
-        )
+        return _cumulative_segments(positive_pad_intervals(events_t))
     if method_key == "concat_warper":
         intervals = getattr(epoch, "intervals_s", None)
         if not isinstance(intervals, list):

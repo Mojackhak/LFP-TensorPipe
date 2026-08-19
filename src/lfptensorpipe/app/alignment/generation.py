@@ -30,6 +30,10 @@ ALIGNMENT_BURST_SAMPLE_SUPPORT_RERUN_MESSAGE = (
     "Latest Burst alignment uses legacy native sample-support semantics. "
     "Rerun Align Epochs and Finish before Extract Features."
 )
+ALIGNMENT_ZERO_DURATION_RERUN_MESSAGE = (
+    "Latest Stack/Clip/Stitch alignment uses legacy point-event signal-support "
+    "semantics. Rerun Align Epochs and Finish before Extract Features."
+)
 
 
 def _history_entries(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -164,6 +168,21 @@ def alignment_generation_rerun_message(
                 return ALIGNMENT_CLIP_STITCH_GEOMETRY_RERUN_MESSAGE
         if alignment_generation_requires_burst_sample_support_rerun(latest_run[1]):
             return ALIGNMENT_BURST_SAMPLE_SUPPORT_RERUN_MESSAGE
+        if (
+            isinstance(params, dict)
+            and metrics_from_alignment_entry(latest_run[1]) is not None
+        ):
+            from .method_specs import (
+                ZERO_DURATION_ALIGNMENT,
+                ZERO_DURATION_ALIGNMENT_KEY,
+                ZERO_DURATION_ALIGNMENT_METHODS,
+            )
+
+            if (
+                str(params.get("method", "")) in ZERO_DURATION_ALIGNMENT_METHODS
+                and params.get(ZERO_DURATION_ALIGNMENT_KEY) != ZERO_DURATION_ALIGNMENT
+            ):
+                return ALIGNMENT_ZERO_DURATION_RERUN_MESSAGE
     step = "run_align_epochs" if stage == "run" else "build_raw_table"
     latest = _latest_step(entries, step)
     if (
@@ -203,6 +222,7 @@ __all__ = [
     "ALIGNMENT_CLIP_STITCH_GEOMETRY_RERUN_MESSAGE",
     "ALIGNMENT_FINISH_MANIFEST_RERUN_MESSAGE",
     "ALIGNMENT_RUN_MANIFEST_RERUN_MESSAGE",
+    "ALIGNMENT_ZERO_DURATION_RERUN_MESSAGE",
     "accepted_alignment_artifact_paths",
     "accepted_alignment_metrics",
     "alignment_generation_requires_burst_sample_support_rerun",

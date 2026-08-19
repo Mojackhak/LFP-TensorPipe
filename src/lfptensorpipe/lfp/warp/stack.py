@@ -125,6 +125,7 @@ def stack_warper(
 
     epochs_by_label: Dict[str, List[StackEpoch]] = {}
     epochs_all: List[StackEpoch] = []
+    excluded_zero_duration: dict[str, int] = {}
 
     for onset, dur, desc in zip(
         raw.annotations.onset, raw.annotations.duration, raw.annotations.description
@@ -158,6 +159,12 @@ def stack_warper(
             if has_drop:
                 continue
 
+        if end <= start:
+            excluded_zero_duration[matched_label] = (
+                excluded_zero_duration.get(matched_label, 0) + 1
+            )
+            continue
+
         ep = StackEpoch(
             label=matched_label,
             start_t=float(start),
@@ -174,6 +181,15 @@ def stack_warper(
     epochs_by_label["ALL"] = epochs_all
 
     if require_match and len(epochs_all) == 0:
+        if excluded_zero_duration:
+            count = sum(excluded_zero_duration.values())
+            labels = ", ".join(sorted(excluded_zero_duration))
+            raise RuntimeError(
+                "No positive-duration annotation intervals remain for Stack "
+                f"Trials. Ignored {count} zero-duration point event(s) from: "
+                f"{labels}. Use Clip Around Event for windows around points or "
+                "Line Up Key Events for point anchors."
+            )
         raise RuntimeError("No matching annotation intervals found for stack warper.")
 
     def warp_fn(
@@ -207,14 +223,15 @@ def stack_warper(
         native_lengths: List[int] = []
         for ep in selected:
             i_start = max(time_s_to_sample_index(ep.start_t, sr), 0)
-            i_end = max(time_s_to_sample_index(ep.end_t, sr), i_start + 1)
+            i_end = time_s_to_sample_index(ep.end_t, sr)
 
             i_start = min(i_start, T_total - 1)
             i_end = min(i_end, T_total)
 
             if i_end <= i_start:
                 raise RuntimeError(
-                    "A selected stack epoch became empty after clipping. "
+                    "A positive-duration Stack Trials epoch contains no source "
+                    "samples at the supplied sampling rate. "
                     f"epoch=({ep.start_t:.6f}, {ep.end_t:.6f})"
                 )
 
@@ -249,4 +266,10 @@ def stack_warper(
         percent = np.linspace(0.0, 100.0, n_out, endpoint=True, dtype=float)
         return out, percent, selected
 
+    warp_fn.alignment_diagnostics = {  # type: ignore[attr-defined]
+        "excluded_zero_duration_annotations": {
+            "count": sum(excluded_zero_duration.values()),
+            "labels": dict(sorted(excluded_zero_duration.items())),
+        }
+    }
     return epochs_by_label, warp_fn

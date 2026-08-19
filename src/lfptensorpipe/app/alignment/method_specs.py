@@ -28,6 +28,11 @@ LINEAR_WARP_GEOMETRY_KEY = "linear_warp_geometry"
 LINEAR_WARP_GEOMETRY = "piecewise_target_percent"
 CLIP_STITCH_GEOMETRY_KEY = "clip_stitch_geometry"
 CLIP_STITCH_GEOMETRY = "piecewise_half_open_support"
+ZERO_DURATION_ALIGNMENT_KEY = "zero_duration_alignment"
+ZERO_DURATION_ALIGNMENT = "no_implicit_sample_support"
+ZERO_DURATION_ALIGNMENT_METHODS = frozenset(
+    {"pad_warper", "stack_warper", "concat_warper"}
+)
 
 
 __all__ = [
@@ -40,5 +45,8 @@ __all__ = [
     "CLIP_STITCH_GEOMETRY_KEY",
     "LINEAR_WARP_GEOMETRY",
     "LINEAR_WARP_GEOMETRY_KEY",
+    "ZERO_DURATION_ALIGNMENT",
+    "ZERO_DURATION_ALIGNMENT_KEY",
+    "ZERO_DURATION_ALIGNMENT_METHODS",
     "AlignmentMethodSpec",
 ]

@@ -35,6 +35,15 @@ class PadEpoch:
     events_t: Dict[str, float]
 
 
+def positive_pad_intervals(events_t: dict[str, float]) -> list[tuple[float, float]]:
+    """Return the positive-width source fragments represented by one Clip epoch."""
+    candidates = [
+        (float(events_t["pad_left"]), float(events_t["anno_left"])),
+        (float(events_t["anno_right"]), float(events_t["pad_right"])),
+    ]
+    return [(start, end) for start, end in candidates if end > start]
+
+
 def pad_warper(
     raw: mne.io.BaseRaw,
     *,
@@ -86,6 +95,12 @@ def pad_warper(
     for values in label_cfg.values():
         if not all(np.isfinite(value) for value in values):
             raise ValueError("`anno_allowed` window values must be finite.")
+        if any(value < 0.0 for value in values):
+            raise ValueError("`anno_allowed` window values must be non-negative.")
+        if sum(values) <= 0.0:
+            raise ValueError(
+                "At least one Clip Around Event source window must have positive width."
+            )
     min_dur_raw, max_dur_raw = duration_range
     min_dur = None if min_dur_raw is None else float(min_dur_raw)
     max_dur = None if max_dur_raw is None else float(max_dur_raw)
@@ -147,33 +162,26 @@ def pad_warper(
 
         for label in matched_labels:
             pad_left, anno_left, anno_right, pad_right = label_cfg[label]
+            nominal_left_width = pad_left + anno_left
+            nominal_right_width = anno_right + pad_right
 
             pad_left_start = max(anno_start - pad_left, t_min)
             anno_left_end = min(anno_start + anno_left, t_stop)
             anno_right_start = max(anno_end - anno_right, t_min)
             pad_right_end = min(anno_end + pad_right, t_stop)
 
-            if not (
-                pad_left_start <= anno_left_end and anno_right_start <= pad_right_end
-            ):
-                continue
-
-            # Optional blacklist: discard epochs whose stitched segments overlap
-            # any forbidden annotation.
-            if drop_intervals:
-                left_seg = (pad_left_start, anno_left_end)
-                right_seg = (anno_right_start, pad_right_end)
-                has_drop = False
-                for d0, d1 in drop_intervals:
-                    if intervals_overlap_half_open(
-                        left_seg[0], left_seg[1], d0, d1
-                    ) or intervals_overlap_half_open(
-                        right_seg[0], right_seg[1], d0, d1
-                    ):
-                        has_drop = True
-                        break
-                if has_drop:
-                    continue
+            if nominal_left_width > 0.0 and anno_left_end <= pad_left_start:
+                raise RuntimeError(
+                    "A requested positive-width Clip Around Event left window "
+                    f"has no Raw support for annotation '{label}' at "
+                    f"{anno_start:.6f} s."
+                )
+            if nominal_right_width > 0.0 and pad_right_end <= anno_right_start:
+                raise RuntimeError(
+                    "A requested positive-width Clip Around Event right window "
+                    f"has no Raw support for annotation '{label}' at "
+                    f"{anno_start:.6f} s."
+                )
 
             events_t = {
                 "pad_left": pad_left_start,
@@ -181,6 +189,27 @@ def pad_warper(
                 "anno_right": anno_right_start,
                 "pad_right": pad_right_end,
             }
+            source_intervals = positive_pad_intervals(events_t)
+            if not source_intervals:
+                raise RuntimeError(
+                    "Clip Around Event produced no positive-width source window "
+                    f"for annotation '{label}' at {anno_start:.6f} s."
+                )
+
+            # Optional blacklist: discard epochs whose stitched segments overlap
+            # any forbidden annotation.
+            if drop_intervals:
+                has_drop = False
+                for d0, d1 in drop_intervals:
+                    if any(
+                        intervals_overlap_half_open(start, end, d0, d1)
+                        for start, end in source_intervals
+                    ):
+                        has_drop = True
+                        break
+                if has_drop:
+                    continue
+
             epochs_by_label[label].append(
                 PadEpoch(
                     label=label, start_t=anno_start, end_t=anno_end, events_t=events_t
@@ -232,38 +261,41 @@ def pad_warper(
 
         lead_shape = x.shape[:-1]
         warped_list: List[np.ndarray] = []
-        segment_list: List[tuple[np.ndarray, np.ndarray]] = []
-        segment_weight_list: List[tuple[float, float]] = []
+        segment_list: List[list[np.ndarray]] = []
+        segment_weight_list: List[list[float]] = []
         native_lengths: List[int] = []
 
         T_total = x.shape[-1]
 
         for ep in selected_eps:
-            pl = ep.events_t["pad_left"]
-            al = ep.events_t["anno_left"]
-            ar = ep.events_t["anno_right"]
-            pr = ep.events_t["pad_right"]
+            source_intervals = positive_pad_intervals(ep.events_t)
+            segments: list[np.ndarray] = []
+            segment_weights: list[float] = []
+            for start_s, end_s in source_intervals:
+                i_start = max(time_s_to_sample_index(start_s, sr), 0)
+                i_end = time_s_to_sample_index(end_s, sr)
+                i_start = min(i_start, T_total - 1)
+                i_end = min(i_end, T_total)
+                if i_end <= i_start:
+                    raise RuntimeError(
+                        "A positive-width Clip Around Event source window contains "
+                        "no samples at the supplied sampling rate. "
+                        f"annotation='{ep.label}', "
+                        f"interval=({start_s:.6f}, {end_s:.6f})"
+                    )
+                segments.append(x[..., i_start:i_end])
+                segment_weights.append(float(end_s - start_s))
 
-            i1_start = max(time_s_to_sample_index(pl, sr), 0)
-            i1_end = max(time_s_to_sample_index(al, sr), i1_start + 1)
-            i2_start = max(time_s_to_sample_index(ar, sr), 0)
-            i2_end = max(time_s_to_sample_index(pr, sr), i2_start + 1)
-
-            i1_start = min(i1_start, T_total - 1)
-            i1_end = min(i1_end, T_total)
-            i2_start = min(i2_start, T_total - 1)
-            i2_end = min(i2_end, T_total)
-
-            if i1_end <= i1_start or i2_end <= i2_start:
-                continue
-
-            seg1 = x[..., i1_start:i1_end]
-            seg2 = x[..., i2_start:i2_end]
-            concat = np.concatenate([seg1, seg2], axis=-1)
+            if not segments:
+                raise RuntimeError(
+                    "A selected Clip Around Event epoch has no positive-width "
+                    f"source window: annotation='{ep.label}'."
+                )
+            concat = np.concatenate(segments, axis=-1)
 
             warped_list.append(concat)
-            segment_list.append((seg1, seg2))
-            segment_weight_list.append((float(al - pl), float(pr - ar)))
+            segment_list.append(segments)
+            segment_weight_list.append(segment_weights)
             native_lengths.append(int(concat.shape[-1]))
 
         if len(warped_list) == 0:
@@ -301,11 +333,7 @@ def pad_warper(
                 out[ei, ...] = resample_piecewise_segments(
                     segments,
                     n_samples=n_out,
-                    segment_weights=(
-                        segment_weights
-                        if all(weight > 0.0 for weight in segment_weights)
-                        else None
-                    ),
+                    segment_weights=segment_weights,
                 )
 
         percent_axis = np.linspace(0.0, 100.0, int(out.shape[-1]), endpoint=True)
