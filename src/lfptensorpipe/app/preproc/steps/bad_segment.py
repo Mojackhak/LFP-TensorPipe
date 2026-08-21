@@ -18,6 +18,21 @@ from ..paths import (
 MarkStepFn = Callable[..., Any]
 InvalidateFn = Callable[[RecordContext, str], list[Any]]
 _REMOVAL_PREFIXES = ("BAD", "EDGE")
+BAD_SEGMENT_MATCH_SEMANTICS_KEY = "bad_segment_match_semantics"
+BAD_SEGMENT_MATCH_SEMANTICS = "case_insensitive_bad_edge_prefix"
+
+
+def bad_segment_log_has_current_match_semantics(
+    payload: dict[str, Any] | None,
+) -> bool:
+    """Return whether a completed-log payload uses current removal matching."""
+    if not isinstance(payload, dict):
+        return False
+    params = payload.get("params")
+    return bool(
+        isinstance(params, dict)
+        and params.get(BAD_SEGMENT_MATCH_SEMANTICS_KEY) == BAD_SEGMENT_MATCH_SEMANTICS
+    )
 
 
 def apply_bad_segment_step(
@@ -66,7 +81,8 @@ def apply_bad_segment_step(
             do_post_notch=False,
             do_post_filter=False,
             overlap_policy="compress",
-            match_mode="substring",
+            match_mode="prefix",
+            case_sensitive=False,
             verbose=False,
         )
         if isinstance(filtered, tuple):
@@ -95,7 +111,10 @@ def apply_bad_segment_step(
                 resolver=resolver,
                 step="bad_segment_removal",
                 completed=True,
-                params={"mode": "defaults"},
+                params={
+                    "mode": "defaults",
+                    BAD_SEGMENT_MATCH_SEMANTICS_KEY: BAD_SEGMENT_MATCH_SEMANTICS,
+                },
                 input_path=str(src),
                 output_path=str(dst),
                 message=(

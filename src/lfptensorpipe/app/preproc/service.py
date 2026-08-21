@@ -21,10 +21,14 @@ from .paths import (
 )
 from .steps.annotations import (
     _normalize_annotation_rows as _normalize_annotation_rows_impl,
+    annotation_log_has_current_support_semantics,
     apply_annotations_step as _apply_annotations_step_impl,
     load_annotations_csv_rows as _load_annotations_csv_rows_impl,
 )
-from .steps.bad_segment import apply_bad_segment_step as _apply_bad_segment_step_impl
+from .steps.bad_segment import (
+    apply_bad_segment_step as _apply_bad_segment_step_impl,
+    bad_segment_log_has_current_match_semantics,
+)
 from .steps.ecg import (
     apply_ecg_step as _apply_ecg_step_impl,
     default_ecg_method_params as _default_ecg_method_params_impl,
@@ -42,6 +46,7 @@ from .steps.filter import (
     apply_filter_step as _apply_filter_step_impl,
     finalize_filter_review as _finalize_filter_review_impl,
     default_filter_advance_params as _default_filter_advance_params_impl,
+    filter_log_has_current_bad_channel_detection_semantics,
     filter_nyquist_warning as _filter_nyquist_warning_impl,
     normalize_filter_advance_params as _normalize_filter_advance_params_impl,
     normalize_filter_runtime_params as _normalize_filter_runtime_params_impl,
@@ -287,12 +292,55 @@ def resolve_preproc_step_source(
         return None
 
     runtime_read_run_log = read_run_log_fn or read_run_log
+    filter_log_path = (
+        resolver.preproc_step_dir("filter", create=False) / "lfptensorpipe_log.json"
+    )
+    annotations_log_path = (
+        resolver.preproc_step_dir("annotations", create=False)
+        / "lfptensorpipe_log.json"
+    )
+    bad_segment_log_path = (
+        resolver.preproc_step_dir("bad_segment_removal", create=False)
+        / "lfptensorpipe_log.json"
+    )
+
+    def read_current_source_log(path: Path) -> dict[str, Any] | None:
+        payload = runtime_read_run_log(path)
+        if (
+            path == filter_log_path
+            and isinstance(payload, dict)
+            and bool(payload.get("completed"))
+            and not filter_log_has_current_bad_channel_detection_semantics(payload)
+        ):
+            stale_payload = dict(payload)
+            stale_payload["completed"] = False
+            return stale_payload
+        if (
+            path == annotations_log_path
+            and isinstance(payload, dict)
+            and bool(payload.get("completed"))
+            and not annotation_log_has_current_support_semantics(payload)
+        ):
+            stale_payload = dict(payload)
+            stale_payload["completed"] = False
+            return stale_payload
+        if (
+            path == bad_segment_log_path
+            and isinstance(payload, dict)
+            and bool(payload.get("completed"))
+            and not bad_segment_log_has_current_match_semantics(payload)
+        ):
+            stale_payload = dict(payload)
+            stale_payload["completed"] = False
+            return stale_payload
+        return payload
+
     return _resolve_finish_source_impl(
         context,
         source_priority=tuple(reversed(PREPROC_STEPS[:target_index])),
         preproc_step_raw_path_fn=preproc_step_raw_path,
         preproc_step_log_path_fn=preproc_step_log_path,
-        read_run_log_fn=runtime_read_run_log,
+        read_run_log_fn=read_current_source_log,
         required_step="raw",
     )
 

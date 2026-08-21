@@ -26,6 +26,19 @@ from ..paths import (
 MarkStepFn = Callable[..., Any]
 InvalidateFn = Callable[[RecordContext, str], list[Any]]
 FILTER_EPOCH_COVERAGE_SEMANTICS = "grid_plus_end_aligned_tail"
+FILTER_BAD_CHANNEL_DETECTION_SEMANTICS = "exclude_info_bads_from_p2p_and_autoreject"
+
+
+def filter_log_has_current_bad_channel_detection_semantics(payload: Any) -> bool:
+    """Return whether one Filter log declares the current channel contract."""
+    if not isinstance(payload, dict):
+        return False
+    params = payload.get("params")
+    return bool(
+        isinstance(params, dict)
+        and params.get("bad_channel_detection_semantics")
+        == FILTER_BAD_CHANNEL_DETECTION_SEMANTICS
+    )
 
 
 def default_filter_advance_params() -> dict[str, Any]:
@@ -334,6 +347,9 @@ def apply_filter_step(
                         "boundary_isolated_filter"
                     ],
                     "epoch_coverage_semantics": FILTER_EPOCH_COVERAGE_SEMANTICS,
+                    "bad_channel_detection_semantics": (
+                        FILTER_BAD_CHANNEL_DETECTION_SEMANTICS
+                    ),
                     "review_status": "required",
                     "filter_output_role": "preview",
                 },
@@ -358,6 +374,9 @@ def apply_filter_step(
                         "boundary_isolated_filter"
                     ],
                     "epoch_coverage_semantics": FILTER_EPOCH_COVERAGE_SEMANTICS,
+                    "bad_channel_detection_semantics": (
+                        FILTER_BAD_CHANNEL_DETECTION_SEMANTICS
+                    ),
                     "review_status": "required",
                     "filter_output_role": "preview",
                 },
@@ -407,6 +426,7 @@ def finalize_filter_review(
         and preview_payload.get("completed") is False
         and preview_params.get("review_status") == "required"
         and preview_params.get("filter_output_role") == "preview"
+        and filter_log_has_current_bad_channel_detection_semantics(preview_payload)
     )
     state_log_path = preview_log_path if pending_preview else log_path
     state_config_path = preview_config_path if pending_preview else config_path
@@ -503,6 +523,20 @@ def finalize_filter_review(
         else:
             final_params.pop("epoch_coverage_semantics", None)
             final_config.pop("epoch_coverage_semantics", None)
+        detection_semantics = params.get(
+            "bad_channel_detection_semantics",
+            config.get("bad_channel_detection_semantics"),
+        )
+        if detection_semantics == FILTER_BAD_CHANNEL_DETECTION_SEMANTICS:
+            final_params["bad_channel_detection_semantics"] = (
+                FILTER_BAD_CHANNEL_DETECTION_SEMANTICS
+            )
+            final_config["bad_channel_detection_semantics"] = (
+                FILTER_BAD_CHANNEL_DETECTION_SEMANTICS
+            )
+        else:
+            final_params.pop("bad_channel_detection_semantics", None)
+            final_config.pop("bad_channel_detection_semantics", None)
         with AtomicOutputSet(
             [dst, config_path, log_path],
             cleanup_stale_residues=True,

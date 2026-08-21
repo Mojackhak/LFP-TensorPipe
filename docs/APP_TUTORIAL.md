@@ -365,6 +365,15 @@ silently clipping or dropping an unsupported value. In Filter Advance, leaving
 the complete peak-to-peak threshold field blank disables only fixed
 peak-to-peak rejection and keeps AutoReject active.
 
+Automatic Filter detection does not use channels that are already listed in
+`raw.info["bads"]`. Fixed peak-to-peak rejection and AutoReject share the same
+remaining channel set, so a globally bad channel cannot turn its amplitude
+into global time-domain BAD windows. The channel remains in the Filter output
+and remains listed bad; only its participation in automatic detection is
+removed. If every channel is listed bad, Filter Apply stops and asks the user
+to restore at least one usable detection channel. Existing BAD time intervals
+remain eligible AutoReject training windows by design.
+
 This notch list is demo-specific. SceneRay uses `83.5 Hz` AC coupling between
 the LFP recorder and the IPG, so this dataset needs the half-frequency harmonic
 series to be notched. That is why the tutorial notches `41.75`, `83.5`,
@@ -456,8 +465,10 @@ another `Shift`-click over channel `B` assigns it to both `A` and `B`. A
 channel-specific interval is displayed with a lighter fill and dashed outline.
 Do not click the channel name for this purpose: clicking a channel name marks or
 unmarks that entire channel in `raw.info["bads"]`, rather than limiting one time
-interval. An annotation with no assigned channel remains global and applies to
-the time interval on all channels.
+interval. A channel marked this way is excluded from later automatic Filter
+P2P/AutoReject detection but is retained in the output Raw. An annotation with
+no assigned channel remains global and applies to the time interval on all
+channels.
 
 Channel membership is stored in `raw.annotations.ch_names` and is preserved by
 Browser saving, timeline normalization, Sync, filtering, and Reset Reference.
@@ -482,6 +493,14 @@ Import:
 
 Then click `Apply`.
 
+Every imported row is interpreted in seconds from the first retained sample of
+the current source Raw. The complete interval must fit that Raw: a
+positive-duration row may end exactly at `n_times / sampling_rate`, while its
+onset and every zero-duration point must remain strictly before that boundary.
+If any row is outside the available recording, Apply rejects the complete row
+set and reports its zero-based table index; it never shortens or silently drops
+the row. Correct the source CSV/table and apply again.
+
 The below figure is the plot for `Preprocess Signal 2.Annotations`.
 
 ![Preprocess plot for step 2 (Annotations).](assets/app-tutorial/figure-17-preprocess-step-2-annotations-browser.png)
@@ -496,6 +515,11 @@ signal into a clean continuous stream. In this demo, that stitched output is
 the last cleaning step before the record is finalized. Internal `EDGE` markers
 identify the stitch points created by removed spans; this step does not add the
 physical recording-start or recording-end markers.
+
+Removal labels must begin with `BAD` or `EDGE` (letter case is ignored), for
+example `BAD_artifact` or `EDGE_filter`. Descriptions that only contain those
+letters later in the label, such as `knowledge` or `artifact BAD`, remain
+ordinary annotations and do not cause signal samples to be deleted.
 
 Click `Bad Segment Removal -> Apply`.
 

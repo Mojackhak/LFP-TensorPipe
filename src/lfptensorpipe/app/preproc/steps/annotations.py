@@ -21,6 +21,21 @@ from ..paths import (
 MarkStepFn = Callable[..., Any]
 InvalidateFn = Callable[[RecordContext, str], list[Any]]
 
+ANNOTATION_SUPPORT_SEMANTICS = "fully_within_half_open_source_support"
+_ANNOTATION_SUPPORT_SEMANTICS_KEY = "annotation_support_semantics"
+
+
+def annotation_log_has_current_support_semantics(payload: Any) -> bool:
+    """Return whether one Annotations log uses the current support contract."""
+    if not isinstance(payload, dict):
+        return False
+    params = payload.get("params")
+    return bool(
+        isinstance(params, dict)
+        and params.get(_ANNOTATION_SUPPORT_SEMANTICS_KEY)
+        == ANNOTATION_SUPPORT_SEMANTICS
+    )
+
 
 def load_annotations_csv_rows(csv_path: Path) -> tuple[bool, list[dict[str, Any]], str]:
     """Load annotations rows from csv header `description,onset,duration`."""
@@ -92,6 +107,24 @@ def _normalize_annotation_rows(
     return normalized, invalid_rows
 
 
+def _annotation_rows_outside_raw_support(
+    rows: list[dict[str, Any]],
+    raw: Any,
+) -> list[int]:
+    """Return original row indices outside the Raw-relative half-open support."""
+    support_stop = float(raw.n_times) / float(raw.info["sfreq"])
+    positive_stop_limit = math.nextafter(support_stop, math.inf)
+    invalid_rows: list[int] = []
+    for idx, row in enumerate(rows):
+        onset = float(row["onset"])
+        duration = float(row["duration"])
+        if onset >= support_stop or (
+            duration > 0.0 and onset + duration > positive_stop_limit
+        ):
+            invalid_rows.append(idx)
+    return invalid_rows
+
+
 def apply_annotations_step(
     context: RecordContext,
     *,
@@ -151,6 +184,9 @@ def apply_annotations_step(
             # Preserve the exact source file before applying annotations.
             runtime_copy2(src, staged_raw)
             raw = read_raw_fif_fn(str(staged_raw), preload=True, verbose="ERROR")
+            outside_rows = _annotation_rows_outside_raw_support(rows, raw)
+            if outside_rows:
+                raise ValueError(f"Annotation rows outside Raw support: {outside_rows}")
             annotations = mne.Annotations(
                 onset=[float(item["onset"]) for item in normalized_rows],
                 duration=[float(item["duration"]) for item in normalized_rows],
@@ -188,13 +224,17 @@ def apply_annotations_step(
                 config={
                     "row_count": len(normalized_rows),
                     "csv_path": str(csv_path),
+                    _ANNOTATION_SUPPORT_SEMANTICS_KEY: (ANNOTATION_SUPPORT_SEMANTICS),
                 },
             )
             mark_preproc_step_fn(
                 resolver=resolver,
                 step="annotations",
                 completed=True,
-                params={"row_count": len(normalized_rows)},
+                params={
+                    "row_count": len(normalized_rows),
+                    _ANNOTATION_SUPPORT_SEMANTICS_KEY: (ANNOTATION_SUPPORT_SEMANTICS),
+                },
                 input_path=str(src),
                 output_path=str(dst),
                 message=f"Annotations step completed using source: {source_step}.",

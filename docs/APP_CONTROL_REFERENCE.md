@@ -386,7 +386,7 @@ log is also shown as yellow when its corresponding output file is missing.
 | `Plot` (Filter) | Opens a pending review Preview, or an existing accepted Filter result when no Preview is pending. Closing a Preview automatically refilters from the original Raw and accepts it without a confirmation dialog. Closing an accepted result refilters only after annotations or bad-channel selections changed. | Reviewed annotations, accepted Filter output, and dependent-stage freshness after a real accepted change. | Unavailable before the first successful Apply when no accepted Filter result exists. Available for a valid yellow `review_required` Preview or a green finalized/legacy result; other yellow states remain blocked. |
 | Annotation table | Shows the currently configured annotation rows. | Annotation payload. | Read-only except for row selection. |
 | `Configure...` (Annotations) | Opens the annotation editor. | Current annotation rows. | Available after Raw succeeds. |
-| `Apply` (Annotations) | Writes the configured annotations into the preprocess pipeline. | Annotation output used by downstream steps. | Requires successful Raw and a valid annotation set. |
+| `Apply` (Annotations) | Writes the configured annotations into the preprocess pipeline without clipping or omitting any submitted row. | Annotation output used by downstream steps. | Requires successful Raw and a valid annotation set. Every positive interval must fit completely within `[0,n_times/sampling_rate)` and every zero-duration point must begin before the exclusive right boundary; one out-of-support row blocks the complete Apply operation. |
 | `Plot` (Annotations) | Plots the annotated signal. | QC only. | Requires successful annotation output. |
 
 In any editable MNE Raw plot, press `a` to enter annotation mode and drag across
@@ -398,12 +398,18 @@ outline. Clicking a channel name instead marks or unmarks the entire channel in
 intervals mask every local channel and connectivity pair. A channel-specific
 interval masks only that local channel and connectivity pairs containing it.
 
+Channels already listed in `raw.info["bads"]` remain present in Filter output
+but do not participate in automatic peak-to-peak or AutoReject BAD-window
+detection. Both detectors use the same remaining channel set. Filter Apply is
+blocked when no usable detection channel remains; existing BAD time intervals
+continue to participate in AutoReject threshold training.
+
 ### 6.3 Bad Segment, ECG, Finish, and Visualization
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | `Bad Segment Removal` indicator | Reports bad-segment removal readiness. | User feedback only. | Read-only. |
-| `Apply` (Bad Segment Removal) | Removes bad spans, stitches the remaining valid signal, and marks internal stitch points. | Cleaned signal for downstream steps. | Available after Raw succeeds; skipped earlier optional steps are bypassed. |
+| `Apply` (Bad Segment Removal) | Removes globally scoped positive-duration annotations whose descriptions begin with `BAD` or `EDGE`, case-insensitively; labels such as `knowledge` or `artifact BAD` and channel-specific spans are retained. It stitches the remaining signal and marks internal stitch points. | Cleaned signal for downstream steps. | Available after Raw succeeds; skipped earlier optional steps are bypassed. |
 | `Plot` (Bad Segment Removal) | Plots bad-segment-removal output. | QC only. | Requires successful bad-segment output. |
 | `Method` (ECG) | Chooses the ECG artifact-removal strategy. | ECG step parameters. | Available after Raw succeeds. |
 | `Channels` (ECG) | Opens the ECG channel selector. | ECG channel subset. | Requires channels from the current valid ECG input source. |

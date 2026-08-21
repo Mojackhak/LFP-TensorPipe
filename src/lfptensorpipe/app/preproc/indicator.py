@@ -17,10 +17,17 @@ from .paths import (
     preproc_step_config_path,
     preproc_step_log_path,
 )
-from .steps.annotations import _normalize_annotation_rows
+from .steps.annotations import (
+    _normalize_annotation_rows,
+    annotation_log_has_current_support_semantics,
+)
+from .steps.bad_segment import (
+    bad_segment_log_has_current_match_semantics,
+)
 from .steps.ecg import normalize_ecg_method_params
 from .steps.filter import (
     FILTER_EPOCH_COVERAGE_SEMANTICS,
+    filter_log_has_current_bad_channel_detection_semantics,
     normalize_filter_advance_params,
 )
 
@@ -42,6 +49,21 @@ def _log_state(payload: dict[str, Any] | None) -> str | None:
     if isinstance(completed, bool):
         return "green" if completed else "yellow"
     return None
+
+
+def _filter_preview_payload_is_pending(
+    resolver: PathResolver,
+    payload: dict[str, Any] | None,
+) -> bool:
+    if not isinstance(payload, dict) or payload.get("completed") is not False:
+        return False
+    params = payload.get("params")
+    return bool(
+        isinstance(params, dict)
+        and params.get("review_status") == "required"
+        and params.get("filter_output_role") == "preview"
+        and preproc_filter_preview_raw_path(resolver).exists()
+    )
 
 
 def _preproc_log_state(
@@ -66,7 +88,13 @@ def preproc_step_indicator_state(resolver: PathResolver, step: str) -> str:
     """Return the effective `gray|yellow|green` state for one preproc step."""
     log_path = resolver.preproc_step_dir(step) / "lfptensorpipe_log.json"
     payload = _read_payload(log_path)
-    return _preproc_log_state(resolver, step, payload)
+    state = _preproc_log_state(resolver, step, payload)
+    if step != "bad_segment_removal" or state != "green":
+        return state
+    assert payload is not None
+    if not bad_segment_log_has_current_match_semantics(payload):
+        return "yellow"
+    return "green"
 
 
 def _normalize_notches(value: Any) -> list[float] | None:
@@ -168,7 +196,8 @@ def preproc_filter_panel_state(
     advance_params: dict[str, Any] | None,
 ) -> str:
     """Return `gray|yellow|green` for the editable Filter panel."""
-    if preproc_filter_review_required(resolver):
+    preview_payload = _read_payload(preproc_filter_preview_log_path(resolver))
+    if _filter_preview_payload_is_pending(resolver, preview_payload):
         return "yellow"
     payload = _read_payload(preproc_step_log_path(resolver, "filter"))
     state = _preproc_log_state(resolver, "filter", payload)
@@ -177,6 +206,8 @@ def preproc_filter_panel_state(
     if state == "yellow":
         return "yellow"
     assert payload is not None
+    if not filter_log_has_current_bad_channel_detection_semantics(payload):
+        return "yellow"
     completed_signature = _filter_signature_from_log(payload)
     current_signature = _filter_signature(
         notches=notches,
@@ -194,15 +225,9 @@ def preproc_filter_panel_state(
 def preproc_filter_review_required(resolver: PathResolver) -> bool:
     """Return whether one valid Filter detection Preview awaits review."""
     payload = _read_payload(preproc_filter_preview_log_path(resolver))
-    if not isinstance(payload, dict) or payload.get("completed") is not False:
-        return False
-    params = payload.get("params")
-    if not isinstance(params, dict):
-        return False
     return bool(
-        params.get("review_status") == "required"
-        and params.get("filter_output_role") == "preview"
-        and preproc_filter_preview_raw_path(resolver).exists()
+        _filter_preview_payload_is_pending(resolver, payload)
+        and filter_log_has_current_bad_channel_detection_semantics(payload)
     )
 
 
@@ -249,6 +274,9 @@ def preproc_annotations_panel_state(
     if state == "gray":
         return "gray"
     if state == "yellow":
+        return "yellow"
+    assert payload is not None
+    if not annotation_log_has_current_support_semantics(payload):
         return "yellow"
     completed_signature = _read_annotations_csv_signature(resolver)
     if completed_signature is None:

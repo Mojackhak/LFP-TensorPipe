@@ -32,6 +32,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 import numpy as np
 import mne
 from ..lfp.mask.annotations import (
+    BoundaryMatchMode,
     MatchMode,
     annotation_sample_support_by_channel,
     valid_segments_from_annotation_support,
@@ -939,11 +940,32 @@ def mark_lfp_bad_segments(
     notches = np.asarray(cfg.notches, dtype=float) if cfg.notches is not None else None
     notch_widths = cfg.notch_widths
 
+    requested_channels = (
+        list(raw_mark.ch_names)
+        if eeg_like_channels is None
+        else [str(channel) for channel in eeg_like_channels]
+    )
+    requested_set = set(requested_channels)
+    listed_bad_set = set(raw_mark.info["bads"])
+    detection_channels = [
+        channel
+        for channel in raw_mark.ch_names
+        if channel in requested_set and channel not in listed_bad_set
+    ]
+    excluded_bad_channels = [
+        channel
+        for channel in raw_mark.ch_names
+        if channel in requested_set and channel in listed_bad_set
+    ]
+    if not detection_channels:
+        raise ValueError(
+            "No usable channels remain for Filter artifact detection after "
+            "excluding raw.info['bads']."
+        )
+
     # 1) Temporarily set channel types to EEG for autoreject picks='eeg'
     original_types = _get_channel_types_map(raw_mark)
-    if eeg_like_channels is None:
-        eeg_like_channels = list(raw_mark.ch_names)
-    eeg_type_map = {ch: "eeg" for ch in eeg_like_channels if ch in raw_mark.ch_names}
+    eeg_type_map = {channel: "eeg" for channel in detection_channels}
     if eeg_type_map:
         raw_mark.set_channel_types(eeg_type_map)
 
@@ -996,12 +1018,13 @@ def mark_lfp_bad_segments(
         )
     else:
         epochs_evaluation = epochs_regular
+    epochs_detection = epochs_evaluation.copy().pick(detection_channels)
 
     n_epochs = len(epochs_evaluation)
     win_len = float(cfg.epoch_dur)
 
     # 4) Hard p2p threshold (range)
-    data = epochs_evaluation.get_data()  # (n_epochs, n_ch, n_times)
+    data = epochs_detection.get_data()  # (n_epochs, n_detection_ch, n_times)
     p2p = np.ptp(data, axis=2)
     if cfg.p2p_thresh is None:
         bad_p2p = np.zeros(n_epochs, dtype=bool)
@@ -1027,7 +1050,7 @@ def mark_lfp_bad_segments(
     autoreject_error: str | None = None
     autoreject_plot_error: str | None = None
 
-    epochs_training = epochs_evaluation[training_keep_idx]
+    epochs_training = epochs_detection[training_keep_idx]
     if len(epochs_training) >= 1:
         try:
             threshes = compute_thresholds(
@@ -1043,7 +1066,7 @@ def mark_lfp_bad_segments(
                 for ch, t in threshes.items()
             }
 
-            epochs_threshold_evaluation = epochs_evaluation[evaluation_keep_idx]
+            epochs_threshold_evaluation = epochs_detection[evaluation_keep_idx]
             p2p_thr = np.ptp(
                 epochs_threshold_evaluation.get_data(), axis=2
             )  # (n_epochs_remain, n_ch)
@@ -1158,6 +1181,8 @@ def mark_lfp_bad_segments(
         "tail_epoch_added": bool(tail_epoch_added),
         "n_bad_p2p": int(np.sum(bad_p2p)),
         "n_bad_autoreject": int(n_bad_ar),
+        "detection_channels": list(detection_channels),
+        "excluded_bad_channels": list(excluded_bad_channels),
         "notches": notches.tolist() if notches is not None else None,
         "notch_widths": notch_widths,
         "min_good_len_sec": cfg.min_good_len_sec,
@@ -1195,7 +1220,7 @@ def filter_lfp_with_bad_annotations(
     post_filter_kwargs: Optional[Dict[str, Any]] = None,
     # -------------------- Annotation handling --------------------
     overlap_policy: str = "split",  # "split", "drop", or "compress"
-    match_mode: MatchMode = "exact",  # "substring" or "exact"
+    match_mode: BoundaryMatchMode = "exact",
     case_sensitive: bool = False,
     # -------------------- ADDED: report + concat markers --------------------
     verbose: bool = True,
@@ -1227,9 +1252,10 @@ def filter_lfp_with_bad_annotations(
             "overlap_policy must be 'split', 'drop', or 'compress', "
             f"got: {overlap_policy}"
         )
-    if match_mode not in ("substring", "exact"):
+    if match_mode not in ("substring", "exact", "prefix"):
         raise ValueError(
-            f"match_mode must be 'substring' or 'exact', got: {match_mode}"
+            "match_mode must be 'substring', 'exact', or 'prefix', "
+            f"got: {match_mode}"
         )
 
     patterns: Tuple[str, ...] = (
@@ -1249,8 +1275,9 @@ def filter_lfp_with_bad_annotations(
         d = _norm(str(desc))
         if match_mode == "substring":
             return any(p in d for p in patterns_norm)
-        else:  # exact
-            return any(d == p for p in patterns_norm)
+        if match_mode == "prefix":
+            return any(d.startswith(p) for p in patterns_norm)
+        return any(d == p for p in patterns_norm)
 
     # Work on a copy
     raw_labeled = raw.copy()
