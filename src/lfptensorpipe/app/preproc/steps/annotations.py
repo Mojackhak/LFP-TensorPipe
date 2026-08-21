@@ -199,13 +199,19 @@ def apply_annotations_step(
             outside_rows = _annotation_rows_outside_raw_support(rows, raw)
             if outside_rows:
                 raise ValueError(f"Annotation rows outside Raw support: {outside_rows}")
+            first_time_s = float(raw.first_samp) / float(raw.info["sfreq"])
+            new_onsets = [float(item["onset"]) for item in normalized_rows]
+            inherited_annotations = raw.annotations.copy()
+            if inherited_annotations.orig_time is None:
+                inherited_annotations.onset -= first_time_s
+            else:
+                new_onsets = [onset + first_time_s for onset in new_onsets]
             annotations = mne.Annotations(
-                onset=[float(item["onset"]) for item in normalized_rows],
+                onset=new_onsets,
                 duration=[float(item["duration"]) for item in normalized_rows],
                 description=[str(item["description"]) for item in normalized_rows],
-                orig_time=raw.annotations.orig_time,
+                orig_time=inherited_annotations.orig_time,
             )
-            inherited_annotations = raw.annotations.copy()
             raw.set_annotations(inherited_annotations + annotations)
 
             raw.save(str(staged_raw), overwrite=True)

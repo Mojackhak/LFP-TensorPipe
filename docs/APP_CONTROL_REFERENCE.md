@@ -446,7 +446,7 @@ log is also shown as yellow when its corresponding output file is missing.
 | `Plot` (Filter) | Opens a pending review Preview, or an existing accepted Filter result when no Preview is pending. Closing a Preview automatically refilters from the original Raw and accepts it without a confirmation dialog. Closing an accepted result refilters only after annotations or bad-channel selections changed. | Reviewed annotations, accepted Filter output, and dependent-stage freshness after a real accepted change. | Unavailable before the first successful Apply when no accepted Filter result exists. Available for a valid yellow `review_required` Preview or a green finalized/legacy result; other yellow states remain blocked. |
 | Annotation table | Shows the currently configured annotation rows. | Annotation payload. | Read-only except for row selection. |
 | `Configure...` (Annotations) | Opens the annotation editor. | Current annotation rows. | Available after Raw succeeds. |
-| `Apply` (Annotations) | Writes the configured annotations into the preprocess pipeline without clipping or omitting any submitted row. | Annotation output used by downstream steps. | Requires successful Raw and a valid annotation set. Every positive interval must fit completely within `[0,n_times/sampling_rate)` and every zero-duration point must begin before the exclusive right boundary; one out-of-support row blocks the complete Apply operation. |
+| `Apply` (Annotations) | Writes the configured annotations into the preprocess pipeline without clipping or omitting any submitted row. Submitted onset values are seconds from the first retained sample; inherited source annotations keep their existing timing and channel scope when the rows are appended. | Annotation output used by downstream steps. | Requires successful Raw and a valid annotation set. Every positive interval must fit completely within `[0,n_times/sampling_rate)` and every zero-duration point must begin before the exclusive right boundary; one out-of-support row blocks the complete Apply operation. |
 | `Plot` (Annotations) | Plots the annotated signal. | QC only. | Requires successful annotation output. |
 
 In any editable MNE Raw plot, press `a` to enter annotation mode and drag across
@@ -519,6 +519,32 @@ boundary support changes require Apply and review finalization again; the
 existing dependency flow then marks later Preprocess steps and all downstream
 Tensor, Alignment, and Features stale, including mask-disabled Tensor results.
 
+BUG-142/D-354 is `REPRODUCED` / `FIXED-VERIFIED`, P2. The repair applies the
+same MNE-rounded Raw-relative source-sample contract to the two formerly
+direct Preprocess masks: Filter/ECG bad-sample masks and Bad Segment Removal's
+global deletion mask. Positive annotations use clipped half-open rounded
+support, a positive interval whose endpoints round equal is empty, and a true
+zero-duration point masks no sample. BAD/EDGE matching, channel scope, removal
+scope, surviving-annotation remapping, reports, controls, and logging remain
+unchanged.
+
+The unchanged-source oracle produced exactly `4 failed, 4 passed`; repaired
+validation passed the dedicated `8`, focused `166`, complete `1529`, and exact
+`1529`-item collection gates. The complete run retained only the two
+established fully masked Connectivity warnings. Ruff, Black, scope/diff/index,
+and isolated-import gates also passed.
+Official capture, tracked/ignored replay, manifest verification, and evidence
+sealing are complete. Authoritative capture details are retained in the
+ignored iteration 033 log and evidence manifest rather than embedded in this
+tracked control reference.
+
+There is no automatic scan or freshness marker. A known affected earliest
+Filter, Bad Segment Removal, or ECG result must be explicitly applied again at
+that step; the existing dependency flow alone invalidates its later consumers.
+Canonical zero-first-sample, on-grid, point, and unrelated results remain
+current. The separately reproduced surviving non-BAD annotation remap is
+`NEEDS-DECISION` and is not part of BUG-142.
+
 ### 6.5 Configure Annotations
 
 ![Configure Annotations dialog.](assets/app-control-reference/controlref-advance-annotations-dialog.png)
@@ -537,6 +563,29 @@ Tensor, Alignment, and Features stale, including mask-disabled Tensor results.
 | `Import Annotations` | Imports annotation rows from a CSV file. | Annotation table rows. | Requires non-empty descriptions and finite, non-negative onset/duration values. |
 | `Save` | Saves the current annotation list back to Preprocess. | Annotation payload. | Blocks on invalid rows. |
 | `Cancel` | Closes the dialog without saving. | No annotation update. | Always available. |
+
+Annotation table and CSV onsets are always record-relative: zero is the first
+retained Raw sample. Apply preserves that meaning for both dated and undated
+recordings, including legal legacy or manually supplied Raw files whose
+`first_samp` is nonzero. Existing source annotations retain their exact
+descriptions, durations, channel scopes, and absolute-time reference while new
+rows retain the submitted record-relative values in `annotations.csv` and the
+run log. A known Annotations output created from a nonzero-first-sample source
+before this correction must be explicitly applied again; the normal
+record-scoped downstream invalidation then applies. Canonical imported records
+whose `first_samp` is zero and other unaffected results remain current; there
+is no automatic scan or migration.
+
+BUG-141/D-353 is `REPRODUCED` / `FIXED-VERIFIED`. The repaired eight-case
+contract, `84`-case focused set, and complete `1521`-case suite pass; the full
+run contains only the two established fully masked Connectivity warnings.
+This verification does not add a freshness marker or broaden the existing
+record-scoped invalidation behavior.
+Official BUG-141 evidence capture, replay, manifest verification, and sealing
+are complete. This tracked reference intentionally embeds no end-tree or patch
+hash; the authoritative refreshed capture details are owned by the ignored
+iteration 032 `ITERATION_LOG.md`, ignored-after snapshots, and evidence
+manifest.
 
 ### 6.6 ECG Method and Advance Parameters
 

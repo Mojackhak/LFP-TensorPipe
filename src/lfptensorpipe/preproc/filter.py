@@ -31,6 +31,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import mne
+from lfptensorpipe.io.timeline import raw_relative_onsets
 from ..lfp.mask.annotations import (
     BoundaryMatchMode,
     MatchMode,
@@ -204,7 +205,6 @@ def _build_bad_sample_mask(
         channel name, global annotations plus annotations assigned to that
         channel are included.
     """
-    sfreq = float(raw.info["sfreq"])
     n_times = int(raw.n_times)
     bad_mask = np.zeros(n_times, dtype=bool)
 
@@ -212,10 +212,10 @@ def _build_bad_sample_mask(
     if ann is None or len(ann) == 0:
         return bad_mask
 
-    sample_shift = int(raw.first_samp)
+    relative_onsets = raw_relative_onsets(raw)
 
-    for onset, duration, desc, ch_names in zip(
-        ann.onset,
+    for onset_relative, duration, desc, ch_names in zip(
+        relative_onsets,
         ann.duration,
         ann.description,
         ann.ch_names,
@@ -229,9 +229,13 @@ def _build_bad_sample_mask(
         ):
             continue
 
-        # Convert absolute onset(sec) -> sample index relative to raw data array
-        start_samp = int(round(float(onset) * sfreq)) - sample_shift
-        stop_samp = int(round((float(onset) + float(duration)) * sfreq)) - sample_shift
+        start_samp, stop_samp = raw.time_as_index(
+            [
+                float(onset_relative),
+                float(onset_relative) + float(duration),
+            ],
+            use_rounding=True,
+        )
 
         # Clip to valid data range
         start_samp = max(start_samp, 0)
@@ -1352,9 +1356,10 @@ def filter_lfp_with_bad_annotations(
     # 2) Build bad sample mask (sample-accurate; consistent with your first_samp logic)
     bad_mask = np.zeros(n_times, dtype=bool)
     sample_shift = int(getattr(raw_labeled, "first_samp", 0))
+    relative_onsets = raw_relative_onsets(raw_labeled)
 
-    for onset, duration, desc, ch_names in zip(
-        ann.onset,
+    for onset_relative, duration, desc, ch_names in zip(
+        relative_onsets,
         ann.duration,
         ann.description,
         ann.ch_names,
@@ -1363,8 +1368,13 @@ def filter_lfp_with_bad_annotations(
             continue
         if tuple(ch_names):
             continue
-        start_samp = int(round(float(onset) * sfreq)) - sample_shift
-        stop_samp = int(round((float(onset) + float(duration)) * sfreq)) - sample_shift
+        start_samp, stop_samp = raw_labeled.time_as_index(
+            [
+                float(onset_relative),
+                float(onset_relative) + float(duration),
+            ],
+            use_rounding=True,
+        )
         start_samp = max(start_samp, 0)
         stop_samp = min(stop_samp, n_times)
         if stop_samp > start_samp:
