@@ -178,11 +178,16 @@ def _read_sceneray_csv_data(
     df = pd.read_csv(csv_path, skiprows=list(layout.header_rows_to_skip))
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Read only header line that contains channel labels.
-    header_cols = pd.read_csv(
-        csv_path, skiprows=list(range(layout.channel_name_row)), nrows=0
-    ).columns
-    header_cols = [str(c).strip() for c in header_cols]
+    # Preserve the original logical label row before pandas can mangle duplicates.
+    header_row = pd.read_csv(
+        csv_path,
+        skiprows=list(range(layout.channel_name_row)),
+        header=None,
+        nrows=1,
+        dtype=str,
+        keep_default_na=False,
+    )
+    header_cols = [str(value).strip() for value in header_row.iloc[0]]
     return df, header_cols
 
 
@@ -211,16 +216,20 @@ def _infer_n_channels_from_columns(df: pd.DataFrame) -> int:
     return max(nums)
 
 
-def _normalize_channel_names(names: list[str], n_channels: int) -> list[str]:
-    if len(names) == n_channels:
-        return names
-    if len(names) > n_channels:
-        return names[:n_channels]
-    # Pad
-    padded = names[:]
-    for i in range(len(names) + 1, n_channels + 1):
-        padded.append(f"CH{i}")
-    return padded
+def _validate_channel_names(names: list[str], n_channels: int) -> list[str]:
+    if len(names) != n_channels:
+        raise ValueError(
+            "Sceneray channel label count must match data channels: "
+            f"expected {n_channels}, got {len(names)}."
+        )
+    name_index = pd.Index(names)
+    duplicate_mask = name_index.duplicated()
+    if duplicate_mask.any():
+        duplicates = list(name_index[duplicate_mask])
+        raise ValueError(
+            "Sceneray channel labels must be case-sensitively unique: " f"{duplicates}"
+        )
+    return names
 
 
 def _drop_and_fill_packet_index(df: pd.DataFrame) -> pd.DataFrame:
@@ -382,8 +391,8 @@ def uvcsv2vt(
     file_path:
         Path to the Sceneray raw CSV (often ends with *_uv.csv).
     f:
-        Optional scaling factor applied to channel values (e.g., convert raw units to microvolts).
-        If None, keep numeric values as-is.
+        Optional finite scaling factor applied to channel values (e.g., convert
+        raw units to microvolts). If None, keep numeric values as-is.
     save_path:
         Output CSV path. If None, defaults to "<csv>_reorg.csv". The output
         must not refer to ``file_path`` or ``txt_path``.
@@ -392,7 +401,9 @@ def uvcsv2vt(
     ipg_type:
         Device type. If None, inferred from the IPG SN in the txt sidecar.
     correct_fs:
-        If True, correct sampling frequency using (EndTime - StartTime) from the txt sidecar.
+        If True, correct sampling frequency using (EndTime - StartTime) from
+        the txt sidecar. The final effective frequency must be finite and
+        greater than zero.
     correct_idx:
         If True, fill missing packet indices and drop duplicated packet indices (legacy behavior).
 
@@ -417,7 +428,7 @@ def uvcsv2vt(
 
     channel_names = _parse_channel_names(header_cols)
     n_channels = _infer_n_channels_from_columns(df_raw)
-    channel_names = _normalize_channel_names(channel_names, n_channels)
+    channel_names = _validate_channel_names(channel_names, n_channels)
 
     cols_by_ch = _collect_channel_block_columns(df_raw, n_channels)
     n_packets = len(df_raw)
@@ -430,10 +441,15 @@ def uvcsv2vt(
 
     # Flatten to time series: (time, channel)
     data2d = cube.reshape(n_packets * n_blocks, n_channels)
+    if np.isinf(data2d).any():
+        raise InfiniteSignalValuesError("Signal data must not contain infinite values.")
 
     df_out = pd.DataFrame(data2d, columns=channel_names)
     if f is not None:
-        df_out *= float(f)
+        scale = float(f)
+        if not math.isfinite(scale):
+            raise ValueError(f"f must be finite, got {scale}")
+        df_out *= scale
 
     # Determine effective sampling rate (optionally corrected by duration)
     sfreq = float(meta.sfreq_hz)
@@ -446,6 +462,11 @@ def uvcsv2vt(
                 meta.sfreq_hz,
                 sfreq,
             )
+
+    if not math.isfinite(sfreq) or sfreq <= 0:
+        raise ValueError(
+            f"Effective sampling frequency must be finite and > 0, got {sfreq}"
+        )
 
     time_s = np.arange(df_out.shape[0], dtype=float) / sfreq
     # Match legacy (converter good.py) formatting/rounding by generating python datetimes per-sample.
