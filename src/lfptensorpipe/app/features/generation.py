@@ -28,6 +28,12 @@ BURST_SAMPLE_SUPPORT_RERUN_MESSAGE = (
     "Latest Extract Features result uses legacy Burst native sample-support "
     "semantics. Rerun Extract Features."
 )
+CLIP_STITCH_MEAN_SUPPORT_KEY = "clip_stitch_mean_support"
+CLIP_STITCH_MEAN_SUPPORT = "exact_fragment_segment_local_endpoint_hold"
+CLIP_STITCH_MEAN_SUPPORT_RERUN_MESSAGE = (
+    "Latest Clip/Stitch Extract Features result uses legacy source-fragment "
+    "mean support. Rerun Extract Features."
+)
 
 
 def outputs_from_features_entry(
@@ -149,6 +155,29 @@ def feature_generation_requires_burst_sample_support_rerun(
     )
 
 
+def feature_generation_requires_clip_stitch_mean_support_rerun(
+    entry: dict[str, Any],
+) -> bool:
+    """Return whether one accepted Clip/Stitch mean uses legacy support."""
+    outputs = outputs_from_features_entry(entry)
+    if outputs is None:
+        return False
+    params = entry.get("params")
+    if not isinstance(params, dict) or params.get("alignment_method") not in {
+        "pad_warper",
+        "concat_warper",
+    }:
+        return False
+    affected = any(
+        metric != "burst"
+        and any(path.name in {"mean-spectral.pkl", "mean-scalar.pkl"} for path in paths)
+        for metric, paths in outputs.items()
+    )
+    return affected and params.get(CLIP_STITCH_MEAN_SUPPORT_KEY) != (
+        CLIP_STITCH_MEAN_SUPPORT
+    )
+
+
 def feature_generation_rerun_message(
     resolver: PathResolver,
     *,
@@ -165,6 +194,8 @@ def feature_generation_rerun_message(
     if outputs_from_features_entry(payload) is not None:
         if feature_generation_requires_burst_sample_support_rerun(payload):
             return BURST_SAMPLE_SUPPORT_RERUN_MESSAGE
+        if feature_generation_requires_clip_stitch_mean_support_rerun(payload):
+            return CLIP_STITCH_MEAN_SUPPORT_RERUN_MESSAGE
         return (
             NUMERIC_MEAN_RERUN_MESSAGE
             if feature_generation_requires_numeric_mean_rerun(payload)
@@ -175,12 +206,16 @@ def feature_generation_rerun_message(
 
 __all__ = [
     "BURST_SAMPLE_SUPPORT_RERUN_MESSAGE",
+    "CLIP_STITCH_MEAN_SUPPORT",
+    "CLIP_STITCH_MEAN_SUPPORT_KEY",
+    "CLIP_STITCH_MEAN_SUPPORT_RERUN_MESSAGE",
     "FEATURE_MANIFEST_RERUN_MESSAGE",
     "NUMERIC_MEAN_RERUN_MESSAGE",
     "NUMERIC_MEAN_SEMANTICS",
     "NUMERIC_MEAN_SEMANTICS_KEY",
     "accepted_feature_artifact_paths",
     "feature_generation_requires_burst_sample_support_rerun",
+    "feature_generation_requires_clip_stitch_mean_support_rerun",
     "feature_generation_requires_numeric_mean_rerun",
     "feature_generation_rerun_message",
     "outputs_from_features_entry",

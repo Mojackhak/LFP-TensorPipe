@@ -52,7 +52,12 @@ from .burst_native import (
     cleanup_legacy_occupation_outputs,
     normalize_burst_reducers,
 )
-from .generation import NUMERIC_MEAN_SEMANTICS, NUMERIC_MEAN_SEMANTICS_KEY
+from .generation import (
+    CLIP_STITCH_MEAN_SUPPORT,
+    CLIP_STITCH_MEAN_SUPPORT_KEY,
+    NUMERIC_MEAN_SEMANTICS,
+    NUMERIC_MEAN_SEMANTICS_KEY,
+)
 from .piecewise_native import build_piecewise_mean_outputs
 
 
@@ -827,6 +832,15 @@ def run_extract_features(
             }
             if any(metric == "burst" for metric, _path in raw_tables):
                 params_payload[BURST_SAMPLE_SUPPORT_KEY] = BURST_SAMPLE_SUPPORT
+            if alignment_method in {"pad_warper", "concat_warper"} and any(
+                metric != "burst"
+                and any(
+                    Path(relative_path).name in {"mean-spectral.pkl", "mean-scalar.pkl"}
+                    for relative_path in outputs_by_metric.get(metric, [])
+                )
+                for metric, _path in raw_tables
+            ):
+                params_payload[CLIP_STITCH_MEAN_SUPPORT_KEY] = CLIP_STITCH_MEAN_SUPPORT
             success_record = RunLogRecord(
                 step="run_extract_features",
                 completed=True,

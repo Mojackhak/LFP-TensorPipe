@@ -12,13 +12,17 @@ from lfptensorpipe.app.alignment.warper_builder import _resolve_target_duration_
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.tensor.paths import tensor_metric_tensor_path
 from lfptensorpipe.io.pkl_io import load_pkl
+from lfptensorpipe.lfp.common import infer_sfreq_from_times
 from lfptensorpipe.lfp.burst.timeline import (
     MappedFragment,
     WarpSegment,
     build_warp_segments,
     map_percent_intervals,
 )
-from lfptensorpipe.lfp.warp.utils import interp_along_last_axis
+from lfptensorpipe.lfp.warp.utils import (
+    interp_along_last_axis,
+    time_s_to_sample_index,
+)
 from lfptensorpipe.tabular.grid import (
     AxisInfo,
     AxisSelection,
@@ -114,35 +118,45 @@ def _fragment_values(
     )
     if start < float(source_times[0]) - tolerance or end > source_stop + tolerance:
         raise ValueError("Alignment fragment exceeds native Tensor time support.")
-    start = max(start, float(source_times[0]))
-    reaches_segment_end = abs(end - float(segment.source_end)) <= tolerance
-    if reaches_segment_end:
-        eligible = source_times[source_times < float(segment.source_end) - tolerance]
-        if eligible.size == 0:
-            end = start
-        else:
-            end = min(end, float(eligible[-1]))
-    else:
-        end = min(end, float(source_times[-1]))
+    if (
+        start < float(segment.source_start) - tolerance
+        or end > float(segment.source_end) + tolerance
+    ):
+        raise ValueError("Alignment fragment exceeds its source segment.")
+    start = max(start, float(source_times[0]), float(segment.source_start))
+    end = min(end, source_stop, float(segment.source_end))
     if end < start:
         return np.asarray([], dtype=float), values[..., :0]
+
+    source_rate = infer_sfreq_from_times(source_times)
+    segment_start = max(
+        time_s_to_sample_index(float(segment.source_start), source_rate),
+        0,
+    )
+    segment_stop = time_s_to_sample_index(float(segment.source_end), source_rate)
+    segment_start = min(segment_start, source_times.size - 1)
+    segment_stop = min(segment_stop, source_times.size)
+    if segment_stop <= segment_start:
+        raise ValueError("Alignment source segment contains no native Tensor samples.")
+    segment_times = source_times[segment_start:segment_stop]
+    segment_values = values[..., segment_start:segment_stop]
     if end == start:
         nodes = np.asarray([start], dtype=float)
         source_indices = np.interp(
             nodes,
-            source_times,
-            np.arange(source_times.size, dtype=float),
+            segment_times,
+            np.arange(segment_times.size, dtype=float),
         )
-        return nodes, interp_along_last_axis(values, source_indices)
+        return nodes, interp_along_last_axis(segment_values, source_indices)
 
-    interior = source_times[(source_times > start) & (source_times < end)]
+    interior = segment_times[(segment_times > start) & (segment_times < end)]
     nodes = np.concatenate(([start], interior, [end])).astype(float, copy=False)
     source_indices = np.interp(
         nodes,
-        source_times,
-        np.arange(source_times.size, dtype=float),
+        segment_times,
+        np.arange(segment_times.size, dtype=float),
     )
-    return nodes, interp_along_last_axis(values, source_indices)
+    return nodes, interp_along_last_axis(segment_values, source_indices)
 
 
 def _numeric_selection(start: float, end: float, size: int) -> AxisSelection:

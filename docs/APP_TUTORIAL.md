@@ -836,7 +836,10 @@ other. Alignment interpolates only within a piece. Non-Burst spectral and
 scalar `mean` Features map each phase back to the original Tensor timeline,
 integrate each mapped fragment separately, and combine the fragment numerators
 and valid physical durations. The first and last sample of every fragment both
-participate, but no trapezoid is drawn across a stitched boundary.
+participate. If a persisted source-fragment boundary lies between native Tensor
+timestamps, the nearest sample owned by that fragment is held constant to the
+exact boundary. Samples from a gap or neighboring fragment are never used, and
+no trapezoid is drawn across a stitched boundary.
 
 ### Feature value transformations
 
