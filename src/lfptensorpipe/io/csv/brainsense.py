@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import Any
 
@@ -73,10 +74,10 @@ def _resolve_sr_and_unit(options: dict[str, Any] | None) -> tuple[float, str]:
             message=f"Invalid options['sr']: {options.get('sr')!r}",
         ) from exc
 
-    if sr <= 0:
+    if not math.isfinite(sr) or sr <= 0:
         raise ParseError(
             code="PARSE_SCHEMA_INVALID",
-            message=f"options['sr'] must be > 0, got {sr}",
+            message=f"options['sr'] must be finite and > 0, got {sr}",
         )
 
     unit = str(options.get("unit")).strip()

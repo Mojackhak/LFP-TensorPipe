@@ -702,8 +702,9 @@ def df2mne(
         raise TypeError(f"df must be a pandas.DataFrame, got {type(df)!r}")
     if df.empty:
         raise ValueError("df must contain at least one channel column and one sample.")
-    if float(sr) <= 0:
-        raise ValueError(f"sr must be > 0, got {sr}")
+    sr_value = float(sr)
+    if not math.isfinite(sr_value) or sr_value <= 0:
+        raise ValueError(f"sr must be finite and > 0, got {sr_value}")
     if df.columns.duplicated().any():
         dup = list(df.columns[df.columns.duplicated()])
         raise ValueError(f"df contains duplicated channel names: {dup}")
@@ -743,7 +744,7 @@ def df2mne(
         raise ValueError(
             f"ch_types length ({len(ch_types)}) does not match number of numeric channels ({len(ch_names)})."
         )
-    info = mne.create_info(ch_names=ch_names, sfreq=float(sr), ch_types=ch_types)
+    info = mne.create_info(ch_names=ch_names, sfreq=sr_value, ch_types=ch_types)
     return mne.io.RawArray(data_v, info)
 
 

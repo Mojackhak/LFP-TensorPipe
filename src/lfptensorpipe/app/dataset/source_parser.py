@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -94,10 +95,13 @@ def _load_raw_from_source(
 ) -> tuple[Any, bool]:
     suffix = source_path.suffix.lower()
     if suffix == ".csv":
-        if csv_sr is None or float(csv_sr) <= 0:
-            raise ValueError("CSV import requires sr > 0.")
+        if csv_sr is None:
+            raise ValueError("CSV import requires finite sr > 0.")
+        csv_sr_value = float(csv_sr)
+        if not math.isfinite(csv_sr_value) or csv_sr_value <= 0:
+            raise ValueError("CSV import requires finite sr > 0.")
         df = pd.read_csv(source_path)
-        return df2mne(df, sr=float(csv_sr), unit=csv_unit), False
+        return df2mne(df, sr=csv_sr_value, unit=csv_unit), False
 
     import mne
 
