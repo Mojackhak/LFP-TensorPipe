@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future
 from dataclasses import dataclass
 from pathlib import Path
+from queue import SimpleQueue
 import subprocess
 import sys
 import threading
@@ -96,15 +97,71 @@ LocalizeRuntimeRunner = Callable[
 ContactViewerLauncher = Callable[[Path, str, LocalizePaths], None]
 
 
+class _DaemonSingleWorkerExecutor:
+    """Run submitted Localize tasks in FIFO order on one daemon worker."""
+
+    def __init__(self, *, thread_name_prefix: str) -> None:
+        self._thread_name_prefix = thread_name_prefix
+        self._queue: SimpleQueue[
+            tuple[Future[Any], Callable[..., Any], tuple[Any, ...], dict[str, Any]]
+        ] = SimpleQueue()
+        self._start_lock = threading.Lock()
+        self._worker: threading.Thread | None = None
+
+    def submit(
+        self,
+        fn: Callable[..., Any],
+        /,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Future[Any]:
+        future: Future[Any] = Future()
+        with self._start_lock:
+            if self._worker is None:
+                worker = threading.Thread(
+                    target=self._run,
+                    name=f"{self._thread_name_prefix}_0",
+                    daemon=True,
+                )
+                worker.start()
+                self._worker = worker
+            self._queue.put((future, fn, args, kwargs))
+        return future
+
+    @staticmethod
+    def _run_item(
+        item: tuple[Future[Any], Callable[..., Any], tuple[Any, ...], dict[str, Any]],
+    ) -> None:
+        future, fn, args, kwargs = item
+        result: Any = None
+        try:
+            if not future.set_running_or_notify_cancel():
+                return
+            try:
+                result = fn(*args, **kwargs)
+            except BaseException as exc:  # noqa: BLE001
+                future.set_exception(exc)
+            else:
+                future.set_result(result)
+        finally:
+            del item, future, fn, args, kwargs, result
+
+    def _run(self) -> None:
+        while True:
+            item = self._queue.get()
+            try:
+                self._run_item(item)
+            finally:
+                del item
+
+
 _ELSPEC_CACHE: dict[str, dict[str, Any]] = {}
 _MATLAB_RUNTIME_LOCK = threading.Lock()
 _MATLAB_RUNTIME_ENGINE: Any | None = None
 _MATLAB_RUNTIME_KEY: tuple[str, str] | None = None
 _MATLAB_RUNTIME_STATE = "idle"
 _MATLAB_RUNTIME_MESSAGE = "Not started."
-_MATLAB_TASK_EXECUTOR = ThreadPoolExecutor(
-    max_workers=1, thread_name_prefix="lfptp-matlab"
-)
+_MATLAB_TASK_EXECUTOR = _DaemonSingleWorkerExecutor(thread_name_prefix="lfptp-matlab")
 _MATLAB_TASK_TIMEOUT_S = 60.0
 _MATLAB_SHUTDOWN_TIMEOUT_S = 5.0
 _MATLAB_CONTROL_LOCK = threading.Lock()
