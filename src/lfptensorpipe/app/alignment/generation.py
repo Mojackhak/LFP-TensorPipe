@@ -5,14 +5,41 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
+from lfptensorpipe.app.localize.paths import (
+    localize_indicator_state,
+    localize_result_generation_id,
+)
 from lfptensorpipe.app.path_resolver import PathResolver
+from lfptensorpipe.app.preproc.lineage import preproc_step_lineage_is_current
 from lfptensorpipe.app.runlog_store import read_run_log
+from lfptensorpipe.app.shared.generation_lineage import (
+    LOCALIZE_GENERATION_REF,
+    accepted_result_generation_id,
+    alignment_generation_ref,
+    input_generation_receipts_match,
+    preproc_generation_ref,
+    tensor_generation_ref,
+)
+from lfptensorpipe.app.tensor.lineage import (
+    tensor_metric_lineage_is_current,
+    tensor_metric_result_generation_id,
+)
 from lfptensorpipe.lfp.burst.semantics import (
     BURST_SAMPLE_SUPPORT,
     BURST_SAMPLE_SUPPORT_KEY,
 )
 
 AlignmentGenerationStage = Literal["run", "finish"]
+
+_ALIGNMENT_STAGE_STEP: dict[AlignmentGenerationStage, str] = {
+    "run": "run_align_epochs",
+    "finish": "build_raw_table",
+}
+
+
+class AlignmentInputGenerationChangedError(RuntimeError):
+    """Raised when an Alignment candidate no longer matches captured inputs."""
+
 
 ALIGNMENT_RUN_MANIFEST_RERUN_MESSAGE = (
     "Latest Align Run uses a legacy or incomplete metric manifest. "
@@ -88,6 +115,277 @@ def metrics_from_alignment_entry(entry: dict[str, Any]) -> list[str] | None:
     return metrics
 
 
+def latest_alignment_step_entry(
+    resolver: PathResolver,
+    *,
+    trial_slug: str,
+    step: str,
+) -> tuple[int, dict[str, Any]] | None:
+    """Return the latest event for one exact Alignment step."""
+    slug = str(trial_slug).strip()
+    target_step = str(step).strip()
+    if not slug or not target_step:
+        return None
+    log_path = resolver.alignment_root / slug / "lfptensorpipe_log.json"
+    try:
+        payload = read_run_log(log_path)
+    except Exception:
+        return None
+    return _latest_step(_history_entries(payload), target_step)
+
+
+def _preproc_finish_result_generation_id(
+    resolver: PathResolver,
+) -> str | None:
+    log_path = (
+        resolver.preproc_step_dir("finish", create=False) / "lfptensorpipe_log.json"
+    )
+    try:
+        payload = read_run_log(log_path)
+    except Exception:
+        return None
+    return accepted_result_generation_id(payload)
+
+
+def _run_artifacts_exist(
+    resolver: PathResolver,
+    *,
+    trial_slug: str,
+    metrics: list[str],
+) -> bool:
+    root = resolver.alignment_paradigm_dir(trial_slug, create=False)
+    if not (root / "warp_fn.pkl").is_file() or not (root / "warp_labels.pkl").is_file():
+        return False
+    return all((root / metric / "tensor_warped.pkl").is_file() for metric in metrics)
+
+
+def _finish_artifacts_exist(
+    resolver: PathResolver,
+    *,
+    trial_slug: str,
+    metrics: list[str],
+) -> bool:
+    root = resolver.alignment_paradigm_dir(trial_slug, create=False)
+    return all((root / metric / "na-raw.pkl").is_file() for metric in metrics)
+
+
+def capture_alignment_run_input_generations(
+    resolver: PathResolver,
+    *,
+    metrics: list[str] | tuple[str, ...],
+) -> dict[str, str | None] | None:
+    """Capture Finish and manifest Tensor generations before Align input reads."""
+    normalized_metrics = [str(metric).strip() for metric in metrics]
+    if (
+        not normalized_metrics
+        or any(not metric for metric in normalized_metrics)
+        or len(normalized_metrics) != len(set(normalized_metrics))
+        or not preproc_step_lineage_is_current(resolver, "finish")
+    ):
+        return None
+
+    input_generations: dict[str, str | None] = {
+        preproc_generation_ref("finish"): _preproc_finish_result_generation_id(resolver)
+    }
+    for metric in normalized_metrics:
+        if not tensor_metric_lineage_is_current(resolver, metric):
+            return None
+        input_generations[tensor_generation_ref(metric)] = (
+            tensor_metric_result_generation_id(resolver, metric)
+        )
+    return input_generations
+
+
+def alignment_run_input_generations_match(
+    resolver: PathResolver,
+    *,
+    metrics: list[str] | tuple[str, ...],
+    input_generations: dict[str, str | None],
+) -> bool:
+    """Recheck the exact original Align Run capture before promotion."""
+    return (
+        capture_alignment_run_input_generations(
+            resolver,
+            metrics=metrics,
+        )
+        == input_generations
+    )
+
+
+def capture_alignment_finish_input_generations(
+    resolver: PathResolver,
+    *,
+    trial_slug: str,
+    include_localize: bool,
+) -> dict[str, str | None] | None:
+    """Capture exact same-trial Run and the Localize result actually read."""
+    slug = str(trial_slug).strip()
+    if not slug or not alignment_stage_lineage_is_current(
+        resolver,
+        trial_slug=slug,
+        stage="run",
+    ):
+        return None
+    latest_run = latest_alignment_step_entry(
+        resolver,
+        trial_slug=slug,
+        step="run_align_epochs",
+    )
+    if latest_run is None:
+        return None
+    current_localize_ready = (
+        localize_indicator_state(
+            resolver.context.project_root,
+            resolver.context.subject,
+            resolver.context.record,
+        )
+        == "green"
+    )
+    if current_localize_ready != bool(include_localize):
+        return None
+
+    input_generations: dict[str, str | None] = {
+        alignment_generation_ref(slug, "run_align_epochs"): (
+            accepted_result_generation_id(latest_run[1])
+        )
+    }
+    if include_localize:
+        input_generations[LOCALIZE_GENERATION_REF] = localize_result_generation_id(
+            resolver.context.project_root,
+            resolver.context.subject,
+            resolver.context.record,
+        )
+    return input_generations
+
+
+def alignment_finish_input_generations_match(
+    resolver: PathResolver,
+    *,
+    trial_slug: str,
+    include_localize: bool,
+    input_generations: dict[str, str | None],
+) -> bool:
+    """Recheck the exact original Align Finish capture before promotion."""
+    return (
+        capture_alignment_finish_input_generations(
+            resolver,
+            trial_slug=trial_slug,
+            include_localize=include_localize,
+        )
+        == input_generations
+    )
+
+
+def alignment_stage_lineage_is_current(
+    resolver: PathResolver,
+    *,
+    trial_slug: str,
+    stage: AlignmentGenerationStage,
+) -> bool:
+    """Return whether the latest exact Alignment stage is recursively current."""
+    slug = str(trial_slug).strip()
+    step = _ALIGNMENT_STAGE_STEP.get(stage)
+    if not slug or step is None:
+        return False
+    latest = latest_alignment_step_entry(
+        resolver,
+        trial_slug=slug,
+        step=step,
+    )
+    if latest is None or latest[1].get("completed") is not True:
+        return False
+    metrics = metrics_from_alignment_entry(latest[1])
+    if metrics is None:
+        return False
+
+    if stage == "run":
+        captured = capture_alignment_run_input_generations(
+            resolver,
+            metrics=metrics,
+        )
+        return (
+            captured is not None
+            and _run_artifacts_exist(
+                resolver,
+                trial_slug=slug,
+                metrics=metrics,
+            )
+            and input_generation_receipts_match(latest[1], expected=captured)
+        )
+
+    latest_run = latest_alignment_step_entry(
+        resolver,
+        trial_slug=slug,
+        step="run_align_epochs",
+    )
+    if (
+        latest_run is None
+        or latest[0] <= latest_run[0]
+        or not alignment_stage_lineage_is_current(
+            resolver,
+            trial_slug=slug,
+            stage="run",
+        )
+    ):
+        return False
+    run_metrics = metrics_from_alignment_entry(latest_run[1])
+    if run_metrics is None or not set(metrics).issubset(run_metrics):
+        return False
+    params = latest[1].get("params")
+    if not isinstance(params, dict):
+        return False
+    current_localize_ready = (
+        localize_indicator_state(
+            resolver.context.project_root,
+            resolver.context.subject,
+            resolver.context.record,
+        )
+        == "green"
+    )
+    stored_localize_ready = params.get("merge_location_info_ready")
+    if isinstance(stored_localize_ready, bool):
+        if stored_localize_ready != current_localize_ready:
+            return False
+        include_localize = stored_localize_ready
+    else:
+        include_localize = current_localize_ready
+    captured = capture_alignment_finish_input_generations(
+        resolver,
+        trial_slug=slug,
+        include_localize=include_localize,
+    )
+    return (
+        captured is not None
+        and _finish_artifacts_exist(
+            resolver,
+            trial_slug=slug,
+            metrics=metrics,
+        )
+        and input_generation_receipts_match(latest[1], expected=captured)
+    )
+
+
+def alignment_stage_result_generation_id(
+    resolver: PathResolver,
+    *,
+    trial_slug: str,
+    stage: AlignmentGenerationStage,
+) -> str | None:
+    """Return the current accepted result ID for one exact Alignment stage."""
+    if not alignment_stage_lineage_is_current(
+        resolver,
+        trial_slug=trial_slug,
+        stage=stage,
+    ):
+        return None
+    latest = latest_alignment_step_entry(
+        resolver,
+        trial_slug=trial_slug,
+        step=_ALIGNMENT_STAGE_STEP[stage],
+    )
+    return accepted_result_generation_id(latest[1]) if latest is not None else None
+
+
 def alignment_generation_requires_burst_sample_support_rerun(
     entry: dict[str, Any],
 ) -> bool:
@@ -110,34 +408,20 @@ def accepted_alignment_metrics(
 ) -> list[str] | None:
     """Resolve metrics owned by the latest accepted Run or Finish event."""
     slug = str(trial_slug).strip()
-    if not slug:
-        return None
-    log_path = resolver.alignment_root / slug / "lfptensorpipe_log.json"
-    try:
-        payload = read_run_log(log_path)
-    except Exception:
-        return None
-    entries = _history_entries(payload)
-    latest_run = _latest_step(entries, "run_align_epochs")
-    if latest_run is None or latest_run[1].get("completed") is not True:
-        return None
-    run_metrics = metrics_from_alignment_entry(latest_run[1])
-    if run_metrics is None:
-        return None
-    if stage == "run":
-        return run_metrics
-
-    latest_finish = _latest_step(entries, "build_raw_table")
-    if (
-        latest_finish is None
-        or latest_finish[0] <= latest_run[0]
-        or latest_finish[1].get("completed") is not True
+    if not slug or not alignment_stage_lineage_is_current(
+        resolver,
+        trial_slug=slug,
+        stage=stage,
     ):
         return None
-    finish_metrics = metrics_from_alignment_entry(latest_finish[1])
-    if finish_metrics is None or not set(finish_metrics).issubset(run_metrics):
+    latest = latest_alignment_step_entry(
+        resolver,
+        trial_slug=slug,
+        step=_ALIGNMENT_STAGE_STEP[stage],
+    )
+    if latest is None or latest[1].get("completed") is not True:
         return None
-    return finish_metrics
+    return metrics_from_alignment_entry(latest[1])
 
 
 def alignment_generation_rerun_message(
@@ -239,9 +523,17 @@ __all__ = [
     "ALIGNMENT_LINEAR_EVENT_PAIRING_RERUN_MESSAGE",
     "ALIGNMENT_RUN_MANIFEST_RERUN_MESSAGE",
     "ALIGNMENT_ZERO_DURATION_RERUN_MESSAGE",
+    "AlignmentInputGenerationChangedError",
     "accepted_alignment_artifact_paths",
     "accepted_alignment_metrics",
+    "alignment_finish_input_generations_match",
     "alignment_generation_requires_burst_sample_support_rerun",
     "alignment_generation_rerun_message",
+    "alignment_run_input_generations_match",
+    "alignment_stage_lineage_is_current",
+    "alignment_stage_result_generation_id",
+    "capture_alignment_finish_input_generations",
+    "capture_alignment_run_input_generations",
+    "latest_alignment_step_entry",
     "metrics_from_alignment_entry",
 ]

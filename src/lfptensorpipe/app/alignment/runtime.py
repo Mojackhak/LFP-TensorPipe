@@ -12,6 +12,10 @@ from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
 from lfptensorpipe.app.shared.downstream_invalidation import (
     invalidate_after_alignment_run,
 )
+from lfptensorpipe.app.shared.generation_lineage import (
+    new_result_generation_id,
+    params_with_generation_lineage,
+)
 from lfptensorpipe.lfp.burst.semantics import (
     BURST_SAMPLE_SUPPORT,
     BURST_SAMPLE_SUPPORT_KEY,
@@ -25,6 +29,11 @@ from lfptensorpipe.utils.transforms import (
 )
 
 from . import service as svc
+from .generation import (
+    AlignmentInputGenerationChangedError,
+    alignment_run_input_generations_match,
+    capture_alignment_run_input_generations,
+)
 from .method_specs import (
     CLIP_STITCH_GEOMETRY,
     CLIP_STITCH_GEOMETRY_KEY,
@@ -69,9 +78,6 @@ def run_align_epochs(
         validate_alignment_method_params_fn or svc.validate_alignment_method_params
     )
     default_alignment_method_params = svc.default_alignment_method_params
-    update_alignment_paradigm = (
-        update_alignment_paradigm_fn or svc.update_alignment_paradigm
-    )
     _build_warper = build_warper_fn or svc._build_warper
     _resolve_target_n_samples = svc._resolve_target_n_samples
     _resolve_target_duration_s = svc._resolve_target_duration_s
@@ -119,6 +125,13 @@ def run_align_epochs(
     if not metrics:
         return False, "No completed tensor metrics available.", []
 
+    input_generations = capture_alignment_run_input_generations(
+        resolver,
+        metrics=metrics,
+    )
+    if input_generations is None:
+        return False, "Align Epochs inputs are not current; rerun their producers.", []
+
     finish_raw = preproc_step_raw_path(resolver, "finish")
     if not finish_raw.exists():
         return False, "Missing preproc finish raw.fif.", []
@@ -161,13 +174,6 @@ def run_align_epochs(
             )
         )
 
-        _ = update_alignment_paradigm(
-            config_store,
-            slug=slug,
-            method=method,
-            method_params=method_params,
-            context=context,
-        )
         epochs_by_label, warp_fn = _build_warper(
             raw,
             method=method,
@@ -368,17 +374,21 @@ def run_align_epochs(
                     output_set.staged_path(out_path),
                 )
 
-            run_params = {
-                "trial_slug": slug,
-                "name": trial_config_payload.get("name", slug),
-                "method": method,
-                "method_params": method_params,
-                "sample_rate": sample_rate,
-                "warped_n_samples": int(n_samples),
-                "n_metrics": len(metrics),
-                "n_epochs": len(epoch_rows),
-                "metrics": metrics,
-            }
+            run_params = params_with_generation_lineage(
+                {
+                    "trial_slug": slug,
+                    "name": trial_config_payload.get("name", slug),
+                    "method": method,
+                    "method_params": method_params,
+                    "sample_rate": sample_rate,
+                    "warped_n_samples": int(n_samples),
+                    "n_metrics": len(metrics),
+                    "n_epochs": len(epoch_rows),
+                    "metrics": metrics,
+                },
+                result_generation_id=new_result_generation_id(),
+                input_generations=input_generations,
+            )
             if uses_current_linear_warp_geometry:
                 run_params[LINEAR_WARP_GEOMETRY_KEY] = LINEAR_WARP_GEOMETRY
             if uses_current_linear_event_pairing:
@@ -419,9 +429,18 @@ def run_align_epochs(
                 trial_config=trial_config_payload,
                 source_path=log_path,
             )
+            if not alignment_run_input_generations_match(
+                resolver,
+                metrics=metrics,
+                input_generations=input_generations,
+            ):
+                raise AlignmentInputGenerationChangedError(
+                    "Alignment inputs changed while Align Epochs was running; "
+                    "candidate outputs were not accepted."
+                )
             output_set.commit()
-        invalidate_after_alignment_run(context, paradigm_slug=slug)
-        return True, completion_message, epoch_rows
+    except AlignmentInputGenerationChangedError as exc:
+        return False, str(exc), []
     except Exception as exc:  # noqa: BLE001
         trial_config_payload = _normalize_paradigm(
             {
@@ -460,7 +479,8 @@ def run_align_epochs(
                 message=f"Align Epochs failed: {exc}",
             ).to_dict(),
             keep_top_level=False,
-            trial_config=trial_config_payload,
         )
-        invalidate_after_alignment_run(context, paradigm_slug=slug)
         return False, f"Align Epochs failed: {exc}", []
+
+    invalidate_after_alignment_run(context, paradigm_slug=slug)
+    return True, completion_message, epoch_rows

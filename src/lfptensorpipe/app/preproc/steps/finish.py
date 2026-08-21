@@ -7,7 +7,16 @@ from typing import Any, Callable
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
+from lfptensorpipe.app.shared.generation_lineage import (
+    new_result_generation_id,
+    params_with_generation_lineage,
+)
 
+from ..lineage import (
+    PreprocInputGenerationChanged,
+    capture_preproc_input_generation,
+    preproc_input_generation_matches,
+)
 from ..paths import preproc_step_log_path
 
 ReadRunLogFn = Callable[[Path], dict[str, Any] | None]
@@ -70,6 +79,11 @@ def apply_finish_step(
         return False, "No valid source step available."
 
     source_step, source_path = source
+    captured = capture_preproc_input_generation(resolver, "finish")
+    if captured is None or captured[0] != source_step:
+        return False, "Finish source changed before input read."
+    _, input_generations = captured
+    result_generation_id = new_result_generation_id()
     raw = None
     raw_out = None
     try:
@@ -112,27 +126,42 @@ def apply_finish_step(
                 resolver=resolver,
                 step="finish",
                 completed=True,
-                params={
-                    "source_step": source_step,
-                    "physical_edge_description": str(edge_report["description"]),
-                    "physical_edge_count": n_added,
-                    "physical_edge_onsets_sec": [
-                        float(item) for item in edge_report["added_onsets_sec"]
-                    ],
-                    "physical_edge_durations_sec": [
-                        float(item) for item in edge_report["added_durations_sec"]
-                    ],
-                    "source_first_time_sec": float(
-                        edge_report.get("first_time_sec", 0.0)
-                    ),
-                    "dropped_annotations": dropped,
-                },
+                params=params_with_generation_lineage(
+                    {
+                        "source_step": source_step,
+                        "physical_edge_description": str(edge_report["description"]),
+                        "physical_edge_count": n_added,
+                        "physical_edge_onsets_sec": [
+                            float(item) for item in edge_report["added_onsets_sec"]
+                        ],
+                        "physical_edge_durations_sec": [
+                            float(item) for item in edge_report["added_durations_sec"]
+                        ],
+                        "source_first_time_sec": float(
+                            edge_report.get("first_time_sec", 0.0)
+                        ),
+                        "dropped_annotations": dropped,
+                    },
+                    result_generation_id=result_generation_id,
+                    input_generations=input_generations,
+                ),
                 input_path=str(source_path),
                 output_path=str(finish_raw_path),
                 message=message,
                 log_path=output_set.staged_path(log_path),
             )
+            if not preproc_input_generation_matches(
+                resolver,
+                "finish",
+                source_step=source_step,
+                input_generations=input_generations,
+            ):
+                raise PreprocInputGenerationChanged(
+                    "Finish source changed during execution."
+                )
             output_set.commit()
+    except PreprocInputGenerationChanged as exc:
+        return False, f"Finish step failed: {exc}"
     except Exception as exc:
         mark_preproc_step_fn(
             resolver=resolver,

@@ -73,6 +73,7 @@ class MainWindowPreprocPlottingMixin:
         raw_path,
         step: str,
         title_prefix: str,
+        tracked_open_state=None,
     ) -> None:
         _attach_plot_autosave_impl(
             self,
@@ -81,6 +82,7 @@ class MainWindowPreprocPlottingMixin:
             raw_path=raw_path,
             step=step,
             title_prefix=title_prefix,
+            tracked_open_state=tracked_open_state,
         )
 
     def _open_mne_raw_plot(

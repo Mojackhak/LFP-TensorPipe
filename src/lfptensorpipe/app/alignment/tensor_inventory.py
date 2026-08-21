@@ -8,10 +8,8 @@ import numpy as np
 
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import indicator_from_log
-from lfptensorpipe.app.tensor_service import (
-    tensor_metric_log_path,
-    tensor_metric_tensor_path,
-)
+from lfptensorpipe.app.tensor_service import tensor_metric_log_path
+from lfptensorpipe.app.tensor.lineage import tensor_metric_lineage_is_current
 
 
 def _completed_tensor_metrics(resolver: PathResolver) -> list[str]:
@@ -28,7 +26,7 @@ def _completed_tensor_metrics(resolver: PathResolver) -> list[str]:
         state = indicator_from_log(tensor_metric_log_path(resolver, metric_key))
         if state != "green":
             continue
-        if not tensor_metric_tensor_path(resolver, metric_key).exists():
+        if not tensor_metric_lineage_is_current(resolver, metric_key):
             continue
         if metric_key in seen:
             continue
@@ -37,7 +35,7 @@ def _completed_tensor_metrics(resolver: PathResolver) -> list[str]:
     if (
         "periodic" in seen
         and "aperiodic" not in seen
-        and tensor_metric_tensor_path(resolver, "aperiodic").exists()
+        and tensor_metric_lineage_is_current(resolver, "aperiodic")
     ):
         metrics.insert(metrics.index("periodic") + 1, "aperiodic")
     return metrics

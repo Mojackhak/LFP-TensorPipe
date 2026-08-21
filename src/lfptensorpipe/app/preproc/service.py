@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 import threading
 from typing import Any
@@ -58,6 +59,9 @@ from .indicator import (
     preproc_filter_panel_state as _preproc_filter_panel_state_impl,
     preproc_filter_review_required as _preproc_filter_review_required_impl,
 )
+from .lineage import preproc_step_lineage_is_current
+
+logger = logging.getLogger(__name__)
 
 PREPROC_STEPS = (
     "raw",
@@ -226,7 +230,8 @@ def bootstrap_raw_step_from_rawdata(context: RecordContext) -> tuple[bool, str]:
         preproc_step_raw_path_fn=preproc_step_raw_path,
         mark_preproc_step_fn=mark_preproc_step,
     )
-    invalidate_downstream_preproc_steps(context, "raw")
+    if ok:
+        invalidate_downstream_preproc_steps(context, "raw")
     return ok, message
 
 
@@ -240,18 +245,33 @@ def invalidate_downstream_preproc_steps(
     changed_index = PREPROC_STEPS.index(changed_step)
     rewritten: list[Path] = []
     for step in PREPROC_STEPS[changed_index + 1 :]:
-        existing = read_run_log(preproc_step_log_path(resolver, step))
+        log_path = (
+            resolver.preproc_step_dir(step, create=False) / "lfptensorpipe_log.json"
+        )
+        try:
+            existing = read_run_log(log_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not inspect downstream log %s: %s", log_path, exc)
+            continue
         if existing is None or not bool(existing.get("completed")):
             continue
-        log_path = mark_preproc_step(
-            resolver=resolver,
-            step=step,
-            completed=False,
-            input_path=str(preproc_step_raw_path(resolver, changed_step)),
-            output_path=str(preproc_step_raw_path(resolver, step)),
-            message=f"Invalidated by upstream step re-apply: {changed_step}",
-        )
-        rewritten.append(log_path)
+        try:
+            rewritten_path = mark_preproc_step(
+                resolver=resolver,
+                step=step,
+                completed=False,
+                input_path=str(
+                    resolver.preproc_step_dir(changed_step, create=False) / "raw.fif"
+                ),
+                output_path=str(
+                    resolver.preproc_step_dir(step, create=False) / "raw.fif"
+                ),
+                message=f"Invalidated by upstream step re-apply: {changed_step}",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not invalidate downstream log %s: %s", log_path, exc)
+            continue
+        rewritten.append(rewritten_path)
     rewritten.extend(
         invalidate_after_preproc_result_change(
             context,
@@ -333,6 +353,15 @@ def resolve_preproc_step_source(
             stale_payload = dict(payload)
             stale_payload["completed"] = False
             return stale_payload
+        if (
+            isinstance(payload, dict)
+            and bool(payload.get("completed"))
+            and path.parent.name in PREPROC_STEPS
+            and not preproc_step_lineage_is_current(resolver, path.parent.name)
+        ):
+            stale_payload = dict(payload)
+            stale_payload["completed"] = False
+            return stale_payload
         return payload
 
     return _resolve_finish_source_impl(
@@ -359,7 +388,8 @@ def apply_finish_step(
         read_raw_fif_fn=read_raw_fif_fn,
         add_head_tail_annotations_fn=add_head_tail_annotations_fn,
     )
-    invalidate_after_preproc_result_change(context, changed_step="finish")
+    if ok:
+        invalidate_after_preproc_result_change(context, changed_step="finish")
     return ok, message
 
 
@@ -395,6 +425,7 @@ def finalize_filter_review(
     reviewed_bads: list[str] | tuple[str, ...],
     read_raw_fif_fn: Any | None = None,
     finalize_reviewed_filter_fn: Any | None = None,
+    review_source_is_current_fn: Any | None = None,
 ) -> tuple[bool, str]:
     return _finalize_filter_review_impl(
         context,
@@ -404,6 +435,7 @@ def finalize_filter_review(
         invalidate_downstream_fn=invalidate_downstream_preproc_steps,
         read_raw_fif_fn=read_raw_fif_fn,
         finalize_reviewed_filter_fn=finalize_reviewed_filter_fn,
+        review_source_is_current_fn=review_source_is_current_fn,
     )
 
 

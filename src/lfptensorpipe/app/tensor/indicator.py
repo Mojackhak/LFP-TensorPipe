@@ -52,6 +52,7 @@ from .params import (
     TENSOR_UNDIRECTED_SELECTOR_KEYS,
 )
 from .paths import tensor_metric_config_path, tensor_metric_log_path
+from .lineage import tensor_metric_lineage_is_current
 from .runners.burst import (
     BURST_BASELINE_FALLBACK,
     _build_runtime_bands as _build_burst_runtime_bands,
@@ -853,7 +854,8 @@ def tensor_metric_panel_state(
     if context is None:
         return "gray"
     resolver = PathResolver(context)
-    payload = _read_payload(tensor_metric_log_path(resolver, metric_key))
+    log_path = tensor_metric_log_path(resolver, metric_key)
+    payload = _read_payload(log_path)
     if payload is None:
         return "gray"
     completed = payload.get("completed")
@@ -861,6 +863,8 @@ def tensor_metric_panel_state(
         return "yellow"
     if completed is not True:
         return "gray"
+    if log_path.exists() and not tensor_metric_lineage_is_current(resolver, metric_key):
+        return "yellow"
     params = payload.get("params")
     if not isinstance(params, dict):
         return "yellow"

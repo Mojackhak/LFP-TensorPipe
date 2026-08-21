@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Callable
 
@@ -10,6 +11,10 @@ from lfptensorpipe.app.runlog_store import RunLogRecord, write_run_log
 from lfptensorpipe.app.shared.atomic_outputs import write_outputs_atomically
 from lfptensorpipe.app.shared.downstream_invalidation import (
     invalidate_after_localize_result_change,
+)
+from lfptensorpipe.app.shared.generation_lineage import (
+    new_result_generation_id,
+    params_with_generation_lineage,
 )
 from lfptensorpipe.io.pkl_io import save_pkl
 
@@ -33,6 +38,8 @@ LoadReconstructionContactsFn = Callable[
 ]
 BuildRepcoordsFrameFn = Callable[..., Any]
 BuildPairRepcoordsFrameFn = Callable[[Any], Any]
+
+logger = logging.getLogger(__name__)
 
 
 def run_localize_apply(
@@ -120,21 +127,25 @@ def run_localize_apply(
         success_record = RunLogRecord(
             step="localize_apply",
             completed=True,
-            params={
-                "space": space,
-                "atlas": atlas,
-                "record": record,
-                "selected_regions_signature": localize_selected_regions_signature(
-                    list(selected_regions)
-                ),
-                "channel_rows": int(frame.shape[0]),
-                "channel_columns": int(frame.shape[1]),
-                "ordered_pair_rows": int(ordered_frame.shape[0]),
-                "ordered_pair_columns": int(ordered_frame.shape[1]),
-                "undirected_pair_rows": int(undirected_frame.shape[0]),
-                "undirected_pair_columns": int(undirected_frame.shape[1]),
-                "match_signature": match_signature,
-            },
+            params=params_with_generation_lineage(
+                {
+                    "space": space,
+                    "atlas": atlas,
+                    "record": record,
+                    "selected_regions_signature": (
+                        localize_selected_regions_signature(list(selected_regions))
+                    ),
+                    "channel_rows": int(frame.shape[0]),
+                    "channel_columns": int(frame.shape[1]),
+                    "ordered_pair_rows": int(ordered_frame.shape[0]),
+                    "ordered_pair_columns": int(ordered_frame.shape[1]),
+                    "undirected_pair_rows": int(undirected_frame.shape[0]),
+                    "undirected_pair_columns": int(undirected_frame.shape[1]),
+                    "match_signature": match_signature,
+                },
+                result_generation_id=new_result_generation_id(),
+                input_generations={},
+            ),
             input_path=str(reconstruction_mat_path(project_root, subject)),
             output_path=str(out_dir),
             message=(
@@ -159,16 +170,6 @@ def run_localize_apply(
                 (out_log, lambda path: write_run_log(path, success_record)),
             ],
             cleanup_stale_residues=True,
-        )
-        invalidate_after_localize_result_change(
-            RecordContext(project_root=project_root, subject=subject, record=record)
-        )
-        return (
-            True,
-            "Localize completed. "
-            f"Saved {frame.shape[0]} channel row(s), "
-            f"{ordered_frame.shape[0]} ordered pair row(s), and "
-            f"{undirected_frame.shape[0]} undirected pair row(s).",
         )
     except Exception as exc:
         message = f"Localize apply failed: {exc}"
@@ -195,7 +196,18 @@ def run_localize_apply(
                 message=message,
             ),
         )
+        return False, message
+
+    try:
         invalidate_after_localize_result_change(
             RecordContext(project_root=project_root, subject=subject, record=record)
         )
-        return False, message
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not invalidate Localize downstream results: %s", exc)
+    return (
+        True,
+        "Localize completed. "
+        f"Saved {frame.shape[0]} channel row(s), "
+        f"{ordered_frame.shape[0]} ordered pair row(s), and "
+        f"{undirected_frame.shape[0]} undirected pair row(s).",
+    )

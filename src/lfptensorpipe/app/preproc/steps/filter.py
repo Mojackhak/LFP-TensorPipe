@@ -12,7 +12,18 @@ import yaml
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.runlog_store import read_run_log
 from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
+from lfptensorpipe.app.shared.generation_lineage import (
+    new_result_generation_id,
+    params_with_generation_lineage,
+    params_with_input_generation_receipts,
+)
 
+from ..lineage import (
+    PreprocInputGenerationChanged,
+    capture_preproc_input_generation,
+    filter_preview_lineage_is_current,
+    preproc_input_generation_matches,
+)
 from ..paths import (
     preproc_filter_preview_config_path,
     preproc_filter_preview_log_path,
@@ -275,6 +286,10 @@ def apply_filter_step(
 
     if not src.exists():
         return False, "Missing preprocess raw input for filter step."
+    captured = capture_preproc_input_generation(resolver, "filter")
+    if captured is None or captured[0] != "raw":
+        return False, "Filter source changed before input read."
+    _, input_generations = captured
 
     try:
         if read_raw_fif_fn is None:
@@ -358,33 +373,45 @@ def apply_filter_step(
                 resolver=resolver,
                 step="filter",
                 completed=False,
-                params={
-                    "low_freq": cfg.l_freq,
-                    "high_freq": cfg.h_freq,
-                    "notches": list(cfg.notches or []),
-                    "nyquist_freq": nyquist,
-                    "notch_widths": cfg.notch_widths,
-                    "epoch_dur": cfg.epoch_dur,
-                    "p2p_thresh": (
-                        None if cfg.p2p_thresh is None else list(cfg.p2p_thresh)
-                    ),
-                    "autoreject_correct_factor": cfg.autoreject_correct_factor,
-                    "reject_plot_path": str(reject_plot_path),
-                    "boundary_isolated_filter": normalized_params[
-                        "boundary_isolated_filter"
-                    ],
-                    "epoch_coverage_semantics": FILTER_EPOCH_COVERAGE_SEMANTICS,
-                    "bad_channel_detection_semantics": (
-                        FILTER_BAD_CHANNEL_DETECTION_SEMANTICS
-                    ),
-                    "review_status": "required",
-                    "filter_output_role": "preview",
-                },
+                params=params_with_input_generation_receipts(
+                    {
+                        "low_freq": cfg.l_freq,
+                        "high_freq": cfg.h_freq,
+                        "notches": list(cfg.notches or []),
+                        "nyquist_freq": nyquist,
+                        "notch_widths": cfg.notch_widths,
+                        "epoch_dur": cfg.epoch_dur,
+                        "p2p_thresh": (
+                            None if cfg.p2p_thresh is None else list(cfg.p2p_thresh)
+                        ),
+                        "autoreject_correct_factor": cfg.autoreject_correct_factor,
+                        "reject_plot_path": str(reject_plot_path),
+                        "boundary_isolated_filter": normalized_params[
+                            "boundary_isolated_filter"
+                        ],
+                        "epoch_coverage_semantics": (FILTER_EPOCH_COVERAGE_SEMANTICS),
+                        "bad_channel_detection_semantics": (
+                            FILTER_BAD_CHANNEL_DETECTION_SEMANTICS
+                        ),
+                        "review_status": "required",
+                        "filter_output_role": "preview",
+                    },
+                    input_generations=input_generations,
+                ),
                 input_path=str(src),
                 output_path=str(preview),
                 message="Filter preview ready; manual review is required.",
                 log_path=output_set.staged_path(preview_log_path),
             )
+            if not preproc_input_generation_matches(
+                resolver,
+                "filter",
+                source_step="raw",
+                input_generations=input_generations,
+            ):
+                raise PreprocInputGenerationChanged(
+                    "Filter source changed during execution."
+                )
             output_set.commit()
     except Exception as exc:
         return False, f"Filter step failed: {exc}"
@@ -401,6 +428,7 @@ def finalize_filter_review(
     invalidate_downstream_fn: InvalidateFn,
     read_raw_fif_fn: Callable[..., Any] | None = None,
     finalize_reviewed_filter_fn: Callable[..., Any] | None = None,
+    review_source_is_current_fn: Callable[[], bool] | None = None,
 ) -> tuple[bool, str]:
     """Regenerate and atomically accept Filter output from reviewed annotations."""
     from lfptensorpipe.preproc.filter import finalize_reviewed_lfp_filter
@@ -415,6 +443,13 @@ def finalize_filter_review(
     log_path = preproc_step_log_path(resolver, "filter")
     if not src.exists():
         return False, "Missing preprocess raw input for Filter finalization."
+    captured = capture_preproc_input_generation(resolver, "filter")
+    if captured is None or captured[0] != "raw":
+        return False, "Filter source changed before input read."
+    _, input_generations = captured
+    result_generation_id = new_result_generation_id()
+    if review_source_is_current_fn is not None and not review_source_is_current_fn():
+        return False, "Filter review source changed before input read."
 
     preview_payload = read_run_log(preview_log_path)
     preview_params = (
@@ -427,6 +462,7 @@ def finalize_filter_review(
         and preview_params.get("review_status") == "required"
         and preview_params.get("filter_output_role") == "preview"
         and filter_log_has_current_bad_channel_detection_semantics(preview_payload)
+        and filter_preview_lineage_is_current(resolver, preview_payload)
     )
     state_log_path = preview_log_path if pending_preview else log_path
     state_config_path = preview_config_path if pending_preview else config_path
@@ -552,12 +588,35 @@ def finalize_filter_review(
                 resolver=resolver,
                 step="filter",
                 completed=True,
-                params=final_params,
+                params=params_with_generation_lineage(
+                    {
+                        **final_params,
+                        "source_step": "raw",
+                    },
+                    result_generation_id=result_generation_id,
+                    input_generations=input_generations,
+                ),
                 input_path=str(src),
                 output_path=str(dst),
                 message="Filter review finalized from the original Raw.",
                 log_path=output_set.staged_path(log_path),
             )
+            if not preproc_input_generation_matches(
+                resolver,
+                "filter",
+                source_step="raw",
+                input_generations=input_generations,
+            ):
+                raise PreprocInputGenerationChanged(
+                    "Filter source changed during execution."
+                )
+            if (
+                review_source_is_current_fn is not None
+                and not review_source_is_current_fn()
+            ):
+                raise PreprocInputGenerationChanged(
+                    "Filter review source changed during execution."
+                )
             output_set.commit()
         cleanup_errors: list[str] = []
         for preview_artifact in (preview, preview_config_path, preview_log_path):

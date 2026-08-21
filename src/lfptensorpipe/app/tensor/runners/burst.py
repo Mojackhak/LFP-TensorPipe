@@ -22,6 +22,7 @@ from lfptensorpipe.utils.transforms import (
 )
 
 from .. import service as svc
+from ..lineage import tensor_runner_entry
 
 BURST_BASELINE_FALLBACK = "raise"
 
@@ -82,6 +83,7 @@ def _resolve_burst_time_grid(
     return hop_s_use, None
 
 
+@tensor_runner_entry
 def run_burst_metric(
     context: RecordContext,
     *,

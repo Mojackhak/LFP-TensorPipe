@@ -13,8 +13,10 @@ from lfptensorpipe.utils.transforms import (
 )
 
 from .. import service as svc
+from ..lineage import tensor_runner_entry
 
 
+@tensor_runner_entry
 def run_raw_power_metric(
     context: RecordContext,
     *,

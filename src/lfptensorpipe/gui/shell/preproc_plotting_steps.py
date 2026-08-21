@@ -4,10 +4,7 @@ from __future__ import annotations
 
 from lfptensorpipe.gui.shell.common import (
     PathResolver,
-    indicator_from_log,
-    preproc_step_log_path,
     preproc_step_raw_path,
-    rawdata_input_fif_path,
 )
 
 
@@ -20,18 +17,7 @@ def _on_preproc_raw_plot(self) -> None:
         return
     resolver = PathResolver(context)
     raw_path = preproc_step_raw_path(resolver, "raw")
-    raw_log_path = preproc_step_log_path(resolver, "raw")
     if raw_path.exists():
-        if indicator_from_log(raw_log_path) != "green":
-            src_path = rawdata_input_fif_path(context)
-            self._mark_preproc_step_runtime(
-                resolver=resolver,
-                step="raw",
-                completed=True,
-                input_path=str(src_path if src_path.exists() else raw_path),
-                output_path=str(raw_path),
-                message="Opened existing preprocess raw artifact.",
-            )
         self._refresh_stage_states_from_context()
         self._refresh_preproc_controls()
         self.statusBar().showMessage(

@@ -10,12 +10,21 @@ from typing import Any, Callable
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
+from lfptensorpipe.app.shared.generation_lineage import (
+    new_result_generation_id,
+    params_with_generation_lineage,
+)
 
 from ..paths import (
     preproc_step_config_path,
     preproc_step_log_path,
     preproc_step_raw_path,
     write_preproc_step_config,
+)
+from ..lineage import (
+    PreprocInputGenerationChanged,
+    capture_preproc_input_generation,
+    preproc_input_generation_matches,
 )
 
 MarkStepFn = Callable[..., Any]
@@ -149,10 +158,14 @@ def apply_annotations_step(
             output_path=str(dst),
             message="No valid preprocess input for annotations step.",
         )
-        invalidate_downstream_fn(context, "annotations")
         return False, "No valid preprocess input for annotations step."
 
     source_step, src = source
+    captured = capture_preproc_input_generation(resolver, "annotations")
+    if captured is None or captured[0] != source_step:
+        return False, "Annotations source changed before input read."
+    _, input_generations = captured
+    result_generation_id = new_result_generation_id()
 
     normalized_rows, invalid_rows = _normalize_annotation_rows(rows)
     if invalid_rows:
@@ -164,7 +177,6 @@ def apply_annotations_step(
             output_path=str(dst),
             message=f"Invalid annotation rows: {invalid_rows}",
         )
-        invalidate_downstream_fn(context, "annotations")
         return False, f"Invalid annotation rows: {invalid_rows}"
 
     try:
@@ -231,17 +243,34 @@ def apply_annotations_step(
                 resolver=resolver,
                 step="annotations",
                 completed=True,
-                params={
-                    "row_count": len(normalized_rows),
-                    _ANNOTATION_SUPPORT_SEMANTICS_KEY: (ANNOTATION_SUPPORT_SEMANTICS),
-                },
+                params=params_with_generation_lineage(
+                    {
+                        "row_count": len(normalized_rows),
+                        "source_step": source_step,
+                        _ANNOTATION_SUPPORT_SEMANTICS_KEY: (
+                            ANNOTATION_SUPPORT_SEMANTICS
+                        ),
+                    },
+                    result_generation_id=result_generation_id,
+                    input_generations=input_generations,
+                ),
                 input_path=str(src),
                 output_path=str(dst),
                 message=f"Annotations step completed using source: {source_step}.",
                 log_path=output_set.staged_path(log_path),
             )
+            if not preproc_input_generation_matches(
+                resolver,
+                "annotations",
+                source_step=source_step,
+                input_generations=input_generations,
+            ):
+                raise PreprocInputGenerationChanged(
+                    "Annotations source changed during execution."
+                )
             output_set.commit()
-        invalidate_downstream_fn(context, "annotations")
+    except PreprocInputGenerationChanged as exc:
+        return False, f"Annotations step failed: {exc}"
     except Exception as exc:
         mark_preproc_step_fn(
             resolver=resolver,
@@ -251,7 +280,7 @@ def apply_annotations_step(
             output_path=str(dst),
             message=f"Annotations step failed: {exc}",
         )
-        invalidate_downstream_fn(context, "annotations")
         return False, f"Annotations step failed: {exc}"
 
+    invalidate_downstream_fn(context, "annotations")
     return True, "Annotations step completed."

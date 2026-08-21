@@ -8,6 +8,10 @@ from typing import TYPE_CHECKING, Any
 
 from lfptensorpipe.app.config_store import AppConfigStore
 from lfptensorpipe.app.runlog_store import indicator_from_log, read_run_log
+from lfptensorpipe.app.shared.generation_lineage import (
+    accepted_result_generation_id,
+    input_generation_receipts_match,
+)
 from lfptensorpipe.matlab import infer_matlab_root
 
 if TYPE_CHECKING:
@@ -187,7 +191,30 @@ def localize_indicator_state(project_root: Path, subject: str, record: str) -> s
             record,
         ),
     )
-    return "green" if all(path.is_file() for path in required_outputs) else "yellow"
+    if not all(path.is_file() for path in required_outputs):
+        return "yellow"
+    try:
+        payload = read_run_log(localize_log_path(project_root, subject, record))
+    except Exception:
+        return "yellow"
+    return (
+        "green" if input_generation_receipts_match(payload, expected={}) else "yellow"
+    )
+
+
+def localize_result_generation_id(
+    project_root: Path,
+    subject: str,
+    record: str,
+) -> str | None:
+    """Return the current Localize accepted generation ID, if present."""
+    if localize_indicator_state(project_root, subject, record) != "green":
+        return None
+    try:
+        payload = read_run_log(localize_log_path(project_root, subject, record))
+    except Exception:
+        return None
+    return accepted_result_generation_id(payload)
 
 
 def localize_match_signature(
@@ -385,6 +412,7 @@ __all__ = [
     "localize_undirected_pair_representative_pkl_path",
     "localize_log_path",
     "localize_indicator_state",
+    "localize_result_generation_id",
     "localize_match_signature",
     "localize_panel_state",
     "localize_csv_path",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from itertools import permutations
+import os
 from pathlib import Path
 from typing import Any
 import warnings
@@ -20,7 +21,11 @@ from lfptensorpipe.io.pkl_io import load_pkl, save_pkl
 from lfptensorpipe.lfp.connectivity import CONNECTIVITY_PADDING_MODE
 
 from lfptensorpipe.app.shared.atomic_outputs import (
-    write_outputs_atomically as _write_outputs_atomically,
+    write_outputs_atomically as _write_output_set_atomically,
+)
+from lfptensorpipe.app.shared.generation_lineage import (
+    GENERATION_RECEIPT_SEMANTICS,
+    GENERATION_RECEIPT_SEMANTICS_KEY,
 )
 from ..coercion import _normalize_metric_method
 from ..frequency import (
@@ -38,9 +43,15 @@ from ..frequency import (
     build_tensor_metric_notch_payload,
 )
 from ..logging import (
+    TENSOR_RUN_ID_ENV,
     write_metric_config as _write_metric_config,
     write_metric_log as _write_metric_log,
     write_metric_log_to_path as _write_metric_log_to_path,
+)
+from ..lineage import (
+    require_tensor_input_generation_unchanged,
+    tensor_input_generations_from_environment,
+    trgc_runner_entry,
 )
 from ..params import TENSOR_METRICS_BY_KEY
 from ..paths import (
@@ -56,6 +67,13 @@ TRGC_FINALIZE_PLAN_KEY = "trgc"
 TRGC_BACKEND_METHODS = ("gc", "gc_tr")
 _TRGC_NUMPY_DET_WARNING_MESSAGE = r"invalid value encountered in det"
 _TRGC_NUMPY_DET_WARNING_MODULE = r"numpy\.linalg\._linalg"
+
+
+def _write_outputs_atomically(outputs):
+    return _write_output_set_atomically(
+        outputs,
+        precommit_check=require_tensor_input_generation_unchanged,
+    )
 
 
 def _normalize_backend_tensor(
@@ -520,6 +538,7 @@ def _build_trgc_backend_state(
     grid_params = metadata.get("params", {}) if isinstance(metadata, dict) else {}
     if not isinstance(grid_params, dict):
         grid_params = {}
+    input_generations = tensor_input_generations_from_environment() or {}
     return {
         "metric_key": "trgc",
         "metric_label": prepared["metric_label"],
@@ -576,6 +595,9 @@ def _build_trgc_backend_state(
         "n_columns_skipped_masked": int(grid_params.get("n_columns_skipped_masked", 0)),
         "window_group_counts": list(grid_params.get("window_group_counts", [])),
         "execution_model": "trgc_backend_plan",
+        GENERATION_RECEIPT_SEMANTICS_KEY: GENERATION_RECEIPT_SEMANTICS,
+        "run_id": os.environ.get(TENSOR_RUN_ID_ENV, "").strip(),
+        "input_generations": dict(input_generations),
         **_effective_n_jobs_payload(
             n_jobs=int(n_jobs),
             outer_n_jobs=1,
@@ -631,6 +653,7 @@ def _write_trgc_public_failure_log(
     )
 
 
+@trgc_runner_entry
 def run_trgc_backend_metric(
     context: RecordContext,
     *,
@@ -798,6 +821,7 @@ def run_trgc_backend_metric(
                 raw.close()
 
 
+@trgc_runner_entry
 def run_trgc_finalize_metric(
     context: RecordContext,
     *,
@@ -820,6 +844,44 @@ def run_trgc_finalize_metric(
 
         gc_state = dict(gc_payload["state"])
         gc_tr_state = dict(gc_tr_payload["state"])
+        if (
+            gc_state.get(GENERATION_RECEIPT_SEMANTICS_KEY)
+            != GENERATION_RECEIPT_SEMANTICS
+            or gc_tr_state.get(GENERATION_RECEIPT_SEMANTICS_KEY)
+            != GENERATION_RECEIPT_SEMANTICS
+            or not str(gc_state.get("run_id", "")).strip()
+            or not str(gc_tr_state.get("run_id", "")).strip()
+        ):
+            raise ValueError(
+                "TRGC backend artifacts are missing non-empty run lineage; "
+                "re-run both backends before finalizing."
+            )
+        if gc_state.get("run_id") != gc_tr_state.get("run_id"):
+            raise ValueError(
+                "TRGC backend run lineage mismatch; re-run both backends "
+                "before finalizing."
+            )
+        current_run_id = os.environ.get(TENSOR_RUN_ID_ENV, "").strip()
+        if current_run_id and gc_state.get("run_id") != current_run_id:
+            raise ValueError(
+                "TRGC backend artifacts do not belong to the current Build run."
+            )
+        if (
+            "input_generations" not in gc_state
+            or "input_generations" not in gc_tr_state
+            or gc_state.get("input_generations") != gc_tr_state.get("input_generations")
+        ):
+            raise ValueError(
+                "TRGC backend input lineage mismatch; re-run both backends "
+                "before finalizing."
+            )
+        current_input_generations = tensor_input_generations_from_environment()
+        if current_input_generations is not None and gc_state.get(
+            "input_generations"
+        ) != dict(current_input_generations):
+            raise ValueError(
+                "TRGC backend artifacts do not match the current Build input."
+            )
         missing_mt_fields = [
             field_name
             for field_name in ("mt_time_bandwidth_product", "mt_min_cycles")
@@ -1131,6 +1193,7 @@ def run_trgc_finalize_metric(
             raw.close()
 
 
+@trgc_runner_entry
 def run_trgc_metric(
     context: RecordContext,
     *,

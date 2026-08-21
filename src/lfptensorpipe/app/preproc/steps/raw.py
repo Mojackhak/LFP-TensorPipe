@@ -8,6 +8,10 @@ from typing import Any, Callable
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
+from lfptensorpipe.app.shared.generation_lineage import (
+    new_result_generation_id,
+    params_with_generation_lineage,
+)
 
 from ..paths import preproc_step_log_path
 
@@ -37,6 +41,11 @@ def bootstrap_raw_step_from_rawdata(
         return False, "Missing canonical rawdata input raw.fif."
 
     log_path = preproc_step_log_path(resolver, "raw")
+    success_params = params_with_generation_lineage(
+        {},
+        result_generation_id=new_result_generation_id(),
+        input_generations={},
+    )
     try:
         with AtomicOutputSet(
             [dst, log_path],
@@ -47,6 +56,7 @@ def bootstrap_raw_step_from_rawdata(
                 resolver=resolver,
                 step="raw",
                 completed=True,
+                params=success_params,
                 input_path=str(src),
                 output_path=str(dst),
                 message="Copied canonical rawdata input into preproc raw step.",

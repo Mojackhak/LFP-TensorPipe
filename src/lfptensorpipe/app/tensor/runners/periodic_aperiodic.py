@@ -11,6 +11,7 @@ from uuid import uuid4
 import numpy as np
 
 from .. import service as svc
+from ..lineage import tensor_runner_entry
 from .periodic_aperiodic_compute import compute_periodic_aperiodic_outputs
 from .periodic_aperiodic_models import PeriodicAperiodicOptions
 from .periodic_aperiodic_persist import (
@@ -67,6 +68,7 @@ def _prepare_specparam_report_dir(report_dir: Path):
             _remove_path(backup_dir)
 
 
+@tensor_runner_entry
 def run_periodic_aperiodic_metric(
     context,
     *,

@@ -15,7 +15,7 @@ from lfptensorpipe.app.runlog_store import indicator_from_log, read_run_log
 from lfptensorpipe.io.pkl_io import save_pkl
 
 from lfptensorpipe.app.shared.atomic_outputs import (
-    write_outputs_atomically as _write_outputs_atomically,
+    write_outputs_atomically as _write_output_set_atomically,
 )
 from .annotation_source import load_burst_baseline_annotation_labels
 from .coercion import (
@@ -63,6 +63,7 @@ from .logging import (
     write_stage_log as _write_stage_log,
     write_stage_log_to_path as _write_stage_log_to_path,  # noqa: F401
 )
+from .lineage import require_tensor_input_generation_unchanged
 from .params import (
     TENSOR_BAND_REQUIRED_KEYS,
     TENSOR_CHANNEL_SELECTOR_KEYS,
@@ -96,6 +97,15 @@ from .selectors import (
     normalize_selected_pairs as _normalize_selected_pairs,
 )
 from .validators import validate_bands as _validate_bands
+
+
+def _write_outputs_atomically(outputs, **kwargs):
+    """Promote one Tensor output set after rechecking the parent input receipt."""
+    return _write_output_set_atomically(
+        outputs,
+        precommit_check=require_tensor_input_generation_unchanged,
+        **kwargs,
+    )
 
 
 def resolve_tensor_frequency_bounds(

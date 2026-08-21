@@ -17,6 +17,7 @@ OUTPUT_TRANSACTION_RUN_ID_ENV = "LFPTENSORPIPE_TENSOR_RUN_ID"
 
 OutputWriter = Callable[[Path], None]
 ReplaceFn = Callable[[Path, Path], Path]
+PrecommitCheck = Callable[[], None]
 
 logger = logging.getLogger(__name__)
 
@@ -488,6 +489,7 @@ def write_outputs_atomically(
     *,
     replace_fn: ReplaceFn | None = None,
     cleanup_stale_residues: bool = False,
+    precommit_check: PrecommitCheck | None = None,
 ) -> None:
     """Write and promote a complete fixed output set."""
     if not outputs:
@@ -499,6 +501,8 @@ def write_outputs_atomically(
     ) as output_set:
         for target, writer in outputs:
             writer(output_set.staged_path(target))
+        if precommit_check is not None:
+            precommit_check()
         output_set.commit()
 
 

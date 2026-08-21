@@ -11,8 +11,10 @@ from lfptensorpipe.lfp.connectivity import CONNECTIVITY_PADDING_MODE
 from lfptensorpipe.utils.transforms import attach_transform_policy, get_transform_policy
 
 from .. import service as svc
+from ..lineage import tensor_runner_entry
 
 
+@tensor_runner_entry
 def run_undirected_connectivity_metric(
     context: RecordContext,
     *,

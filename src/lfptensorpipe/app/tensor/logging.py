@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -11,12 +12,22 @@ import yaml
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import RunLogRecord, write_run_log
 from lfptensorpipe.app.shared.atomic_outputs import OUTPUT_TRANSACTION_RUN_ID_ENV
+from lfptensorpipe.app.shared.generation_lineage import (
+    new_result_generation_id,
+    params_with_generation_lineage,
+)
 from lfptensorpipe.lfp.mask.annotations import ANNOTATION_SCOPE_SEMANTICS
 
 from .paths import tensor_metric_log_path, tensor_stage_log_path
+from .lineage import (
+    tensor_input_generation_changed_during_run,
+    tensor_input_generations_from_environment,
+)
 
 TENSOR_RUN_ID_ENV = OUTPUT_TRANSACTION_RUN_ID_ENV
 TENSOR_BENCHMARK_TRACE_PATH_ENV = "LFPTENSORPIPE_TENSOR_BENCHMARK_TRACE_PATH"
+
+logger = logging.getLogger(__name__)
 
 
 def _log_params_with_runtime_metadata(params: dict[str, Any]) -> dict[str, Any]:
@@ -38,10 +49,17 @@ def build_metric_log_record(
     output_path: str,
     message: str,
 ) -> RunLogRecord:
+    log_params = _log_params_with_runtime_metadata(params)
+    if completed:
+        log_params = params_with_generation_lineage(
+            log_params,
+            result_generation_id=new_result_generation_id(),
+            input_generations=tensor_input_generations_from_environment() or {},
+        )
     return RunLogRecord(
         step=metric_key,
         completed=completed,
-        params=_log_params_with_runtime_metadata(params),
+        params=log_params,
         input_path=input_path,
         output_path=output_path,
         message=message,
@@ -76,6 +94,13 @@ def write_metric_log_to_path(
     output_path: str,
     message: str,
 ) -> None:
+    if not completed and tensor_input_generation_changed_during_run():
+        logger.warning(
+            "Skipped rejected Tensor log update because Preprocess Finish "
+            "changed during the Build run: %s",
+            path,
+        )
+        return
     write_run_log(
         path,
         build_metric_log_record(

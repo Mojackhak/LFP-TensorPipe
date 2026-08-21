@@ -1,10 +1,12 @@
-"""Alignment-log helpers for feature derivation defaults."""
+"""Accepted Alignment helpers for feature derivation."""
 
 from __future__ import annotations
 
-from lfptensorpipe.app.alignment_service import alignment_paradigm_log_path
+from lfptensorpipe.app.alignment.generation import (
+    alignment_stage_lineage_is_current,
+    latest_alignment_step_entry,
+)
 from lfptensorpipe.app.path_resolver import PathResolver
-from lfptensorpipe.app.runlog_store import read_run_log
 
 
 def _extract_alignment_method_from_log(
@@ -12,39 +14,20 @@ def _extract_alignment_method_from_log(
     *,
     trial_slug: str,
 ) -> str:
-    path = alignment_paradigm_log_path(resolver, trial_slug)
-    try:
-        payload = read_run_log(path)
-    except Exception:
-        payload = None
-    if not isinstance(payload, dict):
+    """Return the accepted Run method only when its Finish remains current."""
+    slug = str(trial_slug).strip()
+    if not slug or not alignment_stage_lineage_is_current(
+        resolver,
+        trial_slug=slug,
+        stage="finish",
+    ):
         return ""
-    state_node = payload.get("state")
-    trial_cfg = state_node.get("trial_config") if isinstance(state_node, dict) else None
-    if not isinstance(trial_cfg, dict):
-        trial_cfg = payload.get("trial_config")
-    if isinstance(trial_cfg, dict):
-        method = str(trial_cfg.get("method", "")).strip()
-        if method:
-            return method
-    params = payload.get("params")
-    if isinstance(params, dict):
-        method = str(params.get("method", "")).strip()
-        if method:
-            return method
-    history = payload.get("history")
-    if isinstance(history, list):
-        for item in reversed(history):
-            if not isinstance(item, dict):
-                continue
-            cfg = item.get("trial_config")
-            if isinstance(cfg, dict):
-                method = str(cfg.get("method", "")).strip()
-                if method:
-                    return method
-            params_item = item.get("params")
-            if isinstance(params_item, dict):
-                method = str(params_item.get("method", "")).strip()
-                if method:
-                    return method
-    return ""
+    accepted_run = latest_alignment_step_entry(
+        resolver,
+        trial_slug=slug,
+        step="run_align_epochs",
+    )
+    if accepted_run is None:
+        return ""
+    params = accepted_run[1].get("params")
+    return str(params.get("method", "")).strip() if isinstance(params, dict) else ""

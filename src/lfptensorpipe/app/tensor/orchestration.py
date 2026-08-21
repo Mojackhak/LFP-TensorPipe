@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import os
 from typing import Any
+from uuid import uuid4
 
 from lfptensorpipe.app.path_resolver import RecordContext
 from lfptensorpipe.app.shared.downstream_invalidation import (
@@ -18,6 +20,12 @@ from .orchestration_execution import (
 )
 from .orchestration_merge import merge_metric_params_map
 from .orchestration_plans import build_runtime_plans
+from .logging import TENSOR_RUN_ID_ENV
+from .lineage import (
+    TENSOR_INPUT_LINEAGE_ENV,
+    capture_tensor_input_generation,
+    serialize_tensor_input_lineage,
+)
 from .paths import tensor_output_metric_keys
 
 
@@ -84,7 +92,8 @@ def run_build_tensor(
                 "Build Tensor schema 4. Use notch_radii instead.",
             )
 
-    if svc.indicator_from_log(svc.preproc_step_log_path(resolver, "finish")) != "green":
+    input_generations = capture_tensor_input_generation(resolver)
+    if input_generations is None:
         return False, "Preprocess finish must be green before Build Tensor."
 
     merged_metric_params_map = merge_metric_params_map(
@@ -112,17 +121,37 @@ def run_build_tensor(
         plan_state.runtime_plans,
         plan_state.effective_n_jobs_map,
     )
-    runtime_results = execute_runtime_plans(
-        svc,
-        resolver,
+    prior_lineage_payload = os.environ.get(TENSOR_INPUT_LINEAGE_ENV)
+    prior_run_id = os.environ.get(TENSOR_RUN_ID_ENV)
+    installed_run_id = not str(prior_run_id or "").strip()
+    os.environ[TENSOR_INPUT_LINEAGE_ENV] = serialize_tensor_input_lineage(
         context,
-        runtime_plans=plan_state.runtime_plans,
-        merged_metric_params_map=merged_metric_params_map,
-        policy_n_jobs=policy_n_jobs,
-        policy_outer_n_jobs=policy_outer_n_jobs,
-        global_compute_slots=global_compute_slots,
-        force_in_process=bool(service_overrides),
+        input_generations,
     )
+    if installed_run_id:
+        os.environ[TENSOR_RUN_ID_ENV] = uuid4().hex
+    try:
+        runtime_results = execute_runtime_plans(
+            svc,
+            resolver,
+            context,
+            runtime_plans=plan_state.runtime_plans,
+            merged_metric_params_map=merged_metric_params_map,
+            policy_n_jobs=policy_n_jobs,
+            policy_outer_n_jobs=policy_outer_n_jobs,
+            global_compute_slots=global_compute_slots,
+            force_in_process=bool(service_overrides),
+        )
+    finally:
+        if prior_lineage_payload is None:
+            os.environ.pop(TENSOR_INPUT_LINEAGE_ENV, None)
+        else:
+            os.environ[TENSOR_INPUT_LINEAGE_ENV] = prior_lineage_payload
+        if installed_run_id:
+            if prior_run_id is None:
+                os.environ.pop(TENSOR_RUN_ID_ENV, None)
+            else:
+                os.environ[TENSOR_RUN_ID_ENV] = prior_run_id
     raise_if_tensor_cancellation_requested()
 
     overall_ok = plan_state.overall_ok

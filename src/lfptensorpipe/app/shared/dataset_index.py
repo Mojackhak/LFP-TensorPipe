@@ -106,10 +106,9 @@ def discover_records(project_root: Path, subject: str) -> list[str]:
     return sorted(set(candidates))
 
 
-def _aggregate_states(log_paths: list[Path]) -> str:
-    if not log_paths:
+def _aggregate_state_values(states: list[str]) -> str:
+    if not states:
         return "gray"
-    states = [indicator_from_log(path) for path in log_paths]
     if any(state == "yellow" for state in states):
         return "yellow"
     if any(state == "green" for state in states):
@@ -118,27 +117,39 @@ def _aggregate_states(log_paths: list[Path]) -> str:
 
 
 def _aggregate_tensor_stage_state(
-    tensor_stage_log: Path, tensor_logs: list[Path]
+    resolver, tensor_stage_log: Path, tensor_logs: list[Path]
 ) -> str:
-    """Build Tensor stage is green once any metric log is green.
+    """Build Tensor stage is green once any current metric result is green.
 
-    This avoids stale yellow stage logs blocking downstream pages when at least one
-    metric has a valid tensor artifact/log result.
+    The aggregate stage log is status-only and cannot restore result readiness when
+    no metric artifact/log generation is current.
     """
-    metric_states = [indicator_from_log(path) for path in tensor_logs]
+    from lfptensorpipe.app.tensor.lineage import tensor_metric_lineage_is_current
+
+    metric_states = []
+    for path in tensor_logs:
+        state = indicator_from_log(path)
+        if state == "green" and not tensor_metric_lineage_is_current(
+            resolver,
+            path.parent.name,
+        ):
+            state = "yellow"
+        metric_states.append(state)
     if any(state == "green" for state in metric_states):
         return "green"
     if any(state == "yellow" for state in metric_states):
         return "yellow"
     stage_state = indicator_from_log(tensor_stage_log)
     if stage_state in {"green", "yellow"}:
-        return stage_state
+        return "yellow"
     return "gray"
 
 
 def scan_stage_states(project_root: Path, subject: str, record: str) -> dict[str, str]:
     """Scan record-scoped logs and derive stage indicator states."""
     from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
+    from lfptensorpipe.app.alignment.indicator import alignment_trial_stage_state
+    from lfptensorpipe.app.features.indicator import extract_features_indicator_state
     from lfptensorpipe.app.preproc.indicator import preproc_step_indicator_state
 
     base = project_root / "derivatives" / "lfptensorpipe" / subject / record
@@ -147,21 +158,38 @@ def scan_stage_states(project_root: Path, subject: str, record: str) -> dict[str
     tensor_logs = list((base / "tensor").glob("*/lfptensorpipe_log.json"))
     alignment_logs = list((base / "alignment").glob("*/lfptensorpipe_log.json"))
     features_logs = list((base / "features").glob("*/lfptensorpipe_log.json"))
-    tensor_state = _aggregate_tensor_stage_state(tensor_stage_log, tensor_logs)
-    preproc_state = preproc_step_indicator_state(
-        PathResolver(
-            RecordContext(
-                project_root=project_root,
-                subject=subject,
-                record=record,
+    resolver = PathResolver(
+        RecordContext(
+            project_root=project_root,
+            subject=subject,
+            record=record,
+        )
+    )
+    tensor_state = _aggregate_tensor_stage_state(
+        resolver,
+        tensor_stage_log,
+        tensor_logs,
+    )
+    preproc_state = preproc_step_indicator_state(resolver, "finish")
+    alignment_state = _aggregate_state_values(
+        [
+            alignment_trial_stage_state(resolver, paradigm_slug=path.parent.name)
+            for path in alignment_logs
+        ]
+    )
+    features_state = _aggregate_state_values(
+        [
+            extract_features_indicator_state(
+                resolver,
+                trial_slug=path.parent.name,
             )
-        ),
-        "finish",
+            for path in features_logs
+        ]
     )
 
     return {
         "preproc": preproc_state,
         "tensor": tensor_state,
-        "alignment": _aggregate_states(alignment_logs),
-        "features": _aggregate_states(features_logs),
+        "alignment": alignment_state,
+        "features": features_state,
     }

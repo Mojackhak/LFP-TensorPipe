@@ -11,6 +11,7 @@ from lfptensorpipe.app.runlog_store import read_run_log
 
 from .generation import (
     alignment_generation_requires_burst_sample_support_rerun,
+    alignment_stage_lineage_is_current,
     metrics_from_alignment_entry,
 )
 from .method_params import validate_alignment_method_params
@@ -75,21 +76,6 @@ def _latest_step_entry(
     return None
 
 
-def _latest_successful_step_entry(
-    entries: list[tuple[int, dict[str, Any]]],
-    step: str,
-) -> tuple[int, dict[str, Any]] | None:
-    target = str(step).strip()
-    if not target:
-        return None
-    for idx, item in reversed(entries):
-        if str(item.get("step", "")).strip() != target:
-            continue
-        if bool(item.get("completed", False)):
-            return idx, item
-    return None
-
-
 def _normalize_run_signature(
     slug: str,
     entry: dict[str, Any],
@@ -133,15 +119,6 @@ def _normalize_current_signature(
     if method != "linear_warper" and not method_params.get("annotations"):
         return None
     return slug, method, dict(method_params)
-
-
-def _metric_keys_from_run_entry(
-    resolver: PathResolver,
-    slug: str,
-    entry: dict[str, Any],
-) -> list[str]:
-    _ = resolver, slug
-    return metrics_from_alignment_entry(entry) or []
 
 
 def _has_current_linear_warp_geometry(
@@ -206,41 +183,6 @@ def _has_current_zero_duration_alignment(
     )
 
 
-def _run_artifacts_exist(
-    resolver: PathResolver,
-    slug: str,
-    entry: dict[str, Any],
-) -> bool:
-    trial_root = _trial_root(resolver, slug)
-    if not trial_root.exists():
-        return False
-    if not (trial_root / "warp_fn.pkl").exists():
-        return False
-    if not (trial_root / "warp_labels.pkl").exists():
-        return False
-
-    metric_keys = _metric_keys_from_run_entry(resolver, slug, entry)
-    return bool(metric_keys) and all(
-        (trial_root / metric_key / "tensor_warped.pkl").exists()
-        for metric_key in metric_keys
-    )
-
-
-def _raw_table_artifacts_exist(
-    resolver: PathResolver,
-    slug: str,
-    finish_entry: dict[str, Any],
-) -> bool:
-    trial_root = _trial_root(resolver, slug)
-    if not trial_root.exists():
-        return False
-
-    metric_keys = metrics_from_alignment_entry(finish_entry) or []
-    return bool(metric_keys) and all(
-        (trial_root / metric_key / "na-raw.pkl").exists() for metric_key in metric_keys
-    )
-
-
 def _normalize_picks(picked_epoch_indices: list[int] | None) -> list[int]:
     if not isinstance(picked_epoch_indices, list):
         return []
@@ -282,10 +224,10 @@ def _latest_finished_picks(
     payload: dict[str, Any] | None,
 ) -> list[int]:
     entries = _history_entries(payload)
-    latest_successful_finish = _latest_successful_step_entry(entries, "build_raw_table")
-    if latest_successful_finish is None:
+    latest_finish = _latest_step_entry(entries, "build_raw_table")
+    if latest_finish is None or latest_finish[1].get("completed") is not True:
         return []
-    finish_params = latest_successful_finish[1].get("params")
+    finish_params = latest_finish[1].get("params")
     if not isinstance(finish_params, dict):
         return []
     return _normalize_picks(finish_params.get("picked_epoch_indices"))
@@ -309,47 +251,46 @@ def alignment_method_panel_state(
 
     entries = _history_entries(payload)
     latest_run = _latest_step_entry(entries, "run_align_epochs")
-    latest_successful_run = _latest_successful_step_entry(entries, "run_align_epochs")
 
-    if latest_run is None and latest_successful_run is None:
+    if latest_run is None:
         return "gray"
-    if latest_run is not None and not bool(latest_run[1].get("completed", False)):
-        return "yellow"
-    if latest_successful_run is None:
+    if not bool(latest_run[1].get("completed", False)):
         return "yellow"
 
-    run_signature = _normalize_run_signature(slug, latest_successful_run[1])
+    run_signature = _normalize_run_signature(slug, latest_run[1])
     if run_signature is None:
         return "yellow"
     run_method, run_params = run_signature
     if run_method != current_method or run_params != current_params:
         return "yellow"
     if not _has_current_linear_warp_geometry(
-        latest_successful_run[1],
+        latest_run[1],
         method=run_method,
         method_params=run_params,
     ):
         return "yellow"
     if not _has_current_linear_event_pairing(
-        latest_successful_run[1],
+        latest_run[1],
         method=run_method,
     ):
         return "yellow"
     if not _has_current_clip_stitch_geometry(
-        latest_successful_run[1],
+        latest_run[1],
         method=run_method,
     ):
         return "yellow"
     if not _has_current_zero_duration_alignment(
-        latest_successful_run[1],
+        latest_run[1],
         method=run_method,
     ):
         return "yellow"
-    if alignment_generation_requires_burst_sample_support_rerun(
-        latest_successful_run[1]
-    ):
+    if alignment_generation_requires_burst_sample_support_rerun(latest_run[1]):
         return "yellow"
-    if not _run_artifacts_exist(resolver, slug, latest_successful_run[1]):
+    if not alignment_stage_lineage_is_current(
+        resolver,
+        trial_slug=slug,
+        stage="run",
+    ):
         return "yellow"
     return "green"
 
@@ -373,11 +314,9 @@ def alignment_epoch_inspector_state(
 
     entries = _history_entries(payload)
     latest_run = _latest_step_entry(entries, "run_align_epochs")
-    latest_successful_run = _latest_successful_step_entry(entries, "run_align_epochs")
     latest_finish = _latest_step_entry(entries, "build_raw_table")
-    latest_successful_finish = _latest_successful_step_entry(entries, "build_raw_table")
 
-    if latest_run is None and latest_finish is None and latest_successful_run is None:
+    if latest_run is None and latest_finish is None:
         return "gray"
     if latest_finish is not None and not bool(latest_finish[1].get("completed", False)):
         return "yellow"
@@ -388,14 +327,14 @@ def alignment_epoch_inspector_state(
             "yellow" if latest_run is not None or latest_finish is not None else "gray"
         )
 
-    if latest_successful_run is None:
+    if latest_run is None:
         return "gray"
-    if latest_successful_finish is None:
+    if latest_finish is None:
         return "yellow"
-    if latest_successful_finish[0] < latest_successful_run[0]:
+    if latest_finish[0] < latest_run[0]:
         return "yellow"
 
-    finish_params = latest_successful_finish[1].get("params")
+    finish_params = latest_finish[1].get("params")
     finished_picks = (
         _normalize_picks(finish_params.get("picked_epoch_indices"))
         if isinstance(finish_params, dict)
@@ -403,14 +342,18 @@ def alignment_epoch_inspector_state(
     )
     current_merge_ready = _current_merge_location_info_ready(resolver)
     finished_merge_ready = _finished_merge_location_info_ready(
-        latest_successful_finish[1],
+        latest_finish[1],
         fallback=current_merge_ready,
     )
     if _normalize_picks(picked_epoch_indices) != finished_picks:
         return "yellow"
     if current_merge_ready != finished_merge_ready:
         return "yellow"
-    if not _raw_table_artifacts_exist(resolver, slug, latest_successful_finish[1]):
+    if not alignment_stage_lineage_is_current(
+        resolver,
+        trial_slug=slug,
+        stage="finish",
+    ):
         return "yellow"
     return "green"
 

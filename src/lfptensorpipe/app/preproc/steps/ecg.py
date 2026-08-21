@@ -10,12 +10,21 @@ from typing import Any, Callable
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
+from lfptensorpipe.app.shared.generation_lineage import (
+    new_result_generation_id,
+    params_with_generation_lineage,
+)
 
 from ..paths import (
     preproc_step_config_path,
     preproc_step_log_path,
     preproc_step_raw_path,
     write_preproc_step_config,
+)
+from ..lineage import (
+    PreprocInputGenerationChanged,
+    capture_preproc_input_generation,
+    preproc_input_generation_matches,
 )
 
 MarkStepFn = Callable[..., Any]
@@ -325,7 +334,6 @@ def apply_ecg_step(
             output_path=str(dst),
             message=f"Unknown ECG method: {method}",
         )
-        invalidate_downstream_fn(context, "ecg_artifact_removal")
         return False, f"Unknown ECG method: {method}"
 
     if source is None:
@@ -337,10 +345,14 @@ def apply_ecg_step(
             output_path=str(dst),
             message="No valid preprocess input for ECG step.",
         )
-        invalidate_downstream_fn(context, "ecg_artifact_removal")
         return False, "No valid preprocess input for ECG step."
 
     source_step, src = source
+    captured = capture_preproc_input_generation(resolver, "ecg_artifact_removal")
+    if captured is None or captured[0] != source_step:
+        return False, "ECG source changed before input read."
+    _, input_generations = captured
+    result_generation_id = new_result_generation_id()
 
     try:
         runtime_copy2 = copy2_fn or shutil.copy2
@@ -384,11 +396,16 @@ def apply_ecg_step(
                     resolver=resolver,
                     step="ecg_artifact_removal",
                     completed=True,
-                    params={
-                        "method": method,
-                        "picks": [],
-                        "method_kwargs": persisted_kwargs,
-                    },
+                    params=params_with_generation_lineage(
+                        {
+                            "method": method,
+                            "picks": [],
+                            "method_kwargs": persisted_kwargs,
+                            "source_step": source_step,
+                        },
+                        result_generation_id=result_generation_id,
+                        input_generations=input_generations,
+                    ),
                     input_path=str(src),
                     output_path=str(dst),
                     message=(
@@ -397,6 +414,15 @@ def apply_ecg_step(
                     ),
                     log_path=output_set.staged_path(log_path),
                 )
+                if not preproc_input_generation_matches(
+                    resolver,
+                    "ecg_artifact_removal",
+                    source_step=source_step,
+                    input_generations=input_generations,
+                ):
+                    raise PreprocInputGenerationChanged(
+                        "ECG source changed during execution."
+                    )
                 output_set.commit()
             invalidate_downstream_fn(context, "ecg_artifact_removal")
             return True, "ECG step completed."
@@ -444,12 +470,17 @@ def apply_ecg_step(
                 resolver=resolver,
                 step="ecg_artifact_removal",
                 completed=True,
-                params={
-                    "method": method,
-                    "picks": selected_picks,
-                    "method_kwargs": persisted_kwargs,
-                    **ecg_diagnostics,
-                },
+                params=params_with_generation_lineage(
+                    {
+                        "method": method,
+                        "picks": selected_picks,
+                        "method_kwargs": persisted_kwargs,
+                        "source_step": source_step,
+                        **ecg_diagnostics,
+                    },
+                    result_generation_id=result_generation_id,
+                    input_generations=input_generations,
+                ),
                 input_path=str(src),
                 output_path=str(dst),
                 message=(
@@ -458,8 +489,19 @@ def apply_ecg_step(
                 ),
                 log_path=output_set.staged_path(log_path),
             )
+            if not preproc_input_generation_matches(
+                resolver,
+                "ecg_artifact_removal",
+                source_step=source_step,
+                input_generations=input_generations,
+            ):
+                raise PreprocInputGenerationChanged(
+                    "ECG source changed during execution."
+                )
             output_set.commit()
         invalidate_downstream_fn(context, "ecg_artifact_removal")
+    except PreprocInputGenerationChanged as exc:
+        return False, f"ECG step failed: {exc}"
     except Exception as exc:
         mark_preproc_step_fn(
             resolver=resolver,
@@ -469,7 +511,6 @@ def apply_ecg_step(
             output_path=str(dst),
             message=f"ECG step failed: {exc}",
         )
-        invalidate_downstream_fn(context, "ecg_artifact_removal")
         return False, f"ECG step failed: {exc}"
 
     return True, "ECG step completed."

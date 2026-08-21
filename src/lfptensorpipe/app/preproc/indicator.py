@@ -11,11 +11,9 @@ import yaml
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import read_run_log
 
-from .paths import (
-    preproc_filter_preview_log_path,
-    preproc_filter_preview_raw_path,
-    preproc_step_config_path,
-    preproc_step_log_path,
+from .lineage import (
+    filter_preview_lineage_is_current,
+    preproc_step_lineage_is_current,
 )
 from .steps.annotations import (
     _normalize_annotation_rows,
@@ -32,6 +30,18 @@ from .steps.filter import (
 )
 
 _UPSTREAM_INVALIDATION_PREFIX = "Invalidated by upstream step re-apply:"
+
+
+def _step_log_path(resolver: PathResolver, step: str) -> Path:
+    return resolver.preproc_step_dir(step, create=False) / "lfptensorpipe_log.json"
+
+
+def _step_config_path(resolver: PathResolver, step: str) -> Path:
+    return resolver.preproc_step_dir(step, create=False) / "config.yml"
+
+
+def _filter_preview_log_path(resolver: PathResolver) -> Path:
+    return resolver.preproc_step_dir("filter", create=False) / "qc" / "preview_log.json"
 
 
 def _read_payload(path: Path) -> dict[str, Any] | None:
@@ -62,7 +72,10 @@ def _filter_preview_payload_is_pending(
         isinstance(params, dict)
         and params.get("review_status") == "required"
         and params.get("filter_output_role") == "preview"
-        and preproc_filter_preview_raw_path(resolver).exists()
+        and (
+            resolver.preproc_step_dir("filter", create=False) / "qc" / "preview_raw.fif"
+        ).exists()
+        and filter_preview_lineage_is_current(resolver, payload)
     )
 
 
@@ -74,7 +87,7 @@ def _preproc_log_state(
     state = _log_state(payload)
     if state is None:
         return "gray"
-    raw_path = resolver.preproc_step_dir(step) / "raw.fif"
+    raw_path = resolver.preproc_step_dir(step, create=False) / "raw.fif"
     if state == "green" and not raw_path.exists():
         return "yellow"
     if state == "yellow" and isinstance(payload, dict):
@@ -86,13 +99,17 @@ def _preproc_log_state(
 
 def preproc_step_indicator_state(resolver: PathResolver, step: str) -> str:
     """Return the effective `gray|yellow|green` state for one preproc step."""
-    log_path = resolver.preproc_step_dir(step) / "lfptensorpipe_log.json"
+    log_path = _step_log_path(resolver, step)
     payload = _read_payload(log_path)
     state = _preproc_log_state(resolver, step, payload)
-    if step != "bad_segment_removal" or state != "green":
+    if state != "green":
         return state
     assert payload is not None
-    if not bad_segment_log_has_current_match_semantics(payload):
+    if not preproc_step_lineage_is_current(resolver, step):
+        return "yellow"
+    if step == "bad_segment_removal" and not (
+        bad_segment_log_has_current_match_semantics(payload)
+    ):
         return "yellow"
     return "green"
 
@@ -196,16 +213,18 @@ def preproc_filter_panel_state(
     advance_params: dict[str, Any] | None,
 ) -> str:
     """Return `gray|yellow|green` for the editable Filter panel."""
-    preview_payload = _read_payload(preproc_filter_preview_log_path(resolver))
+    preview_payload = _read_payload(_filter_preview_log_path(resolver))
     if _filter_preview_payload_is_pending(resolver, preview_payload):
         return "yellow"
-    payload = _read_payload(preproc_step_log_path(resolver, "filter"))
+    payload = _read_payload(_step_log_path(resolver, "filter"))
     state = _preproc_log_state(resolver, "filter", payload)
     if state == "gray":
         return "gray"
     if state == "yellow":
         return "yellow"
     assert payload is not None
+    if not preproc_step_lineage_is_current(resolver, "filter"):
+        return "yellow"
     if not filter_log_has_current_bad_channel_detection_semantics(payload):
         return "yellow"
     completed_signature = _filter_signature_from_log(payload)
@@ -224,7 +243,7 @@ def preproc_filter_panel_state(
 
 def preproc_filter_review_required(resolver: PathResolver) -> bool:
     """Return whether one valid Filter detection Preview awaits review."""
-    payload = _read_payload(preproc_filter_preview_log_path(resolver))
+    payload = _read_payload(_filter_preview_log_path(resolver))
     return bool(
         _filter_preview_payload_is_pending(resolver, payload)
         and filter_log_has_current_bad_channel_detection_semantics(payload)
@@ -269,13 +288,15 @@ def preproc_annotations_panel_state(
     rows: list[dict[str, Any]],
 ) -> str:
     """Return `gray|yellow|green` for the editable Annotations panel."""
-    payload = _read_payload(preproc_step_log_path(resolver, "annotations"))
+    payload = _read_payload(_step_log_path(resolver, "annotations"))
     state = _preproc_log_state(resolver, "annotations", payload)
     if state == "gray":
         return "gray"
     if state == "yellow":
         return "yellow"
     assert payload is not None
+    if not preproc_step_lineage_is_current(resolver, "annotations"):
+        return "yellow"
     if not annotation_log_has_current_support_semantics(payload):
         return "yellow"
     completed_signature = _read_annotations_csv_signature(resolver)
@@ -320,7 +341,7 @@ def _normalize_ecg_signature(
 def _read_ecg_config_method_kwargs(
     resolver: PathResolver,
 ) -> dict[str, Any] | None:
-    path = preproc_step_config_path(resolver, "ecg_artifact_removal")
+    path = _step_config_path(resolver, "ecg_artifact_removal")
     if not path.exists():
         return None
     try:
@@ -358,13 +379,15 @@ def preproc_ecg_panel_state(
     method_kwargs: dict[str, Any] | None = None,
 ) -> str:
     """Return `gray|yellow|green` for the editable ECG panel."""
-    payload = _read_payload(preproc_step_log_path(resolver, "ecg_artifact_removal"))
+    payload = _read_payload(_step_log_path(resolver, "ecg_artifact_removal"))
     state = _preproc_log_state(resolver, "ecg_artifact_removal", payload)
     if state == "gray":
         return "gray"
     if state == "yellow":
         return "yellow"
     assert payload is not None
+    if not preproc_step_lineage_is_current(resolver, "ecg_artifact_removal"):
+        return "yellow"
     completed_signature = _ecg_signature_from_log(resolver, payload)
     current_signature = _normalize_ecg_signature(
         method=method,

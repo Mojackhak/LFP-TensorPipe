@@ -19,11 +19,16 @@ from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.runlog_store import (
     RunLogRecord,
     indicator_from_log,
+    read_run_log,
     write_run_log,
 )
 from lfptensorpipe.app.shared.atomic_outputs import (
     AtomicOutputSet,
     write_outputs_atomically,
+)
+from lfptensorpipe.app.shared.generation_lineage import (
+    new_result_generation_id,
+    params_with_generation_lineage,
 )
 from lfptensorpipe.io.pkl_io import load_pkl, save_pkl
 from lfptensorpipe.lfp.burst.semantics import (
@@ -52,6 +57,7 @@ from .burst_native import (
     cleanup_legacy_occupation_outputs,
     normalize_burst_reducers,
 )
+from . import generation as feature_generation
 from .generation import (
     CLIP_STITCH_MEAN_SUPPORT,
     CLIP_STITCH_MEAN_SUPPORT_KEY,
@@ -72,6 +78,10 @@ class _MetricExtractResult:
     errors: tuple[str, ...]
     xlsx_warnings: tuple[str, ...]
     warnings: tuple[str, ...] = ()
+
+
+class _FeatureInputGenerationChanged(RuntimeError):
+    """Raised when captured inputs change before Feature promotion."""
 
 
 _METRIC_VALUE_REDUCERS = frozenset({ReducerKind.MEAN, ReducerKind.MEDIAN})
@@ -695,6 +705,7 @@ def run_extract_features(
     metric_items = list(raw_tables)
     final_paths_by_metric: dict[str, dict[str, Path]] = {}
     outputs_by_metric: dict[str, list[str]] = {}
+    preserve_prior_log = False
     try:
         for metric_key, _src_path in metric_items:
             reducer_override = str(metric_reducers.get(metric_key, "")).strip().lower()
@@ -728,6 +739,24 @@ def run_extract_features(
             for paths_by_stem in final_paths_by_metric.values()
             for path in paths_by_stem.values()
         ]
+        input_generations = feature_generation.capture_feature_input_generations(
+            resolver,
+            trial_slug=slug,
+            alignment_method=alignment_method,
+            outputs_by_metric=outputs_by_metric,
+        )
+        if input_generations is None:
+            raise RuntimeError(
+                "Accepted Alignment or Tensor inputs are no longer current."
+            )
+        try:
+            prior_log_payload = read_run_log(log_path)
+        except Exception:
+            prior_log_payload = None
+        prior_log_is_accepted = (
+            isinstance(prior_log_payload, dict)
+            and prior_log_payload.get("completed") is True
+        )
         with AtomicOutputSet(
             [*authoritative_paths, log_path],
             cleanup_stale_residues=True,
@@ -841,6 +870,11 @@ def run_extract_features(
                 for metric, _path in raw_tables
             ):
                 params_payload[CLIP_STITCH_MEAN_SUPPORT_KEY] = CLIP_STITCH_MEAN_SUPPORT
+            params_payload = params_with_generation_lineage(
+                params_payload,
+                result_generation_id=new_result_generation_id(),
+                input_generations=input_generations,
+            )
             success_record = RunLogRecord(
                 step="run_extract_features",
                 completed=True,
@@ -850,30 +884,43 @@ def run_extract_features(
                 message="Extract Features completed.",
             )
             write_run_log(output_set.staged_path(log_path), success_record)
+            if not feature_generation.feature_input_generations_match(
+                resolver,
+                trial_slug=slug,
+                alignment_method=alignment_method,
+                outputs_by_metric=outputs_by_metric,
+                input_generations=input_generations,
+            ):
+                preserve_prior_log = prior_log_is_accepted
+                raise _FeatureInputGenerationChanged(
+                    "Accepted input generation changed while Extract Features "
+                    "was running."
+                )
             output_set.commit()
     except Exception as exc:  # noqa: BLE001
         failure_errors = errors or [str(exc)]
-        write_run_log(
-            log_path,
-            RunLogRecord(
-                step="run_extract_features",
-                completed=False,
-                params={
-                    "trial_slug": slug,
-                    "alignment_method": alignment_method,
-                    "metrics": [metric for metric, _ in raw_tables],
-                    "target_outputs": total_targets,
-                    "saved_outputs": saved,
-                    "errors": failure_errors,
-                    "warnings": warnings,
-                    "xlsx_warnings": xlsx_warnings,
-                    "axes_by_metric": axes_signature_by_metric,
-                },
-                input_path=str(resolver.alignment_root / slug),
-                output_path=str(deriv_root),
-                message=f"Extract Features failed: {exc}",
-            ),
-        )
+        if not preserve_prior_log:
+            write_run_log(
+                log_path,
+                RunLogRecord(
+                    step="run_extract_features",
+                    completed=False,
+                    params={
+                        "trial_slug": slug,
+                        "alignment_method": alignment_method,
+                        "metrics": [metric for metric, _ in raw_tables],
+                        "target_outputs": total_targets,
+                        "saved_outputs": saved,
+                        "errors": failure_errors,
+                        "warnings": warnings,
+                        "xlsx_warnings": xlsx_warnings,
+                        "axes_by_metric": axes_signature_by_metric,
+                    },
+                    input_path=str(resolver.alignment_root / slug),
+                    output_path=str(deriv_root),
+                    message=f"Extract Features failed: {exc}",
+                ),
+            )
         if total_targets == 0:
             return False, "Extract Features failed: no enabled derivation targets."
         message = f"Extract Features failed. Saved 0, errors={len(failure_errors)}."

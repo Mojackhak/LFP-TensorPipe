@@ -7,14 +7,21 @@ from collections.abc import Iterable
 import numpy as np
 
 from lfptensorpipe.app.alignment.generation import (
+    AlignmentInputGenerationChangedError,
     accepted_alignment_metrics,
+    alignment_finish_input_generations_match,
     alignment_generation_rerun_message,
+    capture_alignment_finish_input_generations,
 )
 from lfptensorpipe.app.localize_service import localize_indicator_state
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
 from lfptensorpipe.app.shared.downstream_invalidation import (
     invalidate_after_alignment_finish,
+)
+from lfptensorpipe.app.shared.generation_lineage import (
+    new_result_generation_id,
+    params_with_generation_lineage,
 )
 from lfptensorpipe.utils.transforms import VALUE_TRANSFORM_POLICY_KEY
 
@@ -115,6 +122,14 @@ def finish_alignment_epochs(
         required_metrics = [metric for metric in run_metrics if metric in requested_set]
     if not required_metrics:
         return False, "No accepted warped tensor metrics selected for Finish."
+
+    input_generations = capture_alignment_finish_input_generations(
+        resolver,
+        trial_slug=slug,
+        include_localize=merge_location_info_ready,
+    )
+    if input_generations is None:
+        return False, "Align Finish inputs are not current; rerun their producers."
 
     paradigm_dir = alignment_paradigm_dir(resolver, slug)
     repcoord_warnings: list[str] = []
@@ -226,18 +241,22 @@ def finish_alignment_epochs(
                 entry=RunLogRecord(
                     step="build_raw_table",
                     completed=True,
-                    params={
-                        "trial_slug": slug,
-                        "picked_epoch_indices": picked,
-                        "metrics": required_metrics,
-                        "n_metrics": len(required_metrics),
-                        "merge_location_info_ready": merge_location_info_ready,
-                        "merge_location_info_applied": (
-                            merge_location_info_ready and not repcoord_warnings
-                        ),
-                        "saved_tables": len(frames),
-                        "repcoord_merge_warnings": repcoord_warnings,
-                    },
+                    params=params_with_generation_lineage(
+                        {
+                            "trial_slug": slug,
+                            "picked_epoch_indices": picked,
+                            "metrics": required_metrics,
+                            "n_metrics": len(required_metrics),
+                            "merge_location_info_ready": merge_location_info_ready,
+                            "merge_location_info_applied": (
+                                merge_location_info_ready and not repcoord_warnings
+                            ),
+                            "saved_tables": len(frames),
+                            "repcoord_merge_warnings": repcoord_warnings,
+                        },
+                        result_generation_id=new_result_generation_id(),
+                        input_generations=input_generations,
+                    ),
                     input_path=str(paradigm_dir),
                     output_path=str(paradigm_dir),
                     message=(
@@ -253,7 +272,19 @@ def finish_alignment_epochs(
                 keep_top_level=True,
                 source_path=log_path,
             )
+            if not alignment_finish_input_generations_match(
+                resolver,
+                trial_slug=slug,
+                include_localize=merge_location_info_ready,
+                input_generations=input_generations,
+            ):
+                raise AlignmentInputGenerationChangedError(
+                    "Alignment inputs changed while Finish was running; "
+                    "candidate outputs were not accepted."
+                )
             output_set.commit()
+    except AlignmentInputGenerationChangedError as exc:
+        return False, str(exc)
     except Exception as exc:  # noqa: BLE001
         _append_alignment_history(
             log_path,
@@ -272,7 +303,6 @@ def finish_alignment_epochs(
             ).to_dict(),
             keep_top_level=True,
         )
-        invalidate_after_alignment_finish(context, paradigm_slug=slug)
         return False, f"Finish failed: {exc}"
 
     invalidate_after_alignment_finish(context, paradigm_slug=slug)

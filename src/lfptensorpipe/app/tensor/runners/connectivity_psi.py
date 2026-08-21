@@ -10,6 +10,7 @@ from lfptensorpipe.app.path_resolver import RecordContext
 from lfptensorpipe.utils.freqs import split_bands_by_intervals
 
 from .. import service as svc
+from ..lineage import tensor_runner_entry
 
 
 def _build_runtime_bands(
@@ -75,6 +76,7 @@ def _partial_support_success_message(
     return f"{metric_label} tensor computed with partial frequency support{suffix}."
 
 
+@tensor_runner_entry
 def run_psi_metric(
     context: RecordContext,
     *,

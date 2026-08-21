@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from .path_resolver import PathResolver, RecordContext
 from .runlog_store import RunLogRecord, append_run_log_event, read_run_log
+
+logger = logging.getLogger(__name__)
 
 
 def _append_invalidation_event(
@@ -19,21 +22,26 @@ def _append_invalidation_event(
     """Append a failed event only when the target log already exists."""
     try:
         payload = read_run_log(path)
-    except Exception:
-        payload = None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not inspect downstream log %s: %s", path, exc)
+        return None
     if payload is None or not path.exists():
         return None
-    append_run_log_event(
-        path,
-        RunLogRecord(
-            step=step,
-            completed=False,
-            params={},
-            input_path=input_path,
-            output_path=output_path,
-            message=message,
-        ),
-    )
+    try:
+        append_run_log_event(
+            path,
+            RunLogRecord(
+                step=step,
+                completed=False,
+                params={},
+                input_path=input_path,
+                output_path=output_path,
+                message=message,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not invalidate downstream log %s: %s", path, exc)
+        return None
     return path
 
 
@@ -178,20 +186,20 @@ def invalidate_after_tensor_result_change(
         )
         if updated is not None:
             rewritten.append(updated)
-            slug = path.parent.name
-            for feature_path in _features_log_paths(
-                resolver,
-                paradigm_slug=slug,
-            ):
-                feature_updated = _append_invalidation_event(
-                    feature_path,
-                    step="run_extract_features",
-                    input_path=str(resolver.alignment_root / slug),
-                    output_path=str(feature_path.parent),
-                    message=message,
-                )
-                if feature_updated is not None:
-                    rewritten.append(feature_updated)
+        slug = path.parent.name
+        for feature_path in _features_log_paths(
+            resolver,
+            paradigm_slug=slug,
+        ):
+            feature_updated = _append_invalidation_event(
+                feature_path,
+                step="run_extract_features",
+                input_path=str(resolver.alignment_root / slug),
+                output_path=str(feature_path.parent),
+                message=message,
+            )
+            if feature_updated is not None:
+                rewritten.append(feature_updated)
     return rewritten
 
 
