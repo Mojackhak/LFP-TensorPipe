@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,8 @@ from .paths import (
 CANCELLED_RUN_STATUS = "cancelled"
 BUILD_TENSOR_CANCELLED_MESSAGE = "Build Tensor cancelled by user."
 TENSOR_CANCEL_REQUEST_PATH_ENV = "LFPTENSORPIPE_TENSOR_CANCEL_REQUEST_PATH"
+
+logger = logging.getLogger(__name__)
 
 
 class BuildTensorCancellationRequested(RuntimeError):
@@ -106,22 +109,31 @@ def backfill_cancelled_build_tensor_run(
         cancelled_metrics.append(metric_key)
 
     if cancelled_metrics:
-        write_stage_log(
-            resolver,
-            completed=False,
-            params={
-                "selected_metrics": list(selected_metrics),
-                "mask_edge_effects": bool(mask_edge_effects),
-                "metric_params_map": sanitized_metric_params_map,
-                "metric_statuses": metric_statuses,
-                "run_status": CANCELLED_RUN_STATUS,
-                "cancelled": True,
-                "cpu_percent": normalize_tensor_cpu_percent(cpu_percent),
-            },
-            input_path=str(preproc_step_raw_path(resolver, "finish")),
-            output_path=str(resolver.tensor_root),
-            message=message,
-        )
+        stage_params = {
+            "selected_metrics": list(selected_metrics),
+            "mask_edge_effects": bool(mask_edge_effects),
+            "metric_params_map": sanitized_metric_params_map,
+            "metric_statuses": metric_statuses,
+            "run_status": CANCELLED_RUN_STATUS,
+            "cancelled": True,
+            "cpu_percent": normalize_tensor_cpu_percent(cpu_percent),
+        }
+        stage_input_path = str(preproc_step_raw_path(resolver, "finish"))
+        stage_output_path = str(resolver.tensor_root)
+        try:
+            write_stage_log(
+                resolver,
+                completed=False,
+                params=stage_params,
+                input_path=stage_input_path,
+                output_path=stage_output_path,
+                message=message,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Build Tensor cancellation stage summary warning: %s",
+                exc,
+            )
     changed_metric_keys = tensor_output_metric_keys(
         [
             metric_key

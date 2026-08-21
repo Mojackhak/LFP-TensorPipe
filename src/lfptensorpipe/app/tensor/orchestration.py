@@ -167,26 +167,34 @@ def run_build_tensor(
         metric_statuses[metric_key] = "success" if ok else "failed_runtime"
 
     result_message = "; ".join(messages)
-    svc._write_stage_log(
-        resolver,
-        completed=overall_ok,
-        params={
-            "selected_metrics": metrics,
-            "mask_edge_effects": bool(mask_edge_effects),
-            "metric_params_map": {
-                key: svc._sanitize_metric_params_for_logs(value)
-                for key, value in merged_metric_params_map.items()
+    try:
+        svc._write_stage_log(
+            resolver,
+            completed=overall_ok,
+            params={
+                "selected_metrics": metrics,
+                "mask_edge_effects": bool(mask_edge_effects),
+                "metric_params_map": {
+                    key: svc._sanitize_metric_params_for_logs(value)
+                    for key, value in merged_metric_params_map.items()
+                },
+                "metric_statuses": metric_statuses,
+                "effective_n_jobs": plan_state.effective_n_jobs_map,
+                "cpu_percent": normalized_cpu_percent,
+                "detected_cpu_count": detected_cpu_count,
+                "global_compute_slots": global_compute_slots,
             },
-            "metric_statuses": metric_statuses,
-            "effective_n_jobs": plan_state.effective_n_jobs_map,
-            "cpu_percent": normalized_cpu_percent,
-            "detected_cpu_count": detected_cpu_count,
-            "global_compute_slots": global_compute_slots,
-        },
-        input_path=str(svc.preproc_step_raw_path(resolver, "finish")),
-        output_path=str(resolver.tensor_root),
-        message=result_message,
-    )
+            input_path=str(svc.preproc_step_raw_path(resolver, "finish")),
+            output_path=str(resolver.tensor_root),
+            message=result_message,
+        )
+    except Exception as exc:  # noqa: BLE001
+        summary_warning = f"Build Tensor stage summary warning: {exc}"
+        result_message = (
+            f"{result_message}; {summary_warning}"
+            if result_message
+            else summary_warning
+        )
     changed_metric_keys = tensor_output_metric_keys(
         [
             metric_key

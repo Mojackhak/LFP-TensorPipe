@@ -650,6 +650,21 @@ and the execution of tensor generation.
 | `Mask Edge Effects` | Treats samples within annotations whose labels contain `bad` or `edge` as edge-affected. Non-Burst metrics apply their method-specific output mask. Burst applies the toggle before threshold estimation and event detection: checked makes the effective band-specific support invalid, while unchecked leaves annotated support eligible. | Runtime build behavior for every selected metric. | Always available. |
 | `Build Tensor` | Runs tensor generation for all checked metrics. | Tensor outputs for the current record. | Requires preprocess finish outputs and valid metric settings. |
 
+If one or more metric results have already been accepted but the record-level
+Build Tensor summary cannot be saved, the run result preserves those metric
+outcomes and reports `Build Tensor stage summary warning:`. The application
+still marks only the Alignment trials and Features that consume each changed
+metric as stale. The older summary file may remain visible internally, but the
+metric indicators and stage state continue to use accepted metric artifacts
+and lineage rather than treating the summary as a scientific result.
+
+The same authority boundary applies after `Stop`: individual metric success or
+cancellation logs determine recovery. If only the aggregate cancellation
+summary cannot be saved, the application records an operational warning,
+invalidates dependents of successful metrics, and completes recovery instead of
+leaving the controls locked. Failure to save an individual metric cancellation
+log remains a recovery error and keeps the existing retry path.
+
 **Parameter meaning**
 
 - `Low freq`, `High freq`, and `Step` define the frequency grid.
