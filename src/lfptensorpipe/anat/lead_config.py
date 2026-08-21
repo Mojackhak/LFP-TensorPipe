@@ -31,6 +31,8 @@ def discover_regions(atlas_path: Path) -> list[str]:
     names = []
     for f in region_files:
         name = f.name
+        if name.startswith("._"):
+            continue
         if name.endswith(".nii.gz"):
             names.append(name[:-7])
         elif name.endswith(".nii"):

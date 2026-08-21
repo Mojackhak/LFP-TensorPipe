@@ -1546,3 +1546,14 @@ for that trial. Legacy values are never reinterpreted heuristically.
 
 - Baseline ranges are percent windows on the plotted x-axis, not arbitrary absolute times unless the plotted axis itself is already percent-based.
 - A range such as `0-20` means “use the first 20% of the current timeline as baseline.” Multiple ranges can be combined when a single continuous baseline window is not appropriate.
+
+## 10. AppleDouble Metadata in Atlas Region Discovery
+
+Localize region discovery treats macOS AppleDouble files whose exact basename
+starts with `._` as filesystem metadata, not as selectable atlas regions. This
+applies to both `.nii` and `.nii.gz` entries on exFAT and similar volumes. The
+matching primary NIfTI files remain available with their original region names;
+other dot-prefixed files and ordinary unexpected entries retain their existing
+behavior. No existing file is deleted or renamed. If a previously displayed
+metadata-derived region was selected, reopen the record and re-Apply Localize
+using the remaining real region selection.

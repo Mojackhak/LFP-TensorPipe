@@ -413,6 +413,8 @@ def _rewrite_features_tables(
     if not features_root.exists():
         return ()
     for path in sorted(features_root.glob("**/*.pkl")):
+        if _is_metadata_sidecar(path):
+            continue
         try:
             payload = load_pkl(path)
         except Exception:

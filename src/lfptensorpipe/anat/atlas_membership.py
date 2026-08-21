@@ -20,6 +20,8 @@ def collect_region_paths(atlas_path: Path) -> dict[str, list[Path]]:
             if not region_file.is_file():
                 continue
             name = region_file.name
+            if name.startswith("._"):
+                continue
             region = ""
             if name.endswith(".nii.gz"):
                 region = name[:-7]
