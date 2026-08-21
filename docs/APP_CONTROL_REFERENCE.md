@@ -425,6 +425,10 @@ An indicator is gray when a step has not been run, green when its current
 output completed successfully, and yellow when an attempted run failed or a
 previously successful output was made stale by an earlier step. A successful
 log is also shown as yellow when its corresponding output file is missing.
+Whenever the displayed Filter indicator is yellow, each later Preprocess step
+that already has a non-gray state is also displayed yellow; a never-run gray
+step stays gray. This is a display-only projection: it does not rewrite a log
+or artifact, invalidate a result, or add a new action-blocking rule.
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
@@ -442,12 +446,32 @@ log is also shown as yellow when its corresponding output file is missing.
 | `Low freq` | Sets the high-pass cutoff frequency. Raising it removes more slow drift and movement-related low-frequency content, but it can also remove genuine low-frequency neural signal. Leave it blank to disable high-pass filtering. | Filter output. | A provided value must be finite and nonnegative. |
 | `High freq` | Sets the low-pass cutoff frequency. Lowering it removes more high-frequency noise, but it also narrows the usable signal band for later tensor analysis. Leave it blank to disable low-pass filtering. | Filter output. | A provided value must be finite, positive, and strictly below the input Nyquist frequency. A value at or above Nyquist shows a blocking warning; it is not automatically clipped. |
 | `Advance` (Filter) | Opens advanced filter parameters. | Filter session/default parameters. | Enabled when raw data is available. |
-| `Apply` (Filter) | Creates a detection-filtered review Preview and runs automatic BAD detection. It does not accept the Preview as the scientific Filter result. | Pending Filter review state only; an earlier accepted Filter generation and its downstream results are not invalidated until finalization succeeds. | Requires successful Raw and valid filter parameters. A successful Apply turns Filter yellow and temporarily blocks later preprocess actions until the Preview is closed and finalized. |
+| `Apply` (Filter) | Creates a detection-filtered review Preview and runs automatic BAD detection. It does not accept the Preview as the scientific Filter result. | Pending Filter review state only; an earlier accepted Filter generation and its downstream results are not invalidated until finalization succeeds. The complete currently visible record draft, including blank cutoffs, is retained after the action. | Requires successful Raw and valid filter parameters. A successful Apply turns Filter yellow and temporarily blocks later preprocess actions until the Preview is closed and finalized. Existing later Preprocess indicators project yellow while never-run gray indicators stay gray. |
 | `Plot` (Filter) | Opens a pending review Preview, or an existing accepted Filter result when no Preview is pending. Closing a Preview automatically refilters from the original Raw and accepts it without a confirmation dialog. Closing an accepted result refilters only after annotations or bad-channel selections changed. | Reviewed annotations, accepted Filter output, and dependent-stage freshness after a real accepted change. | Unavailable before the first successful Apply when no accepted Filter result exists. Available for a valid yellow `review_required` Preview or a green finalized/legacy result; other yellow states remain blocked. |
 | Annotation table | Shows the currently configured annotation rows. | Annotation payload. | Read-only except for row selection. |
 | `Configure...` (Annotations) | Opens the annotation editor. | Current annotation rows. | Available after Raw succeeds. |
 | `Apply` (Annotations) | Writes the configured annotations into the preprocess pipeline without clipping or omitting any submitted row. Submitted onset values are seconds from the first retained sample; inherited source annotations keep their existing timing and channel scope when the rows are appended. | Annotation output used by downstream steps. | Requires successful Raw and a valid annotation set. Every positive interval must fit completely within `[0,n_times/sampling_rate)` and every zero-duration point must begin before the exclusive right boundary; one out-of-support row blocks the complete Apply operation. |
 | `Plot` (Annotations) | Plots the annotated signal. | QC only. | Requires successful annotation output. |
+
+`Low freq` and `High freq` are independently nullable. A blank low cutoff
+disables only high-pass filtering, a blank high cutoff disables only low-pass
+filtering, and leaving both blank disables band filtering. `Notches` remains
+independent: configured notch centers still run when both cutoffs are blank,
+so all three basic fields must be blank to request no frequency-domain
+filtering. Apply and the pending-review transition must retain these canonical
+blank values as `None`; they must not restore application defaults or an older
+accepted Filter log.
+
+After any step action reaches its terminal success, failure, cancellation, or
+pending state, the application persists the complete record draft currently
+visible in the GUI. It does not replay historic stage logs across the whole
+record at that point. Log-priority replay is reserved for loading an incoming
+record; this change adds no manual-restore path. Post-action persistence must
+collect and write the visible draft before clearing its dirty ownership. The
+existing persist helper clears dirty keys only after a successful payload
+write, while a failed write retains them. This rule protects unrelated Filter,
+Annotations, ECG, Tensor, Alignment, Localize, and Features draft fields when
+any one action completes.
 
 In any editable MNE Raw plot, press `a` to enter annotation mode and drag across
 the signal to create an all-channel interval. To make the interval

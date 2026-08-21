@@ -37,14 +37,6 @@ def persist_record_params_snapshot(window: Any, *, reason: str) -> bool:
 
 
 def post_step_action_sync(window: Any, *, reason: str) -> None:
-    context = window._record_context()
-    if context is None:
-        return
-    sync_record_params_from_logs(
-        window,
-        include_master=False,
-        clear_dirty=True,
-    )
     persist_record_params_snapshot(window, reason=reason)
 
 

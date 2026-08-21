@@ -77,7 +77,7 @@ class MainWindowPreprocStageMixin:
             self._set_indicator_color(indicator, "gray")
         indicator.setToolTip(
             f"{self._preproc_step_display_name(step)} state: "
-            "gray=not run, yellow=stale or failed, "
+            "gray=not run, yellow=stale, failed, or blocked, "
             "green=current inputs match successful output. Current: gray."
         )
         self._preproc_step_indicators[step] = indicator
@@ -92,7 +92,7 @@ class MainWindowPreprocStageMixin:
             self._set_indicator_color(indicator, state)
             indicator.setToolTip(
                 f"{self._preproc_step_display_name(step)} state: "
-                "gray=not run, yellow=stale or failed, "
+                "gray=not run, yellow=stale, failed, or blocked, "
                 f"green=current inputs match successful output. Current: {state}."
             )
 
@@ -103,7 +103,7 @@ class MainWindowPreprocStageMixin:
                 self._set_indicator_color(indicator, "gray")
                 indicator.setToolTip(
                     f"{self._preproc_step_display_name(step)} state: "
-                    "gray=not run, yellow=stale or failed, "
+                    "gray=not run, yellow=stale, failed, or blocked, "
                     "green=current inputs match successful output. Current: gray."
                 )
             if self._preproc_raw_plot_button is not None:
@@ -210,11 +210,26 @@ class MainWindowPreprocStageMixin:
                 str(ecg_method),
             ),
         )
+        annotations_display_state = annotations_panel_state
+        bad_segment_display_state = bad_segment_log_state
+        ecg_display_state = ecg_panel_state
+        finish_display_state = finish_log_state
+        if filter_panel_state == "yellow":
+            if annotations_display_state != "gray":
+                annotations_display_state = "yellow"
+            if bad_segment_display_state != "gray":
+                bad_segment_display_state = "yellow"
+            if ecg_display_state != "gray":
+                ecg_display_state = "yellow"
+            if finish_display_state != "gray":
+                finish_display_state = "yellow"
         self._set_preproc_step_indicator("filter", filter_panel_state)
-        self._set_preproc_step_indicator("annotations", annotations_panel_state)
-        self._set_preproc_step_indicator("bad_segment_removal", bad_segment_log_state)
-        self._set_preproc_step_indicator("ecg_artifact_removal", ecg_panel_state)
-        self._set_preproc_step_indicator("finish", finish_log_state)
+        self._set_preproc_step_indicator("annotations", annotations_display_state)
+        self._set_preproc_step_indicator(
+            "bad_segment_removal", bad_segment_display_state
+        )
+        self._set_preproc_step_indicator("ecg_artifact_removal", ecg_display_state)
+        self._set_preproc_step_indicator("finish", finish_display_state)
         filter_raw_exists = preproc_step_raw_path(resolver, "filter").exists()
         annotations_raw_exists = preproc_step_raw_path(resolver, "annotations").exists()
         bad_segment_raw_exists = preproc_step_raw_path(
