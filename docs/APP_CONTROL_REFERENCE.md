@@ -509,6 +509,16 @@ Filter results created before this end-tail coverage contract are retained but
 shown yellow because their logs cannot prove that the final samples were
 checked; a successful Apply and review finalization updates the result.
 
+When `Isolate BAD boundaries when filtering` is checked, BAD/EDGE endpoints
+are assigned to Raw-relative source samples with MNE rounding. Positive
+intervals use half-open source-index support; if both endpoints round to the
+same index, the interval creates neither invalid support nor a point split. A
+true zero-duration annotation creates one rounded processing boundary without
+marking that sample invalid. Known accepted Filter results whose isolated
+boundary support changes require Apply and review finalization again; the
+existing dependency flow then marks later Preprocess steps and all downstream
+Tensor, Alignment, and Features stale, including mask-disabled Tensor results.
+
 ### 6.5 Configure Annotations
 
 ![Configure Annotations dialog.](assets/app-control-reference/controlref-advance-annotations-dialog.png)
@@ -728,6 +738,26 @@ log remains a recovery error and keeps the existing retry path.
 - `Mask Edge Effects` controls annotation-derived masking, not frequency
   cropping or algorithmic availability. PSI-Multitaper output centers without
   a complete centered analysis window remain `NaN` when this control is off.
+- When `Mask Edge Effects` is on, every finite output time and matched
+  annotation endpoint is assigned to a Raw-relative source sample using MNE
+  rounding. Positive-duration annotations use half-open source-index support;
+  if both endpoints round to the same index, that positive interval has no
+  sample support. Boolean output masks select coordinates assigned to the
+  rounded sample of a true zero-duration annotation with no padding. Segment
+  isolation instead treats that sample index only as a processing boundary,
+  not invalid support. Padding is applied before rounding, so a padded point is
+  a positive interval rather than a point.
+- Irregular, duplicate, or unsorted output times are mapped independently.
+  Output coordinates assigned to the same source sample receive the same mask
+  membership. NaN and infinite output times are never assigned to a sample and
+  remain outside annotation support. Global and channel-specific annotation
+  scope is unchanged.
+- BUG-129/D-341 rounded source-sample membership is `REPRODUCED` /
+  `FIXED-VERIFIED`: dedicated `16`, focused `198`, and complete `1501` tests
+  pass. This repair adds no control, configuration, metadata, automatic
+  freshness marker, or invalidation mechanism. The iteration `030-BUG-129`
+  evidence seal is complete; exact tree and patch hashes are recorded in its
+  ignored `ITERATION_LOG.md`.
 - An empty required control is an invalid draft. It may be retained by ordinary
   record-scoped Save, but blocks Set as Default, Export Configs, and
   computation. A documented optional control may be left empty and is stored

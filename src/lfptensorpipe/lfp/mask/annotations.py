@@ -62,7 +62,8 @@ def annotation_sample_support_by_channel(
 ) -> tuple[np.ndarray, tuple[tuple[int, ...], ...], dict[str, Any]]:
     """Return half-open annotation support and point boundaries by channel.
 
-    Positive-duration annotations mark sample support. Zero-duration annotations
+    Positive-duration annotations mark MNE-rounded half-open sample support;
+    rounded-empty positive intervals remain empty. Zero-duration annotations
     split continuous processing support without inventing an invalid sample.
     Global annotations affect every requested channel; channel-specific
     annotations affect only their assigned channels.
@@ -76,9 +77,7 @@ def annotation_sample_support_by_channel(
     if not keep_lower:
         raise ValueError("keep must contain at least one non-empty label.")
 
-    sfreq = float(raw.info["sfreq"])
     n_times = int(raw.n_times)
-    first_samp = int(raw.first_samp)
     support = np.zeros((len(channel_names), n_times), dtype=bool)
     point_boundaries: list[set[int]] = [set() for _ in channel_names]
     matched_by_channel = [0 for _ in channel_names]
@@ -101,8 +100,12 @@ def annotation_sample_support_by_channel(
         if not _matches(str(description)):
             continue
         matched_annotations += 1
-        start = int(round(float(onset) * sfreq)) - first_samp
-        stop = int(round((float(onset) + float(duration)) * sfreq)) - first_samp
+        onset_relative = float(onset) - float(raw.first_time)
+        duration_f = float(duration)
+        start, stop = raw.time_as_index(
+            [onset_relative, onset_relative + duration_f],
+            use_rounding=True,
+        )
         start = int(np.clip(start, 0, n_times))
         stop = int(np.clip(stop, 0, n_times))
         scope = normalize_annotation_scope(annotation_channels)
@@ -110,10 +113,11 @@ def annotation_sample_support_by_channel(
             if not annotation_scope_affects_output(scope, (channel_name,)):
                 continue
             matched_by_channel[channel_index] += 1
-            if stop > start:
+            if duration_f == 0.0:
+                if 0 < start < n_times:
+                    point_boundaries[channel_index].add(start)
+            elif stop > start:
                 support[channel_index, start:stop] = True
-            elif 0 < start < n_times:
-                point_boundaries[channel_index].add(start)
 
     normalized_points = tuple(tuple(sorted(points)) for points in point_boundaries)
     info = {
@@ -307,7 +311,7 @@ def _iter_matched_sample_intervals(
     pad_s: float,
     clip_to_raw: bool,
 ) -> list[dict[str, Any]]:
-    """Collect Raw-relative intervals using half-open sample support."""
+    """Collect Raw-relative continuous intervals for sample projection."""
     matched = _iter_matched_intervals(
         raw,
         keep=keep,
@@ -342,19 +346,35 @@ def _iter_matched_sample_intervals(
     return clipped
 
 
-def _interval_time_mask(
+def _sample_indices_for_times(
+    raw: "mne.io.BaseRaw",
     times: np.ndarray,
     finite: np.ndarray,
-    *,
-    start: float,
-    stop: float,
 ) -> np.ndarray:
-    """Return half-open support, retaining true zero-duration point events."""
+    """Map finite Raw-relative times to MNE-rounded source samples."""
+    sample_indices = np.zeros(times.shape, dtype=np.int64)
+    if np.any(finite):
+        sample_indices[finite] = raw.time_as_index(
+            times[finite],
+            use_rounding=True,
+        )
+    return sample_indices
+
+
+def _interval_sample_mask(
+    sample_indices: np.ndarray,
+    finite: np.ndarray,
+    *,
+    start: int,
+    stop: int,
+    is_point: bool,
+) -> np.ndarray:
+    """Return integer sample support, retaining only true point events."""
+    if is_point:
+        return finite & (sample_indices == start)
     if stop > start:
-        return finite & (times >= start) & (times < stop)
-    if stop == start:
-        return finite & (times == start)
-    return np.zeros(times.shape, dtype=bool)
+        return finite & (sample_indices >= start) & (sample_indices < stop)
+    return np.zeros(sample_indices.shape, dtype=bool)
 
 
 def _set_reconstructed_annotations(
@@ -780,7 +800,10 @@ def time_mask_by_annotations(
     clip_to_raw: bool = True,
     require_match: bool = False,
 ) -> tuple[np.ndarray, dict[str, Any]]:
-    """Build a boolean keep-mask over a tensor time axis based on Raw annotations.
+    """Build a source-sample keep-mask from Raw annotations.
+
+    Every finite output time is projected to an MNE-rounded Raw source sample
+    before annotation membership is evaluated.
 
     Args:
         raw: MNE Raw whose annotations define time intervals.
@@ -813,16 +836,20 @@ def time_mask_by_annotations(
         raise ValueError("No Raw annotations matched the requested `keep` labels.")
 
     finite = np.isfinite(times)
+    sample_indices = _sample_indices_for_times(raw, times, finite)
     keep_mask = np.zeros(times.shape, dtype=bool)
 
     for itv in matched:
-        start = float(itv["start_s"])
-        end = float(itv["end_s"])
-        keep_mask |= _interval_time_mask(
-            times,
+        start, stop = raw.time_as_index(
+            [float(itv["start_s"]), float(itv["end_s"])],
+            use_rounding=True,
+        )
+        keep_mask |= _interval_sample_mask(
+            sample_indices,
             finite,
-            start=start,
-            stop=end,
+            start=int(start),
+            stop=int(stop),
+            is_point=float(itv["duration_s"]) == 0.0 and float(pad_s) == 0.0,
         )
 
     info: dict[str, Any] = dict(
@@ -850,6 +877,8 @@ def output_time_mask_by_annotations(
 ) -> tuple[np.ndarray, dict[str, Any]]:
     """Build an annotation mask for local channels or connectivity pairs.
 
+    Every finite output time is projected to an MNE-rounded Raw source sample
+    before annotation membership is evaluated.
     Rows in ``output_channels`` identify the source channel membership of each
     output. A global MNE annotation affects every row. A channel-specific
     annotation affects only rows that contain at least one annotated channel.
@@ -872,13 +901,19 @@ def output_time_mask_by_annotations(
         raise ValueError("No Raw annotations matched the requested `keep` labels.")
 
     finite = np.isfinite(times)
+    sample_indices = _sample_indices_for_times(raw, times, finite)
     output_mask = np.zeros((len(output_scopes), times.size), dtype=bool)
     for interval in matched:
-        interval_time_mask = _interval_time_mask(
-            times,
+        start, stop = raw.time_as_index(
+            [float(interval["start_s"]), float(interval["end_s"])],
+            use_rounding=True,
+        )
+        interval_time_mask = _interval_sample_mask(
+            sample_indices,
             finite,
-            start=float(interval["start_s"]),
-            stop=float(interval["end_s"]),
+            start=int(start),
+            stop=int(stop),
+            is_point=(float(interval["duration_s"]) == 0.0 and float(pad_s) == 0.0),
         )
         for output_index, output_scope in enumerate(output_scopes):
             if annotation_scope_affects_output(interval["ch_names"], output_scope):
