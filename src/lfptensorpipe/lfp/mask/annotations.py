@@ -255,8 +255,11 @@ def _iter_matched_intervals(
 ) -> list[dict[str, Any]]:
     """Collect matched intervals in MNE's attached annotation frame."""
     keep_lower = _normalize_keep_labels(keep)
-    if float(pad_s) < 0:
+    pad_s_f = float(pad_s)
+    if pad_s_f < 0:
         raise ValueError("`pad_s` must be >= 0.")
+    if not np.isfinite(pad_s_f):
+        raise ValueError("`pad_s` must be finite.")
 
     raw_start = float(raw.first_time)
     raw_stop = raw_start + (float(raw.n_times) / float(raw.info["sfreq"]))
@@ -275,8 +278,8 @@ def _iter_matched_intervals(
         onset_f = float(onset)
         dur_f = float(dur)
 
-        start = onset_f - float(pad_s)
-        end = onset_f + dur_f + float(pad_s)
+        start = onset_f - pad_s_f
+        end = onset_f + dur_f + pad_s_f
 
         if clip_to_raw:
             is_point = end == start
