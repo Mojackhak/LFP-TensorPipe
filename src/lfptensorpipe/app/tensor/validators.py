@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any
 
 
@@ -23,7 +24,7 @@ def validate_bands(bands: list[dict[str, Any]]) -> tuple[bool, str]:
             end = float(band.get("end"))
         except Exception:
             return False, f"Band row {idx + 1} has invalid numeric range."
-        if start <= 0.0 or end <= start:
+        if not isfinite(start) or not isfinite(end) or start <= 0.0 or end <= start:
             return False, f"Band row {idx + 1} must satisfy 0 < start < end."
         normalized.append((name, start, end))
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from math import isfinite
+
 from lfptensorpipe.gui.shell.common import (
     Any,
     DEFAULT_TENSOR_BANDS,
@@ -26,7 +28,7 @@ def _normalize_tensor_bands_rows(value: Any) -> list[dict[str, float | str]]:
             end = float(item.get("end"))
         except Exception:
             continue
-        if start <= 0.0 or end <= start:
+        if not isfinite(start) or not isfinite(end) or start <= 0.0 or end <= start:
             continue
         names.add(name)
         normalized.append({"name": name, "start": float(start), "end": float(end)})

@@ -197,7 +197,12 @@ class TensorBandsConfigureDialog(QDialog):
                 return False, "Band name cannot be empty."
             if name in names:
                 return False, f"Duplicate band name: {name}"
-            if start <= 0.0 or end <= start:
+            if (
+                not np.isfinite(start)
+                or not np.isfinite(end)
+                or start <= 0.0
+                or end <= start
+            ):
                 return False, "Each band must satisfy 0 < start < end."
             names.add(name)
         return True, ""
