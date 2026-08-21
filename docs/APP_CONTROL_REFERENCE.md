@@ -545,6 +545,35 @@ Canonical zero-first-sample, on-grid, point, and unrelated results remain
 current. The separately reproduced surviving non-BAD annotation remap is
 `NEEDS-DECISION` and is not part of BUG-142.
 
+BUG-143/D-355 is `REPRODUCED` / `FIXED-VERIFIED`, P2 lifecycle and availability.
+On exFAT, macOS can place AppleDouble metadata such as `._raw.fif` beside the
+private FIF that Filter is saving. The shared atomic publisher formerly
+mistook that metadata for a formal FIF family member, which could make Filter
+fail with a `._raw.fif -> public/._raw.fif` missing-file error even though the
+scientific `raw.fif` was written successfully.
+
+The backend-only repair ignores an entry whose basename starts with
+`._` only while enumerating a private staged FIF directory. Formal main and
+numbered split FIF files remain collectively promoted, and any other
+unexpected staged entry remains an error. Rollback, cleanup, transaction
+manifests, controls, parameters, logs, and scientific values do not change.
+The isolated source and public editable clone are both repaired. Dedicated
+`2`, shared atomic `29`, focused `41`, and complete `1531` tests pass; exact
+collection is `1531`, with only the two established fully masked Connectivity
+warnings. The public-clone gate also passes the exact `2`, Ruff, Black, and
+isolated import in `lfptp`.
+
+Official isolated capture, tracked/ignored replay, manifest verification, and
+evidence sealing are complete. Authoritative capture details are retained in
+the ignored iteration 034 log and evidence manifest rather than embedded in
+this tracked control reference; the final refreshed recapture values own the
+post-seal documentation state.
+
+The failed transaction does not accept a new Filter generation. Restart the
+GUI, then Apply only the failed Filter step again. Existing downstream
+invalidation alone applies. No data scan, migration, automatic rerun, or
+global invalidation is required.
+
 ### 6.5 Configure Annotations
 
 ![Configure Annotations dialog.](assets/app-control-reference/controlref-advance-annotations-dialog.png)

@@ -209,7 +209,7 @@ class AtomicOutputSet:
             if not item.temporary.is_file():
                 raise FileNotFoundError(f"Missing staged FIF output: {item.temporary}")
             for temporary in sorted(directory.iterdir()):
-                if temporary == item.temporary:
+                if temporary == item.temporary or temporary.name.startswith("._"):
                     continue
                 if not temporary.is_file() or not temporary.name.endswith(
                     (".fif", ".fif.gz")
