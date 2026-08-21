@@ -18,9 +18,9 @@ def _read_override_value(override_file: Path | None, key: str) -> str | None:
         return None
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
-        if not line.startswith(key):
+        name, separator, raw_value = line.partition("=")
+        if not separator or name.strip() != key:
             continue
-        _, raw_value = line.split("=", maxsplit=1)
         value = raw_value.strip()
         if value:
             return value
