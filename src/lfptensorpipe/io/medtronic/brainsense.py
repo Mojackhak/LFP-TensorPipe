@@ -276,13 +276,22 @@ def _parse_entries(session: dict[str, Any], *, version: str) -> list[_Entry]:
                 version=version,
             )
         try:
-            data_uV = np.asarray(td, dtype=float).ravel()
+            data_uV = np.asarray(td, dtype=float)
         except Exception as exc:
             raise ParseError(
                 code="PARSE_SCHEMA_INVALID",
                 message=f"Non-numeric TimeDomainData at {SECTION_NAME}[{order}].",
                 version=version,
             ) from exc
+        if data_uV.ndim != 1 or data_uV.size == 0:
+            raise ParseError(
+                code="PARSE_SCHEMA_INVALID",
+                message=(
+                    "TimeDomainData must be a non-empty one-dimensional list "
+                    f"at {SECTION_NAME}[{order}]."
+                ),
+                version=version,
+            )
 
         entries.append(
             _Entry(

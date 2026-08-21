@@ -11,7 +11,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-from lfptensorpipe.io.converter import df2mne
+from lfptensorpipe.io.converter import InfiniteSignalValuesError, df2mne
 
 VENDOR_NAME = "Sceneray"
 CANONICAL_CHANNEL_RE = re.compile(r"^\d+[A-Za-z]*_\d+[A-Za-z]*(_[LR])?$")
@@ -495,7 +495,14 @@ def parse(
         data2d = cube.reshape(n_packets * n_blocks, n_channels)
 
         df_channels = pd.DataFrame(data2d, columns=channel_names)
-        raw = df2mne(df_channels, sr=float(sfreq_hz), unit="uV")
+        try:
+            raw = df2mne(df_channels, sr=float(sfreq_hz), unit="uV")
+        except InfiniteSignalValuesError as exc:
+            raise ParseError(
+                code="PARSE_SCHEMA_INVALID",
+                message=str(exc),
+                version=version,
+            ) from exc
 
         tag_code_ts = _build_tag_code_series(
             df_packets, n_blocks=n_blocks, sfreq_hz=float(sfreq_hz)

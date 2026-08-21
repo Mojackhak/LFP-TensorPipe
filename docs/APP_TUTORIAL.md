@@ -99,6 +99,13 @@ Also enable `Advanced` and set the metadata sidecar to:
 Click `Parse` first. The parse summary should report the SceneRay vendor,
 sampling rate, duration, and channel count.
 
+Parsing rejects positive or negative infinity in Sceneray neural-signal cells
+before it creates the preview Raw. Correct the source export rather than
+replacing or clipping the value. This check does not change the documented
+packet-gap and missing-cell zero behavior. The same infinity rejection applies
+to Legacy CSV and PINS imports; approved Legacy CSV `NaN` missing values remain
+distinct and are not rejected by this rule.
+
 Parsing also rebases the recording onto a zero sample offset, so every imported
 record shares one time convention before `Sync` and `Reset reference` run.
 Nothing moves in time: `first_samp` becomes `0`, `meas_date` advances by the same

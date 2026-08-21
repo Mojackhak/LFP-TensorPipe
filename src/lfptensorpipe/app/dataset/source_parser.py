@@ -100,6 +100,9 @@ def _load_raw_from_source(
         csv_sr_value = float(csv_sr)
         if not math.isfinite(csv_sr_value) or csv_sr_value <= 0:
             raise ValueError("CSV import requires finite sr > 0.")
+        from lfptensorpipe.io.csv.brainsense import _validate_legacy_csv_header
+
+        _validate_legacy_csv_header(source_path)
         df = pd.read_csv(source_path)
         return df2mne(df, sr=csv_sr_value, unit=csv_unit), False
 

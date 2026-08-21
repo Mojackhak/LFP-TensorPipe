@@ -5,13 +5,14 @@ import datetime as dt
 import re
 from collections import Counter
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from lfptensorpipe.io.converter import df2mne
+from lfptensorpipe.io.converter import InfiniteSignalValuesError, df2mne
 
 VENDOR_NAME = "PINS"
 CANONICAL_CHANNEL_RE = re.compile(r"^\d+[A-Za-z]*_\d+[A-Za-z]*(_[LR])?$")
@@ -64,6 +65,19 @@ def _parse_float(value: Any) -> float:
 
 def _parse_int(value: Any) -> int:
     return int(float(str(value).strip()))
+
+
+def _parse_packet_int(value: Any) -> int:
+    token = str(value).strip()
+    parsed_float = float(token)
+    parsed_decimal = Decimal(token)
+    if (
+        not np.isfinite(parsed_float)
+        or not parsed_decimal.is_finite()
+        or parsed_decimal != parsed_decimal.to_integral_value()
+    ):
+        raise ValueError("packet field must be a finite integer")
+    return int(parsed_decimal)
 
 
 def _extract_first_float(text: str) -> float | None:
@@ -331,8 +345,8 @@ def _read_signal_packets(file_path: Path) -> tuple[list[str], list[_Packet]]:
                 )
 
             try:
-                packet_num = _parse_int(row[idx_packet_num])
-                packet_len = _parse_int(row[idx_packet_len])
+                packet_num = _parse_packet_int(row[idx_packet_num])
+                packet_len = _parse_packet_int(row[idx_packet_len])
                 vals = [_parse_float(row[i]) for i in channel_cols]
             except Exception as exc:
                 raise ParseError(
@@ -587,7 +601,14 @@ def parse(
         )
 
         df = pd.DataFrame(data, columns=ch_names)
-        raw = df2mne(df, sr=sfreq_hz, unit="uV")
+        try:
+            raw = df2mne(df, sr=sfreq_hz, unit="uV")
+        except InfiniteSignalValuesError as exc:
+            raise ParseError(
+                code="PARSE_SCHEMA_INVALID",
+                message=str(exc),
+                version=version,
+            ) from exc
 
         marker_events = _read_marker_events(
             marker_path, eeg_start_bjs=meta.sampling_start_bjs

@@ -190,6 +190,35 @@ after a new import starts writing, rollback removes only standard record roots
 created by that import call and preserves pre-existing paths, the caller's source
 file, shared subject directories, and unrelated records.
 
+Legacy CSV, PINS, and Sceneray neural-signal inputs reject positive and negative
+infinity during `Parse`, before canonical Raw construction. Infinity is not
+cleaned, replaced, or partially accepted. Legacy CSV `NaN` missing values and
+the documented PINS/Sceneray packet-gap or missing-cell zero behavior retain
+their existing meaning. If a previously imported record is known to contain an
+infinite sample, correct the source and explicitly re-import it; opening the app
+does not scan or rewrite existing records.
+
+PINS `Packet num` and `Packet length` fields must represent finite mathematical
+integers. Values written as `1`, `1.0`, or `1e0` are equivalent, but a
+fractional value is rejected instead of being rounded or truncated. Correct the
+source export and parse it again; the parser does not alter the packet timeline
+or create a partial preview.
+
+Medtronic `TimeDomainData` must be a non-empty one-dimensional sample list.
+Nested or nested-empty arrays are rejected during `Parse`; the importer does not
+flatten them into time samples or create a zero-length preview. Correct the
+source export and parse it again before confirming the import.
+
+Legacy CSV channel names are read from the original logical header, trimmed at
+their outer edges once, and required to be non-empty and case-sensitively
+unique. The importer does not let pandas or MNE repair a blank or duplicate
+identity with `Unnamed`, `.1`, or running-number suffixes. Valid punctuation,
+internal spaces, case, quoted commas, numeric names, and explicitly authored
+names such as `A.1` or `Unnamed: 0` remain supported. If an existing record is
+known to have been imported from an ambiguous header, correct the source and
+explicitly re-import it; the app does not infer or rewrite channel identity
+from a saved suffix.
+
 ### 3.2 Sync Import Signal
 
 This dialog prepares optional import-time alignment between LFP markers and an

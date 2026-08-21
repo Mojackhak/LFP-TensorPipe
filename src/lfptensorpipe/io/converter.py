@@ -39,6 +39,10 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+class InfiniteSignalValuesError(ValueError):
+    """Raised when signal data contains positive or negative infinity."""
+
+
 # -----------------------------------------------------------------------------
 # Metadata parsing
 # -----------------------------------------------------------------------------
@@ -683,7 +687,8 @@ def df2mne(
     ----------
     df:
         Input DataFrame where each column is one channel signal and each row is one sample.
-        Column names are used as MNE channel names.
+        Numeric column names are converted with ``str(...).strip()`` and used
+        as MNE channel names; the resulting names must be non-empty and unique.
         Non-numeric columns are ignored automatically.
     sr:
         Sampling rate in Hz.
@@ -692,6 +697,8 @@ def df2mne(
     unit:
         Unit for values stored in ``df``. Supported: V, mV, uV, nV.
         Data are converted to Volts before creating the MNE Raw object.
+        NaN values are preserved; positive or negative infinity raises
+        ``InfiniteSignalValuesError``.
 
     Returns
     -------
@@ -728,12 +735,21 @@ def df2mne(
         logger.warning("Ignoring non-numeric columns in df2mne: %s", ignored_cols)
 
     ch_names = [str(c).strip() for c in numeric_cols]
+    if any(not name for name in ch_names):
+        raise ValueError("df channel names must be non-empty after trimming.")
+    name_index = pd.Index(ch_names)
+    duplicate_mask = name_index.duplicated()
+    if duplicate_mask.any():
+        dup = list(name_index[duplicate_mask])
+        raise ValueError(f"df contains duplicated channel names: {dup}")
     data = (
         df.loc[:, numeric_cols]
         .apply(pd.to_numeric, errors="raise")
         .to_numpy(dtype=float)
         .T
     )
+    if np.isinf(data).any():
+        raise InfiniteSignalValuesError("Signal data must not contain infinite values.")
 
     data_v = data * _voltage_unit_to_volt_scale(unit)
     import mne

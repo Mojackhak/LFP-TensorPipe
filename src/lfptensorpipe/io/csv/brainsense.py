@@ -32,6 +32,10 @@ class ParseError(Exception):
         }
 
 
+class _InvalidChannelHeaderError(ValueError):
+    """Raised when a Legacy CSV header cannot identify channels uniquely."""
+
+
 def _require_file_path(paths: dict[str, str], key: str) -> Path:
     raw = paths.get(key)
     if raw is None or not str(raw).strip():
@@ -84,9 +88,40 @@ def _resolve_sr_and_unit(options: dict[str, Any] | None) -> tuple[float, str]:
     return sr, unit
 
 
+def _validate_legacy_csv_header(csv_path: Path) -> list[str]:
+    header_row = pd.read_csv(
+        csv_path,
+        header=None,
+        nrows=1,
+        dtype=str,
+        keep_default_na=False,
+        encoding="utf-8-sig",
+    )
+    channel_names = [str(value).strip() for value in header_row.iloc[0]]
+    if any(not name for name in channel_names):
+        raise _InvalidChannelHeaderError(
+            "CSV channel names must be non-empty after trimming."
+        )
+    name_index = pd.Index(channel_names)
+    duplicate_mask = name_index.duplicated()
+    if duplicate_mask.any():
+        duplicates = list(name_index[duplicate_mask])
+        raise _InvalidChannelHeaderError(
+            f"Duplicated channel columns in CSV: {duplicates}"
+        )
+    return channel_names
+
+
 def _read_channel_df(csv_path: Path) -> pd.DataFrame:
     try:
+        channel_names = _validate_legacy_csv_header(csv_path)
         df = pd.read_csv(csv_path)
+        df.columns = channel_names
+    except _InvalidChannelHeaderError as exc:
+        raise ParseError(
+            code="PARSE_CHANNEL_MAP_INVALID",
+            message=str(exc),
+        ) from exc
     except Exception as exc:
         raise ParseError(
             code="PARSE_SCHEMA_INVALID",
@@ -97,13 +132,6 @@ def _read_channel_df(csv_path: Path) -> pd.DataFrame:
         raise ParseError(
             code="PARSE_SCHEMA_INVALID",
             message=f"CSV has no rows: {csv_path}",
-        )
-
-    if df.columns.duplicated().any():
-        dups = list(df.columns[df.columns.duplicated()])
-        raise ParseError(
-            code="PARSE_CHANNEL_MAP_INVALID",
-            message=f"Duplicated channel columns in CSV: {dups}",
         )
 
     if any(str(col).strip().lower() == "time" for col in df.columns):
