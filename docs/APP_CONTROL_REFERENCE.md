@@ -344,6 +344,14 @@ representative coordinates are exported for downstream use.
 | `Apply` | Generates representative-coordinate artifacts for the current record. | Localize outputs consumed by downstream alignment and feature views. | Requires complete match state, saved atlas state, and working MATLAB/Lead-DBS dependencies. |
 | `Contact Viewer` | Launches the external MATLAB-based contact viewer. | Independent viewer process only. | Requires a valid current atlas and representative-coordinate export context. |
 
+Closing the main window first stops accepting new Localize MATLAB work and
+cancels work that has not started. The app then cancels any MATLAB launch that
+it started or quits its ready MATLAB Engine session before accepting the window
+close. If that owned MATLAB session cannot be confirmed stopped within the
+bounded shutdown wait, the main window remains open and reports the shutdown
+failure. A separately launched Contact Viewer or any MATLAB session not owned
+by the main app is outside this close contract and is not terminated.
+
 ### 4.2 Match: Record Channels ↔ Lead-DBS Contacts
 
 This dialog binds each record channel to an anode, cathode, and representative

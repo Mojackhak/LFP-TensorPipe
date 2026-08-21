@@ -5,10 +5,11 @@ from __future__ import annotations
 from concurrent.futures import Future
 from dataclasses import dataclass
 from pathlib import Path
-from queue import SimpleQueue
+from queue import Empty, SimpleQueue
 import subprocess
 import sys
 import threading
+import time
 from typing import Any, Callable
 
 import pandas as pd
@@ -106,6 +107,10 @@ class _DaemonSingleWorkerExecutor:
             tuple[Future[Any], Callable[..., Any], tuple[Any, ...], dict[str, Any]]
         ] = SimpleQueue()
         self._start_lock = threading.Lock()
+        self._shutdown = threading.Event()
+        self._shutdown_complete = threading.Event()
+        self._idle = threading.Event()
+        self._idle.set()
         self._worker: threading.Thread | None = None
 
     def submit(
@@ -117,6 +122,8 @@ class _DaemonSingleWorkerExecutor:
     ) -> Future[Any]:
         future: Future[Any] = Future()
         with self._start_lock:
+            if self._shutdown.is_set():
+                raise RuntimeError("cannot schedule new futures after shutdown")
             if self._worker is None:
                 worker = threading.Thread(
                     target=self._run,
@@ -128,13 +135,16 @@ class _DaemonSingleWorkerExecutor:
             self._queue.put((future, fn, args, kwargs))
         return future
 
-    @staticmethod
     def _run_item(
+        self,
         item: tuple[Future[Any], Callable[..., Any], tuple[Any, ...], dict[str, Any]],
     ) -> None:
         future, fn, args, kwargs = item
         result: Any = None
         try:
+            if self._shutdown.is_set():
+                future.cancel()
+                return
             if not future.set_running_or_notify_cancel():
                 return
             try:
@@ -149,16 +159,48 @@ class _DaemonSingleWorkerExecutor:
     def _run(self) -> None:
         while True:
             item = self._queue.get()
+            self._idle.clear()
             try:
                 self._run_item(item)
             finally:
+                self._idle.set()
                 del item
+
+    def cancel_pending(self) -> None:
+        """Reject new submissions and cancel queued work that has not started."""
+        with self._start_lock:
+            self._shutdown.set()
+            while True:
+                try:
+                    item = self._queue.get_nowait()
+                except Empty:
+                    break
+                future = item[0]
+                future.cancel()
+                del item, future
+
+    def is_idle(self) -> bool:
+        return self._idle.is_set()
+
+    def is_shutdown(self) -> bool:
+        return self._shutdown.is_set()
+
+    def mark_shutdown_complete(self) -> None:
+        self._shutdown_complete.set()
+
+    def shutdown_complete(self) -> bool:
+        return self._shutdown_complete.is_set()
 
 
 _ELSPEC_CACHE: dict[str, dict[str, Any]] = {}
 _MATLAB_RUNTIME_LOCK = threading.Lock()
 _MATLAB_RUNTIME_ENGINE: Any | None = None
 _MATLAB_RUNTIME_KEY: tuple[str, str] | None = None
+_MATLAB_RUNTIME_LAUNCH: Any | None = None
+_MATLAB_RUNTIME_LAUNCH_PENDING = False
+_MATLAB_RUNTIME_LAUNCH_PUBLISHED = threading.Event()
+_MATLAB_RUNTIME_LAUNCH_PUBLISHED.set()
+_MATLAB_RUNTIME_SHUTDOWN = threading.Event()
 _MATLAB_RUNTIME_STATE = "idle"
 _MATLAB_RUNTIME_MESSAGE = "Not started."
 _MATLAB_TASK_EXECUTOR = _DaemonSingleWorkerExecutor(thread_name_prefix="lfptp-matlab")
@@ -172,6 +214,25 @@ _MATLAB_WARMUP_KEY: tuple[str, str] | None = None
 _MATLAB_STALE_CONTEXT_PREFIX = "stale-context:"
 
 
+def _matlab_runtime_is_shutting_down() -> bool:
+    return _MATLAB_RUNTIME_SHUTDOWN.is_set() and _MATLAB_TASK_EXECUTOR.is_shutdown()
+
+
+def _prepare_matlab_runtime_for_new_lifecycle() -> None:
+    global _MATLAB_TASK_EXECUTOR
+    with _MATLAB_RUNTIME_LOCK:
+        executor = _MATLAB_TASK_EXECUTOR
+        if not executor.is_shutdown():
+            _MATLAB_RUNTIME_SHUTDOWN.clear()
+            return
+        if not executor.shutdown_complete() or not executor.is_idle():
+            return
+        _MATLAB_TASK_EXECUTOR = _DaemonSingleWorkerExecutor(
+            thread_name_prefix="lfptp-matlab"
+        )
+        _MATLAB_RUNTIME_SHUTDOWN.clear()
+
+
 def _runtime_key(paths: LocalizePaths) -> tuple[str, str]:
     return (
         str(paths.leaddbs_dir.expanduser().resolve()),
@@ -182,6 +243,8 @@ def _runtime_key(paths: LocalizePaths) -> tuple[str, str]:
 def _set_matlab_runtime_status(state: str, message: str) -> None:
     global _MATLAB_RUNTIME_STATE, _MATLAB_RUNTIME_MESSAGE
     with _MATLAB_RUNTIME_LOCK:
+        if _matlab_runtime_is_shutting_down() and state in {"starting", "ready"}:
+            return
         _MATLAB_RUNTIME_STATE = state
         _MATLAB_RUNTIME_MESSAGE = message
 
@@ -198,6 +261,12 @@ def clear_localize_runtime_cache() -> None:
 def _completed_future(result: tuple[bool, str]) -> Future[tuple[bool, str]]:
     future: Future[tuple[bool, str]] = Future()
     future.set_result(result)
+    return future
+
+
+def _failed_future(exc: BaseException) -> Future[Any]:
+    future: Future[Any] = Future()
+    future.set_exception(exc)
     return future
 
 
@@ -223,6 +292,9 @@ def _submit_latest_control_task(
     context_key: str,
     fn: Callable[[], tuple[bool, str]],
 ) -> Future[tuple[bool, str]]:
+    _prepare_matlab_runtime_for_new_lifecycle()
+    if _matlab_runtime_is_shutting_down():
+        return _completed_future((False, "MATLAB runtime is shutting down."))
     ticket = _next_control_ticket(context_key)
 
     def _runner() -> tuple[bool, str]:
@@ -270,6 +342,9 @@ def _ensure_matlab_engine_ready(
     matlab_functions_dir: Path | None = None,
 ) -> Any:
     global _MATLAB_RUNTIME_ENGINE, _MATLAB_RUNTIME_KEY
+    global _MATLAB_RUNTIME_LAUNCH, _MATLAB_RUNTIME_LAUNCH_PENDING
+    if _matlab_runtime_is_shutting_down():
+        raise RuntimeError("MATLAB runtime is shutting down.")
     if ensure_matlab_engine_fn is None:
         from lfptensorpipe.matlab import ensure_matlab_engine
 
@@ -297,14 +372,40 @@ def _ensure_matlab_engine_ready(
 
     _set_matlab_runtime_status("starting", "Starting...")
     ensure_matlab_engine_fn(paths.matlab_root)
+    if _matlab_runtime_is_shutting_down():
+        raise RuntimeError("MATLAB runtime is shutting down.")
 
+    launch = None
     if start_matlab_fn is None:
         import matlab.engine
 
-        start_matlab_fn = matlab.engine.start_matlab
+        with _MATLAB_RUNTIME_LOCK:
+            if _matlab_runtime_is_shutting_down():
+                raise RuntimeError("MATLAB runtime is shutting down.")
+            _MATLAB_RUNTIME_LAUNCH_PENDING = True
+            _MATLAB_RUNTIME_LAUNCH_PUBLISHED.clear()
+        try:
+            launch = matlab.engine.start_matlab(background=True)
+        except BaseException:
+            with _MATLAB_RUNTIME_LOCK:
+                _MATLAB_RUNTIME_LAUNCH_PENDING = False
+                _MATLAB_RUNTIME_LAUNCH_PUBLISHED.set()
+            raise
+        with _MATLAB_RUNTIME_LOCK:
+            _MATLAB_RUNTIME_LAUNCH = launch
+            _MATLAB_RUNTIME_LAUNCH_PENDING = False
+            _MATLAB_RUNTIME_LAUNCH_PUBLISHED.set()
+        try:
+            eng = launch.result()
+        except BaseException:
+            with _MATLAB_RUNTIME_LOCK:
+                if _MATLAB_RUNTIME_LAUNCH is launch:
+                    _MATLAB_RUNTIME_LAUNCH = None
+            raise
+    else:
+        eng = start_matlab_fn()
 
     fn_dir = matlab_functions_dir or _local_matlab_functions_dir()
-    eng = start_matlab_fn()
     try:
         eng.addpath(eng.genpath(str(paths.leaddbs_dir)), nargout=0)
         if fn_dir.is_dir():
@@ -314,11 +415,24 @@ def _ensure_matlab_engine_ready(
             eng.quit()
         except Exception:
             pass
+        with _MATLAB_RUNTIME_LOCK:
+            if _MATLAB_RUNTIME_LAUNCH is launch:
+                _MATLAB_RUNTIME_LAUNCH = None
         raise
 
     with _MATLAB_RUNTIME_LOCK:
-        _MATLAB_RUNTIME_ENGINE = eng
-        _MATLAB_RUNTIME_KEY = key
+        stopping = _matlab_runtime_is_shutting_down()
+        if not stopping:
+            _MATLAB_RUNTIME_ENGINE = eng
+            _MATLAB_RUNTIME_KEY = key
+        if _MATLAB_RUNTIME_LAUNCH is launch:
+            _MATLAB_RUNTIME_LAUNCH = None
+    if stopping:
+        try:
+            eng.quit()
+        except Exception:
+            pass
+        raise RuntimeError("MATLAB runtime is shutting down.")
     _set_matlab_runtime_status("ready", "Ready")
     return eng
 
@@ -339,10 +453,17 @@ def _is_engine_disconnected_error(exc: Exception) -> bool:
 def _execute_matlab_task(paths: LocalizePaths, fn: Callable[[Any], Any]) -> Any:
     retry = False
     while True:
+        if _matlab_runtime_is_shutting_down():
+            raise RuntimeError("MATLAB runtime is shutting down.")
         eng = _ensure_matlab_engine_ready(paths)
         try:
-            return fn(eng)
+            result = fn(eng)
+            if _matlab_runtime_is_shutting_down():
+                raise RuntimeError("MATLAB runtime shut down before task completion.")
+            return result
         except Exception as exc:
+            if _matlab_runtime_is_shutting_down():
+                raise RuntimeError("MATLAB runtime is shutting down.") from exc
             if not retry and _is_engine_disconnected_error(exc):
                 retry = True
                 _drop_matlab_engine()
@@ -352,6 +473,9 @@ def _execute_matlab_task(paths: LocalizePaths, fn: Callable[[Any], Any]) -> Any:
 
 
 def submit_matlab_task(paths: LocalizePaths, fn: Callable[[Any], Any]) -> Future[Any]:
+    _prepare_matlab_runtime_for_new_lifecycle()
+    if _matlab_runtime_is_shutting_down():
+        return _failed_future(RuntimeError("MATLAB runtime is shutting down."))
     return _MATLAB_TASK_EXECUTOR.submit(_execute_matlab_task, paths, fn)
 
 
@@ -377,9 +501,13 @@ def warmup_matlab_async(
         try:
             (ensure_matlab_engine_ready_fn or _ensure_matlab_engine_ready)(paths)
         except Exception as exc:  # noqa: BLE001
+            if _matlab_runtime_is_shutting_down():
+                return False, "MATLAB runtime is shutting down."
             message = f"MATLAB warmup failed: {exc}"
             _set_matlab_runtime_status("failed", message)
             return False, message
+        if _matlab_runtime_is_shutting_down():
+            return False, "MATLAB runtime is shutting down."
         _set_matlab_runtime_status("ready", "Ready")
         return True, "MATLAB ready."
 
@@ -407,9 +535,13 @@ def reset_matlab_runtime(
         try:
             (ensure_matlab_engine_ready_fn or _ensure_matlab_engine_ready)(paths)
         except Exception as exc:  # noqa: BLE001
+            if _matlab_runtime_is_shutting_down():
+                return False, "MATLAB runtime is shutting down."
             message = f"MATLAB warmup failed: {exc}"
             _set_matlab_runtime_status("failed", message)
             return False, message
+        if _matlab_runtime_is_shutting_down():
+            return False, "MATLAB runtime is shutting down."
         _set_matlab_runtime_status("ready", "Ready")
         return True, "MATLAB ready."
 
@@ -421,16 +553,84 @@ def reset_matlab_runtime(
     return future
 
 
-def shutdown_matlab_runtime(timeout_s: float = _MATLAB_SHUTDOWN_TIMEOUT_S) -> None:
-    def _shutdown() -> None:
-        _drop_matlab_engine()
-        _set_matlab_runtime_status("idle", "Not started.")
+def shutdown_matlab_runtime(timeout_s: float = _MATLAB_SHUTDOWN_TIMEOUT_S) -> bool:
+    """Stop only the MATLAB runtime owned by this app before GUI close."""
+    global _MATLAB_RUNTIME_ENGINE, _MATLAB_RUNTIME_KEY, _MATLAB_RUNTIME_LAUNCH
+    global _MATLAB_WARMUP_FUTURE, _MATLAB_WARMUP_KEY
 
-    future = _MATLAB_TASK_EXECUTOR.submit(_shutdown)
-    try:
-        future.result(timeout=timeout_s)
-    except Exception:
-        pass
+    shutdown_executor = _MATLAB_TASK_EXECUTOR
+    _MATLAB_RUNTIME_SHUTDOWN.set()
+    _set_matlab_runtime_status("stopping", "Stopping...")
+    shutdown_executor.cancel_pending()
+    deadline = time.monotonic() + max(float(timeout_s), 0.0)
+
+    with _MATLAB_RUNTIME_LOCK:
+        launch_pending = _MATLAB_RUNTIME_LAUNCH_PENDING
+    if launch_pending:
+        remaining = max(deadline - time.monotonic(), 0.0)
+        _MATLAB_RUNTIME_LAUNCH_PUBLISHED.wait(timeout=remaining)
+
+    with _MATLAB_RUNTIME_LOCK:
+        launch_pending = _MATLAB_RUNTIME_LAUNCH_PENDING
+        launch = _MATLAB_RUNTIME_LAUNCH
+        engine = _MATLAB_RUNTIME_ENGINE
+
+    failure = ""
+    engines_to_quit: list[Any] = []
+    if launch_pending:
+        failure = "MATLAB launch did not publish a cancellable handle in time."
+    elif launch is not None:
+        try:
+            launch_cancelled = bool(launch.cancel())
+        except Exception as exc:  # noqa: BLE001
+            launch_cancelled = False
+            failure = f"MATLAB launch cancellation failed: {exc}"
+        if not launch_cancelled:
+            while not failure:
+                try:
+                    launch_done = bool(launch.done())
+                except Exception as exc:  # noqa: BLE001
+                    failure = f"MATLAB launch status check failed: {exc}"
+                    break
+                if launch_done:
+                    try:
+                        launched_engine = launch.result()
+                    except Exception:
+                        launched_engine = None
+                    if launched_engine is not None:
+                        engines_to_quit.append(launched_engine)
+                    break
+                if time.monotonic() >= deadline:
+                    failure = "MATLAB launch did not stop before the shutdown timeout."
+                    break
+                time.sleep(0.01)
+
+    if engine is not None:
+        engines_to_quit.append(engine)
+    seen_engine_ids: set[int] = set()
+    for owned_engine in engines_to_quit:
+        engine_id = id(owned_engine)
+        if engine_id in seen_engine_ids:
+            continue
+        seen_engine_ids.add(engine_id)
+        try:
+            owned_engine.quit()
+        except Exception as exc:  # noqa: BLE001
+            failure = failure or f"MATLAB Engine quit failed: {exc}"
+
+    if failure:
+        _set_matlab_runtime_status("failed", f"MATLAB shutdown failed: {failure}")
+        return False
+
+    with _MATLAB_RUNTIME_LOCK:
+        _MATLAB_RUNTIME_ENGINE = None
+        _MATLAB_RUNTIME_KEY = None
+        _MATLAB_RUNTIME_LAUNCH = None
+        _MATLAB_WARMUP_FUTURE = None
+        _MATLAB_WARMUP_KEY = None
+        shutdown_executor.mark_shutdown_complete()
+    _set_matlab_runtime_status("idle", "Not started.")
+    return True
 
 
 def _load_match_payload_from_record_ui_state(

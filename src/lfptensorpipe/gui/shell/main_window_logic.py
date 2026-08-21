@@ -476,15 +476,25 @@ class MainWindow(
             event.ignore()
             return
         try:
+            matlab_stopped = shutdown_matlab_runtime(timeout_s=5.0)
+        except Exception as exc:  # noqa: BLE001
+            matlab_stopped = False
+            shutdown_message = f"Close blocked: MATLAB shutdown failed: {exc}"
+        else:
+            shutdown_message = (
+                "Close blocked: the app-owned MATLAB session did not stop."
+            )
+        if not matlab_stopped:
+            event.ignore()
+            self.statusBar().showMessage(shutdown_message)
+            return
+        try:
             _window_shutdown.close_auxiliary_windows(self)
         finally:
             try:
                 self._persist_record_params_snapshot_on_close()
             finally:
-                try:
-                    shutdown_matlab_runtime(timeout_s=5.0)
-                finally:
-                    super().closeEvent(event)
+                super().closeEvent(event)
 
     @staticmethod
     def _normalize_feature_axis_rows(
