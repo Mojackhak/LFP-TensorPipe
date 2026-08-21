@@ -196,7 +196,7 @@ def _is_fully_covered_by_union(
         union: Sorted, non-overlapping (start, end) intervals.
 
     Returns:
-        True if [start_s, end_s] is fully covered by ``union``.
+        True if [start_s, end_s) is fully covered by ``union``.
     """
     start = float(start_s)
     end = float(end_s)
@@ -205,7 +205,7 @@ def _is_fully_covered_by_union(
     if end <= start:
         t = start
         for a, b in union:
-            if (t >= float(a)) and (t <= float(b)):
+            if (t >= float(a)) and (t < float(b)):
                 return True
         return False
 
@@ -249,13 +249,13 @@ def _iter_matched_intervals(
     pad_s: float,
     clip_to_raw: bool,
 ) -> list[dict[str, Any]]:
-    """Collect matched annotation intervals as JSON-safe dicts."""
+    """Collect matched intervals in MNE's attached annotation frame."""
     keep_lower = _normalize_keep_labels(keep)
     if float(pad_s) < 0:
         raise ValueError("`pad_s` must be >= 0.")
 
-    t_min = float(raw.times[0])
-    t_max = float(raw.times[-1])
+    raw_start = float(raw.first_time)
+    raw_stop = raw_start + (float(raw.n_times) / float(raw.info["sfreq"]))
 
     matched: list[dict[str, Any]] = []
     anns = raw.annotations
@@ -275,8 +275,15 @@ def _iter_matched_intervals(
         end = onset_f + dur_f + float(pad_s)
 
         if clip_to_raw:
-            start = max(start, t_min)
-            end = min(end, t_max)
+            is_point = end == start
+            if is_point:
+                if not (raw_start <= start < raw_stop):
+                    continue
+            else:
+                start = max(start, raw_start)
+                end = min(end, raw_stop)
+                if end <= start:
+                    continue
 
         matched.append(
             dict(
@@ -350,6 +357,18 @@ def _interval_time_mask(
     return np.zeros(times.shape, dtype=bool)
 
 
+def _set_reconstructed_annotations(
+    raw: "mne.io.BaseRaw",
+    annotations: "mne.Annotations",
+) -> None:
+    """Attach reconstructed annotations without applying ``first_time`` twice."""
+    annotations_for_raw = annotations
+    if annotations.orig_time is None:
+        annotations_for_raw = annotations.copy()
+        annotations_for_raw.onset -= float(raw.first_time)
+    raw.set_annotations(annotations_for_raw)
+
+
 def filter_raw_annotations(
     raw: "mne.io.BaseRaw",
     *,
@@ -396,6 +415,20 @@ def filter_raw_annotations(
         raise ValueError("No Raw annotations matched the requested `keep` labels.")
 
     keep_union = union_intervals([(itv["start_s"], itv["end_s"]) for itv in matched])
+    matched_keys = {
+        (
+            float(interval["onset_s"]),
+            float(interval["duration_s"]),
+            str(interval["description"]),
+            tuple(str(name) for name in interval["ch_names"]),
+        )
+        for interval in matched
+    }
+    keep_points = {
+        float(interval["start_s"])
+        for interval in matched
+        if float(interval["end_s"]) == float(interval["start_s"])
+    }
 
     # Prepare the filtered annotation lists.
     new_onset: list[float] = []
@@ -430,12 +463,33 @@ def filter_raw_annotations(
     ):
         desc_s = str(desc)
         onset_f = float(onset)
-        end_f = float(onset_f + float(dur))
+        dur_f = float(dur)
+        end_f = float(onset_f + dur_f)
 
-        is_keep = _desc_matches(desc_s, keep_lower, mode=mode)
+        source_key = (
+            onset_f,
+            dur_f,
+            desc_s,
+            normalize_annotation_scope(ch_names),
+        )
+        is_keep = _desc_matches(desc_s, keep_lower, mode=mode) and (
+            source_key in matched_keys
+        )
         if is_keep:
             _add(desc_s, onset_f, end_f, ch_names)
             n_kept_exact += 1
+            continue
+
+        if dur_f == 0.0:
+            if onset_f in keep_points or _is_fully_covered_by_union(
+                onset_f,
+                end_f,
+                keep_union,
+            ):
+                _add(desc_s, onset_f, end_f, ch_names)
+                n_kept_covered += 1
+            else:
+                n_dropped_outside += 1
             continue
 
         # If there is no keep interval, nothing overlaps -> drop.
@@ -448,7 +502,7 @@ def filter_raw_annotations(
         for k0, k1 in keep_union:
             s = max(onset_f, float(k0))
             e = min(end_f, float(k1))
-            if e < s:
+            if e <= s:
                 continue
             overlaps.append((s, e))
 
@@ -515,7 +569,7 @@ def filter_raw_annotations(
         orig_time=raw.annotations.orig_time,
         ch_names=new_ch_names,
     )
-    raw_masked.set_annotations(new_ann)
+    _set_reconstructed_annotations(raw_masked, new_ann)
 
     return raw_masked, info
 
@@ -562,6 +616,11 @@ def drop_raw_annotations(
         raise ValueError("No Raw annotations matched the requested `drop` labels.")
 
     drop_union = union_intervals([(itv["start_s"], itv["end_s"]) for itv in matched])
+    drop_points = {
+        float(interval["start_s"])
+        for interval in matched
+        if float(interval["end_s"]) == float(interval["start_s"])
+    }
 
     new_onset: list[float] = []
     new_duration: list[float] = []
@@ -587,7 +646,7 @@ def drop_raw_annotations(
 
     def _overlaps_any(t: float, intervals: Sequence[tuple[float, float]]) -> bool:
         for a, b in intervals:
-            if t >= float(a) and t <= float(b):
+            if t >= float(a) and t < float(b):
                 return True
         return False
 
@@ -603,14 +662,14 @@ def drop_raw_annotations(
         end_f = float(onset_f + dur_f)
 
         # Fast-path: no drop interval -> keep everything.
-        if len(drop_union) == 0:
+        if len(drop_union) == 0 and len(drop_points) == 0:
             _add(desc_s, onset_f, end_f, ch_names)
             n_kept_unchanged += 1
             continue
 
         # Point event.
         if dur_f == 0.0:
-            if _overlaps_any(onset_f, drop_union):
+            if onset_f in drop_points or _overlaps_any(onset_f, drop_union):
                 n_dropped_full += 1
             else:
                 _add(desc_s, onset_f, end_f, ch_names)
@@ -622,7 +681,7 @@ def drop_raw_annotations(
         for d0, d1 in drop_union:
             s = max(onset_f, float(d0))
             e = min(end_f, float(d1))
-            if e < s:
+            if e <= s:
                 continue
             overlaps.append((s, e))
 
@@ -706,7 +765,7 @@ def drop_raw_annotations(
         orig_time=raw.annotations.orig_time,
         ch_names=new_ch_names,
     )
-    raw_masked.set_annotations(new_ann)
+    _set_reconstructed_annotations(raw_masked, new_ann)
 
     return raw_masked, info
 

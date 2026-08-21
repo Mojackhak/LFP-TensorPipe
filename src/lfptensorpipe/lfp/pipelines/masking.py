@@ -507,7 +507,8 @@ def mask_tensor_dynamic(
     raw_mask_info["kind"] = "drop_dynamic"
     raw_mask_info["pad_s_dynamic_max"] = float(pad_s_max)
 
-    # Collect base matched intervals (without padding) for provenance.
+    # Collect Raw-relative base matched intervals (without padding) for provenance.
+    first_time_s = float(raw.first_samp) / float(raw.info["sfreq"])
     drop_lower = [str(x).strip().lower() for x in drop if str(x).strip()]
     matched_base: list[dict[str, Any]] = []
     for onset, dur, desc, ch_names in zip(
@@ -528,7 +529,7 @@ def mask_tensor_dynamic(
         matched_base.append(
             dict(
                 description=d,
-                onset_s=float(onset),
+                onset_s=float(onset) - first_time_s,
                 duration_s=float(dur),
                 ch_names=list(normalize_annotation_scope(ch_names)),
             )
