@@ -835,7 +835,8 @@ def add_annotations_from_df(raw: Any, df_anno: pd.DataFrame) -> Any:
     df_anno:
         DataFrame containing annotation rows with columns:
         ``description``, ``onset`` (seconds from the first retained Raw
-        sample), and ``duration`` (seconds).
+        sample), and ``duration`` (seconds). Onset and duration values must be
+        numeric, finite, and non-negative.
 
     Returns
     -------
@@ -863,9 +864,20 @@ def add_annotations_from_df(raw: Any, df_anno: pd.DataFrame) -> Any:
     if anno[["onset", "duration"]].isna().any().any():
         raise ValueError("df_anno columns 'onset' and 'duration' must be numeric.")
 
+    new_onsets = anno["onset"].to_numpy(dtype=float)
+    new_durations = anno["duration"].to_numpy(dtype=float)
+    if (
+        not np.isfinite(new_onsets).all()
+        or not np.isfinite(new_durations).all()
+        or (new_onsets < 0).any()
+        or (new_durations < 0).any()
+    ):
+        raise ValueError(
+            "df_anno columns 'onset' and 'duration' must be finite and non-negative."
+        )
+
     existing = raw.annotations.copy()
     first_time = float(raw.first_samp) / float(raw.info["sfreq"])
-    new_onsets = anno["onset"].to_numpy(dtype=float)
     if existing.orig_time is None:
         existing.onset -= first_time
         new_orig_time = None
@@ -875,7 +887,7 @@ def add_annotations_from_df(raw: Any, df_anno: pd.DataFrame) -> Any:
 
     ann_new = mne.Annotations(
         onset=new_onsets,
-        duration=anno["duration"].to_numpy(dtype=float),
+        duration=new_durations,
         description=anno["description"].to_list(),
         orig_time=new_orig_time,
     )
