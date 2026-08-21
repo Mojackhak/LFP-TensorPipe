@@ -385,7 +385,8 @@ def uvcsv2vt(
         Optional scaling factor applied to channel values (e.g., convert raw units to microvolts).
         If None, keep numeric values as-is.
     save_path:
-        Output CSV path. If None, defaults to "<csv>_reorg.csv".
+        Output CSV path. If None, defaults to "<csv>_reorg.csv". The output
+        must not refer to ``file_path`` or ``txt_path``.
     txt_path:
         Sidecar metadata txt path. If None, inferred from csv name.
     ipg_type:
@@ -495,6 +496,13 @@ def uvcsv2vt(
     if save_path is None:
         save_path = _default_reorg_path_from_csv(csv_path)
 
+    output_path = Path(save_path)
+    if output_path.exists() and any(
+        output_path.samefile(source_path)
+        for source_path in (Path(csv_path), Path(txt_path))
+    ):
+        raise ValueError("save_path must not refer to file_path or txt_path.")
+
     df_out.to_csv(save_path, index=False)
     logger.info("Saved reorganized CSV to %s", save_path)
     return str(save_path)
@@ -508,6 +516,8 @@ def uvcsv2vt(
 def _infer_sfreq_from_time(time_s: np.ndarray) -> float:
     if time_s.size < 2:
         raise ValueError("Time column must contain at least 2 samples.")
+    if not np.isfinite(time_s).all():
+        raise ValueError("Time column must contain only finite values.")
     dt_med = float(np.median(np.diff(time_s)))
     if dt_med <= 0:
         raise ValueError("Invalid Time column: non-positive median dt.")
@@ -525,7 +535,14 @@ def csv2mne(csv_path: str, save_path: str | None = None) -> str:
     Assumptions
     -----------
     - Channel values in CSV are in microvolts (uV) and are converted to Volts (V) internally.
+    - Source Time values must be finite; non-finite values are rejected before
+      MNE construction or FIF output.
+    - Original header identities are trimmed once and must be non-empty and
+      case-sensitively unique before selected LFP names reach MNE.
     - TagCode events are converted to MNE Annotations (duration=0).
+    - NaN signal values are preserved; positive or negative infinity raises
+      ``InfiniteSignalValuesError`` before Raw or FIF creation.
+    - The output path must not refer to ``csv_path``.
 
     Returns
     -------
@@ -534,22 +551,46 @@ def csv2mne(csv_path: str, save_path: str | None = None) -> str:
     """
     import mne
 
+    header_row = pd.read_csv(
+        csv_path,
+        header=None,
+        nrows=1,
+        dtype=str,
+        keep_default_na=False,
+        encoding="utf-8-sig",
+    )
+    normalized_columns = [str(value).strip() for value in header_row.iloc[0]]
     df = pd.read_csv(csv_path)
 
     if "Time" not in df.columns:
         raise ValueError("CSV must contain a 'Time' column.")
     sfreq = _infer_sfreq_from_time(df["Time"].to_numpy(dtype=float))
 
+    if any(not name for name in normalized_columns):
+        raise ValueError("CSV channel names must be non-empty after trimming.")
+    name_index = pd.Index(normalized_columns)
+    duplicate_mask = name_index.duplicated()
+    if duplicate_mask.any():
+        duplicates = list(name_index[duplicate_mask])
+        raise ValueError(f"Duplicated channel columns in CSV: {duplicates}")
+
     ch_cols = _infer_lfp_columns(df)
     if not ch_cols:
         raise ValueError("No LFP channel columns found in CSV.")
+    ch_names = [
+        normalized_columns[index]
+        for index, column in enumerate(df.columns)
+        if column in ch_cols
+    ]
 
     data = df[ch_cols].to_numpy(dtype=float).T  # (n_ch, n_times)
     data_v = data * 1e-6  # uV -> V
 
     info = mne.create_info(
-        ch_names=list(ch_cols), sfreq=sfreq, ch_types=["dbs"] * len(ch_cols)
+        ch_names=ch_names, sfreq=sfreq, ch_types=["dbs"] * len(ch_cols)
     )
+    if np.isinf(data).any():
+        raise InfiniteSignalValuesError("Signal data must not contain infinite values.")
     raw = mne.io.RawArray(data_v, info)
 
     # Convert TagCode to annotations if present
@@ -569,6 +610,10 @@ def csv2mne(csv_path: str, save_path: str | None = None) -> str:
     if save_path is None:
         p = Path(csv_path)
         save_path = str(p.with_suffix("").as_posix() + "_raw.fif")
+
+    output_path = Path(save_path)
+    if output_path.exists() and output_path.samefile(csv_path):
+        raise ValueError("save_path must not refer to csv_path.")
 
     raw.save(save_path, overwrite=True)
     logger.info(
@@ -593,11 +638,14 @@ def matrix2mne(
     Parameters
     ----------
     matrix:
-        Two-dimensional signal matrix.
+        Two-dimensional signal matrix. NaN values are preserved; positive or
+        negative infinity raises ``InfiniteSignalValuesError``.
     sfreq:
-        Sampling frequency in Hz.
+        Sampling frequency in Hz. After conversion to float, the value must be
+        finite and positive.
     ch_names:
-        Channel names.
+        Channel names. Exact, case-sensitive duplicate strings are rejected;
+        unique supported spellings are passed through unchanged.
     ch_types:
         Channel types (default 'dbs').
     channel_axis:
@@ -647,7 +695,20 @@ def matrix2mne(
             f"contains {n_ch} channels; check channel_axis."
         )
 
-    info = mne.create_info(ch_names=ch_names, sfreq=float(sfreq), ch_types=ch_types)
+    sfreq_value = float(sfreq)
+    if all(isinstance(name, str) for name in ch_names):
+        name_index = pd.Index(ch_names)
+        duplicate_mask = name_index.duplicated()
+        if duplicate_mask.any():
+            duplicates = list(name_index[duplicate_mask])
+            raise ValueError(
+                f"ch_names contains duplicated channel names: {duplicates}"
+            )
+    info = mne.create_info(ch_names=ch_names, sfreq=sfreq_value, ch_types=ch_types)
+    if not math.isfinite(sfreq_value):
+        raise ValueError(f"sfreq must be finite, got {sfreq_value}")
+    if np.isinf(mat).any():
+        raise InfiniteSignalValuesError("Signal data must not contain infinite values.")
     return mne.io.RawArray(mat, info)
 
 

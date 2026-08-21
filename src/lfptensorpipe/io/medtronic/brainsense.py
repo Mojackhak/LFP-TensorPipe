@@ -36,13 +36,29 @@ _NUMBER_WORDS: dict[str, str] = {
 }
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ParseError(Exception):
     code: str
     message: str
     vendor: str = VENDOR_NAME
     version: str = "unknown"
     status: str = "error"
+
+    def __post_init__(self) -> None:
+        Exception.__init__(self, self.code, self.message)
+
+    def __reduce__(
+        self,
+    ) -> tuple[
+        type[ParseError],
+        tuple[str, str, str, str, str],
+        dict[str, object],
+    ]:
+        return (
+            type(self),
+            (self.code, self.message, self.vendor, self.version, self.status),
+            self.__dict__,
+        )
 
     def __str__(self) -> str:
         return f"[{self.code}] {self.message}"
@@ -249,6 +265,15 @@ def _parse_entries(session: dict[str, Any], *, version: str) -> list[_Entry]:
             raise ParseError(
                 code="PARSE_SCHEMA_INVALID",
                 message=f"SampleRateInHz must be > 0 at {SECTION_NAME}[{order}].",
+                version=version,
+            )
+        if not np.isfinite(sfreq_hz):
+            raise ParseError(
+                code="PARSE_SCHEMA_INVALID",
+                message=(
+                    "SampleRateInHz must be finite and > 0 "
+                    f"at {SECTION_NAME}[{order}]."
+                ),
                 version=version,
             )
 

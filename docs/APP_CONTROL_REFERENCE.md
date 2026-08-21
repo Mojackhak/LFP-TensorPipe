@@ -198,6 +198,19 @@ their existing meaning. If a previously imported record is known to contain an
 infinite sample, correct the source and explicitly re-import it; opening the app
 does not scan or rewrite existing records.
 
+PINS and Sceneray also require the final sampling rate selected by the parser to
+be finite. A selected NaN or positive-infinite rate blocks `Parse` as invalid
+file content before Raw construction and preserves the reported vendor and
+device/app version. Parser source priority is unchanged. In particular, the
+current Sceneray reader may use a finite txt rate when the CSV rate is NaN,
+negative infinity, or zero; a positive-infinite CSV rate remains selected ahead
+of txt and is rejected rather than silently replaced by the txt value.
+This parser-classification behavior is `FIXED-VERIFIED` for direct parsing and
+Record Import dispatch. It creates no preview or record from rejected input and
+does not scan or rewrite existing records. The official audit evidence seal is
+complete in iteration `026-BUG-136` and does not change this user-facing
+behavior.
+
 PINS `Packet num` and `Packet length` fields must represent finite mathematical
 integers. Values written as `1`, `1.0`, or `1e0` are equivalent, but a
 fractional value is rejected instead of being rounded or truncated. Correct the
@@ -208,6 +221,19 @@ Medtronic `TimeDomainData` must be a non-empty one-dimensional sample list.
 Nested or nested-empty arrays are rejected during `Parse`; the importer does not
 flatten them into time samples or create a zero-length preview. Correct the
 source export and parse it again before confirming the import.
+
+Medtronic `SampleRateInHz` is source metadata, not an editable control. After
+the existing nonpositive check and before Gain, NaN, positive infinity, or
+floating overflow is rejected as `PARSE_SCHEMA_INVALID` with exact message
+`SampleRateInHz must be finite and > 0 at BrainSenseTimeDomain[{order}].`
+Negative infinity, zero, and finite-negative values retain the existing
+positivity message. BUG-138/D-350 is `REPRODUCED` / `FIXED-VERIFIED`: the
+`84`-case rate module, `106`-case focused set, and all `1469` collected tests
+pass; the complete suite retains exactly two established warnings. The
+official iteration `028-BUG-138` capture, end-tree construction, final
+tracked/ignored patch replay, manifest verification, and evidence seal are
+complete. No GUI control, preview state, persistence, freshness, or
+invalidation behavior changes.
 
 Legacy CSV channel names are read from the original logical header, trimmed at
 their outer edges once, and required to be non-empty and case-sensitively

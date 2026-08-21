@@ -17,13 +17,29 @@ VENDOR_NAME = "Sceneray"
 CANONICAL_CHANNEL_RE = re.compile(r"^\d+[A-Za-z]*_\d+[A-Za-z]*(_[LR])?$")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ParseError(Exception):
     code: str
     message: str
     vendor: str = VENDOR_NAME
     version: str = "unknown"
     status: str = "error"
+
+    def __post_init__(self) -> None:
+        Exception.__init__(self, self.code, self.message)
+
+    def __reduce__(
+        self,
+    ) -> tuple[
+        type[ParseError],
+        tuple[str, str, str, str, str],
+        dict[str, object],
+    ]:
+        return (
+            type(self),
+            (self.code, self.message, self.vendor, self.version, self.status),
+            self.__dict__,
+        )
 
     def __str__(self) -> str:
         return f"[{self.code}] {self.message}"
@@ -495,6 +511,12 @@ def parse(
         data2d = cube.reshape(n_packets * n_blocks, n_channels)
 
         df_channels = pd.DataFrame(data2d, columns=channel_names)
+        if not math.isfinite(float(sfreq_hz)):
+            raise ParseError(
+                code="PARSE_SCHEMA_INVALID",
+                message=f"sr must be finite and > 0, got {sfreq_hz}",
+                version=version,
+            )
         try:
             raw = df2mne(df_channels, sr=float(sfreq_hz), unit="uV")
         except InfiniteSignalValuesError as exc:

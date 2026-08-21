@@ -7,13 +7,29 @@ from typing import Any
 VENDOR_NAME = "Legacy (MNE supported)"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ParseError(Exception):
     code: str
     message: str
     vendor: str = VENDOR_NAME
     version: str = "unknown"
     status: str = "error"
+
+    def __post_init__(self) -> None:
+        Exception.__init__(self, self.code, self.message)
+
+    def __reduce__(
+        self,
+    ) -> tuple[
+        type[ParseError],
+        tuple[str, str, str, str, str],
+        dict[str, object],
+    ]:
+        return (
+            type(self),
+            (self.code, self.message, self.vendor, self.version, self.status),
+            self.__dict__,
+        )
 
     def __str__(self) -> str:
         return f"[{self.code}] {self.message}"
