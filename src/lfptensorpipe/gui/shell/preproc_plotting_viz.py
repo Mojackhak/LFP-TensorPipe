@@ -3,12 +3,50 @@
 from __future__ import annotations
 
 from lfptensorpipe.lfp.common import decimated_times_from_raw
+from lfptensorpipe.lfp.mask.annotations import (
+    annotation_sample_support_by_channel,
+    valid_segments_from_annotation_support,
+)
 from lfptensorpipe.gui.shell.common import (
     Any,
     QDialog,
     normalize_preproc_viz_psd_params,
     normalize_preproc_viz_tfr_params,
 )
+
+_TFR_BAD_EDGE_PREFIXES = ("bad", "edge")
+_TFR_BAD_EDGE_SHADOW_COLOR = "#F2000E"
+_TFR_BAD_EDGE_SHADOW_ALPHA = 0.2
+
+
+def _tfr_bad_edge_shadow_intervals(
+    raw: Any,
+    *,
+    picks: list[str],
+    display_start: float,
+    display_stop: float,
+) -> list[tuple[float, float]]:
+    """Return visible BAD/EDGE intervals affecting any plotted channel."""
+    selected_channels = tuple(str(name) for name in picks)
+    if not selected_channels:
+        return []
+
+    support_by_channel, _, _ = annotation_sample_support_by_channel(
+        raw,
+        channels=selected_channels,
+        keep=_TFR_BAD_EDGE_PREFIXES,
+        mode="prefix",
+    )
+    combined_support = support_by_channel.any(axis=0)
+    sfreq = float(raw.info["sfreq"])
+    intervals: list[tuple[float, float]] = []
+    shadow_runs = valid_segments_from_annotation_support(~combined_support)
+    for start_index, stop_index in shadow_runs:
+        start = max(float(display_start), start_index / sfreq)
+        stop = min(float(display_stop), stop_index / sfreq)
+        if stop > start:
+            intervals.append((start, stop))
+    return intervals
 
 
 def _on_preproc_viz_psd_advance(self) -> None:
@@ -179,6 +217,21 @@ def _on_preproc_viz_tfr_plot(self) -> None:
             cmap="viridis",
             norm=LogNorm(vmin=vmin, vmax=vmax),
         )
+        shadow_intervals = _tfr_bad_edge_shadow_intervals(
+            raw,
+            picks=picks,
+            display_start=float(time_axis[0]),
+            display_stop=float(time_axis[-1]),
+        )
+        for start, stop in shadow_intervals:
+            ax.axvspan(
+                start,
+                stop,
+                color=_TFR_BAD_EDGE_SHADOW_COLOR,
+                alpha=_TFR_BAD_EDGE_SHADOW_ALPHA,
+                linewidth=0.0,
+                zorder=2,
+            )
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Frequency (Hz)")
         ax.set_yscale("log")

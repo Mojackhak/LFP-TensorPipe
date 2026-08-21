@@ -515,7 +515,7 @@ continue to participate in AutoReject threshold training.
 | `Advance` (PSD) | Opens PSD plot settings. | PSD QC session/default settings. | Always available. |
 | `Plot` (PSD) | Plots PSD for the selected preprocess step and channels. | QC only. | Requires selected channels and an eligible preprocess step. |
 | `Advance` (TFR) | Opens TFR plot settings. | TFR QC session/default settings. | Always available. |
-| `Plot` (TFR) | Plots TFR for the selected preprocess step and channels. | QC only. | Requires selected channels and an eligible preprocess step. |
+| `Plot` (TFR) | Plots TFR for the selected preprocess step and channels, with red shadows over MNE-rounded sample support from positive-duration `BAD*`/`EDGE*` annotations. Channel-specific shadows follow the selected channels; a multi-channel averaged TFR uses their sample-support union. | QC only; the shadows do not mask data or rewrite preprocess artifacts. | Requires selected channels and an eligible preprocess step. |
 | `Channels` (Visualization) | Chooses channels used by PSD/TFR QC plots. | QC plotting channel subset. | Requires a current channel inventory. |
 
 ### 6.4 Filter Advance
@@ -793,6 +793,7 @@ Further reading:
 
 - `n_freqs` controls frequency-grid density, while `Decim` controls time-axis density. They solve different plotting problems.
 - A heavily decimated TFR is useful for quick QC, but it can hide brief events that are still present in the underlying preprocess output.
+- TFR shadows match `BAD` and `EDGE` as case-insensitive description prefixes and use MNE-rounded source-sample support. Global intervals always appear; channel-specific intervals appear only when at least one affected channel is selected. A merged-channel TFR displays the sample-support union across selected channels. Zero-duration points are not shaded, and the overlay does not alter TFR values.
 
 ### 6.9 Visualization Channels
 

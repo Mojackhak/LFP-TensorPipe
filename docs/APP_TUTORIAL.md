@@ -605,6 +605,15 @@ Use:
 | `n_freqs` | `40` |
 | `decim` | `4` |
 
+The TFR plot overlays red shadows over the MNE-rounded sample support of
+positive-duration annotations whose descriptions begin with `BAD`
+or `EDGE`, ignoring letter case. Global annotations affect every selection. A
+channel-specific annotation is shown only when it affects a selected channel;
+when several channels are selected and their power is averaged, the displayed
+shadow is the sample-support union across those channels. Zero-duration point
+annotations have no interval to shade. This overlay is visual QC only and does
+not mask or rewrite the TFR data.
+
 The below figure shows the TFR QC result after finishing preprocess.
 
 ![TFR QC after preprocess finish.](assets/app-tutorial/figure-22-preprocess-tfr-finish.png)
