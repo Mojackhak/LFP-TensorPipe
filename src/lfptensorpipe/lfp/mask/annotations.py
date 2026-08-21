@@ -300,7 +300,7 @@ def _iter_matched_sample_intervals(
     pad_s: float,
     clip_to_raw: bool,
 ) -> list[dict[str, Any]]:
-    """Collect intervals using half-open positive-duration sample support."""
+    """Collect Raw-relative intervals using half-open sample support."""
     matched = _iter_matched_intervals(
         raw,
         keep=keep,
@@ -308,6 +308,11 @@ def _iter_matched_sample_intervals(
         pad_s=pad_s,
         clip_to_raw=False,
     )
+    first_time_s = float(raw.first_samp) / float(raw.info["sfreq"])
+    for interval in matched:
+        interval["onset_s"] = float(interval["onset_s"]) - first_time_s
+        interval["start_s"] = float(interval["start_s"]) - first_time_s
+        interval["end_s"] = float(interval["end_s"]) - first_time_s
     if not clip_to_raw:
         return matched
 
@@ -720,7 +725,8 @@ def time_mask_by_annotations(
 
     Args:
         raw: MNE Raw whose annotations define time intervals.
-        times_s: 1D time axis of the tensor (seconds).
+        times_s: 1D Raw-relative time axis of the tensor (seconds from the
+            first retained Raw sample).
         keep: List of annotation labels to keep. Matching is controlled by `mode`.
         mode: 'substring' (default) matches keep labels as substrings (case-insensitive);
             'exact' requires an exact string match after lowercasing.
