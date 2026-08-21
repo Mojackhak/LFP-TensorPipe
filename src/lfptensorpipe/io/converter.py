@@ -661,6 +661,7 @@ def _voltage_unit_to_volt_scale(unit: str) -> float:
         "microvolts": 1e-6,
         "μv": 1e-6,
         "µv": 1e-6,
+        "nv": 1e-9,
     }
     if unit_l not in unit_scales:
         raise ValueError(
@@ -689,7 +690,7 @@ def df2mne(
     ch_types:
         Optional channel types. Defaults to ``'dbs'`` for all channels.
     unit:
-        Unit for values stored in ``df``. Supported: V, mV, uV.
+        Unit for values stored in ``df``. Supported: V, mV, uV, nV.
         Data are converted to Volts before creating the MNE Raw object.
 
     Returns
