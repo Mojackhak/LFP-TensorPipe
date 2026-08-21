@@ -198,7 +198,6 @@ class AnnotationConfigureDialog(QDialog):
             not description
             or not math.isfinite(onset)
             or not math.isfinite(duration)
-            or onset < 0.0
             or duration < 0.0
         ):
             return None
@@ -316,10 +315,10 @@ class AnnotationConfigureDialog(QDialog):
                 self._draft_start_edit, "Start must be a valid number."
             )
         else:
-            if not math.isfinite(start) or start < 0.0:
+            if not math.isfinite(start):
                 set_control_validation_error(
                     self._draft_start_edit,
-                    "Start must be a finite number >= 0.",
+                    "Start must be a finite number.",
                 )
         if duration_text:
             try:
@@ -374,10 +373,10 @@ class AnnotationConfigureDialog(QDialog):
         except Exception:
             self._show_warning("Configure Annotations", "Start must be a valid number.")
             return
-        if not math.isfinite(start) or start < 0.0:
+        if not math.isfinite(start):
             self._show_warning(
                 "Configure Annotations",
-                "Start must be a finite number >= 0.",
+                "Start must be a finite number.",
             )
             return
 

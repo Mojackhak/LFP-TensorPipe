@@ -507,12 +507,12 @@ Import:
 Then click `Apply`.
 
 Every imported row is interpreted in seconds from the first retained sample of
-the current source Raw. The complete interval must fit that Raw: a
-positive-duration row may end exactly at `n_times / sampling_rate`, while its
-onset and every zero-duration point must remain strictly before that boundary.
-If any row is outside the available recording, Apply rejects the complete row
-set and reports its zero-based table index; it never shortens or silently drops
-the row. Correct the source CSV/table and apply again.
+the current source Raw. Apply intersects each positive-duration interval with
+the record-relative half-open support `[0,n_times/sampling_rate)`. A partial
+overlap is silently clipped, while an interval with no overlap is omitted. A
+zero-duration point is retained only when its onset lies inside that support;
+otherwise it is omitted. After Apply, the table and `annotations.csv` show the
+effective clipped/retained rows written to the Raw.
 
 The below figure is the plot for `Preprocess Signal 2.Annotations`.
 

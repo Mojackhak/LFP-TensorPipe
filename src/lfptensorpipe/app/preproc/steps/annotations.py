@@ -30,8 +30,9 @@ from ..lineage import (
 MarkStepFn = Callable[..., Any]
 InvalidateFn = Callable[[RecordContext, str], list[Any]]
 
-ANNOTATION_SUPPORT_SEMANTICS = "fully_within_half_open_source_support"
+ANNOTATION_SUPPORT_SEMANTICS = "clip_overlap_omit_disjoint_half_open_support"
 _ANNOTATION_SUPPORT_SEMANTICS_KEY = "annotation_support_semantics"
+_LEGACY_ANNOTATION_SUPPORT_SEMANTICS = "fully_within_half_open_source_support"
 
 
 def annotation_log_has_current_support_semantics(payload: Any) -> bool:
@@ -42,7 +43,10 @@ def annotation_log_has_current_support_semantics(payload: Any) -> bool:
     return bool(
         isinstance(params, dict)
         and params.get(_ANNOTATION_SUPPORT_SEMANTICS_KEY)
-        == ANNOTATION_SUPPORT_SEMANTICS
+        in {
+            ANNOTATION_SUPPORT_SEMANTICS,
+            _LEGACY_ANNOTATION_SUPPORT_SEMANTICS,
+        }
     )
 
 
@@ -100,7 +104,6 @@ def _normalize_annotation_rows(
             not description
             or not math.isfinite(onset)
             or not math.isfinite(duration)
-            or onset < 0.0
             or duration < 0.0
         ):
             invalid_rows.append(idx)
@@ -116,22 +119,49 @@ def _normalize_annotation_rows(
     return normalized, invalid_rows
 
 
-def _annotation_rows_outside_raw_support(
+def _clip_annotation_rows_to_raw_support(
     rows: list[dict[str, Any]],
     raw: Any,
-) -> list[int]:
-    """Return original row indices outside the Raw-relative half-open support."""
+) -> tuple[list[dict[str, Any]], int, int]:
+    """Clip rows to Raw-relative support and omit rows with no intersection."""
     support_stop = float(raw.n_times) / float(raw.info["sfreq"])
     positive_stop_limit = math.nextafter(support_stop, math.inf)
-    invalid_rows: list[int] = []
-    for idx, row in enumerate(rows):
+    effective_rows: list[dict[str, Any]] = []
+    clipped_count = 0
+    omitted_count = 0
+    for row in rows:
         onset = float(row["onset"])
         duration = float(row["duration"])
-        if onset >= support_stop or (
-            duration > 0.0 and onset + duration > positive_stop_limit
-        ):
-            invalid_rows.append(idx)
-    return invalid_rows
+        if duration == 0.0:
+            if 0.0 <= onset < support_stop:
+                effective_rows.append(dict(row))
+            else:
+                omitted_count += 1
+            continue
+
+        stop = onset + duration
+        clipped_onset = max(onset, 0.0)
+        clipped_stop = (
+            min(stop, support_stop)
+            if onset < 0.0 or stop > positive_stop_limit
+            else stop
+        )
+        if clipped_stop <= clipped_onset:
+            omitted_count += 1
+            continue
+        was_clipped = clipped_onset != onset or clipped_stop != stop
+        clipped_duration = clipped_stop - clipped_onset if was_clipped else duration
+        if was_clipped:
+            clipped_count += 1
+        effective_rows.append(
+            {
+                "description": str(row["description"]),
+                "onset": clipped_onset,
+                "duration": clipped_duration,
+            }
+        )
+    effective_rows.sort(key=lambda item: float(item["onset"]))
+    return effective_rows, clipped_count, omitted_count
 
 
 def apply_annotations_step(
@@ -196,11 +226,11 @@ def apply_annotations_step(
             # Preserve the exact source file before applying annotations.
             runtime_copy2(src, staged_raw)
             raw = read_raw_fif_fn(str(staged_raw), preload=True, verbose="ERROR")
-            outside_rows = _annotation_rows_outside_raw_support(rows, raw)
-            if outside_rows:
-                raise ValueError(f"Annotation rows outside Raw support: {outside_rows}")
+            effective_rows, clipped_count, omitted_count = (
+                _clip_annotation_rows_to_raw_support(normalized_rows, raw)
+            )
             first_time_s = float(raw.first_samp) / float(raw.info["sfreq"])
-            new_onsets = [float(item["onset"]) for item in normalized_rows]
+            new_onsets = [float(item["onset"]) for item in effective_rows]
             inherited_annotations = raw.annotations.copy()
             if inherited_annotations.orig_time is None:
                 inherited_annotations.onset -= first_time_s
@@ -208,8 +238,8 @@ def apply_annotations_step(
                 new_onsets = [onset + first_time_s for onset in new_onsets]
             annotations = mne.Annotations(
                 onset=new_onsets,
-                duration=[float(item["duration"]) for item in normalized_rows],
-                description=[str(item["description"]) for item in normalized_rows],
+                duration=[float(item["duration"]) for item in effective_rows],
+                description=[str(item["description"]) for item in effective_rows],
                 orig_time=inherited_annotations.orig_time,
             )
             raw.set_annotations(inherited_annotations + annotations)
@@ -226,7 +256,7 @@ def apply_annotations_step(
                     fieldnames=["description", "onset", "duration"],
                 )
                 writer.writeheader()
-                for item in normalized_rows:
+                for item in effective_rows:
                     writer.writerow(
                         {
                             "description": str(item["description"]),
@@ -240,7 +270,10 @@ def apply_annotations_step(
                 step="annotations",
                 path=output_set.staged_path(config_path),
                 config={
-                    "row_count": len(normalized_rows),
+                    "row_count": len(effective_rows),
+                    "submitted_row_count": len(normalized_rows),
+                    "clipped_row_count": clipped_count,
+                    "omitted_row_count": omitted_count,
                     "csv_path": str(csv_path),
                     _ANNOTATION_SUPPORT_SEMANTICS_KEY: (ANNOTATION_SUPPORT_SEMANTICS),
                 },
@@ -251,7 +284,10 @@ def apply_annotations_step(
                 completed=True,
                 params=params_with_generation_lineage(
                     {
-                        "row_count": len(normalized_rows),
+                        "row_count": len(effective_rows),
+                        "submitted_row_count": len(normalized_rows),
+                        "clipped_row_count": clipped_count,
+                        "omitted_row_count": omitted_count,
                         "source_step": source_step,
                         _ANNOTATION_SUPPORT_SEMANTICS_KEY: (
                             ANNOTATION_SUPPORT_SEMANTICS

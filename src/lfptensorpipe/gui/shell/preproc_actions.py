@@ -156,7 +156,7 @@ class MainWindowPreprocActionsMixin:
             self._show_warning(
                 "Annotations Apply",
                 "Invalid rows highlighted. Ensure description is non-empty, "
-                "onset is finite and >= 0, and duration is finite and >= 0.",
+                "onset is finite, and duration is finite and >= 0.",
             )
             self.statusBar().showMessage(
                 "Annotations Apply failed: invalid rows highlighted."
@@ -179,6 +179,18 @@ class MainWindowPreprocActionsMixin:
                 rows=clean_rows,
             ),
         )
+        if ok and self._preproc_annotations_table is not None:
+            resolver = PathResolver(context)
+            csv_path = resolver.preproc_root / "annotations" / "annotations.csv"
+            rows_ok, effective_rows, _ = self._load_annotations_csv_rows_runtime(
+                csv_path
+            )
+            if rows_ok:
+                self._preproc_annotations_table.blockSignals(True)
+                self._preproc_annotations_table.setRowCount(0)
+                self._append_annotation_rows(effective_rows)
+                self._preproc_annotations_table.blockSignals(False)
+                self._highlight_annotation_rows([])
         self._refresh_stage_states_from_context()
         self._refresh_preproc_controls()
         prefix = "Annotations OK" if ok else "Annotations failed"

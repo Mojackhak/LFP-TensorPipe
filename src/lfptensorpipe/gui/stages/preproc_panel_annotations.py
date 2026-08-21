@@ -163,7 +163,6 @@ def annotations_table_rows(self) -> tuple[list[dict[str, Any]], list[int]]:
             not description
             or not math.isfinite(onset_value)
             or not math.isfinite(duration_value)
-            or onset_value < 0.0
             or duration_value < 0.0
         ):
             invalid_rows.append(row_idx)
