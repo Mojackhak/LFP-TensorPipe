@@ -121,6 +121,8 @@ def _load_audio_mono(audio_path: str) -> tuple[np.ndarray, int]:
         else:
             data = data.astype(float)
 
+    if not np.isfinite(data).all():
+        raise ValueError("External audio contains non-finite samples.")
     if data.ndim > 1:
         data = data.mean(axis=1)
     return np.asarray(data, dtype=float).reshape(-1), int(sr)

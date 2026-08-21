@@ -136,6 +136,12 @@ Use the validated demo values:
 | `Pairing` | `Auto Pair by Order` |
 | `Correct sfreq` | unchecked |
 
+`Load / Detect` accepts only audio whose decoded samples are all finite. If the
+file contains `NaN`, `+Inf`, or `-Inf` in any mono or stereo channel, the whole
+reload is rejected before channel averaging or peak detection. The dialog keeps
+the previously loaded markers, pairs, estimate, and preview so a malformed file
+cannot silently become a synchronization pulse.
+
 The demo uses two marker pairs:
 
 - `tag_3` ↔ `external_peak_0`

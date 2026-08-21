@@ -220,6 +220,11 @@ are sorted chronologically. If reload validation fails, the dialog reports the
 original CSV line numbers and preserves the currently loaded markers, pairs,
 and estimate.
 
+For `Audio`, every decoded mono or multichannel sample must be finite. A file
+containing `NaN`, `+Inf`, or `-Inf` is rejected as a whole before channel
+averaging and peak detection. Reload failure preserves the current external
+markers, pair table, sync estimate, and external preview.
+
 The peak-detection Advance dialog treats blank search-range, height, and
 prominence fields as `None`. If either search-range endpoint is supplied, both
 must be finite and satisfy `0 <= start < stop`; an optional prominence must be
