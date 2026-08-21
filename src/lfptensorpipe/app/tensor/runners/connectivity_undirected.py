@@ -72,7 +72,12 @@ def run_undirected_connectivity_metric(
     _cut_frequency_grid_by_intervals = svc._cut_frequency_grid_by_intervals
     _normalize_metric_method = svc._normalize_metric_method
     _compute_mask_radii_seconds = svc._compute_mask_radii_seconds
+    _connectivity_consumed_support_radii_seconds = (
+        svc._connectivity_consumed_support_radii_seconds
+    )
+    _interpolated_support_radii_seconds = svc._interpolated_support_radii_seconds
     _apply_dynamic_edge_mask_strict = svc._apply_dynamic_edge_mask_strict
+    mask_support_semantics = svc.ESTIMATOR_MASK_SUPPORT_SEMANTICS
     _effective_n_jobs_payload = svc._effective_n_jobs_payload
     _normalize_selected_pairs = (
         normalize_selected_pairs_fn or svc._normalize_selected_pairs
@@ -185,7 +190,7 @@ def run_undirected_connectivity_metric(
 
         method_norm = _normalize_metric_method(method, metric_label=metric_label)
         spectral_mode_use = "cwt_morlet" if method_norm == "morlet" else "multitaper"
-        final_mask_radii = _compute_mask_radii_seconds(
+        intrinsic_mask_radii = _compute_mask_radii_seconds(
             freqs_full,
             method=method_norm,
             time_resolution_s=float(time_resolution_s),
@@ -195,7 +200,7 @@ def run_undirected_connectivity_metric(
             mt_min_cycles=float(mt_min_cycles),
         )
         annotation_skip_radius_s = (
-            float(np.min(final_mask_radii)) if mask_edge_effects else None
+            float(np.min(intrinsic_mask_radii)) if mask_edge_effects else None
         )
 
         tensor, metadata = conn_grid(
@@ -225,6 +230,30 @@ def run_undirected_connectivity_metric(
                 f"Unexpected {metric_label} tensor shape: {tensor4d.shape}"
             )
 
+        final_mask_radii = None
+        if mask_edge_effects:
+            compute_mask_radii = _connectivity_consumed_support_radii_seconds(
+                metadata,
+                sfreq=float(raw.info["sfreq"]),
+                n_freqs=int(freqs_compute.size),
+            )
+            if interpolation_applied:
+                tensor4d, metadata = _apply_dynamic_edge_mask_strict(
+                    raw=raw,
+                    tensor=tensor4d,
+                    metadata=metadata,
+                    metric_label=metric_label,
+                    freqs_lookup=[float(item) for item in freqs_compute.tolist()],
+                    radii_s=[float(item) for item in compute_mask_radii.tolist()],
+                    warn_fully_masked=False,
+                )
+                final_mask_radii = _interpolated_support_radii_seconds(
+                    freqs_compute,
+                    compute_mask_radii,
+                    freqs_full,
+                )
+            else:
+                final_mask_radii = compute_mask_radii
         if interpolation_applied:
             tensor4d, metadata = interpolate_freq_tensor(
                 tensor4d,
@@ -248,6 +277,10 @@ def run_undirected_connectivity_metric(
                 raise ValueError(
                     f"{metric_label} edge mask failed: metadata frequency axis does not match tensor."
                 )
+            if final_mask_radii is None or final_mask_radii.size != freq_axis.size:
+                raise ValueError(
+                    f"{metric_label} edge mask support mapping is incomplete."
+                )
             tensor4d, metadata = _apply_dynamic_edge_mask_strict(
                 raw=raw,
                 tensor=tensor4d,
@@ -257,6 +290,12 @@ def run_undirected_connectivity_metric(
                 radii_s=[float(item) for item in final_mask_radii.tolist()],
             )
         metadata = dict(metadata)
+        metadata_params = metadata.get("params", {})
+        metadata_params = (
+            dict(metadata_params) if isinstance(metadata_params, dict) else {}
+        )
+        metadata_params["mask_support_semantics"] = mask_support_semantics
+        metadata["params"] = metadata_params
         metadata.update(
             {
                 "notches": [float(item) for item in runtime_notches],
@@ -318,6 +357,7 @@ def run_undirected_connectivity_metric(
                 [float(lo), float(hi)] for lo, hi in notch_intervals
             ],
             "interpolation_applied": bool(interpolation_applied),
+            "mask_support_semantics": mask_support_semantics,
             "tensor_shape": [int(item) for item in tensor4d.shape],
             **count_payload,
             **_effective_n_jobs_payload(
@@ -350,6 +390,7 @@ def run_undirected_connectivity_metric(
                 float(item) for item in inheritance.notch_widths
             ],
             "interpolation_applied": bool(interpolation_applied),
+            "mask_support_semantics": mask_support_semantics,
             "n_channels": len(picks),
             "n_pairs": len(pairs),
             "selected_channels": picks,

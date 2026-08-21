@@ -11,6 +11,8 @@ import warnings
 
 import numpy as np
 
+ESTIMATOR_MASK_SUPPORT_SEMANTICS = "full_estimator_input_and_notch_donor_support"
+
 
 def build_annotation_skip_time_mask(
     raw: Any,
@@ -136,6 +138,7 @@ def apply_dynamic_edge_mask_strict(
     metric_label: str,
     freqs_lookup: list[float | str],
     radii_s: list[float],
+    warn_fully_masked: bool = True,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     from lfptensorpipe.lfp.pipelines.masking import mask_tensor_dynamic
 
@@ -177,7 +180,7 @@ def apply_dynamic_edge_mask_strict(
             axis for axis in range(masked_tensor.ndim) if axis != masked_tensor.ndim - 2
         )
         fully_masked = ~np.any(np.isfinite(masked_tensor), axis=reduction_axes)
-        if bool(np.any(fully_masked)):
+        if warn_fully_masked and bool(np.any(fully_masked)):
             warnings.warn(
                 f"{metric_label} contains {int(np.sum(fully_masked))} frequency or band "
                 "entries with no usable values after BAD/EDGE masking; they remain NaN.",
@@ -185,6 +188,108 @@ def apply_dynamic_edge_mask_strict(
                 stacklevel=2,
             )
     return masked_tensor, masked_meta
+
+
+def connectivity_consumed_support_radii_seconds(
+    metadata: dict[str, Any],
+    *,
+    sfreq: float,
+    n_freqs: int,
+) -> np.ndarray:
+    """Map Connectivity group geometry to consumed raw-support radii."""
+    sfreq_use = float(sfreq)
+    n_freqs_use = int(n_freqs)
+    if not np.isfinite(sfreq_use) or sfreq_use <= 0.0:
+        raise ValueError(
+            "Connectivity support mapping requires a positive sampling rate."
+        )
+    if n_freqs_use <= 0:
+        raise ValueError(
+            "Connectivity support mapping requires a non-empty frequency axis."
+        )
+    params = metadata.get("params") if isinstance(metadata, dict) else None
+    groups = params.get("window_group_counts") if isinstance(params, dict) else None
+    if not isinstance(groups, list) or not groups:
+        raise ValueError("Connectivity metadata is missing window_group_counts.")
+
+    radii = np.full(n_freqs_use, np.nan, dtype=float)
+    for group in groups:
+        if not isinstance(group, dict):
+            raise ValueError(
+                "Connectivity window_group_counts contains an invalid group."
+            )
+        indices = group.get("output_frequency_indices")
+        if not isinstance(indices, list) or not indices:
+            raise ValueError("Connectivity support group has no output frequencies.")
+        try:
+            analysis_radius = int(group["analysis_radius_samples"])
+            required_padding = int(group["required_padding_samples"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "Connectivity support group is missing valid analysis/padding geometry."
+            ) from exc
+        if analysis_radius < 0 or required_padding < 0:
+            raise ValueError("Connectivity support geometry cannot be negative.")
+        radius_s = (analysis_radius + required_padding) / sfreq_use
+        for raw_index in indices:
+            index = int(raw_index)
+            if index < 0 or index >= n_freqs_use:
+                raise ValueError(
+                    "Connectivity support group frequency index is out of range."
+                )
+            if np.isfinite(radii[index]):
+                raise ValueError(
+                    "Connectivity support groups contain a duplicate frequency index."
+                )
+            radii[index] = radius_s
+    if np.any(~np.isfinite(radii)):
+        raise ValueError("Connectivity support groups do not cover every frequency.")
+    return radii
+
+
+def interpolated_support_radii_seconds(
+    freqs_compute: np.ndarray,
+    radii_compute_s: np.ndarray,
+    freqs_full: np.ndarray,
+) -> np.ndarray:
+    """Propagate retained-frequency support to notch-reconstructed cells."""
+    compute = np.asarray(freqs_compute, dtype=float).ravel()
+    radii = np.asarray(radii_compute_s, dtype=float).ravel()
+    full = np.asarray(freqs_full, dtype=float).ravel()
+    if compute.size < 2 or full.size < compute.size or radii.size != compute.size:
+        raise ValueError("Invalid compute/full frequency support mapping.")
+    if (
+        np.any(~np.isfinite(compute))
+        or np.any(~np.isfinite(full))
+        or np.any(~np.isfinite(radii))
+        or np.any(radii < 0.0)
+        or np.any(np.diff(compute) <= 0.0)
+        or np.any(np.diff(full) <= 0.0)
+    ):
+        raise ValueError("Frequency support mapping requires finite ordered values.")
+
+    compute_positions: list[int] = []
+    for frequency in compute:
+        matches = np.flatnonzero(np.isclose(full, frequency, rtol=0.0, atol=1e-9))
+        if matches.size != 1:
+            raise ValueError(
+                "Compute frequencies must be a unique subset of the full grid."
+            )
+        compute_positions.append(int(matches[0]))
+    if any(
+        left >= right for left, right in zip(compute_positions, compute_positions[1:])
+    ):
+        raise ValueError("Compute frequency order does not match the full grid.")
+
+    result = np.full(full.size, float(np.max(radii)), dtype=float)
+    for compute_index, full_index in enumerate(compute_positions):
+        result[full_index] = radii[compute_index]
+    for left_index, right_index in zip(compute_positions, compute_positions[1:]):
+        if right_index - left_index <= 1:
+            continue
+        donor_radius = max(result[left_index], result[right_index])
+        result[left_index + 1 : right_index] = donor_radius
+    return result
 
 
 def psi_band_radii_seconds(

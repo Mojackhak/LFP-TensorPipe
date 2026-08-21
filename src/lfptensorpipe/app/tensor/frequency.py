@@ -14,13 +14,16 @@ from lfptensorpipe.app.preproc_service import (
 )
 from lfptensorpipe.app.runlog_store import read_run_log
 from lfptensorpipe.lfp.runtime import (
+    ESTIMATOR_MASK_SUPPORT_SEMANTICS,
     apply_dynamic_edge_mask_strict as _apply_dynamic_edge_mask_strict_runtime,
     build_frequency_grid as _build_frequency_grid_runtime,
     compute_mask_radii_seconds as _compute_mask_radii_seconds_runtime,
     compute_notch_intervals as _compute_notch_intervals_runtime,
+    connectivity_consumed_support_radii_seconds as _connectivity_consumed_support_radii_seconds_runtime,
     cut_frequency_grid_by_intervals as _cut_frequency_grid_by_intervals_runtime,
     cycles_from_time_resolution as _cycles_from_time_resolution_runtime,
     expand_notch_radii as _expand_notch_radii_runtime,
+    interpolated_support_radii_seconds as _interpolated_support_radii_seconds_runtime,
     parse_positive_float_tuple as _parse_positive_float_tuple_runtime,
     psi_band_radii_seconds as _psi_band_radii_seconds_runtime,
 )
@@ -467,6 +470,7 @@ def _apply_dynamic_edge_mask_strict(
     metric_label: str,
     freqs_lookup: list[float | str],
     radii_s: list[float],
+    warn_fully_masked: bool = True,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     return _apply_dynamic_edge_mask_strict_runtime(
         raw=raw,
@@ -475,6 +479,32 @@ def _apply_dynamic_edge_mask_strict(
         metric_label=metric_label,
         freqs_lookup=list(freqs_lookup),
         radii_s=list(radii_s),
+        warn_fully_masked=bool(warn_fully_masked),
+    )
+
+
+def _connectivity_consumed_support_radii_seconds(
+    metadata: dict[str, Any],
+    *,
+    sfreq: float,
+    n_freqs: int,
+) -> np.ndarray:
+    return _connectivity_consumed_support_radii_seconds_runtime(
+        dict(metadata),
+        sfreq=float(sfreq),
+        n_freqs=int(n_freqs),
+    )
+
+
+def _interpolated_support_radii_seconds(
+    freqs_compute: np.ndarray,
+    radii_compute_s: np.ndarray,
+    freqs_full: np.ndarray,
+) -> np.ndarray:
+    return _interpolated_support_radii_seconds_runtime(
+        np.asarray(freqs_compute, dtype=float),
+        np.asarray(radii_compute_s, dtype=float),
+        np.asarray(freqs_full, dtype=float),
     )
 
 
@@ -700,17 +730,20 @@ def _effective_n_jobs_payload(
 __all__ = [
     "DEFAULT_TENSOR_BANDS",
     "DEFAULT_TENSOR_NOTCH_RADIUS",
+    "ESTIMATOR_MASK_SUPPORT_SEMANTICS",
     "TensorFilterInheritance",
     "TensorFrequencyBounds",
     "_apply_dynamic_edge_mask_strict",
     "_build_frequency_grid",
     "_compute_mask_radii_seconds",
     "_compute_notch_intervals",
+    "_connectivity_consumed_support_radii_seconds",
     "_cut_frequency_grid_by_intervals",
     "_cycles_from_time_resolution",
     "_effective_n_jobs_payload",
     "_expand_notch_radii",
     "_load_finish_nyquist_hz",
+    "_interpolated_support_radii_seconds",
     "_parse_positive_float_tuple",
     "_psi_band_radii_seconds",
     "build_tensor_metric_notch_payload",

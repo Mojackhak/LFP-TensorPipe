@@ -33,8 +33,11 @@ from .coercion import _as_float, _as_int, _as_optional_float, _as_optional_int
 from .annotation_source import finish_has_channel_specific_mask_annotations
 from .frequency import (
     DEFAULT_TENSOR_NOTCH_RADIUS,
+    ESTIMATOR_MASK_SUPPORT_SEMANTICS,
     TENSOR_NOTCH_TOLERANCE_HZ,
+    _build_frequency_grid,
     _compute_notch_intervals,
+    _cut_frequency_grid_by_intervals,
     load_tensor_frequency_defaults,
     normalize_tensor_metric_notch_params,
     validate_tensor_frequency_params,
@@ -176,6 +179,23 @@ def _notch_intervals_signature(
             continue
         merged.append([float(low), float(high)])
     return merged
+
+
+def _frequency_interpolation_applied(
+    *,
+    low_freq: float,
+    high_freq: float,
+    step_hz: float,
+    notch_intervals: list[list[float]],
+) -> bool:
+    if not notch_intervals:
+        return False
+    freqs = _build_frequency_grid(float(low_freq), float(high_freq), float(step_hz))
+    _, removed = _cut_frequency_grid_by_intervals(
+        freqs,
+        [(float(low), float(high)) for low, high in notch_intervals],
+    )
+    return bool(np.any(removed))
 
 
 def _normalize_channels(value: Any) -> list[str] | None:
@@ -324,7 +344,7 @@ def _metric_log_signature(
         channels = _normalize_channels(params.get("selected_channels"))
         if channels is None:
             return None
-        return {
+        signature = {
             "low_freq": float(params.get("low_freq")),
             "high_freq": float(params.get("high_freq")),
             "step_hz": float(params.get("step_hz")),
@@ -335,6 +355,11 @@ def _metric_log_signature(
             "notch_intervals_hz": notch_intervals,
             "selected_channels": channels,
         }
+        if signature["mask_edge_effects"] and bool(
+            params.get("interpolation_applied", False)
+        ):
+            signature["mask_support_semantics"] = params.get("mask_support_semantics")
+        return signature
     if metric_key == "periodic_aperiodic":
         channels = _normalize_channels(params.get("selected_channels"))
         freq_range = _periodic_freq_range(params)
@@ -394,7 +419,7 @@ def _metric_log_signature(
             "pli": "pli",
             "wpli": "wpli",
         }
-        return {
+        signature = {
             "low_freq": float(params.get("low_freq")),
             "high_freq": float(params.get("high_freq")),
             "step_hz": float(params.get("step_hz")),
@@ -407,6 +432,9 @@ def _metric_log_signature(
             "notch_intervals_hz": notch_intervals,
             "selected_pairs": pairs,
         }
+        if signature["mask_edge_effects"]:
+            signature["mask_support_semantics"] = params.get("mask_support_semantics")
+        return signature
     if metric_key == "trgc":
         if params.get("padding_mode") != CONNECTIVITY_PADDING_MODE:
             return None
@@ -430,6 +458,8 @@ def _metric_log_signature(
         }
         if not signature["group_by_samples"]:
             signature["round_ms"] = _as_float(params.get("round_ms"), 50.0)
+        if signature["mask_edge_effects"]:
+            signature["mask_support_semantics"] = params.get("mask_support_semantics")
         return signature
     if metric_key == "psi":
         pairs = _normalize_pairs(params.get("selected_pairs"), directed=True)
@@ -600,7 +630,7 @@ def _current_metric_signature(
         channels = _normalize_channels(prepared.metric_channels)
         if channels is None:
             return None
-        return {
+        signature = {
             "low_freq": prepared.metric_low,
             "high_freq": prepared.metric_high,
             "step_hz": prepared.metric_step,
@@ -611,6 +641,14 @@ def _current_metric_signature(
             "notch_intervals_hz": notch_intervals,
             "selected_channels": channels,
         }
+        if signature["mask_edge_effects"] and _frequency_interpolation_applied(
+            low_freq=prepared.metric_low,
+            high_freq=prepared.metric_high,
+            step_hz=prepared.metric_step,
+            notch_intervals=notch_intervals,
+        ):
+            signature["mask_support_semantics"] = ESTIMATOR_MASK_SUPPORT_SEMANTICS
+        return signature
     if metric_key == "periodic_aperiodic":
         channels = _normalize_channels(prepared.metric_channels)
         if channels is None or prepared.parsed_freq_range is None:
@@ -660,7 +698,7 @@ def _current_metric_signature(
             "pli": "pli",
             "wpli": "wpli",
         }
-        return {
+        signature = {
             "low_freq": prepared.metric_low,
             "high_freq": prepared.metric_high,
             "step_hz": prepared.metric_step,
@@ -673,6 +711,9 @@ def _current_metric_signature(
             "notch_intervals_hz": notch_intervals,
             "selected_pairs": pairs,
         }
+        if signature["mask_edge_effects"]:
+            signature["mask_support_semantics"] = ESTIMATOR_MASK_SUPPORT_SEMANTICS
+        return signature
     if metric_key == "trgc":
         pairs = _normalize_pairs(prepared.metric_pairs, directed=True)
         if pairs is None:
@@ -694,6 +735,8 @@ def _current_metric_signature(
         }
         if not signature["group_by_samples"]:
             signature["round_ms"] = float(params["round_ms"])
+        if signature["mask_edge_effects"]:
+            signature["mask_support_semantics"] = ESTIMATOR_MASK_SUPPORT_SEMANTICS
         return signature
     if metric_key == "psi":
         pairs = _normalize_pairs(prepared.metric_pairs, directed=True)

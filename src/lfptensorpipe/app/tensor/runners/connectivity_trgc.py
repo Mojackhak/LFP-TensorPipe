@@ -24,13 +24,16 @@ from lfptensorpipe.app.shared.atomic_outputs import (
 )
 from ..coercion import _normalize_metric_method
 from ..frequency import (
+    ESTIMATOR_MASK_SUPPORT_SEMANTICS,
     _apply_dynamic_edge_mask_strict,
     _build_frequency_grid,
+    _connectivity_consumed_support_radii_seconds,
     _compute_mask_radii_seconds,
     _compute_notch_intervals,
     _cut_frequency_grid_by_intervals,
     _effective_n_jobs_payload,
     _expand_notch_radii,
+    _interpolated_support_radii_seconds,
     load_tensor_filter_inheritance,
     build_tensor_metric_notch_payload,
 )
@@ -441,6 +444,32 @@ def _compute_trgc_backend_tensor(
         metric_label=prepared["metric_label"],
         backend_method=str(backend_method),
     )
+    full_mask_radii = None
+    if prepared["mask_edge_effects"]:
+        compute_mask_radii = _connectivity_consumed_support_radii_seconds(
+            backend_metadata,
+            sfreq=float(prepared["raw"].info["sfreq"]),
+            n_freqs=int(prepared["freqs_compute"].size),
+        )
+        if prepared["interpolation_applied"]:
+            backend_tensor4d, backend_metadata = _apply_dynamic_edge_mask_strict(
+                raw=prepared["raw"],
+                tensor=backend_tensor4d,
+                metadata=backend_metadata,
+                metric_label=prepared["metric_label"],
+                freqs_lookup=[
+                    float(item) for item in prepared["freqs_compute"].tolist()
+                ],
+                radii_s=[float(item) for item in compute_mask_radii.tolist()],
+                warn_fully_masked=False,
+            )
+            full_mask_radii = _interpolated_support_radii_seconds(
+                prepared["freqs_compute"],
+                compute_mask_radii,
+                prepared["freqs_full"],
+            )
+        else:
+            full_mask_radii = compute_mask_radii
     if prepared["interpolation_applied"]:
         backend_tensor4d, backend_metadata = interpolate_freq_tensor(
             backend_tensor4d,
@@ -453,6 +482,15 @@ def _compute_trgc_backend_tensor(
         backend_tensor4d = np.asarray(backend_tensor4d, dtype=float)
     inheritance = prepared["inheritance"]
     backend_metadata = dict(backend_metadata)
+    backend_params = backend_metadata.get("params", {})
+    backend_params = dict(backend_params) if isinstance(backend_params, dict) else {}
+    backend_params["mask_support_semantics"] = ESTIMATOR_MASK_SUPPORT_SEMANTICS
+    backend_params["mask_support_radii_s"] = (
+        [float(item) for item in full_mask_radii.tolist()]
+        if full_mask_radii is not None
+        else []
+    )
+    backend_metadata["params"] = backend_params
     backend_metadata.update(
         {
             "notches": [float(item) for item in prepared["runtime_notches"]],
@@ -491,6 +529,8 @@ def _build_trgc_backend_state(
         "method": str(prepared["method_norm"]),
         "backend_methods": list(TRGC_BACKEND_METHODS),
         "mask_edge_effects": bool(prepared["mask_edge_effects"]),
+        "mask_support_semantics": ESTIMATOR_MASK_SUPPORT_SEMANTICS,
+        "mask_support_radii_s": list(grid_params.get("mask_support_radii_s", [])),
         "annotation_skip_radius_s": prepared["annotation_skip_radius_s"],
         "low_freq": float(prepared["low_freq"]),
         "high_freq": float(prepared["applied_high"]),
@@ -803,6 +843,40 @@ def run_trgc_finalize_metric(
             )
         if gc_state.get("freqs_full") != gc_tr_state.get("freqs_full"):
             raise ValueError("TRGC frequency metadata mismatch between gc and gc_tr.")
+        if gc_state.get("mask_edge_effects") != bool(
+            mask_edge_effects
+        ) or gc_tr_state.get("mask_edge_effects") != bool(mask_edge_effects):
+            raise ValueError(
+                "TRGC backend mask mode mismatch; re-run both backends with the current setting before finalizing."
+            )
+        final_mask_radii = None
+        if mask_edge_effects:
+            for state, backend_name in ((gc_state, "gc"), (gc_tr_state, "gc_tr")):
+                if (
+                    state.get("mask_support_semantics")
+                    != ESTIMATOR_MASK_SUPPORT_SEMANTICS
+                ):
+                    raise ValueError(
+                        f"TRGC {backend_name} backend is missing current mask support semantics; "
+                        "re-run both backends before finalizing."
+                    )
+            gc_radii = np.asarray(gc_state.get("mask_support_radii_s", []), dtype=float)
+            gc_tr_radii = np.asarray(
+                gc_tr_state.get("mask_support_radii_s", []), dtype=float
+            )
+            n_freqs = len(gc_state.get("freqs_full", []))
+            if (
+                gc_radii.shape != (n_freqs,)
+                or gc_tr_radii.shape != (n_freqs,)
+                or np.any(~np.isfinite(gc_radii))
+                or np.any(gc_radii < 0.0)
+                or not np.array_equal(gc_radii, gc_tr_radii)
+            ):
+                raise ValueError(
+                    "TRGC backend mask support vectors are missing or inconsistent; "
+                    "re-run both backends before finalizing."
+                )
+            final_mask_radii = gc_radii
 
         requested_pairs = [
             (str(seed), str(target))
@@ -837,25 +911,27 @@ def run_trgc_finalize_metric(
                 raise ValueError(
                     f"{metric_label} edge mask failed: metadata frequency axis does not match tensor."
                 )
-            radii = _compute_mask_radii_seconds(
-                freq_axis,
-                method=str(gc_state["method"]),
-                time_resolution_s=float(gc_state["time_resolution_s"]),
-                min_cycles=gc_state.get("min_cycles"),
-                max_cycles=gc_state.get("max_cycles"),
-                mt_time_bandwidth_product=mt_time_bandwidth_product,
-                mt_min_cycles=mt_min_cycles,
-            )
+            if final_mask_radii is None or final_mask_radii.size != freq_axis.size:
+                raise ValueError(
+                    f"{metric_label} edge mask support mapping is incomplete."
+                )
             tensor4d, metadata = _apply_dynamic_edge_mask_strict(
                 raw=raw,
                 tensor=tensor4d,
                 metadata=metadata,
                 metric_label=metric_label,
                 freqs_lookup=[float(item) for item in freq_axis.tolist()],
-                radii_s=[float(item) for item in radii.tolist()],
+                radii_s=[float(item) for item in final_mask_radii.tolist()],
             )
 
         metadata = dict(metadata)
+        metadata_params = metadata.get("params", {})
+        metadata_params = (
+            dict(metadata_params) if isinstance(metadata_params, dict) else {}
+        )
+        metadata_params.pop("mask_support_radii_s", None)
+        metadata_params["mask_support_semantics"] = ESTIMATOR_MASK_SUPPORT_SEMANTICS
+        metadata["params"] = metadata_params
         metadata.update(
             {
                 "notches": list(gc_state.get("notches", [])),
@@ -908,6 +984,7 @@ def run_trgc_finalize_metric(
             ),
             "notch_intervals_hz": list(gc_state.get("notch_intervals_hz", [])),
             "interpolation_applied": bool(gc_state.get("interpolation_applied", False)),
+            "mask_support_semantics": ESTIMATOR_MASK_SUPPORT_SEMANTICS,
             "tensor_shape": [int(item) for item in tensor4d.shape],
             "n_pairs": int(gc_state.get("n_pairs", len(requested_pairs))),
             "n_pairs_compute": int(gc_state.get("n_pairs_compute", len(compute_pairs))),
@@ -961,6 +1038,7 @@ def run_trgc_finalize_metric(
                 gc_state.get("inherited_filter_notch_widths", [])
             ),
             "interpolation_applied": bool(gc_state.get("interpolation_applied", False)),
+            "mask_support_semantics": ESTIMATOR_MASK_SUPPORT_SEMANTICS,
             "n_channels": len(gc_state.get("channels", [])),
             "n_pairs": int(gc_state.get("n_pairs", len(requested_pairs))),
             "n_pairs_compute": int(gc_state.get("n_pairs_compute", len(compute_pairs))),

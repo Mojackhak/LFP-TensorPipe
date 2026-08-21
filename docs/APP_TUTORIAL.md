@@ -645,6 +645,14 @@ For this walkthrough:
    boundaries stay masked during downstream analysis
 4. click `Build Tensor`
 
+For Raw Power and Connectivity metrics, the mask covers the complete raw-data
+support consumed by each retained estimate. This includes the Connectivity
+analysis span plus required spectral support. If a notch-cut frequency is
+reconstructed from neighboring frequencies, it also includes both donors'
+supports. Therefore, a finite value never depends on a matching BAD/EDGE sample
+when masking is enabled. Extra crop margin that is discarded before estimation
+does not unnecessarily enlarge the mask.
+
 For Burst, keep `Isolate BAD/EDGE boundaries` enabled in Burst Advance for the
 recommended scientific path. The option prevents annotated signal from entering
 the neighboring valid segment's zero-phase band-pass and Hilbert-envelope

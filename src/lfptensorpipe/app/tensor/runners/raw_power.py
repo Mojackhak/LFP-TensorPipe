@@ -70,7 +70,9 @@ def run_raw_power_metric(
     _cut_frequency_grid_by_intervals = svc._cut_frequency_grid_by_intervals
     _normalize_metric_method = svc._normalize_metric_method
     _compute_mask_radii_seconds = svc._compute_mask_radii_seconds
+    _interpolated_support_radii_seconds = svc._interpolated_support_radii_seconds
     _apply_dynamic_edge_mask_strict = svc._apply_dynamic_edge_mask_strict
+    mask_support_semantics = svc.ESTIMATOR_MASK_SUPPORT_SEMANTICS
     save_pkl = svc.save_pkl
     TENSOR_METRICS_BY_KEY = svc.TENSOR_METRICS_BY_KEY
     _effective_n_jobs_payload = svc._effective_n_jobs_payload
@@ -179,6 +181,34 @@ def run_raw_power_metric(
             tensor = tensor[None, ...]
         if tensor.ndim != 4:
             raise ValueError(f"Unexpected Raw power tensor shape: {tensor.shape}")
+        final_mask_radii = None
+        if mask_edge_effects:
+            compute_mask_radii = _compute_mask_radii_seconds(
+                freqs_compute,
+                method=method_norm,
+                time_resolution_s=float(time_resolution_s),
+                min_cycles=min_cycles,
+                max_cycles=max_cycles,
+                mt_time_bandwidth_product=float(mt_time_bandwidth_product),
+                mt_min_cycles=float(mt_min_cycles),
+            )
+            if interpolation_applied:
+                tensor, metadata = _apply_dynamic_edge_mask_strict(
+                    raw=raw,
+                    tensor=tensor,
+                    metadata=metadata,
+                    metric_label="Raw power",
+                    freqs_lookup=[float(item) for item in freqs_compute.tolist()],
+                    radii_s=[float(item) for item in compute_mask_radii.tolist()],
+                    warn_fully_masked=False,
+                )
+                final_mask_radii = _interpolated_support_radii_seconds(
+                    freqs_compute,
+                    compute_mask_radii,
+                    freqs_full,
+                )
+            else:
+                final_mask_radii = compute_mask_radii
         if interpolation_applied:
             tensor, metadata = interpolate_freq_tensor(
                 tensor,
@@ -198,24 +228,23 @@ def run_raw_power_metric(
                 raise ValueError(
                     "Raw power edge mask failed: metadata frequency axis does not match tensor."
                 )
-            radii = _compute_mask_radii_seconds(
-                freq_axis,
-                method=method_norm,
-                time_resolution_s=float(time_resolution_s),
-                min_cycles=min_cycles,
-                max_cycles=max_cycles,
-                mt_time_bandwidth_product=float(mt_time_bandwidth_product),
-                mt_min_cycles=float(mt_min_cycles),
-            )
+            if final_mask_radii is None or final_mask_radii.size != freq_axis.size:
+                raise ValueError("Raw power edge mask support mapping is incomplete.")
             tensor, metadata = _apply_dynamic_edge_mask_strict(
                 raw=raw,
                 tensor=tensor,
                 metadata=metadata,
                 metric_label="Raw power",
                 freqs_lookup=[float(item) for item in freq_axis.tolist()],
-                radii_s=[float(item) for item in radii.tolist()],
+                radii_s=[float(item) for item in final_mask_radii.tolist()],
             )
         metadata = dict(metadata)
+        metadata_params = metadata.get("params", {})
+        metadata_params = (
+            dict(metadata_params) if isinstance(metadata_params, dict) else {}
+        )
+        metadata_params["mask_support_semantics"] = mask_support_semantics
+        metadata["params"] = metadata_params
         metadata.update(
             {
                 "notches": [float(item) for item in runtime_notches],
@@ -263,6 +292,7 @@ def run_raw_power_metric(
                 [float(lo), float(hi)] for lo, hi in notch_intervals
             ],
             "interpolation_applied": bool(interpolation_applied),
+            "mask_support_semantics": mask_support_semantics,
             "tensor_shape": [int(item) for item in tensor.shape],
             **_effective_n_jobs_payload(
                 n_jobs=int(n_jobs),
@@ -293,6 +323,7 @@ def run_raw_power_metric(
                 float(item) for item in inheritance.notch_widths
             ],
             "interpolation_applied": bool(interpolation_applied),
+            "mask_support_semantics": mask_support_semantics,
             "n_channels": len(picks),
             "selected_channels": picks,
             "n_freqs": int(tensor.shape[2]),
