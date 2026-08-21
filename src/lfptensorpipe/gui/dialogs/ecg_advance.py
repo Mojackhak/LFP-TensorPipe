@@ -18,7 +18,11 @@ class ECGAdvanceDialog(QDialog):
         method: str,
         session_params: dict[str, Any],
         default_params: dict[str, Any],
-        set_default_callback: Callable[[dict[str, Any]], None] | None = None,
+        session_review_params: dict[str, Any] | None = None,
+        default_review_params: dict[str, Any] | None = None,
+        set_default_callback: (
+            Callable[[dict[str, Any], dict[str, bool]], None] | None
+        ) = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -31,7 +35,11 @@ class ECGAdvanceDialog(QDialog):
 
         self._selected_action: str | None = None
         self._selected_params: dict[str, Any] | None = None
+        self._selected_review_params: dict[str, bool] | None = None
         self._default_params = self._normalized_or_builtin(default_params)
+        self._default_review_params = self._normalized_review_or_builtin(
+            default_review_params
+        )
         self._set_default_callback = set_default_callback
         self._manual_peak_max = 3.5
         self._manual_threshold_start = 0.0
@@ -54,6 +62,7 @@ class ECGAdvanceDialog(QDialog):
             self._build_template_fields()
         else:
             self._build_perceive_fields()
+        self._build_review_fields()
         self._content_layout.addStretch(1)
 
         button_row = QWidget()
@@ -94,6 +103,8 @@ class ECGAdvanceDialog(QDialog):
             self._apply_to_fields(session_candidate)
         except (KeyError, TypeError, ValueError):
             self._apply_to_fields(default_ecg_method_params(self._method))
+        review_candidate = self._normalized_review_or_builtin(session_review_params)
+        self._mark_filter_edges_check.setChecked(review_candidate["mark_filter_edges"])
         self._connect_validation_signals()
         self._refresh_validation()
 
@@ -109,11 +120,28 @@ class ECGAdvanceDialog(QDialog):
             else None
         )
 
+    @property
+    def selected_review_params(self) -> dict[str, bool] | None:
+        return (
+            dict(self._selected_review_params)
+            if isinstance(self._selected_review_params, dict)
+            else None
+        )
+
     def _normalized_or_builtin(self, params: dict[str, Any]) -> dict[str, Any]:
         ok, normalized, _ = normalize_ecg_method_params(self._method, params)
         if ok:
             return normalized
         return default_ecg_method_params(self._method)
+
+    @staticmethod
+    def _normalized_review_or_builtin(
+        params: dict[str, Any] | None,
+    ) -> dict[str, bool]:
+        ok, normalized, _ = normalize_ecg_review_params(params)
+        if ok:
+            return normalized
+        return default_ecg_review_params()
 
     @staticmethod
     def _form() -> QFormLayout:
@@ -406,6 +434,18 @@ class ECGAdvanceDialog(QDialog):
             "Require interpeak intervals to stay within both BPM limits.",
         )
 
+    def _build_review_fields(self) -> None:
+        _, review = self._group("Review")
+        self._mark_filter_edges_check = QCheckBox()
+        self._add_row(
+            review,
+            "mark filter edges",
+            self._mark_filter_edges_check,
+            "After ECG plot review, mark the accepted Filter support only around "
+            "new or expanded BAD boundaries. This requires ECG to consume Filter "
+            "directly.",
+        )
+
     def _on_peak_max_limit_toggled(self, checked: bool) -> None:
         if checked:
             peak_min = float(self._peak_min_spin.value())
@@ -542,8 +582,19 @@ class ECGAdvanceDialog(QDialog):
             raise ValueError(message)
         return normalized
 
+    def _collect_review_params(self) -> dict[str, bool]:
+        valid, normalized, message = normalize_ecg_review_params(
+            {"mark_filter_edges": self._mark_filter_edges_check.isChecked()}
+        )
+        if not valid:
+            raise ValueError(message)
+        return normalized
+
     def _on_restore_defaults(self) -> None:
         self._apply_to_fields(self._default_params)
+        self._mark_filter_edges_check.setChecked(
+            self._default_review_params["mark_filter_edges"]
+        )
         self._refresh_validation()
 
     def _connect_validation_signals(self) -> None:
@@ -625,13 +676,14 @@ class ECGAdvanceDialog(QDialog):
         if action == "set_default":
             try:
                 params = self._collect_params()
+                review_params = self._collect_review_params()
             except Exception as exc:  # noqa: BLE001
                 self._refresh_validation()
                 self._show_warning(self.windowTitle(), f"Invalid parameters:\n{exc}")
                 return
             if self._set_default_callback is not None:
                 try:
-                    self._set_default_callback(dict(params))
+                    self._set_default_callback(dict(params), dict(review_params))
                 except Exception as exc:  # noqa: BLE001
                     self._show_warning(
                         self.windowTitle(),
@@ -639,10 +691,14 @@ class ECGAdvanceDialog(QDialog):
                     )
                     return
             self._default_params = dict(params)
+            self._default_review_params = dict(review_params)
             self._selected_action = action
             self._selected_params = dict(params)
+            self._selected_review_params = dict(review_params)
             return
         params = self._collect_draft_params()
+        review_params = self._collect_review_params()
         self._selected_action = action
         self._selected_params = dict(params)
+        self._selected_review_params = dict(review_params)
         self.accept()

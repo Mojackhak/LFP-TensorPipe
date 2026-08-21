@@ -9,6 +9,7 @@ import shutil
 from typing import Any, Callable
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
+from lfptensorpipe.app.runlog_store import read_run_log
 from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
 from lfptensorpipe.app.shared.generation_lineage import (
     new_result_generation_id,
@@ -68,6 +69,44 @@ def default_ecg_params_by_method() -> dict[str, dict[str, Any]]:
         method: default_ecg_method_params(method)
         for method in ("template", "perceive", "svd")
     }
+
+
+def default_ecg_review_params() -> dict[str, bool]:
+    """Return stage-level defaults for reviewing an ECG result."""
+    return {"mark_filter_edges": False}
+
+
+def normalize_ecg_review_params(
+    params: dict[str, Any] | None,
+) -> tuple[bool, dict[str, bool], str]:
+    """Validate the stage-level ECG review policy."""
+    defaults = default_ecg_review_params()
+    if params is None:
+        return True, defaults, ""
+    if not isinstance(params, dict):
+        return False, defaults, "ECG review parameters must be a dictionary."
+    unknown = sorted(set(params) - set(defaults))
+    if unknown:
+        return (
+            False,
+            defaults,
+            f"Unknown ECG review parameter(s): {', '.join(unknown)}",
+        )
+    candidate = dict(defaults)
+    candidate.update(params)
+    try:
+        return (
+            True,
+            {
+                "mark_filter_edges": _strict_bool(
+                    "mark_filter_edges",
+                    candidate["mark_filter_edges"],
+                )
+            },
+            "",
+        )
+    except (KeyError, ValueError) as exc:
+        return False, defaults, str(exc)
 
 
 def _finite_float(name: str, value: Any) -> float:
@@ -303,6 +342,71 @@ def ecg_method_runtime_kwargs(
     return True, normalized, runtime, ""
 
 
+def prepare_ecg_plot_review(
+    resolver: PathResolver,
+    reviewed_raw: Any,
+    *,
+    source_step: str,
+    mark_filter_edges: bool,
+    read_raw_fif_fn: Callable[..., Any] | None = None,
+) -> Any:
+    """Validate ECG plot BAD edits and rebuild the system-owned edge marks."""
+    from lfptensorpipe.preproc.ecg_remover import (
+        finalize_reviewed_ecg_annotations,
+    )
+
+    valid_review, review_params, review_message = normalize_ecg_review_params(
+        {"mark_filter_edges": mark_filter_edges}
+    )
+    if not valid_review:
+        raise ValueError(f"Invalid ECG review parameters: {review_message}")
+
+    source_name = str(source_step)
+    filter_support_radius_samples: int | None = None
+    if review_params["mark_filter_edges"]:
+        if source_name != "filter":
+            raise ValueError(
+                "mark filter edges requires ECG to directly consume the current "
+                "Filter result."
+            )
+        filter_payload = read_run_log(preproc_step_log_path(resolver, "filter"))
+        if (
+            not isinstance(filter_payload, dict)
+            or filter_payload.get("completed") is not True
+        ):
+            raise ValueError("The direct Filter result is not currently accepted.")
+        filter_params = filter_payload.get("params")
+        radius = (
+            filter_params.get("filter_support_radius_samples")
+            if isinstance(filter_params, dict)
+            else None
+        )
+        if isinstance(radius, bool) or not isinstance(radius, int) or radius < 0:
+            raise ValueError(
+                "The accepted Filter result does not contain a valid integer "
+                "filter_support_radius_samples value. Re-apply Filter first."
+            )
+        filter_support_radius_samples = int(radius)
+
+    source_path = preproc_step_raw_path(resolver, source_name)
+    if read_raw_fif_fn is None:
+        import mne
+
+        read_raw_fif_fn = mne.io.read_raw_fif
+    source_raw = read_raw_fif_fn(str(source_path), preload=False, verbose="ERROR")
+    try:
+        return finalize_reviewed_ecg_annotations(
+            source_raw,
+            reviewed_raw,
+            mark_filter_edges=review_params["mark_filter_edges"],
+            filter_support_radius_samples=filter_support_radius_samples,
+        )
+    finally:
+        close = getattr(source_raw, "close", None)
+        if callable(close):
+            close()
+
+
 def apply_ecg_step(
     context: RecordContext,
     *,
@@ -310,6 +414,7 @@ def apply_ecg_step(
     method: str,
     picks: list[str] | tuple[str, ...] | None,
     method_kwargs: dict[str, Any] | None = None,
+    mark_filter_edges: bool = False,
     ecg_methods: tuple[str, ...],
     mark_preproc_step_fn: MarkStepFn,
     invalidate_downstream_fn: InvalidateFn,
@@ -367,6 +472,11 @@ def apply_ecg_step(
         )
         if not valid_params:
             raise ValueError(f"Invalid ECG parameters: {params_message}")
+        valid_review, review_params, review_message = normalize_ecg_review_params(
+            {"mark_filter_edges": mark_filter_edges}
+        )
+        if not valid_review:
+            raise ValueError(f"Invalid ECG review parameters: {review_message}")
 
         selected_picks = list(picks) if picks is not None else None
         if selected_picks is not None and not selected_picks:
@@ -389,6 +499,7 @@ def apply_ecg_step(
                         "mode": "passthrough_copy",
                         "picks": [],
                         "method_kwargs": runtime_kwargs,
+                        **review_params,
                         "figure_channels": [],
                     },
                 )
@@ -401,6 +512,7 @@ def apply_ecg_step(
                             "method": method,
                             "picks": [],
                             "method_kwargs": persisted_kwargs,
+                            **review_params,
                             "source_step": source_step,
                         },
                         result_generation_id=result_generation_id,
@@ -463,6 +575,7 @@ def apply_ecg_step(
                     "method": method,
                     "picks": selected_picks,
                     "method_kwargs": runtime_kwargs,
+                    **review_params,
                     "figure_channels": sorted(figs.keys()),
                 },
             )
@@ -475,6 +588,7 @@ def apply_ecg_step(
                         "method": method,
                         "picks": selected_picks,
                         "method_kwargs": persisted_kwargs,
+                        **review_params,
                         "source_step": source_step,
                         **ecg_diagnostics,
                     },

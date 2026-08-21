@@ -455,7 +455,7 @@ or artifact, invalidate a result, or add a new action-blocking rule.
 | `High freq` | Sets the low-pass cutoff frequency. Lowering it removes more high-frequency noise, but it also narrows the usable signal band for later tensor analysis. Leave it blank to disable low-pass filtering. | Filter output. | A provided value must be finite, positive, and strictly below the input Nyquist frequency. A value at or above Nyquist shows a blocking warning; it is not automatically clipped. |
 | `Advance` (Filter) | Opens advanced filter parameters. | Filter session/default parameters. | Enabled when raw data is available. |
 | `Apply` (Filter) | Creates a detection-filtered review Preview and runs automatic BAD detection. It does not accept the Preview as the scientific Filter result. | Pending Filter review state only; an earlier accepted Filter generation and its downstream results are not invalidated until finalization succeeds. The complete currently visible record draft, including blank cutoffs, is retained after the action. | Requires successful Raw and valid filter parameters. A successful Apply turns Filter yellow and temporarily blocks later preprocess actions until the Preview is closed and finalized. Existing later Preprocess indicators project yellow while never-run gray indicators stay gray. |
-| `Plot` (Filter) | Opens a pending review Preview, or an existing accepted Filter result when no Preview is pending. Closing a Preview automatically refilters from the original Raw and accepts it without a confirmation dialog. Closing an accepted result refilters only after annotations or bad-channel selections changed. | Reviewed annotations, accepted Filter output, and dependent-stage freshness after a real accepted change. | Unavailable before the first successful Apply when no accepted Filter result exists. Available for a valid yellow `review_required` Preview or a green finalized/legacy result; other yellow states remain blocked. |
+| `Plot` (Filter) | Opens a pending review Preview, or an existing accepted Filter result when no Preview is pending. Closing a Preview automatically refilters from the original Raw and accepts it without a confirmation dialog. Closing an accepted result refilters only after annotations or bad-channel selections changed. | Reviewed annotations, accepted Filter output, and dependent-stage freshness after a real accepted change. Independent BAD-boundary filtering and optional `EDGE_filter` marking follow the two Filter Advance controls. | Unavailable before the first successful Apply when no accepted Filter result exists. Available for a valid yellow `review_required` Preview or a green finalized result; other yellow states remain blocked. |
 | Annotation table | Shows the currently configured annotation rows. | Annotation payload. | Read-only except for row selection. |
 | `Configure...` (Annotations) | Opens the annotation editor. | Current annotation rows. | Available after Raw succeeds. |
 | `Apply` (Annotations) | Writes the configured annotations into the preprocess pipeline. Submitted onset values are seconds from the first retained sample; inherited source annotations keep their existing timing and channel scope when the rows are appended. A positive-duration row is clipped to its intersection with the Raw support, and a row with no temporal overlap is silently omitted. | Annotation output used by downstream steps. | Requires successful Raw and a structurally valid annotation set. Duration must remain finite and non-negative; onset may be negative when a positive-duration interval overlaps the Raw. Zero-duration points are retained only inside `[0,n_times/sampling_rate)`. The table, CSV, Raw, config, and log adopt the effective clipped/retained rows after a successful Apply. |
@@ -505,9 +505,9 @@ continue to participate in AutoReject threshold training.
 | `Plot` (Bad Segment Removal) | Plots bad-segment-removal output. | QC only. | Requires successful bad-segment output. |
 | `Method` (ECG) | Chooses the ECG artifact-removal strategy. | ECG step parameters. | Available after Raw succeeds. |
 | `Channels` (ECG) | Opens the ECG channel selector. | ECG channel subset. | Requires channels from the current valid ECG input source. |
-| `Advance` (ECG) | Opens method-specific ECG parameters. | Current-record and global ECG defaults. | Available after Raw succeeds. |
+| `Advance` (ECG) | Opens method-specific ECG parameters and the shared `mark filter edges` review policy. | Current-record and global ECG defaults. The review policy is independent of template, perceive, and SVD algorithm parameters. | Available after Raw succeeds. |
 | `Apply` (ECG) | Runs ECG artifact removal. | ECG-cleaned signal. | Requires Raw and valid ECG settings; skipped earlier optional steps are bypassed. |
-| `Plot` (ECG) | Plots ECG-cleaned output. | QC only. | Requires successful ECG output. |
+| `Plot` (ECG) | Plots ECG-cleaned output and saves accepted annotation or bad-channel edits on close. With `mark filter edges` enabled, newly added or expanded `BAD*` support is surrounded by the exact accepted Filter support and recorded as `EDGE_filter_post_ecg`. | ECG annotations and downstream freshness; ECG-cleaned numeric samples are not recomputed. | Requires successful ECG output. Filter-edge marking additionally requires that the ECG result directly consumed the current accepted Filter generation; it is unavailable across a compressed or stitched intermediate timeline. Existing upstream BAD support cannot be shortened or removed here. |
 | `Finish` indicator | Reports readiness of the finalized preprocess output. | Downstream stage freshness. | Read-only. |
 | `Apply` (Finish) | Writes the finalized preprocess result and adds zero-duration `EDGE` markers at its physical start and last sample. | Tensor, alignment, and feature inputs. | Requires Raw or a later successful optional-step output. |
 | `Plot` (Finish) | Plots the finalized preprocess output. | QC only. | Requires successful finish output. |
@@ -528,7 +528,8 @@ continue to participate in AutoReject threshold training.
 | `Epoch duration` | Sets the complete-window length used by bad-span detection helpers. Filter evaluates every complete regular-grid window and, when needed, one additional complete window aligned to the final Raw sample so the recording tail is covered. Shorter windows react to brief artifacts, while longer windows emphasize more sustained contamination patterns. | Filter-related artifact detection behavior. | Must be finite and positive. No samples are padded and no incomplete tail window is evaluated. If the recording is shorter than one complete window, Apply is rejected and asks the user to reduce Epoch duration. |
 | `Peak-to-peak threshold` | Defines the amplitude range treated as acceptable during bad-span detection. Tighter thresholds flag more segments as artifacts, while wider thresholds are more permissive. Leave the whole field blank to disable only fixed peak-to-peak rejection; AutoReject remains active. | Filter-related artifact detection behavior. | Must be blank or two finite values satisfying `0 <= min < max`; a partially filled pair is invalid. |
 | `AutoReject correct factor` | Scales the automatically estimated rejection thresholds. Use it when the default AutoReject behavior is systematically too strict or too permissive for the current recording. | Filter-related artifact detection behavior. | Must parse as valid numeric input. |
-| `Isolate BAD boundaries when filtering` | Selects how the accepted Filter result is produced when the review Preview is finalized. Unchecked (default) filters the reviewed recording continuously, exactly like whole-Raw filtering. Checked filters each valid interval between BAD/EDGE boundaries independently and marks the filter support at every interval edge as `EDGE_filter`. | Accepted Filter output values and `EDGE_filter` annotations. | Must be checked or unchecked; changing it makes an existing Filter result stale. |
+| `isolate BAD boundaries` | Selects how the accepted Filter result is produced when the review Preview is finalized. Checked by default: every valid interval between global or channel-specific BAD/EDGE boundaries is filtered independently. Unchecked: the reviewed recording is filtered continuously, exactly like whole-Raw filtering. | Accepted Filter numeric values. | Must be checked or unchecked; changing it makes an existing Filter result stale. |
+| `mark filter edges` | When BAD-boundary isolation is enabled, optionally marks the exact combined band-pass and notch FIR support at every valid-segment edge as system-owned `EDGE_filter`. Unchecked by default accepts MNE padding results without adding these annotations. | Accepted Filter annotations only; it does not change the filtered numeric values. | Enabled only while `isolate BAD boundaries` is checked. An inconsistent persisted pair is invalid. |
 | `Save` | Saves current advanced values to the session. | Current filter session parameters. | May retain invalid values as a red record draft; Filter Apply and valid-only persistence remain blocked. |
 | `Set as Default` | Saves current advanced and basic filter values as defaults. | Future default filter settings. | Blocks on invalid values. |
 | `Restore Defaults` | Restores saved default values. | Current dialog fields. | Always available. |
@@ -541,15 +542,31 @@ Filter results created before this end-tail coverage contract are retained but
 shown yellow because their logs cannot prove that the final samples were
 checked; a successful Apply and review finalization updates the result.
 
-When `Isolate BAD boundaries when filtering` is checked, BAD/EDGE endpoints
-are assigned to Raw-relative source samples with MNE rounding. Positive
-intervals use half-open source-index support; if both endpoints round to the
-same index, the interval creates neither invalid support nor a point split. A
-true zero-duration annotation creates one rounded processing boundary without
-marking that sample invalid. Known accepted Filter results whose isolated
-boundary support changes require Apply and review finalization again; the
-existing dependency flow then marks later Preprocess steps and all downstream
+When `isolate BAD boundaries` is checked, BAD/EDGE endpoints are assigned to
+Raw-relative source samples with MNE rounding. Positive intervals use
+half-open source-index support; if both endpoints round to the same index, the
+interval creates neither invalid support nor a point split. A true
+zero-duration annotation creates one rounded processing boundary without
+marking that sample invalid. Every non-empty valid interval is filtered,
+including an interval shorter than twice the FIR support radius. Such a short
+interval relies entirely on padding; `mark filter edges` marks it in full when
+enabled and leaves it unmarked when disabled. Changing either control requires
+Filter review finalization and makes later Preprocess steps and all downstream
 Tensor, Alignment, and Features stale, including mask-disabled Tensor results.
+
+ECG Advance exposes its own shared `mark filter edges` control, unchecked by
+default. ECG Apply records the policy but does not create edge annotations.
+When an ECG Plot closes after annotation edits, the application compares the
+reviewed channel-aware `BAD*` sample support with the direct accepted Filter
+input. It removes its prior system-owned `EDGE_filter_post_ecg` annotations and,
+when marking is enabled, rebuilds exact support only around BAD samples or true
+zero-duration BAD boundaries that were added or expanded after Filter. It uses
+the accepted Filter log's integer `filter_support_radius_samples`; it does not
+recompute the radius from seconds or current library defaults. Repeated review
+therefore does not accumulate duplicate edges. The operation fails atomically
+if the matching Filter generation cannot be verified. Filter-input BAD support
+may be added to or expanded during ECG review but may not be shortened or
+removed, because Filter and ECG may have intentionally skipped those samples.
 
 BUG-142/D-354 is `REPRODUCED` / `FIXED-VERIFIED`, P2. The repair applies the
 same MNE-rounded Raw-relative source-sample contract to the two formerly

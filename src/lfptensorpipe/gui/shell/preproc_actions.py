@@ -9,6 +9,7 @@ from lfptensorpipe.gui.shell.common import (
     QDialog,
     normalize_filter_advance_params,
     normalize_ecg_method_params,
+    normalize_ecg_review_params,
     preproc_step_log_path,
     preproc_step_raw_path,
     read_run_log,
@@ -268,15 +269,22 @@ class MainWindowPreprocActionsMixin:
         if self._preproc_ecg_method_combo is not None:
             method = str(self._preproc_ecg_method_combo.currentData() or "svd")
         defaults_by_method = self._load_ecg_advance_defaults()
+        default_review_params = self._load_ecg_review_defaults()
 
-        def _save_ecg_defaults(params: dict[str, Any]) -> None:
+        def _save_ecg_defaults(
+            params: dict[str, Any],
+            review_params: dict[str, bool],
+        ) -> None:
             self._save_ecg_method_defaults(method, params)
+            self._save_ecg_review_defaults(review_params)
             self.statusBar().showMessage(f"ECG Advance defaults saved for {method}.")
 
         dialog = self._create_ecg_advance_dialog(
             method=method,
             session_params=self._preproc_ecg_params_by_method[method],
             default_params=defaults_by_method[method],
+            session_review_params=self._preproc_ecg_review_params,
+            default_review_params=default_review_params,
             set_default_callback=_save_ecg_defaults,
             parent=self,
         )
@@ -285,6 +293,9 @@ class MainWindowPreprocActionsMixin:
         if dialog.selected_params is None:
             return
         self._preproc_ecg_params_by_method[method] = dict(dialog.selected_params)
+        selected_review_params = getattr(dialog, "selected_review_params", None)
+        if isinstance(selected_review_params, dict):
+            self._preproc_ecg_review_params = dict(selected_review_params)
         self._mark_record_param_dirty("preproc.ecg")
         self._refresh_preproc_controls()
         self._persist_record_params_snapshot(reason="preproc_ecg_advance_save")
@@ -305,9 +316,14 @@ class MainWindowPreprocActionsMixin:
             method,
             self._preproc_ecg_params_by_method.get(method),
         )
+        valid_review, normalized_review, review_message = normalize_ecg_review_params(
+            self._preproc_ecg_review_params
+        )
         errors: list[str] = []
         if not valid_params:
             errors.append(params_message)
+        if not valid_review:
+            errors.append(review_message)
         if not picks:
             errors.append("Select at least one ECG channel.")
         if errors:
@@ -324,6 +340,7 @@ class MainWindowPreprocActionsMixin:
                 method=method,
                 picks=picks,
                 method_kwargs=normalized_params,
+                mark_filter_edges=normalized_review["mark_filter_edges"],
             ),
         )
         self._refresh_stage_states_from_context()

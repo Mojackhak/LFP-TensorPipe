@@ -56,6 +56,7 @@ logger.addHandler(logging.NullHandler())
 
 Orientation = Literal["positive", "negative"]
 MethodName = Literal["template", "perceive", "svd"]
+ECG_FILTER_EDGE_DESCRIPTION = "EDGE_filter_post_ecg"
 
 
 class ECGRemovalError(ValueError):
@@ -1767,6 +1768,226 @@ def _run_supported_ecg_method(
         )
 
     raise ECGRemovalError(f"Unknown built-in ECG method: {method}")
+
+
+def _ecg_bad_support_by_channel(
+    raw: Any,
+) -> tuple[np.ndarray, tuple[tuple[int, ...], ...]]:
+    """Return ECG-compatible BAD support and zero-duration points by channel."""
+    from lfptensorpipe.io.timeline import raw_relative_onsets
+
+    channels = tuple(str(name) for name in raw.ch_names)
+    channel_indices = {name: index for index, name in enumerate(channels)}
+    support = np.zeros((len(channels), int(raw.n_times)), dtype=bool)
+    points: list[set[int]] = [set() for _ in channels]
+    relative_onsets = raw_relative_onsets(raw)
+
+    for onset, duration, description, annotation_channels in zip(
+        relative_onsets,
+        raw.annotations.duration,
+        raw.annotations.description,
+        raw.annotations.ch_names,
+    ):
+        if not str(description).casefold().startswith("bad"):
+            continue
+        scope = tuple(str(name) for name in annotation_channels)
+        target_indices = (
+            tuple(range(len(channels)))
+            if not scope
+            else tuple(
+                channel_indices[name] for name in scope if name in channel_indices
+            )
+        )
+        duration_f = float(duration)
+        start, stop = raw.time_as_index(
+            [float(onset), float(onset) + duration_f],
+            use_rounding=True,
+        )
+        start = int(np.clip(start, 0, int(raw.n_times)))
+        stop = int(np.clip(stop, 0, int(raw.n_times)))
+        for channel_index in target_indices:
+            if duration_f == 0.0:
+                points[channel_index].add(start)
+            elif stop > start:
+                support[channel_index, start:stop] = True
+
+    return support, tuple(tuple(sorted(values)) for values in points)
+
+
+def _ecg_mask_runs(mask: NDArray[np.bool_]) -> list[tuple[int, int]]:
+    values = np.asarray(mask, dtype=bool)
+    if not np.any(values):
+        return []
+    changes = np.diff(values.astype(np.int8))
+    starts = list(np.flatnonzero(changes == 1) + 1)
+    stops = list(np.flatnonzero(changes == -1) + 1)
+    if values[0]:
+        starts.insert(0, 0)
+    if values[-1]:
+        stops.append(int(values.size))
+    return [(int(start), int(stop)) for start, stop in zip(starts, stops)]
+
+
+def _ecg_edge_rows(
+    edge_masks: NDArray[np.bool_],
+    *,
+    channels: Sequence[str],
+    sfreq: float,
+    first_samp: int,
+) -> list[tuple[float, float, tuple[str, ...]]]:
+    """Convert per-channel masks to compact global/channel annotation rows."""
+    if edge_masks.size == 0:
+        return []
+    common = np.logical_and.reduce(edge_masks)
+    scoped_masks = [((), common)]
+    scoped_masks.extend(
+        ((str(channel),), edge_masks[index] & ~common)
+        for index, channel in enumerate(channels)
+    )
+    rows: list[tuple[float, float, tuple[str, ...]]] = []
+    for scope, mask in scoped_masks:
+        rows.extend(
+            (
+                float((start + first_samp) / sfreq),
+                float((stop - start) / sfreq),
+                scope,
+            )
+            for start, stop in _ecg_mask_runs(mask)
+        )
+    return rows
+
+
+def finalize_reviewed_ecg_annotations(
+    source_raw: Any,
+    reviewed_raw: Any,
+    *,
+    mark_filter_edges: bool,
+    filter_support_radius_samples: int | None = None,
+) -> Any:
+    """Validate reviewed BAD support and deterministically rebuild ECG edges."""
+    try:
+        import mne  # type: ignore
+    except Exception as exc:  # pragma: no cover
+        raise ImportError(
+            "mne is required for finalize_reviewed_ecg_annotations()."
+        ) from exc
+    from lfptensorpipe.preproc.filter import _set_annotations_from_attached_frame
+
+    if not isinstance(mark_filter_edges, bool):
+        raise ValueError("mark_filter_edges must be a boolean.")
+    if tuple(source_raw.ch_names) != tuple(reviewed_raw.ch_names):
+        raise ValueError("ECG review channels no longer match the accepted input.")
+    if int(source_raw.n_times) != int(reviewed_raw.n_times):
+        raise ValueError("ECG review length no longer matches the accepted input.")
+    if float(source_raw.info["sfreq"]) != float(reviewed_raw.info["sfreq"]):
+        raise ValueError("ECG review sampling rate no longer matches the input.")
+    if int(source_raw.first_samp) != int(reviewed_raw.first_samp):
+        raise ValueError("ECG review sample origin no longer matches the input.")
+
+    annotations = reviewed_raw.annotations
+    keep = np.asarray(
+        [
+            str(description) != ECG_FILTER_EDGE_DESCRIPTION
+            for description in annotations.description
+        ],
+        dtype=bool,
+    )
+    if np.any(keep):
+        reviewed_annotations = annotations[keep]
+    else:
+        reviewed_annotations = mne.Annotations(
+            [],
+            [],
+            [],
+            orig_time=annotations.orig_time,
+        )
+    out = reviewed_raw.copy()
+    _set_annotations_from_attached_frame(out, reviewed_annotations)
+
+    source_support, source_points = _ecg_bad_support_by_channel(source_raw)
+    reviewed_support, reviewed_points = _ecg_bad_support_by_channel(out)
+    if np.any(source_support & ~reviewed_support):
+        raise ValueError(
+            "ECG review cannot shorten or remove BAD support from its accepted input."
+        )
+    for channel_index, points in enumerate(source_points):
+        missing_points = set(points).difference(reviewed_points[channel_index])
+        for point in missing_points:
+            left = max(0, min(int(point) - 1, int(out.n_times) - 1))
+            right = max(0, min(int(point), int(out.n_times) - 1))
+            if int(out.n_times) == 0 or not (
+                reviewed_support[channel_index, left]
+                or reviewed_support[channel_index, right]
+            ):
+                raise ValueError(
+                    "ECG review cannot remove a zero-duration BAD boundary from "
+                    "its accepted input."
+                )
+
+    if not mark_filter_edges:
+        return out
+    if (
+        isinstance(filter_support_radius_samples, bool)
+        or not isinstance(filter_support_radius_samples, int)
+        or filter_support_radius_samples < 0
+    ):
+        raise ValueError(
+            "A non-negative integer Filter support radius is required to mark "
+            "ECG review edges."
+        )
+
+    radius = int(filter_support_radius_samples)
+    edge_masks = np.zeros_like(reviewed_support)
+    if radius > 0:
+        n_times = int(out.n_times)
+        for channel_index in range(len(out.ch_names)):
+            new_support = (
+                reviewed_support[channel_index] & ~source_support[channel_index]
+            )
+            for start, stop in _ecg_mask_runs(new_support):
+                edge_masks[
+                    channel_index,
+                    max(0, start - radius) : min(n_times, stop + radius),
+                ] = True
+            new_points = set(reviewed_points[channel_index]).difference(
+                source_points[channel_index]
+            )
+            for point in new_points:
+                edge_masks[
+                    channel_index,
+                    max(0, int(point) - radius) : min(
+                        n_times,
+                        int(point) + radius,
+                    ),
+                ] = True
+            edge_masks[channel_index] &= ~reviewed_support[channel_index]
+
+    rows = _ecg_edge_rows(
+        edge_masks,
+        channels=out.ch_names,
+        sfreq=float(out.info["sfreq"]),
+        first_samp=int(out.first_samp),
+    )
+    combined = out.annotations.copy()
+    if rows:
+        edge_annotations = mne.Annotations(
+            onset=[row[0] for row in rows],
+            duration=[row[1] for row in rows],
+            description=[ECG_FILTER_EDGE_DESCRIPTION] * len(rows),
+            orig_time=combined.orig_time,
+            ch_names=[row[2] for row in rows],
+        )
+        combined = combined + edge_annotations
+        order = np.argsort(np.asarray(combined.onset, dtype=float), kind="stable")
+        combined = mne.Annotations(
+            onset=np.asarray(combined.onset, dtype=float)[order].tolist(),
+            duration=np.asarray(combined.duration, dtype=float)[order].tolist(),
+            description=np.asarray(combined.description, dtype=object)[order].tolist(),
+            orig_time=combined.orig_time,
+            ch_names=[combined.ch_names[index] for index in order],
+        )
+    _set_annotations_from_attached_frame(out, combined)
+    return out
 
 
 def raw_call_ecgremover(

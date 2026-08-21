@@ -42,6 +42,7 @@ class MainWindowRecordParamsSnapshotLogsMixin:
         self, context: RecordContext
     ) -> dict[str, Any]:
         ecg_defaults = self._load_ecg_advance_defaults()
+        ecg_review_defaults = self._load_ecg_review_defaults()
         return {
             "preproc": {
                 "filter": {
@@ -53,6 +54,7 @@ class MainWindowRecordParamsSnapshotLogsMixin:
                     "method": "svd",
                     "selected_channels": [],
                     "params_by_method": deepcopy(ecg_defaults),
+                    "review": dict(ecg_review_defaults),
                 },
                 "viz": {
                     "psd_params": dict(self._load_preproc_viz_psd_defaults()),
@@ -65,6 +67,7 @@ class MainWindowRecordParamsSnapshotLogsMixin:
                         "method": "svd",
                         "selected_channels": [],
                         "params_by_method": deepcopy(ecg_defaults),
+                        "review": dict(ecg_review_defaults),
                     },
                 },
             },
@@ -138,6 +141,8 @@ class MainWindowRecordParamsSnapshotLogsMixin:
                 "epoch_dur",
                 "p2p_thresh",
                 "autoreject_correct_factor",
+                "isolate_bad_boundaries",
+                "mark_filter_edges",
             ):
                 if key in filter_params:
                     advance[key] = filter_params[key]
@@ -155,6 +160,7 @@ class MainWindowRecordParamsSnapshotLogsMixin:
         if ecg_params:
             method = ecg_params.get("method")
             picks = ecg_params.get("picks")
+            mark_filter_edges = ecg_params.get("mark_filter_edges")
             if isinstance(method, str):
                 snapshot["preproc"]["ecg"]["method"] = method
                 snapshot["preproc"]["step_params"]["ecg"]["method"] = method
@@ -163,6 +169,12 @@ class MainWindowRecordParamsSnapshotLogsMixin:
                 snapshot["preproc"]["ecg"]["selected_channels"] = selected_channels
                 snapshot["preproc"]["step_params"]["ecg"]["selected_channels"] = list(
                     selected_channels
+                )
+            if isinstance(mark_filter_edges, bool):
+                review_params = {"mark_filter_edges": mark_filter_edges}
+                snapshot["preproc"]["ecg"]["review"] = dict(review_params)
+                snapshot["preproc"]["step_params"]["ecg"]["review"] = dict(
+                    review_params
                 )
             if isinstance(method, str):
                 method_kwargs = ecg_params.get("method_kwargs")

@@ -22,7 +22,7 @@ from .steps.annotations import (
 from .steps.bad_segment import (
     bad_segment_log_has_current_match_semantics,
 )
-from .steps.ecg import normalize_ecg_method_params
+from .steps.ecg import normalize_ecg_method_params, normalize_ecg_review_params
 from .steps.filter import (
     FILTER_EPOCH_COVERAGE_SEMANTICS,
     filter_log_has_current_bad_channel_detection_semantics,
@@ -180,7 +180,8 @@ def _filter_signature(
             else list(normalized_advance["p2p_thresh"])
         ),
         "autoreject_correct_factor": normalized_advance["autoreject_correct_factor"],
-        "boundary_isolated_filter": normalized_advance["boundary_isolated_filter"],
+        "isolate_bad_boundaries": normalized_advance["isolate_bad_boundaries"],
+        "mark_filter_edges": normalized_advance["mark_filter_edges"],
         "epoch_coverage_semantics": epoch_coverage_semantics,
     }
 
@@ -198,7 +199,8 @@ def _filter_signature_from_log(payload: dict[str, Any]) -> dict[str, Any] | None
             "epoch_dur": params.get("epoch_dur"),
             "p2p_thresh": params.get("p2p_thresh"),
             "autoreject_correct_factor": params.get("autoreject_correct_factor"),
-            "boundary_isolated_filter": params.get("boundary_isolated_filter"),
+            "isolate_bad_boundaries": params.get("isolate_bad_boundaries"),
+            "mark_filter_edges": params.get("mark_filter_edges"),
         },
         epoch_coverage_semantics=params.get("epoch_coverage_semantics"),
     )
@@ -235,7 +237,7 @@ def preproc_filter_panel_state(
         advance_params=advance_params,
     )
     if completed_signature is None:
-        return "green"
+        return "yellow"
     if current_signature is None:
         return "yellow"
     return "green" if current_signature == completed_signature else "yellow"
@@ -313,6 +315,7 @@ def _normalize_ecg_signature(
     method: Any,
     picks: Any,
     method_kwargs: dict[str, Any] | None,
+    mark_filter_edges: Any,
 ) -> dict[str, Any] | None:
     method_name = str(method).strip().lower()
     if not method_name:
@@ -331,10 +334,16 @@ def _normalize_ecg_signature(
     )
     if not ok_params:
         return None
+    ok_review, review_params, _ = normalize_ecg_review_params(
+        {"mark_filter_edges": mark_filter_edges}
+    )
+    if not ok_review:
+        return None
     return {
         "method": method_name,
         "picks": normalized_picks,
         "method_kwargs": normalized_params,
+        **review_params,
     }
 
 
@@ -368,6 +377,7 @@ def _ecg_signature_from_log(
         method=params.get("method"),
         picks=params.get("picks"),
         method_kwargs=method_kwargs,
+        mark_filter_edges=params.get("mark_filter_edges", False),
     )
 
 
@@ -377,6 +387,7 @@ def preproc_ecg_panel_state(
     method: Any,
     picks: Any,
     method_kwargs: dict[str, Any] | None = None,
+    mark_filter_edges: Any = False,
 ) -> str:
     """Return `gray|yellow|green` for the editable ECG panel."""
     payload = _read_payload(_step_log_path(resolver, "ecg_artifact_removal"))
@@ -393,6 +404,7 @@ def preproc_ecg_panel_state(
         method=method,
         picks=picks,
         method_kwargs=method_kwargs,
+        mark_filter_edges=mark_filter_edges,
     )
     if completed_signature is None:
         return "green"

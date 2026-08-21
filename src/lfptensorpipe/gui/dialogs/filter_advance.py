@@ -38,7 +38,8 @@ class FilterAdvanceDialog(QDialog):
         self._epoch_dur_edit = QLineEdit()
         self._p2p_thresh_edit = QLineEdit()
         self._autoreject_factor_edit = QLineEdit()
-        self._boundary_isolated_check = QCheckBox()
+        self._isolate_bad_boundaries_check = QCheckBox()
+        self._mark_filter_edges_check = QCheckBox()
 
         notch_widths_tooltip = (
             "Notch filter bandwidth (Hz) used for each notch in Filter > Notches. "
@@ -58,16 +59,15 @@ class FilterAdvanceDialog(QDialog):
             "Multiplier for AutoReject channel thresholds. Higher values are more "
             "tolerant (fewer rejections); lower values are stricter. Must be > 0."
         )
-        boundary_isolated_tooltip = (
-            "Off (default): the reviewed Raw is filtered continuously, exactly like "
-            "whole-Raw filtering. Artifact energy inside a reviewed BAD interval can "
-            "ring into the retained signal on both sides.\n"
-            "On: every valid interval between BAD/EDGE boundaries is filtered "
-            "independently and the filter support at each interval edge is marked "
-            "EDGE_filter, which removes that leakage but also removes those edges "
-            "from the usable signal. One support radius is roughly 5 s at a 1 Hz "
-            "high-pass, so records with many BAD marks lose a large share of their "
-            "data."
+        isolate_bad_boundaries_tooltip = (
+            "On (default): filter every valid interval between BAD/EDGE boundaries "
+            "independently so reviewed BAD values cannot enter an adjacent filter "
+            "input. Off: filter the reviewed Raw continuously."
+        )
+        mark_filter_edges_tooltip = (
+            "Mark the exact combined band-pass and notch FIR support at every "
+            "filtered interval edge as EDGE_filter. Off (default) accepts MNE "
+            "padding results without adding these annotations."
         )
 
         notch_widths_label = QLabel("notch widths")
@@ -90,10 +90,18 @@ class FilterAdvanceDialog(QDialog):
         self._autoreject_factor_edit.setToolTip(autoreject_tooltip)
         form.addRow(autoreject_label, self._autoreject_factor_edit)
 
-        boundary_isolated_label = QLabel("isolate BAD boundaries when filtering")
-        boundary_isolated_label.setToolTip(boundary_isolated_tooltip)
-        self._boundary_isolated_check.setToolTip(boundary_isolated_tooltip)
-        form.addRow(boundary_isolated_label, self._boundary_isolated_check)
+        isolate_bad_boundaries_label = QLabel("isolate BAD boundaries")
+        isolate_bad_boundaries_label.setToolTip(isolate_bad_boundaries_tooltip)
+        self._isolate_bad_boundaries_check.setToolTip(isolate_bad_boundaries_tooltip)
+        form.addRow(
+            isolate_bad_boundaries_label,
+            self._isolate_bad_boundaries_check,
+        )
+
+        mark_filter_edges_label = QLabel("mark filter edges")
+        mark_filter_edges_label.setToolTip(mark_filter_edges_tooltip)
+        self._mark_filter_edges_check.setToolTip(mark_filter_edges_tooltip)
+        form.addRow(mark_filter_edges_label, self._mark_filter_edges_check)
         root.addLayout(form)
 
         button_row = QWidget()
@@ -131,6 +139,10 @@ class FilterAdvanceDialog(QDialog):
         root.addWidget(button_row)
 
         self._apply_to_fields(session_params)
+        self._isolate_bad_boundaries_check.toggled.connect(
+            self._sync_mark_filter_edges_enabled
+        )
+        self._mark_filter_edges_check.toggled.connect(self._refresh_validation)
         for edit in (
             self._notch_widths_edit,
             self._epoch_dur_edit,
@@ -194,9 +206,21 @@ class FilterAdvanceDialog(QDialog):
         self._autoreject_factor_edit.setText(
             self._draft_text(params.get("autoreject_correct_factor", 1.5))
         )
-        self._boundary_isolated_check.setChecked(
-            params.get("boundary_isolated_filter", False) is True
+        self._isolate_bad_boundaries_check.setChecked(
+            params.get("isolate_bad_boundaries", True) is True
         )
+        self._mark_filter_edges_check.setChecked(
+            params.get("mark_filter_edges", False) is True
+        )
+        self._sync_mark_filter_edges_enabled(
+            self._isolate_bad_boundaries_check.isChecked()
+        )
+
+    def _sync_mark_filter_edges_enabled(self, isolated: bool) -> None:
+        self._mark_filter_edges_check.setEnabled(bool(isolated))
+        if not isolated:
+            self._mark_filter_edges_check.setChecked(False)
+        self._refresh_validation()
 
     @staticmethod
     def _parse_notch_widths(text: str) -> float | list[float]:
@@ -261,7 +285,8 @@ class FilterAdvanceDialog(QDialog):
             "autoreject_correct_factor": self._draft_number(
                 self._autoreject_factor_edit.text()
             ),
-            "boundary_isolated_filter": self._boundary_isolated_check.isChecked(),
+            "isolate_bad_boundaries": (self._isolate_bad_boundaries_check.isChecked()),
+            "mark_filter_edges": self._mark_filter_edges_check.isChecked(),
         }
 
     def _collect_params(self) -> dict[str, Any]:

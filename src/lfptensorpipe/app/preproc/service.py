@@ -34,9 +34,11 @@ from .steps.ecg import (
     apply_ecg_step as _apply_ecg_step_impl,
     default_ecg_method_params as _default_ecg_method_params_impl,
     default_ecg_params_by_method as _default_ecg_params_by_method_impl,
+    default_ecg_review_params as _default_ecg_review_params_impl,
     ecg_method_runtime_kwargs as _ecg_method_runtime_kwargs_impl,
     normalize_ecg_method_params as _normalize_ecg_method_params_impl,
     normalize_ecg_params_by_method as _normalize_ecg_params_by_method_impl,
+    normalize_ecg_review_params as _normalize_ecg_review_params_impl,
 )
 from .steps.finish import (
     apply_finish_step as _apply_finish_step_impl,
@@ -131,6 +133,10 @@ def default_ecg_params_by_method() -> dict[str, dict[str, Any]]:
     return _default_ecg_params_by_method_impl()
 
 
+def default_ecg_review_params() -> dict[str, bool]:
+    return _default_ecg_review_params_impl()
+
+
 def normalize_ecg_method_params(
     method: str,
     params: dict[str, Any] | None,
@@ -153,6 +159,12 @@ def normalize_ecg_params_by_method(
         params_by_method,
         base_by_method=base_by_method,
     )
+
+
+def normalize_ecg_review_params(
+    params: dict[str, Any] | None,
+) -> tuple[bool, dict[str, bool], str]:
+    return _normalize_ecg_review_params_impl(params)
 
 
 def ecg_method_runtime_kwargs(
@@ -462,6 +474,7 @@ def apply_ecg_step(
     method: str = "svd",
     picks: list[str] | tuple[str, ...] | None = None,
     method_kwargs: dict[str, Any] | None = None,
+    mark_filter_edges: bool = False,
     read_raw_fif_fn: Any | None = None,
     raw_call_ecgremover_fn: Any | None = None,
 ) -> tuple[bool, str]:
@@ -471,6 +484,7 @@ def apply_ecg_step(
         method=method,
         picks=picks,
         method_kwargs=method_kwargs,
+        mark_filter_edges=mark_filter_edges,
         ecg_methods=ECG_METHODS,
         mark_preproc_step_fn=mark_preproc_step,
         invalidate_downstream_fn=invalidate_downstream_preproc_steps,
@@ -544,10 +558,12 @@ def preproc_ecg_panel_state(
     method: Any,
     picks: Any,
     method_kwargs: dict[str, Any] | None = None,
+    mark_filter_edges: Any = False,
 ) -> str:
     return _preproc_ecg_panel_state_impl(
         resolver,
         method=method,
         picks=picks,
         method_kwargs=method_kwargs,
+        mark_filter_edges=mark_filter_edges,
     )

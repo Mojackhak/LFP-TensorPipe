@@ -120,6 +120,7 @@ class MainWindowRecordParamsSnapshotCollectMixin:
                 ),
                 "selected_channels": list(self._preproc_ecg_selected_channels),
                 "params_by_method": deepcopy(ecg_params_by_method),
+                "review": dict(self._preproc_ecg_review_params),
             },
             "viz": {
                 "psd_params": dict(self._preproc_viz_psd_params),
@@ -140,6 +141,7 @@ class MainWindowRecordParamsSnapshotCollectMixin:
                     ),
                     "selected_channels": list(self._preproc_ecg_selected_channels),
                     "params_by_method": deepcopy(ecg_params_by_method),
+                    "review": dict(self._preproc_ecg_review_params),
                 },
                 "viz": {
                     "psd_params": dict(self._preproc_viz_psd_params),

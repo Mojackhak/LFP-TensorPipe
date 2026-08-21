@@ -209,6 +209,10 @@ class MainWindowPreprocStageMixin:
             method_kwargs=self._preproc_ecg_params_by_method.get(
                 str(ecg_method),
             ),
+            mark_filter_edges=getattr(self, "_preproc_ecg_review_params", {}).get(
+                "mark_filter_edges",
+                False,
+            ),
         )
         annotations_display_state = annotations_panel_state
         bad_segment_display_state = bad_segment_log_state

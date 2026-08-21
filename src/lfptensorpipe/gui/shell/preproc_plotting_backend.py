@@ -20,6 +20,7 @@ from lfptensorpipe.app.preproc.lineage import (
 from lfptensorpipe.app.preproc.steps.filter import (
     filter_log_has_current_bad_channel_detection_semantics,
 )
+from lfptensorpipe.app.preproc.steps.ecg import prepare_ecg_plot_review
 from lfptensorpipe.app.runlog_store import (
     RunLogRecord,
     append_run_log_event,
@@ -159,13 +160,19 @@ def _preproc_plot_generation_snapshot(
     if captured is None:
         return None
     source_step, input_generations = captured
-    return {
+    snapshot = {
         "log_path": log_path,
         "log_disk_state": _preproc_plot_disk_state(log_path),
         "result_generation_id": accepted_result_generation_id(payload),
         "source_step": source_step,
         "input_generations": dict(input_generations),
     }
+    if step == "ecg_artifact_removal":
+        params = payload.get("params")
+        snapshot["mark_filter_edges"] = bool(
+            isinstance(params, dict) and params.get("mark_filter_edges") is True
+        )
+    return snapshot
 
 
 def _preproc_plot_generation_stale_reason(
@@ -321,6 +328,7 @@ def _promote_edited_preproc_plot_raw(
     raw_path: Path,
     opened_raw_disk_state: tuple[int, int] | None,
     generation_snapshot: dict[str, Any],
+    params_updates: dict[str, Any] | None = None,
 ) -> None:
     """Collectively promote one edited Raw and a fresh successful log event."""
     resolver = PathResolver(context)
@@ -348,6 +356,7 @@ def _promote_edited_preproc_plot_raw(
                 params=params_with_generation_lineage(
                     {
                         **prior_params,
+                        **dict(params_updates or {}),
                         "source_step": source_step,
                     },
                     result_generation_id=result_generation_id,
@@ -632,14 +641,34 @@ def _finalize_tracked_browser_close(self, token: int, event: Any | None = None) 
                         self._show_warning(f"{title_prefix} Plot", message)
                     else:
                         assert isinstance(generation_snapshot, dict)
-                        _promote_edited_preproc_plot_raw(
-                            context=context,
-                            step=step,
-                            raw=raw,
-                            raw_path=raw_path,
-                            opened_raw_disk_state=entry.get("opened_disk_state"),
-                            generation_snapshot=generation_snapshot,
-                        )
+                        promoted_raw = raw
+                        params_updates = None
+                        if step == "ecg_artifact_removal":
+                            mark_filter_edges = bool(
+                                generation_snapshot.get("mark_filter_edges", False)
+                            )
+                            promoted_raw = prepare_ecg_plot_review(
+                                PathResolver(context),
+                                raw,
+                                source_step=str(generation_snapshot["source_step"]),
+                                mark_filter_edges=mark_filter_edges,
+                            )
+                            params_updates = {"mark_filter_edges": mark_filter_edges}
+                        try:
+                            _promote_edited_preproc_plot_raw(
+                                context=context,
+                                step=step,
+                                raw=promoted_raw,
+                                raw_path=raw_path,
+                                opened_raw_disk_state=entry.get("opened_disk_state"),
+                                generation_snapshot=generation_snapshot,
+                                params_updates=params_updates,
+                            )
+                        finally:
+                            if promoted_raw is not raw:
+                                promoted_close = getattr(promoted_raw, "close", None)
+                                if callable(promoted_close):
+                                    promoted_close()
                         try:
                             invalidate_downstream_preproc_steps(context, step)
                         except Exception as exc:  # noqa: BLE001

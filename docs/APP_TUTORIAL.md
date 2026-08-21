@@ -409,11 +409,17 @@ This is the main manual QC step of the preprocess section:
   `BAD` and `EDGE` annotations, and accepts the result only after that
   finalization succeeds.
 
-How that refiltering treats BAD boundaries is controlled by
-`Filter -> Advance -> Isolate BAD boundaries when filtering`, which is off by
-default. Both settings share the same review lifecycle and both rebuild the
-accepted result from the original unfiltered Raw; they differ only in the
-filtering itself.
+Two independent Filter Advance controls govern finalization:
+
+- `isolate BAD boundaries` is on by default. It filters every valid interval
+  between global or channel-specific BAD/EDGE boundaries independently.
+- `mark filter edges` is off by default. When enabled, it marks the exact
+  combined band-pass and notch FIR support at every filtered interval edge as
+  `EDGE_filter`.
+
+Both settings share the same review lifecycle and rebuild the accepted result
+from the original unfiltered Raw. Edge marking changes only annotations; it
+does not change the independently filtered numeric values.
 
 Before Filter Apply, Plot is unavailable for a record with no existing Filter
 result. A valid yellow review Preview is plottable but later preprocess steps
@@ -429,37 +435,27 @@ unavailable while review is pending. They are invalidated only after closing the
 Preview successfully accepts a changed Filter result; a failed finalization
 leaves the earlier accepted generation and downstream state unchanged.
 
-With `Isolate BAD boundaries when filtering` **off** (default), the reviewed Raw
-is filtered continuously, exactly like MNE whole-Raw filtering. No interval is
-split and no `EDGE_filter` annotation is produced, so the full recording remains
-available. Ordinary `BAD`/`BAD_gap` annotations do not make MNE treat their two
-sides as independent signals, so artifact energy inside a reviewed BAD interval
-can still ring into the retained signal on both sides of that interval. Use this
-setting when data yield matters more than exact boundary isolation, and keep in
-mind that values immediately around each BAD interval are influenced by the
-artifact the interval marks.
+With `isolate BAD boundaries` off, the reviewed Raw is filtered continuously,
+exactly like MNE whole-Raw filtering. Ordinary `BAD`/`BAD_gap` annotations do
+not make MNE treat their two sides as independent signals, so artifact energy
+inside a reviewed BAD interval can ring into the retained signal on both sides.
 
-With the option **on**, each valid interval between global/channel-specific
-`BAD`/`EDGE` boundaries is filtered independently, so BAD-contained energy
-cannot reach retained support. The accepted Filter file then keeps reviewed BAD
-samples numerically unfiltered and marks the adjacent FIR support as
-system-owned `EDGE_filter`. Global support is removed by Bad Segment Removal,
-while channel-specific support stays scoped for downstream channel-aware
-masking. Do not create or rename annotations to the reserved exact description
-`EDGE_filter`.
+With isolation on, each valid interval is filtered independently and reviewed
+BAD samples remain numerically unfiltered. The interval endpoints use MNE
+padding because real samples across a BAD boundary are unavailable. Leaving
+`mark filter edges` off explicitly accepts those padding-dependent values and
+does not add `EDGE_filter`. Enabling edge marking adds the system-owned label to
+the complete FIR support at every interval endpoint, including the physical
+recording endpoints. Do not create or rename annotations to the reserved exact
+description `EDGE_filter`.
 
-The isolated mode costs data. One support radius is about 4.95 s at a 1 Hz
-high-pass and 250 Hz sampling, and every BAD boundary consumes that radius on
-each side; an interval shorter than two radii is left unfiltered and marked
-`EDGE_filter` in full. A zero-duration `BAD` point marker also splits the
-signal and costs the same. Dense detection therefore removes a large share of a
-recording: measured on a 300 s record filtered 1-100 Hz with a 50 Hz notch, one
-1 s `BAD` every 60 s leaves about 86 percent usable, one every 20 s leaves about
-50 percent, and one every 10 s leaves about 3 percent.
-
-Switching the option makes an existing Filter result stale, because it changes
-the accepted output values. Rerun Filter and its downstream steps after
-changing it.
+One support radius is about 4.95 s at a 1 Hz high-pass and 250 Hz sampling. A
+segment shorter than two radii is still filtered; its complete support depends
+on padding and is marked in full only when `mark filter edges` is enabled. A
+zero-duration `BAD` point also creates a filtering boundary. Dense BAD marks can
+therefore make edge marking exclude a large share of a recording, while leaving
+marking off preserves those padding-derived samples. Changing either control
+makes the Filter result and its downstream consumers stale.
 
 #### Channel-specific BAD intervals in the MNE browser
 
@@ -552,12 +548,24 @@ apply ECG cleanup here before finalizing the record.
 Choose `template`, `perceive`, or `svd` under `Method`, select the channels to
 clean, and use `Advance` when the method defaults need adjustment. The Advance
 dialog shows only the selected method's parameters and retains independent
-values for all three methods.
+values for all three methods. Its shared `mark filter edges` checkbox is off by
+default and is not an ECG-algorithm parameter.
 
 ECG cleanup excludes positive-duration annotations whose descriptions begin
 with `BAD`, using the same case-insensitive prefix rule as MNE. For example,
 `BAD artifact`, `Bad artifact`, and `bad artifact` are equivalent. The original
 annotation descriptions and channel scopes are preserved.
+
+After ECG Apply, use ECG Plot to inspect residual cardiac contamination. BAD
+support added or expanded in that browser did not exist when the direct Filter
+input was created. On close, `mark filter edges` optionally expands only this
+new support by the exact accepted Filter FIR radius and records the adjacent
+support as `EDGE_filter_post_ecg`. It does not mark every detected heartbeat or
+the template/SVD correction windows. Existing Filter-input BAD support cannot
+be shortened or removed in ECG Plot; return to Filter Plot and rerun Filter and
+ECG when that review decision changes. The edge option requires ECG to have
+consumed the current Filter result directly and is not applied across a
+Bad-Segment-Removal stitch timeline.
 
 ### 5.6 Step 5: Finish
 

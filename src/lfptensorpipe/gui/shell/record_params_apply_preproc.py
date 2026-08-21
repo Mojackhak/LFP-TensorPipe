@@ -10,6 +10,8 @@ from lfptensorpipe.gui.shell.common import (
     default_preproc_viz_psd_params,
     default_preproc_viz_tfr_params,
     default_ecg_params_by_method,
+    default_ecg_review_params,
+    normalize_ecg_review_params,
 )
 
 
@@ -80,6 +82,18 @@ class MainWindowRecordParamsApplyPreprocMixin:
                         {key: raw_method[key] for key in defaults if key in raw_method}
                     )
                 self._preproc_ecg_params_by_method[method_key] = candidate
+            review_params = _nested_get(snapshot, ("preproc", "ecg", "review"))
+            valid_review, normalized_review, review_message = (
+                normalize_ecg_review_params(review_params)
+            )
+            if valid_review:
+                self._preproc_ecg_review_params = normalized_review
+            else:
+                self._preproc_ecg_review_params = default_ecg_review_params()
+                self._show_ecg_params_warning_once(
+                    "Invalid record ECG review parameters were replaced in memory: "
+                    f"{review_message}"
+                )
             method = _nested_get(snapshot, ("preproc", "ecg", "method"))
             if isinstance(method, str) and self._preproc_ecg_method_combo is not None:
                 idx = self._preproc_ecg_method_combo.findData(method)

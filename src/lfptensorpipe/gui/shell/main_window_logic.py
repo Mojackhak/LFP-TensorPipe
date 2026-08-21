@@ -334,6 +334,7 @@ class MainWindow(
         self._left_column_widget: QWidget | None = None
         self._preproc_filter_advance_params = self._load_filter_advance_defaults()
         self._preproc_ecg_params_by_method = self._load_ecg_advance_defaults()
+        self._preproc_ecg_review_params = self._load_ecg_review_defaults()
         self._preproc_viz_psd_params = self._load_preproc_viz_psd_defaults()
         self._preproc_viz_tfr_params = self._load_preproc_viz_tfr_defaults()
         self._preproc_viz_last_step: str | None = None

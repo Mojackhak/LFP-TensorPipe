@@ -63,7 +63,8 @@ def default_filter_advance_params() -> dict[str, Any]:
         "epoch_dur": float(cfg.epoch_dur),
         "p2p_thresh": [float(cfg.p2p_thresh[0]), float(cfg.p2p_thresh[1])],
         "autoreject_correct_factor": float(cfg.autoreject_correct_factor),
-        "boundary_isolated_filter": False,
+        "isolate_bad_boundaries": True,
+        "mark_filter_edges": False,
     }
 
 
@@ -179,17 +180,22 @@ def normalize_filter_advance_params(
         "epoch_dur",
         "p2p_thresh",
         "autoreject_correct_factor",
-        "boundary_isolated_filter",
+        "isolate_bad_boundaries",
+        "mark_filter_edges",
     ):
         if key in params:
             merged[key] = params[key]
 
-    # A missing or null flag means the legacy whole-Raw contract, so results
-    # written before this option remain comparable instead of turning stale.
-    if merged["boundary_isolated_filter"] is None:
-        merged["boundary_isolated_filter"] = False
-    if not isinstance(merged["boundary_isolated_filter"], bool):
-        return False, defaults, "boundary_isolated_filter must be true or false."
+    if not isinstance(merged["isolate_bad_boundaries"], bool):
+        return False, defaults, "isolate_bad_boundaries must be true or false."
+    if not isinstance(merged["mark_filter_edges"], bool):
+        return False, defaults, "mark_filter_edges must be true or false."
+    if merged["mark_filter_edges"] and not merged["isolate_bad_boundaries"]:
+        return (
+            False,
+            defaults,
+            "mark_filter_edges requires isolate_bad_boundaries to be true.",
+        )
 
     try:
         notch_widths = _normalize_notch_widths(merged["notch_widths"])
@@ -238,7 +244,8 @@ def normalize_filter_advance_params(
             "epoch_dur": epoch_dur,
             "p2p_thresh": p2p_thresh,
             "autoreject_correct_factor": autoreject_correct_factor,
-            "boundary_isolated_filter": merged["boundary_isolated_filter"],
+            "isolate_bad_boundaries": merged["isolate_bad_boundaries"],
+            "mark_filter_edges": merged["mark_filter_edges"],
         },
         "",
     )
@@ -358,9 +365,10 @@ def apply_filter_step(
                     "bad_annotation_config": asdict(cfg),
                     "summary": summary,
                     "reject_plot_path": str(reject_plot_path),
-                    "boundary_isolated_filter": normalized_params[
-                        "boundary_isolated_filter"
+                    "isolate_bad_boundaries": normalized_params[
+                        "isolate_bad_boundaries"
                     ],
+                    "mark_filter_edges": normalized_params["mark_filter_edges"],
                     "epoch_coverage_semantics": FILTER_EPOCH_COVERAGE_SEMANTICS,
                     "bad_channel_detection_semantics": (
                         FILTER_BAD_CHANNEL_DETECTION_SEMANTICS
@@ -386,9 +394,10 @@ def apply_filter_step(
                         ),
                         "autoreject_correct_factor": cfg.autoreject_correct_factor,
                         "reject_plot_path": str(reject_plot_path),
-                        "boundary_isolated_filter": normalized_params[
-                            "boundary_isolated_filter"
+                        "isolate_bad_boundaries": normalized_params[
+                            "isolate_bad_boundaries"
                         ],
+                        "mark_filter_edges": normalized_params["mark_filter_edges"],
                         "epoch_coverage_semantics": (FILTER_EPOCH_COVERAGE_SEMANTICS),
                         "bad_channel_detection_semantics": (
                             FILTER_BAD_CHANNEL_DETECTION_SEMANTICS
@@ -490,7 +499,8 @@ def finalize_filter_review(
         "epoch_dur",
         "p2p_thresh",
         "autoreject_correct_factor",
-        "boundary_isolated_filter",
+        "isolate_bad_boundaries",
+        "mark_filter_edges",
     ):
         if key in params:
             persisted_advance[key] = params[key]
@@ -522,7 +532,8 @@ def finalize_filter_review(
             h_freq=runtime_params["h_freq"],
             notches=runtime_params["notches"],
             notch_widths=advance["notch_widths"],
-            boundary_isolated=advance["boundary_isolated_filter"],
+            isolate_bad_boundaries=advance["isolate_bad_boundaries"],
+            mark_filter_edges=advance["mark_filter_edges"],
         )
         final_params = {
             **params,
@@ -533,21 +544,21 @@ def finalize_filter_review(
             "epoch_dur": advance["epoch_dur"],
             "p2p_thresh": advance["p2p_thresh"],
             "autoreject_correct_factor": advance["autoreject_correct_factor"],
-            "boundary_isolated_filter": advance["boundary_isolated_filter"],
+            "isolate_bad_boundaries": advance["isolate_bad_boundaries"],
+            "mark_filter_edges": advance["mark_filter_edges"],
             "review_status": "finalized",
             "filter_output_role": "scientific",
-            "filter_support_radius_sec": support_report["support_radius_sec"],
-            "filter_edge_description": support_report["edge_description"],
+            "filter_support_radius_samples": support_report["support_radius_samples"],
         }
         final_config = {
             **config,
             "low_freq": runtime_params["l_freq"],
             "high_freq": runtime_params["h_freq"],
             "notches": runtime_params["notches"],
-            "boundary_isolated_filter": advance["boundary_isolated_filter"],
+            "isolate_bad_boundaries": advance["isolate_bad_boundaries"],
+            "mark_filter_edges": advance["mark_filter_edges"],
             "review_status": "finalized",
             "filter_output_role": "scientific",
-            "filter_support": support_report,
         }
         coverage_semantics = params.get(
             "epoch_coverage_semantics",

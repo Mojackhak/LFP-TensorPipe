@@ -446,17 +446,22 @@ def finalize_reviewed_lfp_filter(
     h_freq: float | None,
     notches: Sequence[float] | None,
     notch_widths: Union[float, Sequence[float]],
-    boundary_isolated: bool = True,
+    isolate_bad_boundaries: bool = True,
+    mark_filter_edges: bool = False,
 ) -> tuple[mne.io.BaseRaw, dict[str, Any]]:
     """Build the accepted Filter result from original data and reviewed BAD/EDGE.
 
-    With ``boundary_isolated=True`` every global/channel-specific valid interval
-    is filtered independently and the exact sequential FIR support is marked as
-    `EDGE_filter`, so artifact energy inside reviewed BAD cannot ring into
-    retained support. With ``boundary_isolated=False`` the reviewed Raw is
-    filtered continuously exactly like MNE whole-Raw filtering: no interval
-    split, no `EDGE_filter` output, and BAD boundaries are not isolated.
+    With ``isolate_bad_boundaries=True`` every global/channel-specific valid
+    interval is filtered independently, so reviewed BAD values cannot enter an
+    adjacent filter input. ``mark_filter_edges`` independently controls whether
+    the exact sequential FIR support at each valid-interval endpoint is marked
+    as `EDGE_filter`. With isolation disabled, the reviewed Raw is filtered
+    continuously exactly like MNE whole-Raw filtering.
     """
+    if mark_filter_edges and not isolate_bad_boundaries:
+        raise ValueError(
+            "mark_filter_edges requires isolate_bad_boundaries to be true."
+        )
     out = raw.copy()
     out.load_data()
     reviewed = _without_filter_edges(reviewed_annotations)
@@ -477,7 +482,7 @@ def finalize_reviewed_lfp_filter(
     edge_masks: list[np.ndarray] = []
     segment_counts: dict[str, int] = {}
 
-    if not boundary_isolated:
+    if not isolate_bad_boundaries:
         data = _filter_valid_segment(
             data,
             sfreq=sfreq,
@@ -495,9 +500,6 @@ def finalize_reviewed_lfp_filter(
             channel_edges = np.zeros(out.n_times, dtype=bool)
             for start, stop in segments:
                 length = stop - start
-                if radius > 0 and length <= 2 * radius:
-                    channel_edges[start:stop] = True
-                    continue
                 data[channel_index, start:stop] = _filter_valid_segment(
                     data[channel_index, start:stop],
                     sfreq=sfreq,
@@ -506,10 +508,14 @@ def finalize_reviewed_lfp_filter(
                     notches=notches,
                     notch_widths=notch_widths,
                 )
-                if radius > 0:
-                    channel_edges[start : start + radius] = True
-                    channel_edges[stop - radius : stop] = True
-            edge_masks.append(channel_edges)
+                if mark_filter_edges and radius > 0:
+                    if length <= 2 * radius:
+                        channel_edges[start:stop] = True
+                    else:
+                        channel_edges[start : start + radius] = True
+                        channel_edges[stop - radius : stop] = True
+            if mark_filter_edges:
+                edge_masks.append(channel_edges)
 
     out._data[...] = data
     annotation_rows: list[tuple[float, float, str, tuple[str, ...]]] = []
@@ -557,16 +563,18 @@ def finalize_reviewed_lfp_filter(
         out,
         (
             "reviewed_segment_filter: "
-            if boundary_isolated
+            if isolate_bad_boundaries
             else "reviewed_continuous_filter: "
         )
         + f"{l_freq}-{h_freq} Hz; notches={list(notches or [])}; "
-        f"support_radius_sec={support['support_radius_sec']}",
+        f"support_radius_sec={support['support_radius_sec']}; "
+        f"mark_filter_edges={bool(mark_filter_edges)}",
     )
     report = {
         **support,
-        "boundary_isolated": bool(boundary_isolated),
-        "edge_description": FILTER_EDGE_DESCRIPTION if boundary_isolated else None,
+        "isolate_bad_boundaries": bool(isolate_bad_boundaries),
+        "mark_filter_edges": bool(mark_filter_edges),
+        "edge_description": FILTER_EDGE_DESCRIPTION if mark_filter_edges else None,
         "n_edge_annotations": len(annotation_rows),
         "segments_by_channel": segment_counts,
         "filter_order": ["bandpass", "notch"],

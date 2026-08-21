@@ -5,6 +5,8 @@ filter_advance_defaults:
   - 1.0e-06
   - 0.001
   autoreject_correct_factor: 1.5
+  isolate_bad_boundaries: true
+  mark_filter_edges: false
 filter_basic_defaults:
   notches:
   - 50
@@ -51,6 +53,8 @@ ecg_advance_defaults:
     tail_ms: 60.0
     qrs_duration_ms: 120.0
     pqrst: false
+ecg_review_defaults:
+  mark_filter_edges: false
 viz_tfr_defaults:
   fmin: 1.0
   fmax: 100.0

@@ -5,17 +5,20 @@ from __future__ import annotations
 from lfptensorpipe.gui.shell.common import (
     Any,
     PREPROC_ECG_DEFAULTS_KEY,
+    PREPROC_ECG_REVIEW_DEFAULTS_KEY,
     PREPROC_FILTER_BASIC_DEFAULTS_KEY,
     PREPROC_FILTER_DEFAULTS_KEY,
     PREPROC_VIZ_PSD_DEFAULTS_KEY,
     PREPROC_VIZ_TFR_DEFAULTS_KEY,
     default_filter_advance_params,
+    default_ecg_review_params,
     default_preproc_filter_basic_params,
     default_preproc_viz_psd_params,
     default_preproc_viz_tfr_params,
     normalize_filter_advance_params,
     normalize_ecg_method_params,
     normalize_ecg_params_by_method,
+    normalize_ecg_review_params,
     normalize_preproc_filter_basic_params,
     normalize_preproc_viz_psd_params,
     normalize_preproc_viz_tfr_params,
@@ -65,6 +68,31 @@ class MainWindowPreprocDefaultsMixin:
         if not isinstance(payload, dict):
             payload = {}
         payload[PREPROC_ECG_DEFAULTS_KEY] = defaults
+        self._config_store.write_yaml("preproc.yml", payload)
+
+    def _load_ecg_review_defaults(self) -> dict[str, bool]:
+        payload = self._config_store.read_yaml("preproc.yml", default={})
+        raw_params: dict[str, Any] | None = None
+        if isinstance(payload, dict):
+            node = payload.get(PREPROC_ECG_REVIEW_DEFAULTS_KEY)
+            if isinstance(node, dict):
+                raw_params = node
+        ok, normalized, message = normalize_ecg_review_params(raw_params)
+        if ok:
+            return normalized
+        self._show_ecg_params_warning_once(
+            f"Invalid ECG review defaults were replaced in memory: {message}"
+        )
+        return default_ecg_review_params()
+
+    def _save_ecg_review_defaults(self, params: dict[str, Any]) -> None:
+        ok, normalized, message = normalize_ecg_review_params(params)
+        if not ok:
+            raise ValueError(message)
+        payload = self._config_store.read_yaml("preproc.yml", default={})
+        if not isinstance(payload, dict):
+            payload = {}
+        payload[PREPROC_ECG_REVIEW_DEFAULTS_KEY] = normalized
         self._config_store.write_yaml("preproc.yml", payload)
 
     def _load_filter_advance_defaults(self) -> dict[str, Any]:
