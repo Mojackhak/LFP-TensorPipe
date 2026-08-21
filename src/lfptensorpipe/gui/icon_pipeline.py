@@ -95,13 +95,6 @@ def _contain_on_canvas(
     return canvas
 
 
-def _crop_to_visible_alpha(image: Any) -> Any:
-    alpha_bbox = image.getchannel("A").getbbox()
-    if alpha_bbox is None:
-        return image
-    return image.crop(alpha_bbox)
-
-
 def _build_png_set_windows_like(
     icon_root: Path,
     source_asset: Path,

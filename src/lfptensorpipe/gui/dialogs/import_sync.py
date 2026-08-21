@@ -46,15 +46,6 @@ from .common import (
 )
 
 
-def _clear_layout(layout) -> None:
-    while layout.count():
-        item = layout.takeAt(0)
-        widget = item.widget()
-        if widget is not None:
-            widget.setParent(None)
-            widget.deleteLater()
-
-
 class SyncDetectAdvanceDialog(QDialog):
     """Edit advanced peak-detection parameters for one sync source."""
 

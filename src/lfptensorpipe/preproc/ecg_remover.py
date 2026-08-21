@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import logging
 import warnings
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any, Callable, Literal, Sequence
 
 import numpy as np
@@ -110,20 +110,6 @@ class SvdConfig:
     tail_ms: float = 60.0
     qrs_duration_ms: float = 120.0
     pqrst: bool = False
-
-
-@dataclass(slots=True)
-class ECGRemovalDiagnostics:
-    """Diagnostics returned by ECG removal methods."""
-
-    method: str
-    fs: float
-    r_peaks: NDArray[np.int_] | None = None
-    orientation: Orientation | None = None
-    template: NDArray[np.float64] | None = None
-    epoch_start: int | None = None
-    epoch_end: int | None = None
-    extra: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -1729,141 +1715,6 @@ def svd_ecg_remover(
 # -----------------------------------------------------------------------------
 # High-level dispatch + wrappers
 # -----------------------------------------------------------------------------
-def remove_ecg_artifact(
-    lfp_signal: np.ndarray,
-    fs: float,
-    method: MethodName = "template",
-    *,
-    template_config: TemplateFitConfig | None = None,
-    perceive_config: PerceiveConfig | None = None,
-    svd_config: SvdConfig | None = None,
-    return_diagnostics: bool = False,
-) -> NDArray[np.float64] | tuple[NDArray[np.float64], ECGRemovalDiagnostics]:
-    """
-    Unified entry point for ECG artifact removal on a single-channel LFP signal.
-
-    Parameters
-    ----------
-    method
-        One of: "template", "perceive", "svd".
-    return_diagnostics
-        If True, returns (cleaned, diagnostics).
-    """
-    x = _as_1d_float(lfp_signal)
-    fs_f = _validate_fs(fs)
-
-    if method == "template":
-        cfg = template_config or TemplateFitConfig()
-        cleaned = template_ecg_remover(
-            x,
-            fs_f,
-            window_ms=cfg.window_ms,
-            peak_height_range=cfg.peak_height_range,
-            min_interpeak_ms=cfg.min_interpeak_ms,
-            force_orientation=cfg.force_orientation,
-            pre_ms=cfg.pre_ms,
-            post_ms=cfg.post_ms,
-            tail_ms=cfg.tail_ms,
-            qrs_duration_ms=cfg.qrs_duration_ms,
-            pqrst=cfg.pqrst,
-            return_figure=False,
-        )
-        diag = ECGRemovalDiagnostics(method="template", fs=fs_f, extra={"config": cfg})
-    elif method == "perceive":
-        cfg = perceive_config or PerceiveConfig()
-        cleaned = perceive_ecg_remover(
-            x,
-            fs_f,
-            epoch_length_ms=cfg.epoch_length_ms,
-            window_ms=cfg.window_ms,
-            threshold_v=cfg.threshold_v,
-            pad_ms=cfg.pad_ms,
-            min_bpm=cfg.min_bpm,
-            max_bpm=cfg.max_bpm,
-            threshold_start=cfg.threshold_start,
-            threshold_step=cfg.threshold_step,
-            max_threshold_tries=cfg.max_threshold_tries,
-            pass_rate=cfg.pass_rate,
-            before_ms=cfg.before_ms,
-            after_ms=cfg.after_ms,
-            enforce_max_interval=cfg.enforce_max_interval,
-            return_figure=False,
-        )
-        diag = ECGRemovalDiagnostics(method="perceive", fs=fs_f, extra={"config": cfg})
-    elif method == "svd":
-        cfg = svd_config or SvdConfig()
-        cleaned = svd_ecg_remover(
-            x,
-            fs_f,
-            components=cfg.components,
-            window_ms=cfg.window_ms,
-            peak_height_range=cfg.peak_height_range,
-            min_interpeak_ms=cfg.min_interpeak_ms,
-            force_orientation=cfg.force_orientation,
-            pre_ms=cfg.pre_ms,
-            post_ms=cfg.post_ms,
-            tail_ms=cfg.tail_ms,
-            qrs_duration_ms=cfg.qrs_duration_ms,
-            pqrst=cfg.pqrst,
-            return_figure=False,
-        )
-        diag = ECGRemovalDiagnostics(method="svd", fs=fs_f, extra={"config": cfg})
-    else:
-        raise ECGRemovalError(f"Unknown method={method!r}")
-
-    cleaned_arr = np.asarray(cleaned, dtype=float)
-    if return_diagnostics:
-        return cleaned_arr, diag
-    return cleaned_arr
-
-
-def call_ecgremover(
-    method_func: Callable[..., Any],
-    df: Any,
-    fs: float | None = None,
-    *args: Any,
-    **kwargs: Any,
-) -> tuple[Any, dict[str, Any]]:
-    """
-    Backwards-compatible DataFrame API.
-
-    Parameters
-    ----------
-    method_func
-        Function with signature f(lfp_signal, fs, *args, **kwargs).
-    df
-        pandas.DataFrame with a time column + one or more signal columns.
-    fs
-        Sampling rate in Hz. If None, caller must ensure method_func can handle it.
-
-    Returns
-    -------
-    df_clean, figs
-        Cleaned DataFrame and optional figure dict (if method returns figures).
-    """
-    try:
-        import pandas as pd  # type: ignore
-    except Exception as e:  # pragma: no cover
-        raise ImportError("pandas is required for call_ecgremover().") from e
-
-    if not isinstance(df, pd.DataFrame):
-        raise ECGRemovalError("df must be a pandas.DataFrame")
-
-    df_clean = df.copy()
-    time_col = df.columns[0]
-    ch_cols = [c for c in df.columns if c != time_col]
-
-    figs: dict[str, Any] = {}
-    for ch_col in ch_cols:
-        lfp = df[ch_col].to_numpy(dtype=float)
-        result = method_func(lfp, fs, *args, **kwargs)
-        if isinstance(result, tuple) and len(result) >= 2:
-            df_clean[ch_col] = np.asarray(result[0], dtype=float)
-            figs[ch_col] = result[1]
-        else:
-            df_clean[ch_col] = np.asarray(result, dtype=float)
-
-    return df_clean, figs
 
 
 def _run_supported_ecg_method(

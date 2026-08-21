@@ -11,7 +11,6 @@ from lfptensorpipe.gui.state import (
     default_preproc_filter_basic_params as _state_default_preproc_filter_basic_params,
     default_preproc_viz_psd_params as _state_default_preproc_viz_psd_params,
     default_preproc_viz_tfr_params as _state_default_preproc_viz_tfr_params,
-    normalize_filter_notches_config as _state_normalize_filter_notches_config,
     normalize_preproc_filter_basic_params as _state_normalize_preproc_filter_basic_params,
     normalize_preproc_viz_psd_params as _state_normalize_preproc_viz_psd_params,
     normalize_preproc_viz_tfr_params as _state_normalize_preproc_viz_tfr_params,
@@ -36,10 +35,6 @@ def default_preproc_viz_psd_params() -> dict[str, Any]:
 
 def default_preproc_filter_basic_params() -> dict[str, Any]:
     return _state_default_preproc_filter_basic_params()
-
-
-def _normalize_filter_notches_config(value: Any) -> list[float]:
-    return _state_normalize_filter_notches_config(value)
 
 
 def normalize_preproc_filter_basic_params(

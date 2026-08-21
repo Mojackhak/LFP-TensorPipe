@@ -25,7 +25,7 @@ Design notes:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
@@ -761,132 +761,9 @@ class BadAnnotationConfig:
     verbose: bool = True
 
 
-@dataclass(frozen=True)
-class LfpFilterConfig:
-    """
-    Configuration for final filtering + extracting good segments.
-    """
-
-    l_freq: float = 1.0
-    h_freq: float = 200.0
-    notches: Optional[Sequence[float]] = None
-    notch_widths: Union[float, Sequence[float]] = 1.0
-
-    # Filter kwargs (match your scripts defaults, but configurable)
-    pre_filter_kwargs: Dict[str, Any] = field(
-        default_factory=lambda: dict(
-            l_trans_bandwidth="auto",
-            h_trans_bandwidth=4,
-            phase="zero",
-            fir_design="firwin",
-        )
-    )
-    post_filter_kwargs: Dict[str, Any] = field(
-        default_factory=lambda: dict(
-            l_trans_bandwidth="auto",
-            h_trans_bandwidth=4,
-            phase="zero",
-            fir_design="firwin",
-        )
-    )
-
-    # Behavior switches
-    do_pre_filter_before_extract: bool = True
-    do_post_notch: bool = True
-    do_post_filter: bool = True
-
-    # Which annotations count as "bad"
-    bad_prefixes: Tuple[str, ...] = ("BAD",)
-
-    # Optional: use your existing helper for extraction if available
-    prefer_project_helper: bool = True
-
-
 # -----------------------------------------------------------------------------
 # Filtering utilities (standalone)
 # -----------------------------------------------------------------------------
-
-
-def apply_lfp_filter_config(
-    raw: mne.io.BaseRaw,
-    cfg: LfpFilterConfig,
-    *,
-    copy: bool = True,
-    picks: Optional[Union[str, Sequence[str]]] = None,
-    append_description: bool = True,
-    description_prefix: str = "LFP_filter",
-    use_post_filter_kwargs: bool = True,
-) -> mne.io.BaseRaw:
-    """
-    Apply notch filtering (optional) and band-pass filtering (optional) to an MNE
-    Raw object using an :class:`LfpFilterConfig` instance.
-
-    This helper mirrors the common pattern used throughout your preprocessing
-    scripts: start from a clean/"good" Raw, apply notch_filter() to suppress
-    line-related components, then apply band-pass filtering to standardize the
-    final frequency range. The applied steps are recorded in raw.info['description']
-    via an appended text entry, preserving any existing history.
-
-    Parameters
-    ----------
-    raw : mne.io.BaseRaw
-        Input Raw object. Data must be preloadable (this function calls load_data()).
-    cfg : LfpFilterConfig
-        Filtering configuration (notches may be None).
-    copy : bool
-        If True, operate on a copy and return it. If False, modify raw in-place.
-    picks : str | sequence of str | None
-        Channels to filter. If None, all channels are processed.
-    append_description : bool
-        If True (default), append a human-readable summary to info['description'].
-        If False, overwrite info['description'] with the summary for this step.
-    description_prefix : str
-        Prefix used in the description entry.
-    use_post_filter_kwargs : bool
-        If True, use cfg.post_filter_kwargs; otherwise use cfg.pre_filter_kwargs.
-
-    Returns
-    -------
-    out : mne.io.BaseRaw
-        Filtered Raw object.
-    """
-    out = raw.copy() if copy else raw
-    out.load_data()
-
-    steps: List[str] = []
-
-    # 1) Notch filter (explicit-only: cfg.notches must be provided)
-    if cfg.do_post_notch and (cfg.notches is not None):
-        freqs = np.asarray(cfg.notches, dtype=float)
-        if freqs.size > 0:
-            out.notch_filter(freqs=freqs, notch_widths=cfg.notch_widths, picks=picks)
-            steps.append(f"notch={freqs.tolist()} Hz; notch_widths={cfg.notch_widths}")
-
-    # 2) Band-pass filter
-    if cfg.do_post_filter:
-        fkwargs = (
-            cfg.post_filter_kwargs if use_post_filter_kwargs else cfg.pre_filter_kwargs
-        )
-        out.filter(l_freq=cfg.l_freq, h_freq=cfg.h_freq, picks=picks, **fkwargs)
-
-        # Keep the description compact: only include the most informative kwargs
-        key_order = ("l_trans_bandwidth", "h_trans_bandwidth", "phase", "fir_design")
-        kv = [f"{k}={fkwargs[k]}" for k in key_order if k in fkwargs]
-        kw_text = ", ".join(kv)
-        if kw_text:
-            steps.append(f"bandpass={cfg.l_freq}-{cfg.h_freq} Hz; {kw_text}")
-        else:
-            steps.append(f"bandpass={cfg.l_freq}-{cfg.h_freq} Hz")
-
-    # 3) Record description
-    if steps:
-        info_text = f"{description_prefix}: " + " | ".join(steps)
-        if append_description:
-            _append_info_description(out, info_text)
-        else:
-            out.info["description"] = info_text
-
-    return out
 
 
 # -----------------------------------------------------------------------------

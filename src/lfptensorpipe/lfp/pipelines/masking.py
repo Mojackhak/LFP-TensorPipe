@@ -1,4 +1,4 @@
-"""High-level masking pipelines for single tensor items.
+"""High-level dynamic masking pipeline for single tensor items.
 
 This module provides pipeline-level APIs that operate on one tensor item
 computed from a single MNE Raw object:
@@ -10,25 +10,19 @@ computed from a single MNE Raw object:
         "meta": <dict>,
     }
 
-The intended workflow is:
+The workflow is:
 
-    compute tensors  ->  mask (keep or drop)  ->  warp/crop
+    compute tensors  ->  mask dynamically  ->  warp/crop
 
 Masking is applied **before** any warping so that the mask is defined on the
 original (unwarped) time axis.
 
-Supported modes
----------------
-- :func:`mask_tensor_keep` keeps values only inside selected annotation-covered
-  intervals and sets everything else to NaN.
-- :func:`mask_tensor_drop` does the inverse: it sets values inside selected
-  annotation-covered intervals to NaN and keeps everything else.
-- :func:`mask_tensor_dynamic` drops (NaNs) matched annotation intervals but
+:func:`mask_tensor_dynamic` drops (NaNs) matched annotation intervals and
   expands each interval by a **frequency-dependent** margin specified by the
   user via a per-frequency `time` radius (seconds).
 
-All functions also return a ``raw_masked`` where Raw annotations are filtered
-according to the same keep/drop logic. The Raw signal data are never modified.
+The function also returns a ``raw_masked`` where matched Raw annotations are
+dropped. The Raw signal data are never modified.
 """
 
 from __future__ import annotations
@@ -40,9 +34,7 @@ import numpy as np
 from ..mask.annotations import (
     ANNOTATION_SCOPE_SEMANTICS,
     MatchMode,
-    OverlapPolicy,
     drop_raw_annotations,
-    filter_raw_annotations,
     normalize_annotation_scope,
     output_time_mask_by_annotations,
     time_mask_by_annotations,
@@ -256,153 +248,6 @@ def _freq_items_equal(a: Any, b: Any) -> bool:
     if fa is not None and fb is not None:
         return bool(np.isclose(fa, fb, rtol=1e-8, atol=1e-12))
     return str(a).strip().lower() == str(b).strip().lower()
-
-
-def mask_tensor_keep(
-    raw: "mne.io.BaseRaw",
-    tensor: Mapping[str, Any],
-    *,
-    keep: Sequence[str],
-    mode: MatchMode = "exact",
-    pad_s: float = 0.0,
-    clip_to_raw: bool = True,
-    require_match: bool = False,
-    overlap_policy: OverlapPolicy = "split",
-) -> tuple["mne.io.BaseRaw", dict[str, Any]]:
-    """Keep only values inside selected Raw annotation intervals.
-
-    Args:
-        raw: MNE Raw providing annotations.
-        tensor: Tensor item with ``tensor['meta']['axes']['time']``.
-        keep: Annotation descriptions to keep (e.g., ['sit', 'gait', 'pain']).
-        mode: 'substring' (default) or 'exact'.
-        pad_s: Optional padding (seconds) applied to each kept interval.
-        clip_to_raw: Clip matched intervals to the Raw time span.
-        require_match: If True, raise if nothing matches `keep`.
-        overlap_policy: How to handle non-keep annotations that overlap the
-            keep-interval union in ``raw_masked``:
-
-            - 'split': keep only the overlapping portion(s).
-            - 'drop': remove the annotation entirely.
-
-    Returns:
-        raw_masked: Shallow-copied Raw with filtered annotations (signal unchanged).
-        tensor_masked: Same structure, but tensor values are NaN outside kept
-            annotation intervals.
-    """
-    _validate_tensor(tensor)
-
-    raw_masked, raw_mask_info = filter_raw_annotations(
-        raw,
-        keep=keep,
-        mode=mode,
-        pad_s=pad_s,
-        clip_to_raw=clip_to_raw,
-        require_match=require_match,
-        overlap_policy=overlap_policy,
-    )
-
-    meta = dict(tensor["meta"])
-    axes = dict(meta.get("axes", {}))
-    times = axes["time"]
-
-    keep_mask, info = time_mask_by_annotations(
-        raw,
-        times_s=times,
-        keep=keep,
-        mode=mode,
-        pad_s=pad_s,
-        clip_to_raw=clip_to_raw,
-        require_match=require_match,
-    )
-
-    tensor_out = _mask_tensor(tensor, keep_mask=keep_mask)
-
-    mask_info = dict(info)
-    mask_info["raw_annotations"] = raw_mask_info
-    meta["mask"] = mask_info
-    tensor_out["meta"] = meta
-    return raw_masked, tensor_out
-
-
-def mask_tensor_drop(
-    raw: "mne.io.BaseRaw",
-    tensor: Mapping[str, Any],
-    *,
-    drop: Sequence[str],
-    mode: MatchMode = "exact",
-    pad_s: float = 0.0,
-    clip_to_raw: bool = True,
-    require_match: bool = False,
-    overlap_policy: OverlapPolicy = "split",
-) -> tuple["mne.io.BaseRaw", dict[str, Any]]:
-    """Set values to NaN inside selected Raw annotation intervals.
-
-    This is the logical inverse of :func:`mask_tensor_keep`.
-
-    Args:
-        raw: MNE Raw providing annotations.
-        tensor: Tensor item with ``tensor['meta']['axes']['time']``.
-        drop: Annotation descriptions whose covered intervals should be dropped.
-        mode: 'substring' (default) or 'exact'.
-        pad_s: Optional padding (seconds) applied to each dropped interval.
-        clip_to_raw: Clip matched intervals to the Raw time span.
-        require_match: If True, raise if nothing matches `drop`.
-        overlap_policy: How to handle annotations that overlap the drop-interval
-            union in ``raw_masked``:
-
-            - 'split': remove only the overlapping portion(s).
-            - 'drop': remove the annotation entirely.
-
-    Returns:
-        raw_masked: Shallow-copied Raw with filtered annotations (signal unchanged).
-        tensor_masked: Same structure, but tensor values are NaN inside dropped
-            annotation intervals.
-    """
-    _validate_tensor(tensor)
-
-    raw_masked, raw_mask_info = drop_raw_annotations(
-        raw,
-        drop=drop,
-        mode=mode,
-        pad_s=pad_s,
-        clip_to_raw=clip_to_raw,
-        require_match=require_match,
-        overlap_policy=overlap_policy,
-    )
-
-    meta = dict(tensor["meta"])
-    axes = dict(meta.get("axes", {}))
-    times = np.asarray(axes["time"], dtype=float)
-
-    drop_mask, info0 = time_mask_by_annotations(
-        raw,
-        times_s=times,
-        keep=drop,
-        mode=mode,
-        pad_s=pad_s,
-        clip_to_raw=clip_to_raw,
-        require_match=require_match,
-    )
-
-    # Keep everything that is not explicitly inside a drop interval.
-    finite = np.isfinite(times)
-    keep_mask = finite & (~np.asarray(drop_mask, dtype=bool))
-
-    tensor_out = _mask_tensor(tensor, keep_mask=keep_mask)
-
-    # Rewrite the info dict so callers do not need to mentally invert it.
-    mask_info: dict[str, Any] = dict(info0)
-    mask_info["drop"] = mask_info.pop("keep")
-    mask_info["matched_intervals"] = mask_info.get("matched_intervals", [])
-    mask_info["n_drop"] = int(mask_info.pop("n_keep"))
-    mask_info["n_keep"] = int(np.sum(keep_mask))
-    mask_info["kind"] = "drop"
-    mask_info["raw_annotations"] = raw_mask_info
-
-    meta["mask"] = mask_info
-    tensor_out["meta"] = meta
-    return raw_masked, tensor_out
 
 
 def mask_tensor_dynamic(

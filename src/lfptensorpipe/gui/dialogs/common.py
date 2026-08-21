@@ -210,13 +210,6 @@ def set_control_validation_error(widget: QWidget | None, message: str | None) ->
     _refresh_control_style(widget)
 
 
-def control_validation_error(widget: QWidget | None) -> str:
-    """Return the current validation message attached to a GUI control."""
-    if widget is None:
-        return ""
-    return str(widget.property(_VALIDATION_ERROR_PROPERTY) or "")
-
-
 def make_action_table_item(
     text: str,
     payload: Any,

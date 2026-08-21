@@ -88,17 +88,6 @@ def _compute_wavelet_support_seconds(
     return (5.0 / np.pi) * (n_cycles / freqs)
 
 
-def _compute_multitaper_window_seconds(
-    freqs: np.ndarray, n_cycles: np.ndarray
-) -> np.ndarray:
-    """Multitaper time window length per frequency.
-
-    For multitaper, window length is:
-        T(f) = n_cycles(f) / f
-    """
-    return n_cycles / freqs
-
-
 def _support_window_geometry(
     *,
     kernel_support_s: float,
@@ -1080,29 +1069,3 @@ def grid(
     if return_connectivity_objects:
         return conn_out, metadata_out, con_objs
     return conn_out, metadata_out
-
-
-def n_samples_window_per_freq(
-    freqs_hz: np.ndarray,
-    sfreq_hz: float,
-    time_resolution_s: float,
-    min_cycles: float | None,
-    max_cycles: float | None,
-    duration_guard_samples: int = 0,
-) -> np.ndarray:
-    """Compute per-frequency window length in samples for Morlet 10σ support."""
-    freqs = np.asarray(freqs_hz, dtype=float)
-
-    n_cycles0 = time_resolution_s * np.pi * freqs / np.sqrt(2.0 * np.log(2.0))
-    n_cycles = n_cycles0.copy()
-
-    if min_cycles is not None:
-        n_cycles = np.maximum(n_cycles, float(min_cycles))
-    if max_cycles is not None:
-        n_cycles = np.minimum(n_cycles, float(max_cycles))
-
-    L_wave_s = (5.0 / np.pi) * (n_cycles / freqs)  # 10σ support
-    n_samp = np.ceil(L_wave_s * float(sfreq_hz)).astype(int) + int(
-        duration_guard_samples
-    )
-    return n_samp

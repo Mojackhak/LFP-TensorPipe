@@ -4,9 +4,7 @@ lfpscope.stats.preproc.normalize
 
 Group-wise baseline normalization for a nested value column in a summary table.
 
-This module contains:
-- normalize_df: group-wise baseline normalization using metadata conditions
-- baseline_normalize: baseline normalization for a single Series/DataFrame object
+This module contains baseline normalization for a single Series/DataFrame object.
 """
 
 from __future__ import annotations
@@ -15,8 +13,6 @@ from typing import (
     Any,
     List,
     Literal,
-    Mapping,
-    Optional,
     Sequence,
     Union,
     overload,
@@ -25,12 +21,6 @@ from typing import (
 import numpy as np
 import pandas as pd
 
-from ...tabular.nested_value import (
-    cell_is_empty_or_all_nan,
-    coerce_cell_to_array,
-    infer_nested_template,
-    rebuild_cell_from_array,
-)
 from ...utils.numeric import (
     DEFAULT_REL_TOL,
     resolve_abs_tol,
@@ -41,143 +31,6 @@ from ...utils.numeric import (
 BaselineStat = Literal["mean", "median", "max", "min"]
 NormMode = Literal["mean", "ratio", "percent", "zscore"]
 SliceMode = Literal["absolute", "percent"]
-
-
-def normalize_df(
-    df: pd.DataFrame,
-    group_cols: Union[str, List[str]],
-    baseline: Mapping[str, Any],
-    value_col: str = "Value",
-    mode: NormMode = "mean",
-    mode_baseline: BaselineStat = "mean",
-    out_col: Optional[str] = None,
-    abs_tol: float | None = None,
-    rel_tol: float = DEFAULT_REL_TOL,
-    on_missing_baseline: Literal["error", "drop"] = "error",
-    drop_empty: bool = True,
-    align: Literal["strict", "reindex", "force"] = "strict",
-) -> pd.DataFrame:
-    """
-    Normalize `value_col` relative to a group-wise baseline defined by column conditions.
-
-    Within each group, rows matching `baseline` define the baseline set. A representative
-    baseline value is computed element-wise using `mode_baseline`, and normalization
-    is then applied.
-
-    Normalization modes:
-      - "mean":    value - baseline_rep
-      - "ratio":   value / baseline_rep when the denominator is finite and not near zero; else NaN
-      - "percent": (value - baseline_rep) / baseline_rep when the denominator is finite and not near zero; else NaN
-      - "zscore":  (value - baseline_rep) / baseline_sd when the denominator is finite and not near zero; else NaN
-    """
-    if value_col not in df.columns:
-        raise KeyError(f"Column '{value_col}' not found.")
-
-    if isinstance(group_cols, str):
-        group_cols = [group_cols]
-
-    abs_tol_i = resolve_abs_tol(abs_tol)
-    rel_tol_i = resolve_rel_tol(rel_tol)
-
-    valid_modes: set[str] = {"mean", "ratio", "percent", "zscore"}
-    if mode not in valid_modes:
-        raise ValueError(
-            f"Unsupported normalization mode: {mode}. Valid: {sorted(valid_modes)}"
-        )
-
-    valid_baseline: set[str] = {"mean", "median", "max", "min"}
-    if mode_baseline not in valid_baseline:
-        raise ValueError(
-            f"Unsupported mode_baseline: {mode_baseline}. Valid: {sorted(valid_baseline)}"
-        )
-
-    template = infer_nested_template(
-        df[value_col], value_col=value_col, drop_empty=drop_empty
-    )
-
-    def _aggregate(arr_stack: np.ndarray, how: BaselineStat) -> np.ndarray:
-        if how == "mean":
-            return np.nanmean(arr_stack, axis=0)
-        if how == "median":
-            return np.nanmedian(arr_stack, axis=0)
-        if how == "max":
-            return np.nanmax(arr_stack, axis=0)
-        if how == "min":
-            return np.nanmin(arr_stack, axis=0)
-        raise RuntimeError("Unexpected mode_baseline branch")
-
-    work = df.reset_index(drop=True)
-    normalized: List[Any] = [np.nan] * len(work)
-    drop_mask = np.zeros(len(work), dtype=bool)
-
-    for gkey, gdf in work.groupby(group_cols, observed=True, dropna=False):
-        mask = np.ones(len(gdf), dtype=bool)
-        for k, v in baseline.items():
-            if k not in gdf.columns:
-                raise KeyError(
-                    f"Baseline key '{k}' not found in DataFrame columns for group {gkey}."
-                )
-            mask &= gdf[k].to_numpy() == v
-
-        base_df = gdf.loc[mask]
-
-        base_cells = [
-            c
-            for c in base_df[value_col]
-            if not cell_is_empty_or_all_nan(c, drop_empty=drop_empty)
-        ]
-        if len(base_cells) == 0:
-            if on_missing_baseline == "drop":
-                drop_mask[gdf.index.to_numpy(dtype=int)] = True
-                continue
-            raise ValueError(
-                f"Baseline is missing for group {gkey} with baseline {dict(baseline)}."
-            )
-
-        base_stack = np.stack(
-            [
-                coerce_cell_to_array(c, template, align=align, drop_empty=drop_empty)
-                for c in base_cells
-            ],
-            axis=0,
-        )
-
-        base_rep = _aggregate(base_stack, mode_baseline)
-        base_sd = np.nanstd(base_stack, axis=0, ddof=0)
-
-        for position, row in gdf.iterrows():
-            cell = row[value_col]
-            if cell_is_empty_or_all_nan(cell, drop_empty=drop_empty):
-                normalized[int(position)] = np.nan
-                continue
-
-            arr = coerce_cell_to_array(
-                cell, template, align=align, drop_empty=drop_empty
-            )
-
-            if mode == "mean":
-                nrm = arr - base_rep
-            elif mode == "ratio":
-                nrm = safe_divide(arr, base_rep, abs_tol=abs_tol_i, rel_tol=rel_tol_i)
-            elif mode == "percent":
-                nrm = safe_divide(
-                    arr - base_rep, base_rep, abs_tol=abs_tol_i, rel_tol=rel_tol_i
-                )
-            elif mode == "zscore":
-                nrm = safe_divide(
-                    arr - base_rep, base_sd, abs_tol=abs_tol_i, rel_tol=rel_tol_i
-                )
-            else:
-                raise RuntimeError("Unexpected mode branch")
-
-            normalized[int(position)] = rebuild_cell_from_array(nrm, template)
-
-    keep_positions = np.flatnonzero(~drop_mask)
-    out = df.iloc[keep_positions].copy()
-
-    dest = value_col if out_col is None else out_col
-    out[dest] = [normalized[int(position)] for position in keep_positions]
-    return out
 
 
 def _normalize_indices(

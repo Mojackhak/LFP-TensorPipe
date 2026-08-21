@@ -8,15 +8,6 @@ import h5py
 import numpy as np
 import scipy.io
 
-from lfptensorpipe.app.config_store import AppConfigStore
-
-
-def load_localization_config() -> dict:
-    store = AppConfigStore()
-    store.ensure_core_files()
-    payload = store.read_yaml("localization.yml", default={})
-    return payload if isinstance(payload, dict) else {}
-
 
 def discover_regions(atlas_path: Path) -> list[str]:
     patterns = ("*.nii", "*.nii.gz")
