@@ -279,9 +279,7 @@ def main(
     # override macOS's masked app-icon presentation. When running from source
     # (e.g. conda env), set the runtime icon so the logo shows instead of the
     # default Python icon.
-    is_frozen_macos_bundle = sys.platform == "darwin" and getattr(
-        sys, "frozen", False
-    )
+    is_frozen_macos_bundle = sys.platform == "darwin" and getattr(sys, "frozen", False)
     runtime_icon = None if is_frozen_macos_bundle else preferred_runtime_icon_path()
     if runtime_icon is not None:
         app_icon = QIcon(str(runtime_icon))
