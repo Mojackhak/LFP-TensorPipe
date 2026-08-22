@@ -292,6 +292,10 @@ class MainWindowFeaturesTrialsMixin:
     ) -> int:
         skipped = 0
         selected_relative_stem = str(params.get("selected_relative_stem", "")).strip()
+        raw_subset = params.get("subset")
+        requested_subset = self._normalize_features_subset_selection(
+            raw_subset if isinstance(raw_subset, dict) else None
+        )
         if not (
             respect_dirty_keys and "features.axes" in self._record_param_dirty_keys
         ):
@@ -357,8 +361,9 @@ class MainWindowFeaturesTrialsMixin:
             respect_dirty_keys and "features.subset" in self._record_param_dirty_keys
         ):
             self._sync_features_subset_options(
-                preferred_selection=params.get("subset"),
+                preferred_selection=requested_subset,
             )
+            params["subset"] = self._current_features_subset_selection()
         else:
             skipped += 1
 
