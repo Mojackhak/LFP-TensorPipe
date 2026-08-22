@@ -23,12 +23,6 @@ class MainWindowRecordParamsApplyFeaturesMixin:
         trial_params_by_slug = self._normalize_features_trial_params_map(
             _nested_get(snapshot, ("features", "trial_params_by_slug"))
         )
-        if not trial_params_by_slug:
-            legacy_slug, legacy_params = self._legacy_features_trial_params_snapshot(
-                snapshot
-            )
-            if isinstance(legacy_slug, str) and isinstance(legacy_params, dict):
-                trial_params_by_slug[legacy_slug] = legacy_params
 
         self._features_trial_params_by_slug = trial_params_by_slug
         if (

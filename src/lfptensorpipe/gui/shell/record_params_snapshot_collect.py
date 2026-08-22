@@ -71,16 +71,6 @@ class MainWindowRecordParamsSnapshotCollectMixin:
             )
         return rows
 
-    def _collect_tensor_bands_for_params(self) -> dict[str, list[dict[str, Any]]]:
-        out: dict[str, list[dict[str, Any]]] = {"psi": [], "burst": []}
-        for metric_key in ("psi", "burst"):
-            params = self._tensor_metric_params.get(metric_key, {})
-            out[metric_key] = [
-                dict(item)
-                for item in self._normalize_tensor_bands_rows(params.get("bands"))
-            ]
-        return out
-
     def _collect_preproc_record_params_snapshot(self) -> dict[str, Any]:
         basic_defaults = self._load_filter_basic_defaults()
         notches_text = (
@@ -129,28 +119,6 @@ class MainWindowRecordParamsSnapshotCollectMixin:
                 "selected_channels": list(self._preproc_viz_selected_channels),
                 "selected_step": self._current_preproc_viz_step(),
             },
-            "step_params": {
-                "filter": {
-                    "basic": dict(basic),
-                    "advance": dict(self._preproc_filter_advance_params),
-                },
-                "ecg": {
-                    "method": str(
-                        self._preproc_ecg_method_combo.currentData()
-                        if self._preproc_ecg_method_combo is not None
-                        else "svd"
-                    ),
-                    "selected_channels": list(self._preproc_ecg_selected_channels),
-                    "params_by_method": deepcopy(ecg_params_by_method),
-                    "review": dict(self._preproc_ecg_review_params),
-                },
-                "viz": {
-                    "psd_params": dict(self._preproc_viz_psd_params),
-                    "tfr_params": dict(self._preproc_viz_tfr_params),
-                    "selected_channels": list(self._preproc_viz_selected_channels),
-                    "selected_step": self._current_preproc_viz_step(),
-                },
-            },
         }
 
     def _collect_tensor_record_params_snapshot(self) -> dict[str, Any]:
@@ -175,7 +143,6 @@ class MainWindowRecordParamsSnapshotCollectMixin:
             "metric_params": {
                 key: dict(value) for key, value in self._tensor_metric_params.items()
             },
-            "bands": self._collect_tensor_bands_for_params(),
             "mask_edge_effects": bool(
                 self._tensor_mask_edge_checkbox.isChecked()
                 if self._tensor_mask_edge_checkbox is not None
@@ -201,6 +168,9 @@ class MainWindowRecordParamsSnapshotCollectMixin:
             if self._alignment_epoch_channel_combo is not None
             else None
         )
+        active_method = (
+            str(alignment_method) if isinstance(alignment_method, str) else None
+        )
         method_params = (
             deepcopy(paradigm.get("method_params", {}))
             if isinstance(paradigm, dict)
@@ -216,24 +186,18 @@ class MainWindowRecordParamsSnapshotCollectMixin:
             {
                 str(key): deepcopy(value)
                 for key, value in raw_cache.items()
-                if isinstance(key, str) and isinstance(value, dict)
+                if isinstance(key, str)
+                and key != active_method
+                and isinstance(value, dict)
             }
             if isinstance(raw_cache, dict)
             else {}
         )
         return {
             "trial_slug": self._current_alignment_paradigm_slug(),
-            "method": (
-                str(alignment_method) if isinstance(alignment_method, str) else None
-            ),
+            "method": active_method,
             "method_params": method_params,
             "method_params_by_method": method_params_by_method,
-            "sample_rate": (
-                float(self._alignment_n_samples_edit.text().strip())
-                if self._alignment_n_samples_edit is not None
-                and self._alignment_n_samples_edit.text().strip()
-                else None
-            ),
             "epoch_metric": (
                 str(alignment_epoch_metric)
                 if isinstance(alignment_epoch_metric, str)
@@ -276,21 +240,15 @@ class MainWindowRecordParamsSnapshotCollectMixin:
                     for key, value in mapping.items()
                 }
             trial_params_by_slug[slug] = normalized
-        return {
-            "paradigm_slug": self._shared_stage_trial_slug(),
-            "trial_params_by_slug": trial_params_by_slug,
-        }
+        return {"trial_params_by_slug": trial_params_by_slug}
 
     def _collect_localize_record_params_snapshot(self) -> dict[str, Any]:
+        match = dict(self._localize_match_payload or {})
+        match.pop("mapped_count", None)
         return {
             "atlas": self._localize_selected_atlas,
             "selected_regions": list(self._localize_selected_regions),
-            "match": dict(self._localize_match_payload or {}),
-            "params": {
-                "atlas": self._localize_selected_atlas,
-                "selected_regions": list(self._localize_selected_regions),
-                "match": dict(self._localize_match_payload or {}),
-            },
+            "match": match,
         }
 
     def _collect_record_params_snapshot(self) -> dict[str, Any]:

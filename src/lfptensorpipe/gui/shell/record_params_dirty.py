@@ -161,7 +161,6 @@ class MainWindowRecordParamsDirtyMixin:
             )
 
         bind_combo(self._alignment_method_combo, "alignment.method")
-        bind_line(self._alignment_n_samples_edit, "alignment.sample_rate")
         bind_combo(self._alignment_epoch_metric_combo, "alignment.epoch_metric")
         bind_combo(self._alignment_epoch_channel_combo, "alignment.epoch_channel")
         bind_table(self._alignment_epoch_table, "alignment.picks")

@@ -12,14 +12,6 @@ import stat
 import tempfile
 from typing import Any
 
-from .runlog_migrations import (
-    RUNLOG_MIGRATION_META_KEY,
-    RUNLOG_SCHEMA_KEY,
-    RUNLOG_VERSION_KEY,
-    stamp_run_log_metadata,
-    upgrade_run_log_payload,
-)
-
 REQUIRED_LOG_KEYS = (
     "step",
     "completed",
@@ -29,6 +21,10 @@ REQUIRED_LOG_KEYS = (
     "output_path",
     "message",
 )
+RUNLOG_SCHEMA_NAME = "lfptensorpipe.runlog"
+RUNLOG_SCHEMA_KEY = "log_schema"
+RUNLOG_VERSION_KEY = "log_version"
+RUNLOG_SCHEMA_VERSION = 1
 RUNLOG_HISTORY_KEY = "history"
 RUNLOG_STATE_KEY = "state"
 
@@ -61,8 +57,8 @@ class RunLogRecord:
         }
 
 
-def validate_run_log(payload: dict[str, Any]) -> list[str]:
-    """Return schema validation errors; empty list means valid."""
+def _validate_run_log_event(payload: dict[str, Any]) -> list[str]:
+    """Return validation errors for one event without envelope metadata."""
     errors: list[str] = []
     for key in REQUIRED_LOG_KEYS:
         if key not in payload:
@@ -77,22 +73,38 @@ def validate_run_log(payload: dict[str, Any]) -> list[str]:
         if text_key in payload and not isinstance(payload[text_key], str):
             errors.append(f"Key '{text_key}' must be a string.")
 
-    if RUNLOG_SCHEMA_KEY in payload and not isinstance(payload[RUNLOG_SCHEMA_KEY], str):
-        errors.append(f"Key '{RUNLOG_SCHEMA_KEY}' must be a string.")
-    if RUNLOG_VERSION_KEY in payload:
+    return errors
+
+
+def validate_run_log(payload: dict[str, Any]) -> list[str]:
+    """Return fixed v0.2.0 envelope validation errors."""
+    errors = _validate_run_log_event(payload)
+
+    if RUNLOG_SCHEMA_KEY not in payload:
+        errors.append(f"Missing required key: {RUNLOG_SCHEMA_KEY}")
+    elif payload[RUNLOG_SCHEMA_KEY] != RUNLOG_SCHEMA_NAME:
+        errors.append(f"Key '{RUNLOG_SCHEMA_KEY}' must equal {RUNLOG_SCHEMA_NAME!r}.")
+    if RUNLOG_VERSION_KEY not in payload:
+        errors.append(f"Missing required key: {RUNLOG_VERSION_KEY}")
+    else:
         version = payload[RUNLOG_VERSION_KEY]
-        if isinstance(version, bool) or not isinstance(version, int):
-            errors.append(f"Key '{RUNLOG_VERSION_KEY}' must be an integer.")
-        elif version < 1:
-            errors.append(f"Key '{RUNLOG_VERSION_KEY}' must be >= 1.")
-    if RUNLOG_MIGRATION_META_KEY in payload and not isinstance(
-        payload[RUNLOG_MIGRATION_META_KEY], dict
-    ):
-        errors.append(
-            f"Key '{RUNLOG_MIGRATION_META_KEY}' must be a JSON object (dict)."
-        )
+        if (
+            isinstance(version, bool)
+            or not isinstance(version, int)
+            or version != RUNLOG_SCHEMA_VERSION
+        ):
+            errors.append(
+                f"Key '{RUNLOG_VERSION_KEY}' must equal {RUNLOG_SCHEMA_VERSION}."
+            )
 
     return errors
+
+
+def _stamp_run_log_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    out = deepcopy(payload)
+    out[RUNLOG_SCHEMA_KEY] = RUNLOG_SCHEMA_NAME
+    out[RUNLOG_VERSION_KEY] = RUNLOG_SCHEMA_VERSION
+    return out
 
 
 def _json_temporary_pid(path: Path, candidate: Path) -> int | None:
@@ -169,7 +181,7 @@ def write_run_log(path: str | Path, record: RunLogRecord) -> Path:
     """Write a run log to disk with UTF-8 JSON encoding."""
     out_path = Path(path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = stamp_run_log_metadata(record.to_dict())
+    payload = _stamp_run_log_metadata(record.to_dict())
     _write_validated_run_log_payload(out_path, payload)
     return out_path
 
@@ -181,7 +193,7 @@ def _coerce_record_payload(record: RunLogRecord | dict[str, Any]) -> dict[str, A
         payload = {key: record.get(key) for key in REQUIRED_LOG_KEYS}
     else:
         raise TypeError("record must be RunLogRecord or dict.")
-    errors = validate_run_log(payload)
+    errors = _validate_run_log_event(payload)
     if errors:
         raise ValueError("; ".join(errors))
     return payload
@@ -254,12 +266,7 @@ def append_run_log_event(
     payload[RUNLOG_HISTORY_KEY] = history
     if state:
         payload[RUNLOG_STATE_KEY] = state
-    existing_migration_meta = (
-        existing.get(RUNLOG_MIGRATION_META_KEY) if isinstance(existing, dict) else None
-    )
-    payload = stamp_run_log_metadata(payload)
-    if isinstance(existing_migration_meta, dict):
-        payload[RUNLOG_MIGRATION_META_KEY] = deepcopy(existing_migration_meta)
+    payload = _stamp_run_log_metadata(payload)
 
     _write_validated_run_log_payload(out_path, payload)
     return out_path
@@ -285,10 +292,8 @@ def update_run_log_state(
 
     payload = deepcopy(existing)
     payload[RUNLOG_STATE_KEY] = merged_state
-    existing_migration_meta = existing.get(RUNLOG_MIGRATION_META_KEY)
-    payload = stamp_run_log_metadata(payload)
-    if isinstance(existing_migration_meta, dict):
-        payload[RUNLOG_MIGRATION_META_KEY] = deepcopy(existing_migration_meta)
+    payload.pop("migration_meta", None)
+    payload = _stamp_run_log_metadata(payload)
 
     _write_validated_run_log_payload(out_path, payload)
     return out_path
@@ -354,8 +359,8 @@ def write_ui_state(path: str | Path, payload: dict[str, Any]) -> Path:
     return out_path
 
 
-def read_run_log_raw(path: str | Path) -> dict[str, Any] | None:
-    """Read a run-log payload from disk without migration or write-back."""
+def read_run_log(path: str | Path) -> dict[str, Any] | None:
+    """Read and validate a fixed v0.2.0 run-log envelope without write-back."""
     in_path = Path(path)
     _cleanup_dead_json_temporaries(in_path)
     if not in_path.exists():
@@ -373,25 +378,6 @@ def read_run_log_raw(path: str | Path) -> dict[str, Any] | None:
     return payload
 
 
-def upgrade_run_log_file(path: str | Path) -> tuple[dict[str, Any] | None, bool]:
-    """Upgrade one run-log file to the latest supported schema."""
-    in_path = Path(path)
-    payload = read_run_log_raw(in_path)
-    if payload is None:
-        return None, False
-    upgraded, changed = upgrade_run_log_payload(payload)
-    _write_needed = changed or upgraded != payload
-    if _write_needed:
-        _write_validated_run_log_payload(in_path, upgraded)
-    return upgraded, _write_needed
-
-
-def read_run_log(path: str | Path) -> dict[str, Any] | None:
-    """Read, upgrade, and validate a run-log payload; return None when missing."""
-    payload, _ = upgrade_run_log_file(path)
-    return payload
-
-
 def indicator_from_log(path: str | Path) -> str:
     """Map log state to one of: `gray`, `yellow`, `green`."""
     payload = read_run_log(path)
@@ -403,16 +389,18 @@ def indicator_from_log(path: str | Path) -> str:
 __all__ = [
     "REQUIRED_LOG_KEYS",
     "RUNLOG_HISTORY_KEY",
+    "RUNLOG_SCHEMA_KEY",
+    "RUNLOG_SCHEMA_NAME",
+    "RUNLOG_SCHEMA_VERSION",
     "RUNLOG_STATE_KEY",
+    "RUNLOG_VERSION_KEY",
     "RunLogRecord",
     "append_run_log_event",
     "indicator_from_log",
     "latest_run_log_entry",
     "read_run_log",
-    "read_run_log_raw",
     "read_ui_state",
     "update_run_log_state",
-    "upgrade_run_log_file",
     "validate_run_log",
     "write_run_log",
     "write_ui_state",

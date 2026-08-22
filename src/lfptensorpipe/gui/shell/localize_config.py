@@ -97,7 +97,6 @@ class MainWindowLocalizeConfigMixin:
         return {
             "completed": True,
             "channels": list(expected_channels),
-            "mapped_count": len(rows),
             "mappings": rows,
         }
 

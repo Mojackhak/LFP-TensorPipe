@@ -66,10 +66,6 @@ class PathResolver:
             self.lfp_root.mkdir(parents=True, exist_ok=True)
         return self.lfp_root / "lfptensorpipe_ui_state.json"
 
-    def record_params_log_path(self, create: bool = False) -> Path:
-        """Deprecated alias for `record_ui_state_path`."""
-        return self.record_ui_state_path(create=create)
-
     def preproc_step_dir(self, step_key: str, create: bool = False) -> Path:
         """Resolve one preprocess step directory."""
         if step_key not in PREPROC_STEPS:

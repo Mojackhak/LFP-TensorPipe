@@ -296,11 +296,6 @@ class MainWindowDatasetContextSelectionMixin:
         self._features_trial_params_by_slug = {}
         self._preproc_viz_last_step = None
         self._reset_annotations_table()
-        migration_summary = self._upgrade_record_run_logs_runtime(
-            self._current_project,
-            self._current_subject,
-            self._current_record,
-        )
         stage_states = scan_stage_states(
             self._current_project, self._current_subject, self._current_record
         )
@@ -310,14 +305,6 @@ class MainWindowDatasetContextSelectionMixin:
             "Context: "
             f"{self._current_project} | {self._current_subject} | {self._current_record}"
         )
-        if getattr(migration_summary, "upgraded_count", 0):
-            status_message += (
-                f" | Upgraded {int(migration_summary.upgraded_count)} log(s)"
-            )
-        if getattr(migration_summary, "failed_count", 0):
-            status_message += (
-                f" | Failed to upgrade {int(migration_summary.failed_count)} log(s)"
-            )
         self.statusBar().showMessage(status_message)
         self._refresh_localize_controls()
         self._refresh_dataset_action_state()

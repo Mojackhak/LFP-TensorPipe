@@ -164,10 +164,9 @@ def preproc_step_lineage_is_current(
     source_step = _current_source_step(resolver, step, active=active)
     if source_step is None:
         return False
-    if not lineage.legacy:
-        params = payload.get("params")
-        if not isinstance(params, dict) or params.get("source_step") != source_step:
-            return False
+    params = payload.get("params")
+    if not isinstance(params, dict) or params.get("source_step") != source_step:
+        return False
     source_payload = _read_step_payload(resolver, source_step)
     expected = {
         preproc_generation_ref(source_step): accepted_result_generation_id(

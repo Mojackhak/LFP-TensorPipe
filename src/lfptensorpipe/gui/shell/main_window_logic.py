@@ -261,7 +261,6 @@ class MainWindow(
         self._alignment_import_button: QPushButton | None = None
         self._alignment_export_button: QPushButton | None = None
         self._alignment_method_indicator: QLabel | None = None
-        self._alignment_n_samples_edit: QLineEdit | None = None
         self._alignment_method_description_label: QLabel | None = None
         self._alignment_run_button: QPushButton | None = None
         self._alignment_epoch_inspector_indicator: QLabel | None = None

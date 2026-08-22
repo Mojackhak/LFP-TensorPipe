@@ -411,7 +411,7 @@ def preproc_ecg_panel_state(
         mark_filter_edges=mark_filter_edges,
     )
     if completed_signature is None:
-        return "green"
+        return "yellow"
     if current_signature is None:
         return "yellow"
     return "green" if current_signature == completed_signature else "yellow"

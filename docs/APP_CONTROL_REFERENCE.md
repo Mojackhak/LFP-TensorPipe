@@ -591,8 +591,10 @@ Filter or ECG result must be explicitly applied again at that step; the
 existing dependency flow alone invalidates its later consumers. Historical
 Bad Segment Removal artifacts remain inert and are not migrated or reapplied.
 Canonical zero-first-sample, on-grid, point, and unrelated results remain
-current. The separately reproduced surviving non-BAD annotation remap is
-`NEEDS-DECISION` and is not part of BUG-142.
+current. The separately reproduced surviving non-BAD annotation remap is not
+part of BUG-142 and is closed as `NO-FIX-RETIRED-PATH` under D-367. It remains
+historical low-level helper behavior; the active application no longer deletes
+or stitches BAD segments, so no production or test repair is required.
 
 BUG-143/D-355 is `REPRODUCED` / `FIXED-VERIFIED`, P2 lifecycle and availability.
 On exFAT, macOS can place AppleDouble metadata such as `._raw.fif` beside the

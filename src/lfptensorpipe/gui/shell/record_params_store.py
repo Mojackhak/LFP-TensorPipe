@@ -6,7 +6,6 @@ from lfptensorpipe.gui.shell.common import (
     Any,
     PathResolver,
     RecordContext,
-    read_run_log,
     read_ui_state,
     write_ui_state,
 )
@@ -19,23 +18,7 @@ class MainWindowRecordParamsStoreMixin:
         resolver = PathResolver(context)
         path = resolver.record_ui_state_path(create=False)
         if not path.is_file():
-            legacy_path = resolver.lfp_root / "lfptensorpipe_log.json"
-            if not legacy_path.is_file():
-                return True, {}, ""
-            try:
-                legacy_payload = read_run_log(legacy_path)
-            except Exception as exc:  # noqa: BLE001
-                return False, {}, str(exc)
-            if not isinstance(legacy_payload, dict):
-                return True, {}, ""
-            params = legacy_payload.get("params", {})
-            if not isinstance(params, dict):
-                return (
-                    False,
-                    {},
-                    "Legacy record params log field `params` must be a dict.",
-                )
-            return True, params, ""
+            return True, {}, ""
         try:
             payload = read_ui_state(path)
         except Exception as exc:  # noqa: BLE001

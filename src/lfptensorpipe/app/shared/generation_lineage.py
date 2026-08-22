@@ -24,7 +24,6 @@ _LINEAGE_KEYS = {
 class GenerationLineage:
     """Parsed lineage fields for one run-log event."""
 
-    legacy: bool
     result_generation_id: str | None
     input_generations: dict[str, str]
 
@@ -88,7 +87,7 @@ def parse_generation_lineage(
     *,
     require_result_generation: bool = True,
 ) -> GenerationLineage | None:
-    """Parse legacy or current lineage fields; return None when malformed."""
+    """Parse exact generation lineage; return None when absent or malformed."""
     if not isinstance(entry, Mapping):
         return None
     params = entry.get("params")
@@ -96,11 +95,7 @@ def parse_generation_lineage(
         return None
     present = _LINEAGE_KEYS.intersection(params)
     if not present:
-        return GenerationLineage(
-            legacy=True,
-            result_generation_id=None,
-            input_generations={},
-        )
+        return None
     if params.get(GENERATION_RECEIPT_SEMANTICS_KEY) != (GENERATION_RECEIPT_SEMANTICS):
         return None
     raw_inputs = params.get(INPUT_GENERATIONS_KEY)
@@ -119,7 +114,6 @@ def parse_generation_lineage(
     ):
         return None
     return GenerationLineage(
-        legacy=False,
         result_generation_id=(
             result_generation_id if isinstance(result_generation_id, str) else None
         ),
@@ -134,7 +128,7 @@ def accepted_result_generation_id(
     if not isinstance(entry, Mapping) or entry.get("completed") is not True:
         return None
     lineage = parse_generation_lineage(entry)
-    if lineage is None or lineage.legacy:
+    if lineage is None:
         return None
     return lineage.result_generation_id
 
@@ -145,7 +139,7 @@ def input_generation_receipts_match(
     expected: Mapping[str, str | None],
     require_result_generation: bool = True,
 ) -> bool:
-    """Apply the exact-receipt legacy compatibility rule."""
+    """Return whether one event carries the exact expected receipts."""
     lineage = parse_generation_lineage(
         entry,
         require_result_generation=require_result_generation,
@@ -156,8 +150,6 @@ def input_generation_receipts_match(
         expected_present = _normalized_input_generations(expected)
     except (TypeError, ValueError):
         return False
-    if lineage.legacy:
-        return not expected_present
     return lineage.input_generations == expected_present
 
 

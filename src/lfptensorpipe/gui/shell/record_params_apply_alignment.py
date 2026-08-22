@@ -15,10 +15,6 @@ class MainWindowRecordParamsApplyAlignmentMixin:
 
         if "alignment.paradigm" not in self._record_param_dirty_keys:
             slug = _nested_get(snapshot, ("alignment", "trial_slug"))
-            if not isinstance(slug, str) or not slug:
-                legacy_slug = _nested_get(snapshot, ("alignment", "paradigm_slug"))
-                if isinstance(legacy_slug, str) and legacy_slug:
-                    slug = legacy_slug
             if (
                 isinstance(slug, str)
                 and slug
@@ -48,19 +44,28 @@ class MainWindowRecordParamsApplyAlignmentMixin:
                 selected_method = self._alignment_method_combo.currentData()
                 paradigm = self._current_alignment_paradigm()
                 if isinstance(selected_method, str) and isinstance(paradigm, dict):
+                    existing_cache = paradigm.get("method_params_by_method")
+                    cache = (
+                        {
+                            str(key): dict(value)
+                            for key, value in existing_cache.items()
+                            if isinstance(key, str) and isinstance(value, dict)
+                        }
+                        if isinstance(existing_cache, dict)
+                        else {}
+                    )
                     raw_cache = _nested_get(
                         snapshot,
                         ("alignment", "method_params_by_method"),
                     )
-                    cache = (
-                        {
-                            str(key): dict(value)
-                            for key, value in raw_cache.items()
-                            if isinstance(key, str) and isinstance(value, dict)
-                        }
-                        if isinstance(raw_cache, dict)
-                        else {}
-                    )
+                    if isinstance(raw_cache, dict):
+                        cache.update(
+                            {
+                                str(key): dict(value)
+                                for key, value in raw_cache.items()
+                                if isinstance(key, str) and isinstance(value, dict)
+                            }
+                        )
                     raw_params = _nested_get(
                         snapshot,
                         ("alignment", "method_params"),
@@ -68,20 +73,16 @@ class MainWindowRecordParamsApplyAlignmentMixin:
                     if isinstance(raw_params, dict):
                         cache[selected_method] = dict(raw_params)
                     active_params = cache.get(selected_method)
+                    if not isinstance(active_params, dict) and (
+                        paradigm.get("method") == selected_method
+                        and isinstance(paradigm.get("method_params"), dict)
+                    ):
+                        active_params = dict(paradigm["method_params"])
+                        cache[selected_method] = dict(active_params)
                     if isinstance(active_params, dict):
                         paradigm["method"] = selected_method
                         paradigm["method_params"] = dict(active_params)
                         paradigm["method_params_by_method"] = cache
-        else:
-            skipped += 1
-
-        if "alignment.sample_rate" not in self._record_param_dirty_keys:
-            sample_rate = _nested_get(snapshot, ("alignment", "sample_rate"))
-            if sample_rate is not None and self._alignment_n_samples_edit is not None:
-                try:
-                    self._alignment_n_samples_edit.setText(f"{float(sample_rate):g}")
-                except Exception:
-                    pass
         else:
             skipped += 1
 

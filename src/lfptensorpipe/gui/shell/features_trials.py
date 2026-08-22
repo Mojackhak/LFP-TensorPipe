@@ -161,32 +161,6 @@ class MainWindowFeaturesTrialsMixin:
             normalized[slug] = self._normalize_features_trial_params(slug, raw_params)
         return normalized
 
-    def _legacy_features_trial_params_snapshot(
-        self,
-        snapshot: dict[str, Any],
-    ) -> tuple[str | None, dict[str, Any] | None]:
-        features_node = snapshot.get("features")
-        if not isinstance(features_node, dict):
-            return None, None
-        slug = features_node.get("paradigm_slug")
-        if not isinstance(slug, str) or not slug.strip():
-            alignment_node = snapshot.get("alignment")
-            if isinstance(alignment_node, dict):
-                slug = alignment_node.get("trial_slug")
-        if not isinstance(slug, str) or not slug.strip():
-            return None, None
-        legacy_keys = {
-            "active_metric",
-            "axes_by_metric",
-            "subset",
-            "filters",
-            "plot_labels",
-            "plot_advance",
-        }
-        if not any(key in features_node for key in legacy_keys):
-            return None, None
-        return slug.strip(), self._normalize_features_trial_params(slug, features_node)
-
     def _collect_current_features_trial_params(
         self,
         trial_slug: str | None = None,

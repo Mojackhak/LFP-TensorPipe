@@ -354,7 +354,6 @@ def _on_save(dialog) -> None:
     dialog._selected_payload = {
         "completed": len(rows) == len(dialog._all_channels),
         "channels": list(dialog._all_channels),
-        "mapped_count": len(rows),
         "mappings": rows,
     }
     dialog.accept()

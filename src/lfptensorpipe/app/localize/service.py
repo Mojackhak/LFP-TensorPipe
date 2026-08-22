@@ -19,7 +19,7 @@ from lfptensorpipe.anat.repcoords import (
     build_undirected_pair_representative_frame as _build_undirected_pair_repcoords_frame_impl,
 )
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
-from lfptensorpipe.app.runlog_store import read_run_log, read_ui_state
+from lfptensorpipe.app.runlog_store import read_ui_state
 from .apply_runner import run_localize_apply as _run_localize_apply_impl
 from .atlas_lookup import (
     build_repcoords_frame as _build_repcoords_frame_impl,
@@ -655,24 +655,7 @@ def _load_match_payload_from_record_ui_state(
                 if isinstance(match, dict):
                     return dict(match)
 
-    # Read-only legacy fallback for one release window.
-    legacy_path = resolver.lfp_root / "lfptensorpipe_log.json"
-    if not legacy_path.is_file():
-        return None
-    try:
-        legacy_payload = read_run_log(legacy_path)
-    except Exception:
-        return None
-    if not isinstance(legacy_payload, dict):
-        return None
-    params = legacy_payload.get("params")
-    if not isinstance(params, dict):
-        return None
-    localize_node = params.get("localize", {})
-    if not isinstance(localize_node, dict):
-        return None
-    match = localize_node.get("match")
-    return dict(match) if isinstance(match, dict) else None
+    return None
 
 
 def load_reconstruction_contacts(

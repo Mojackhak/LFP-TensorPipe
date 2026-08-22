@@ -53,7 +53,6 @@ from lfptensorpipe.app import (
     record_delete_scope_paths,
     recover_record_rename,
     rename_record,
-    upgrade_record_run_logs,
     run_align_epochs,
     run_extract_features,
     run_localize_apply,
@@ -247,14 +246,6 @@ class MainWindowRuntimeDependenciesMixin:
         record: str,
     ) -> dict[str, Path]:
         return record_delete_scope_paths(project_root, subject, record)
-
-    def _upgrade_record_run_logs_runtime(
-        self,
-        project_root: Path,
-        subject: str,
-        record: str,
-    ) -> Any:
-        return upgrade_record_run_logs(project_root, subject, record)
 
     def _apply_reset_reference_runtime(
         self,

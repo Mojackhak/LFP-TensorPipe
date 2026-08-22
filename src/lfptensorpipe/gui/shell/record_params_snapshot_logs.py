@@ -16,9 +16,7 @@ from lfptensorpipe.gui.shell.common import (
     TENSOR_METRICS,
     _deep_merge_dict,
     _nested_get,
-    alignment_paradigm_log_path,
     build_tensor_metric_notch_payload,
-    default_ecg_method_params,
     load_annotations_csv_rows,
     read_run_log,
     normalize_ecg_method_params,
@@ -62,14 +60,6 @@ class MainWindowRecordParamsSnapshotLogsMixin:
                     "selected_channels": [],
                     "selected_step": None,
                 },
-                "step_params": {
-                    "ecg": {
-                        "method": "svd",
-                        "selected_channels": [],
-                        "params_by_method": deepcopy(ecg_defaults),
-                        "review": dict(ecg_review_defaults),
-                    },
-                },
             },
             "tensor": {
                 "selected_metrics": [],
@@ -82,24 +72,16 @@ class MainWindowRecordParamsSnapshotLogsMixin:
                     )
                     for spec in TENSOR_METRICS
                 },
-                "bands": {
-                    "psi": self._load_tensor_metric_bands_defaults("psi"),
-                    "burst": self._load_tensor_metric_bands_defaults("burst"),
-                },
                 "mask_edge_effects": True,
                 "cpu_percent": DEFAULT_TENSOR_CPU_PERCENT,
             },
             "alignment": {
                 "trial_slug": self._current_alignment_paradigm_slug(),
                 "method": None,
-                "sample_rate": None,
                 "epoch_metric": None,
                 "picked_epoch_indices": [],
             },
-            "features": {
-                "paradigm_slug": self._shared_stage_trial_slug(),
-                "trial_params_by_slug": {},
-            },
+            "features": {"trial_params_by_slug": {}},
             "localize": {
                 "atlas": None,
                 "match": dict(self._localize_match_payload or {}),
@@ -170,19 +152,12 @@ class MainWindowRecordParamsSnapshotLogsMixin:
             mark_filter_edges = ecg_params.get("mark_filter_edges")
             if isinstance(method, str):
                 snapshot["preproc"]["ecg"]["method"] = method
-                snapshot["preproc"]["step_params"]["ecg"]["method"] = method
             if isinstance(picks, list):
                 selected_channels = [str(item) for item in picks if str(item).strip()]
                 snapshot["preproc"]["ecg"]["selected_channels"] = selected_channels
-                snapshot["preproc"]["step_params"]["ecg"]["selected_channels"] = list(
-                    selected_channels
-                )
             if isinstance(mark_filter_edges, bool):
                 review_params = {"mark_filter_edges": mark_filter_edges}
                 snapshot["preproc"]["ecg"]["review"] = dict(review_params)
-                snapshot["preproc"]["step_params"]["ecg"]["review"] = dict(
-                    review_params
-                )
             if isinstance(method, str):
                 method_kwargs = ecg_params.get("method_kwargs")
                 if not isinstance(method_kwargs, dict):
@@ -199,11 +174,6 @@ class MainWindowRecordParamsSnapshotLogsMixin:
                         config_payload.get("method_kwargs"), dict
                     ):
                         method_kwargs = config_payload["method_kwargs"]
-                if not isinstance(method_kwargs, dict):
-                    try:
-                        method_kwargs = default_ecg_method_params(method)
-                    except ValueError:
-                        method_kwargs = None
                 if isinstance(method_kwargs, dict):
                     ok_params, normalized_params, _ = normalize_ecg_method_params(
                         method, method_kwargs
@@ -212,9 +182,6 @@ class MainWindowRecordParamsSnapshotLogsMixin:
                         snapshot["preproc"]["ecg"]["params_by_method"][
                             method
                         ] = normalized_params
-                        snapshot["preproc"]["step_params"]["ecg"]["params_by_method"][
-                            method
-                        ] = deepcopy(normalized_params)
 
     def _merge_tensor_logs_into_snapshot(
         self, snapshot: dict[str, Any], resolver: PathResolver
@@ -309,28 +276,6 @@ class MainWindowRecordParamsSnapshotLogsMixin:
         if selected_tensor_metrics:
             snapshot["tensor"]["selected_metrics"] = selected_tensor_metrics
 
-    def _merge_alignment_and_features_logs_into_snapshot(
-        self, snapshot: dict[str, Any], resolver: PathResolver
-    ) -> None:
-        alignment_slug = snapshot["alignment"].get("trial_slug")
-        if not isinstance(alignment_slug, str) or not alignment_slug:
-            legacy_alignment_slug = snapshot["alignment"].get("paradigm_slug")
-            if isinstance(legacy_alignment_slug, str) and legacy_alignment_slug:
-                alignment_slug = legacy_alignment_slug
-        if not isinstance(alignment_slug, str) or not alignment_slug:
-            return
-
-        alignment_params = self._read_completed_log_params(
-            alignment_paradigm_log_path(resolver, alignment_slug)
-        )
-        if alignment_params and "sample_rate" in alignment_params:
-            try:
-                snapshot["alignment"]["sample_rate"] = float(
-                    alignment_params["sample_rate"]
-                )
-            except Exception:
-                pass
-
     def _merge_alignment_epoch_picks_into_snapshot(
         self, snapshot: dict[str, Any], resolver: PathResolver
     ) -> None:
@@ -375,7 +320,6 @@ class MainWindowRecordParamsSnapshotLogsMixin:
         )
         self._merge_preproc_logs_into_snapshot(snapshot, resolver)
         self._merge_tensor_logs_into_snapshot(snapshot, resolver)
-        self._merge_alignment_and_features_logs_into_snapshot(snapshot, resolver)
         self._merge_localize_logs_into_snapshot(snapshot, resolver)
 
         if include_master:

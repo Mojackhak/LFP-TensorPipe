@@ -367,24 +367,19 @@ def _prepare_deleted_trial_ui_state(
     if isinstance(alignment_node, dict):
         if str(alignment_node.get("trial_slug", "")).strip() == slug:
             alignment_node["trial_slug"] = None
-            alignment_node["paradigm_slug"] = None
             alignment_node["method"] = None
-            alignment_node["sample_rate"] = None
+            alignment_node["method_params"] = {}
+            alignment_node["method_params_by_method"] = {}
             alignment_node["epoch_metric"] = None
             alignment_node["epoch_channel"] = None
             alignment_node["picked_epoch_indices"] = []
             changed = True
-        elif str(alignment_node.get("paradigm_slug", "")).strip() == slug:
-            alignment_node["paradigm_slug"] = None
-            changed = True
 
     features_node = payload.get("features")
     if isinstance(features_node, dict):
-        if str(features_node.get("paradigm_slug", "")).strip() == slug:
-            features_node["paradigm_slug"] = None
-            changed = True
-        if str(features_node.get("trial_slug", "")).strip() == slug:
-            features_node["trial_slug"] = None
+        trial_params_by_slug = features_node.get("trial_params_by_slug")
+        if isinstance(trial_params_by_slug, dict) and slug in trial_params_by_slug:
+            trial_params_by_slug.pop(slug)
             changed = True
 
     return path, original_payload, payload, changed

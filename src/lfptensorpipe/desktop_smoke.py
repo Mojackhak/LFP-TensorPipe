@@ -1870,14 +1870,12 @@ def run_smoke_preproc_ui(project_root: str, subject: str, record: str) -> int:
             )
         ecg_record_params = window._collect_preproc_record_params_snapshot()
         ecg_node = ecg_record_params.get("ecg", {})
-        mirrored_ecg_node = ecg_record_params.get("step_params", {}).get(
-            "ecg",
-            {},
-        )
-        if ecg_node.get("params_by_method") != mirrored_ecg_node.get(
-            "params_by_method"
-        ):
-            raise RuntimeError("ECG Advance parameters were not mirrored.")
+        if not isinstance(ecg_node.get("params_by_method"), dict):
+            raise RuntimeError("ECG Advance parameters were not persisted.")
+        if "step_params" in ecg_record_params:
+            raise RuntimeError(
+                "Preprocess record parameters contain a duplicate mirror."
+            )
 
         window._refresh_preproc_ecg_channel_state(context)
         if window._preproc_ecg_available_channels:
