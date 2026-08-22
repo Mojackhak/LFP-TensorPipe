@@ -191,22 +191,14 @@ MNE_SUPPORTED_RECOMMENDED_EXTENSIONS = (
     ".edf",
     ".bdf",
     ".vhdr",
-    ".vmrk",
     ".eeg",
     ".set",
-    ".fdt",
     ".cnt",
     ".gdf",
     ".lay",
     ".dat",
     ".nedf",
-    ".ns1",
-    ".ns2",
     ".ns3",
-    ".ns4",
-    ".ns5",
-    ".ns6",
-    ".ncs",
 )
 FEATURE_DERIVED_TYPES = ("raw", "spectral", "trace", "scalar")
 FEATURE_PLOT_TRANSFORM_OPTIONS = (
