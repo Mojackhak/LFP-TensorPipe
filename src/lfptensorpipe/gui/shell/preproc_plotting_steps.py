@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from lfptensorpipe.gui.shell.common import (
     PathResolver,
+    preproc_step_indicator_state,
     preproc_step_raw_path,
+    rawdata_input_fif_path,
 )
 
 
@@ -17,24 +19,46 @@ def _on_preproc_raw_plot(self) -> None:
         return
     resolver = PathResolver(context)
     raw_path = preproc_step_raw_path(resolver, "raw")
-    if raw_path.exists():
+    if preproc_step_indicator_state(resolver, "raw") == "green":
         self._refresh_stage_states_from_context()
         self._refresh_preproc_controls()
         self.statusBar().showMessage(
-            "Raw step opened from existing preprocess artifact."
+            "Current Raw opened from the accepted preprocess artifact."
         )
         self._open_mne_raw_plot(raw_path, title_prefix="Raw")
         return
-    ok, message = self._run_with_busy(
-        "Raw Plot",
-        lambda: self._bootstrap_raw_step_from_rawdata_runtime(context),
-    )
-    self._refresh_preproc_controls()
-    if not ok:
-        self.statusBar().showMessage(f"Raw Plot failed: {message}")
+
+    canonical_path = rawdata_input_fif_path(context)
+    if canonical_path.exists():
+        self._refresh_stage_states_from_context()
+        self._refresh_preproc_controls()
+        self.statusBar().showMessage(
+            "Canonical rawdata opened for review; close the plot normally to "
+            "accept it as Raw."
+        )
+        self._open_mne_raw_plot(
+            canonical_path,
+            title_prefix="Raw",
+            stale_raw_review=True,
+        )
         return
-    self.statusBar().showMessage(message)
-    self._open_mne_raw_plot(raw_path, title_prefix="Raw")
+
+    self._refresh_stage_states_from_context()
+    self._refresh_preproc_controls()
+    if raw_path.exists():
+        self.statusBar().showMessage(
+            "Retained Raw opened read-only; canonical rawdata is unavailable, "
+            "so closing cannot accept it."
+        )
+        self._open_mne_raw_plot(
+            raw_path,
+            title_prefix="Raw",
+            stale_raw_review=True,
+        )
+        return
+    self.statusBar().showMessage(
+        "Raw Plot unavailable: canonical rawdata and retained Raw are missing."
+    )
 
 
 def _open_step_plot(

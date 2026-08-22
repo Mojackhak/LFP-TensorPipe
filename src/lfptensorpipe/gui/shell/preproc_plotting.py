@@ -87,10 +87,12 @@ class MainWindowPreprocPlottingMixin:
         title_prefix: str,
         *,
         autosave_step: str | None = None,
+        stale_raw_review: bool = False,
     ) -> None:
         _open_mne_raw_plot_impl(
             self,
             raw_path=raw_path,
             title_prefix=title_prefix,
             autosave_step=autosave_step,
+            stale_raw_review=stale_raw_review,
         )

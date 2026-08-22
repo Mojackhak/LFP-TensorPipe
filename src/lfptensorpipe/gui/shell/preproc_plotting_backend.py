@@ -11,6 +11,7 @@ import numpy as np
 
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.preproc.indicator import preproc_filter_review_required
+from lfptensorpipe.app.preproc.paths import rawdata_input_fif_path
 from lfptensorpipe.app.preproc.lineage import (
     capture_preproc_input_generation,
     filter_preview_lineage_is_current,
@@ -269,6 +270,52 @@ def _capture_tracked_plot_open_state(
         "generation_snapshot": generation_snapshot,
         "kind": "accepted",
     }
+
+
+def _capture_stale_raw_review_open_state(
+    owner: Any,
+    *,
+    raw_path: Path,
+) -> dict[str, Any]:
+    """Capture the exact stale-Raw source before opening its review plot."""
+    context = owner._record_context()
+    canonical_path = rawdata_input_fif_path(context)
+    opened_disk_state = _preproc_plot_disk_state(raw_path)
+    if opened_disk_state is None:
+        raise RuntimeError(f"{raw_path.name} no longer exists or is unreadable.")
+    if raw_path == canonical_path:
+        kind = "raw_canonical_review"
+    else:
+        if canonical_path.exists():
+            raise RuntimeError(
+                "Stale Raw review path does not match the canonical rawdata input."
+            )
+        kind = "raw_retained_view"
+    return {
+        "context": context,
+        "opened_disk_state": opened_disk_state,
+        "kind": kind,
+    }
+
+
+def _stale_raw_review_source_reason(
+    owner: Any,
+    *,
+    raw_path: Path,
+    open_state: dict[str, Any],
+) -> str | None:
+    """Explain why a reviewed canonical Raw can no longer be accepted."""
+    if open_state.get("kind") != "raw_canonical_review":
+        return None
+    context = open_state.get("context")
+    if owner._record_context() != context:
+        return "belongs to a record selection changed after this plot was opened"
+    if raw_path != rawdata_input_fif_path(context):
+        return "no longer matches this record's canonical rawdata input"
+    return _preproc_plot_stale_target_reason(
+        raw_path,
+        opened_disk_state=open_state.get("opened_disk_state"),
+    )
 
 
 def _tracked_plot_open_stale_reason(
@@ -533,7 +580,60 @@ def _finalize_tracked_browser_close(self, token: int, event: Any | None = None) 
 
     try:
         if step == "raw":
-            self.statusBar().showMessage(f"{title_prefix} plot closed.")
+            tracked_open_state = entry.get("tracked_open_state")
+            if not isinstance(tracked_open_state, dict):
+                self.statusBar().showMessage(f"{title_prefix} plot closed.")
+            elif tracked_open_state.get("kind") == "raw_retained_view":
+                self.statusBar().showMessage(
+                    f"{title_prefix} plot closed: canonical rawdata is unavailable, "
+                    "so Raw remains stale."
+                )
+            elif tracked_open_state.get("kind") != "raw_canonical_review":
+                self.statusBar().showMessage(
+                    f"{title_prefix} plot closed: pending Raw review state is "
+                    "unavailable, so Raw remains stale."
+                )
+            elif getattr(self, "_mne_browser_shutdown_pending", False):
+                self.statusBar().showMessage(
+                    f"{title_prefix} plot closed during app shutdown; pending Raw "
+                    "acceptance was discarded."
+                )
+            elif context is not None and isinstance(raw_path, Path):
+                stale_reason = _stale_raw_review_source_reason(
+                    self,
+                    raw_path=raw_path,
+                    open_state=tracked_open_state,
+                )
+                if stale_reason is not None:
+                    message = (
+                        f"{title_prefix} plot closed: review discarded because "
+                        f"{raw_path.name} {stale_reason}."
+                    )
+                    self.statusBar().showMessage(message)
+                    self._show_warning(f"{title_prefix} Plot", message)
+                else:
+                    active_figures = getattr(self, "_active_plot_figures", None)
+                    can_switch_to_busy = not registry and not active_figures
+                    if can_switch_to_busy:
+                        self._set_global_ui_lock("plot", False)
+
+                    def work() -> tuple[bool, str]:
+                        return self._bootstrap_raw_step_from_rawdata_runtime(context)
+
+                    if can_switch_to_busy and hasattr(self, "_run_with_busy"):
+                        ok, message = self._run_with_busy("Raw Accept", work)
+                    else:
+                        ok, message = work()
+                    self._refresh_stage_states_from_context()
+                    self._refresh_preproc_controls()
+                    if ok:
+                        self.statusBar().showMessage(
+                            f"{title_prefix} plot closed: {message}"
+                        )
+                    else:
+                        warning = f"{title_prefix} plot close failed: {message}"
+                        self.statusBar().showMessage(warning)
+                        self._show_warning(f"{title_prefix} Plot", warning)
         elif step == "filter" and context is not None and isinstance(raw_path, Path):
             opened_signature = entry.get("opened_signature")
             closed_signature = _preproc_plot_raw_signature(raw)
@@ -912,10 +1012,16 @@ def _track_mne_browser(
         # Without a close hook the entry would never leave the registry, which
         # would hold the plot lock (and block app shutdown) forever.
         registry.pop(token, None)
-        self.statusBar().showMessage(
-            f"{title_prefix} plot is untracked: no close signal is available, "
-            "so edits made in this window will not be saved."
-        )
+        if step == "raw":
+            self.statusBar().showMessage(
+                f"{title_prefix} plot is untracked: no close signal is available, "
+                "so pending Raw review cannot be accepted."
+            )
+        else:
+            self.statusBar().showMessage(
+                f"{title_prefix} plot is untracked: no close signal is available, "
+                "so edits made in this window will not be saved."
+            )
         return
 
     self._set_global_ui_lock("plot", True)
@@ -927,6 +1033,7 @@ def _open_mne_raw_plot(
     title_prefix: str,
     *,
     autosave_step: str | None = None,
+    stale_raw_review: bool = False,
 ) -> None:
     if not self._enable_plots:
         return
@@ -936,7 +1043,16 @@ def _open_mne_raw_plot(
         )
         return
     tracked_open_state = None
-    if autosave_step in _PLOT_CHANGE_TRACKED_STEPS:
+    if stale_raw_review:
+        try:
+            tracked_open_state = _capture_stale_raw_review_open_state(
+                self,
+                raw_path=raw_path,
+            )
+        except Exception as exc:
+            self.statusBar().showMessage(f"{title_prefix} Plot failed: {exc}")
+            return
+    elif autosave_step in _PLOT_CHANGE_TRACKED_STEPS:
         try:
             tracked_open_state = _capture_tracked_plot_open_state(
                 self,
@@ -948,7 +1064,19 @@ def _open_mne_raw_plot(
             return
     try:
         raw = self._read_raw_fif(raw_path, preload=True, verbose="ERROR")
-        if autosave_step in _PLOT_CHANGE_TRACKED_STEPS:
+        if stale_raw_review:
+            assert isinstance(tracked_open_state, dict)
+            stale_reason = _stale_raw_review_source_reason(
+                self,
+                raw_path=raw_path,
+                open_state=tracked_open_state,
+            )
+            if stale_reason is not None:
+                raw.close()
+                raise RuntimeError(
+                    f"{raw_path.name} {stale_reason}; the plot was not opened."
+                )
+        elif autosave_step in _PLOT_CHANGE_TRACKED_STEPS:
             assert isinstance(tracked_open_state, dict)
             stale_reason = _tracked_plot_open_stale_reason(
                 raw_path=raw_path,
@@ -969,7 +1097,20 @@ def _open_mne_raw_plot(
                 os.environ.pop("MNE_BROWSE_RAW_SIZE", None)
             else:
                 os.environ["MNE_BROWSE_RAW_SIZE"] = previous_plot_size
-        if autosave_step in _PLOT_CHANGE_TRACKED_STEPS:
+        if stale_raw_review:
+            assert isinstance(tracked_open_state, dict)
+            stale_reason = _stale_raw_review_source_reason(
+                self,
+                raw_path=raw_path,
+                open_state=tracked_open_state,
+            )
+            if stale_reason is not None:
+                _request_close_registered_browser({"browser": browser})
+                raw.close()
+                raise RuntimeError(
+                    f"{raw_path.name} {stale_reason}; the plot was discarded."
+                )
+        elif autosave_step in _PLOT_CHANGE_TRACKED_STEPS:
             assert isinstance(tracked_open_state, dict)
             stale_reason = _tracked_plot_open_stale_reason(
                 raw_path=raw_path,
@@ -983,7 +1124,18 @@ def _open_mne_raw_plot(
                     f"{raw_path.name} {stale_reason}; the plot was discarded."
                 )
         _resize_preproc_plot_window(browser)
-        if autosave_step is not None:
+        if stale_raw_review:
+            assert isinstance(tracked_open_state, dict)
+            _track_mne_browser(
+                self,
+                browser=browser,
+                raw=raw,
+                raw_path=raw_path,
+                step="raw",
+                title_prefix=title_prefix,
+                tracked_open_state=tracked_open_state,
+            )
+        elif autosave_step is not None:
             self._attach_plot_autosave(
                 browser=browser,
                 raw=raw,
