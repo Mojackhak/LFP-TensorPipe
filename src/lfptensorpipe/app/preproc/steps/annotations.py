@@ -34,6 +34,7 @@ InvalidateFn = Callable[[RecordContext, str], list[Any]]
 
 ANNOTATION_SUPPORT_SEMANTICS = "clip_overlap_omit_disjoint_half_open_support"
 _ANNOTATION_SUPPORT_SEMANTICS_KEY = "annotation_support_semantics"
+_LEGACY_ANNOTATION_SUPPORT_SEMANTICS = "fully_within_half_open_source_support"
 
 
 def _accepted_filter_support(
@@ -111,7 +112,10 @@ def annotation_log_has_current_support_semantics(payload: Any) -> bool:
     return bool(
         isinstance(params, dict)
         and params.get(_ANNOTATION_SUPPORT_SEMANTICS_KEY)
-        == ANNOTATION_SUPPORT_SEMANTICS
+        in {
+            ANNOTATION_SUPPORT_SEMANTICS,
+            _LEGACY_ANNOTATION_SUPPORT_SEMANTICS,
+        }
     )
 
 
