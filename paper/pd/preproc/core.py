@@ -13,7 +13,7 @@ import pandas as pd
 from lfptensorpipe.stats.preproc.normalize import baseline_normalize
 from lfptensorpipe.stats.preproc.transform import transform_df
 from lfptensorpipe.tabular.nested_value import cell_is_empty_or_all_nan
-from paper.pd.paths import resolve_project_root, summary_table_root
+from paper.pd.paths import is_appledouble_path, resolve_project_root, summary_table_root
 from paper.pd.preproc.aggregate import summarize_df
 from paper.pd.preproc.normalize import normalize_df
 from paper.pd.specs import (
@@ -243,6 +243,8 @@ def collect_preproc_sources(
 
     paths: list[Path] = []
     for path in sorted(table_root.glob("*/*.pkl")):
+        if is_appledouble_path(path):
+            continue
         # Keep compatibility with any shallow files, although current layout is deeper.
         rel = path.relative_to(table_root)
         if selected_names is not None and rel.parts[0] not in selected_names:
@@ -252,6 +254,8 @@ def collect_preproc_sources(
         paths.append(path)
 
     for path in sorted(table_root.glob("*/*/*.pkl")):
+        if is_appledouble_path(path):
+            continue
         rel = path.relative_to(table_root)
         if selected_names is not None and rel.parts[0] not in selected_names:
             continue
@@ -341,6 +345,8 @@ def export_transformed_tables(
     sources = sorted(table_root.glob(f"*/*/*{SUMMARY_SUFFIX}.pkl"))
 
     for path in sources:
+        if is_appledouble_path(path):
+            continue
         rel = _relative_table_path(resolved_root, path)
         if selected_names is not None and rel.parts[0] not in selected_names:
             continue
@@ -380,6 +386,8 @@ def export_normalized_tables(
 
     transformed_paths = sorted(table_root.glob(f"*/*/*{SUMMARY_SUFFIX}{TRANSFORM_SUFFIX}.pkl"))
     for path in transformed_paths:
+        if is_appledouble_path(path):
+            continue
         rel = path.relative_to(table_root)
         name = rel.parts[0]
         if selected_names is not None and name not in selected_names:

@@ -30,6 +30,7 @@ for _path in (_REPO_ROOT, _SRC_ROOT):
 
 #%% imports
 from lfptensorpipe.io.pkl_io import load_pkl  # noqa: E402
+from paper.pd.paths import is_appledouble_path  # noqa: E402
 from paper.pd.specs import DEFAULT_PROJECT_ROOT  # noqa: E402
 from paper.pd.viz import defaults as cfg  # noqa: E402
 
@@ -400,6 +401,7 @@ def _collect_df_paths(spec: dict[str, Any]) -> list[Path]:
         for wk_dir in wk_dirs
         if wk_dir.exists()
         for df_path in wk_dir.glob(spec["glob"])
+        if not is_appledouble_path(df_path)
     )
 
 

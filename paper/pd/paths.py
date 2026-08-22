@@ -7,6 +7,11 @@ from pathlib import Path
 from paper.pd.specs import DEFAULT_PROJECT_ROOT
 
 
+def is_appledouble_path(path: str | Path) -> bool:
+    """Return whether a path is a macOS AppleDouble metadata companion."""
+    return Path(path).name.startswith("._")
+
+
 def resolve_project_root(project_root: str | Path | None = None) -> Path:
     """Return the PD project root."""
     if project_root is None:

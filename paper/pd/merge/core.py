@@ -10,7 +10,12 @@ from typing import Any
 
 import pandas as pd
 
-from paper.pd.paths import derivatives_root, resolve_project_root, summary_table_root
+from paper.pd.paths import (
+    derivatives_root,
+    is_appledouble_path,
+    resolve_project_root,
+    summary_table_root,
+)
 from paper.pd.specs import (
     LEFT_CHANNELS,
     MergeSpec,
@@ -105,6 +110,8 @@ def collect_feature_inventory(project_root: str | Path | None = None) -> Feature
         return {}
 
     for path in sorted(root.glob("sub-*/**/features/**/*.pkl")):
+        if is_appledouble_path(path):
+            continue
         rel = path.relative_to(root)
         parts = rel.parts
         if "features" not in parts:
