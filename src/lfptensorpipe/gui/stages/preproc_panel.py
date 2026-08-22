@@ -79,12 +79,6 @@ def _build_preproc_finish_block(self) -> QGroupBox:
     return _builders.build_preproc_finish_block(self, grid_spacing=_grid_spacing(self))
 
 
-def _build_preproc_bad_segment_block(self) -> QGroupBox:
-    return _builders.build_preproc_bad_segment_block(
-        self, grid_spacing=_grid_spacing(self)
-    )
-
-
 def _build_preproc_ecg_block(self) -> QGroupBox:
     return _builders.build_preproc_ecg_block(
         self,

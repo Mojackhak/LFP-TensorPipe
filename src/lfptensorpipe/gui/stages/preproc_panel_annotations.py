@@ -21,14 +21,20 @@ from PySide6.QtWidgets import (
 )
 
 from lfptensorpipe.gui.stages.indicator_group_box import IndicatorGroupBox
+from lfptensorpipe.gui.stages.preproc_panel_builders import (
+    _create_preproc_skip_button,
+)
 
 
 def build_preproc_annotations_block(self, *, grid_spacing: int) -> QGroupBox:
-    block = IndicatorGroupBox("2. Annotations")
+    block = IndicatorGroupBox("3. Annotations")
     layout = QVBoxLayout(block)
     layout.setContentsMargins(8, 8, 8, 8)
     layout.setSpacing(grid_spacing)
     self._register_preproc_indicator("annotations", indicator=block.indicator_label())
+    self._preproc_annotations_skip_button = _create_preproc_skip_button(
+        self, "annotations"
+    )
 
     self._preproc_annotations_table = QTableWidget(0, 3)
     self._preproc_annotations_table.setHorizontalHeaderLabels(
@@ -74,8 +80,13 @@ def build_preproc_annotations_block(self, *, grid_spacing: int) -> QGroupBox:
     table_panel_layout.setSpacing(0)
     table_panel_layout.addWidget(self._preproc_annotations_table)
     layout.addWidget(table_panel, stretch=1)
-    layout.addSpacing(6)
 
+    config_row = QWidget()
+    config_row.setObjectName("annotations_config_row")
+    config_row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    config_layout = QHBoxLayout(config_row)
+    config_layout.setContentsMargins(0, 0, 0, 0)
+    config_layout.setSpacing(grid_spacing)
     actions_row = QWidget()
     actions_row.setObjectName("annotations_actions_row")
     actions_row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -83,11 +94,15 @@ def build_preproc_annotations_block(self, *, grid_spacing: int) -> QGroupBox:
     action_layout.setContentsMargins(0, 0, 0, 0)
     action_layout.setSpacing(grid_spacing)
     self._preproc_annotations_edit_button = QPushButton("Configure...")
+    self._preproc_annotations_advance_button = QPushButton("Advance")
     self._preproc_annotations_save_button = QPushButton("Apply")
     self._preproc_annotations_import_button = None
     self._preproc_annotations_plot_button = QPushButton("Plot")
     self._preproc_annotations_edit_button.clicked.connect(
         self._on_preproc_annotations_edit
+    )
+    self._preproc_annotations_advance_button.clicked.connect(
+        self._on_preproc_annotations_advance
     )
     self._preproc_annotations_save_button.clicked.connect(
         self._on_preproc_annotations_save
@@ -98,19 +113,29 @@ def build_preproc_annotations_block(self, *, grid_spacing: int) -> QGroupBox:
     self._preproc_annotations_save_button.setEnabled(False)
     self._preproc_annotations_plot_button.setEnabled(False)
     self._preproc_annotations_edit_button.setToolTip("Open the annotation editor.")
+    self._preproc_annotations_advance_button.setToolTip(
+        "Open advanced Annotations review parameters."
+    )
     self._preproc_annotations_save_button.setToolTip(
         "Write current annotations to the pipeline."
     )
     self._preproc_annotations_plot_button.setToolTip(
         "Plot annotations over the signal."
     )
-    actions_row.setFixedHeight(
+    config_row.setFixedHeight(
         self._preproc_annotations_edit_button.sizeHint().height() + 10
     )
-    action_layout.addWidget(self._preproc_annotations_edit_button)
+    actions_row.setFixedHeight(
+        self._preproc_annotations_save_button.sizeHint().height() + 10
+    )
+    config_layout.addWidget(self._preproc_annotations_edit_button)
+    config_layout.addWidget(self._preproc_annotations_advance_button)
+    config_layout.addStretch(1)
     action_layout.addWidget(self._preproc_annotations_save_button)
     action_layout.addWidget(self._preproc_annotations_plot_button)
+    action_layout.addWidget(self._preproc_annotations_skip_button)
     action_layout.addStretch(1)
+    layout.addWidget(config_row)
     layout.addWidget(actions_row)
     return block
 

@@ -8,6 +8,7 @@ from typing import Any
 import yaml
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
+from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
 
 
 def rawdata_input_fif_path(context: RecordContext) -> Path:
@@ -52,6 +53,50 @@ def preproc_step_log_path(resolver: PathResolver, step: str) -> Path:
 def preproc_step_config_path(resolver: PathResolver, step: str) -> Path:
     """Return `{step}/config.yml` path inside preproc root."""
     return resolver.preproc_step_dir(step, create=True) / "config.yml"
+
+
+def preproc_step_routing_path(resolver: PathResolver, step: str) -> Path:
+    """Return the independent routing-state path for one optional step."""
+    return resolver.preproc_step_dir(step, create=False) / "routing.yml"
+
+
+def read_preproc_step_routing(
+    resolver: PathResolver,
+    step: str,
+) -> dict[str, bool]:
+    """Read and validate normalized routing state at its file boundary."""
+    path = preproc_step_routing_path(resolver, step)
+    if not path.exists():
+        return {"skipped": False}
+    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("skipped"), bool):
+        raise ValueError(f"Invalid preprocess routing state: {path}")
+    return {"skipped": payload["skipped"]}
+
+
+def write_preproc_step_routing(
+    *,
+    resolver: PathResolver,
+    step: str,
+    skipped: bool,
+) -> Path:
+    """Atomically persist normalized routing state for one optional step."""
+    output_path = preproc_step_routing_path(resolver, step)
+    with AtomicOutputSet(
+        [output_path],
+        cleanup_stale_residues=True,
+    ) as output_set:
+        staged_path = output_set.staged_path(output_path)
+        staged_path.write_text(
+            yaml.safe_dump(
+                {"skipped": skipped},
+                sort_keys=False,
+                allow_unicode=False,
+            ),
+            encoding="utf-8",
+        )
+        output_set.commit()
+    return output_path
 
 
 def write_preproc_step_config(

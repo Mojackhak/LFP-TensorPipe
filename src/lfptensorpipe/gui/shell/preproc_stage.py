@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.preproc.lineage import (
+    preproc_step_is_skipped,
+    preproc_step_lineage_is_current,
+)
 from lfptensorpipe.gui.shell.common import (
     Any,
     PathResolver,
@@ -26,7 +30,6 @@ class MainWindowPreprocStageMixin:
             "raw": "Raw",
             "filter": "Filter",
             "annotations": "Annotations",
-            "bad_segment_removal": "Bad Segment Removal",
             "ecg_artifact_removal": "ECG Artifact Removal",
             "finish": "Finish",
         }
@@ -58,9 +61,6 @@ class MainWindowPreprocStageMixin:
 
     def _build_preproc_finish_block(self) -> QGroupBox:
         return _stage_preproc_panel._build_preproc_finish_block(self)
-
-    def _build_preproc_bad_segment_block(self) -> QGroupBox:
-        return _stage_preproc_panel._build_preproc_bad_segment_block(self)
 
     def _build_preproc_ecg_block(self) -> QGroupBox:
         return _stage_preproc_panel._build_preproc_ecg_block(self)
@@ -114,6 +114,9 @@ class MainWindowPreprocStageMixin:
                 self._preproc_filter_apply_button.setEnabled(False)
             if self._preproc_filter_plot_button is not None:
                 self._preproc_filter_plot_button.setEnabled(False)
+            if self._preproc_filter_skip_button is not None:
+                self._preproc_filter_skip_button.setChecked(False)
+                self._preproc_filter_skip_button.setEnabled(False)
             if self._preproc_filter_notches_edit is not None:
                 self._preproc_filter_notches_edit.setEnabled(False)
             if self._preproc_filter_low_freq_edit is not None:
@@ -122,22 +125,26 @@ class MainWindowPreprocStageMixin:
                 self._preproc_filter_high_freq_edit.setEnabled(False)
             if self._preproc_annotations_edit_button is not None:
                 self._preproc_annotations_edit_button.setEnabled(False)
+            if self._preproc_annotations_advance_button is not None:
+                self._preproc_annotations_advance_button.setEnabled(False)
             if self._preproc_annotations_save_button is not None:
                 self._preproc_annotations_save_button.setEnabled(False)
             if self._preproc_annotations_import_button is not None:
                 self._preproc_annotations_import_button.setEnabled(False)
             if self._preproc_annotations_plot_button is not None:
                 self._preproc_annotations_plot_button.setEnabled(False)
-            if self._preproc_bad_segment_apply_button is not None:
-                self._preproc_bad_segment_apply_button.setEnabled(False)
-            if self._preproc_bad_segment_plot_button is not None:
-                self._preproc_bad_segment_plot_button.setEnabled(False)
+            if self._preproc_annotations_skip_button is not None:
+                self._preproc_annotations_skip_button.setChecked(False)
+                self._preproc_annotations_skip_button.setEnabled(False)
             if self._preproc_ecg_advance_button is not None:
                 self._preproc_ecg_advance_button.setEnabled(False)
             if self._preproc_ecg_apply_button is not None:
                 self._preproc_ecg_apply_button.setEnabled(False)
             if self._preproc_ecg_plot_button is not None:
                 self._preproc_ecg_plot_button.setEnabled(False)
+            if self._preproc_ecg_skip_button is not None:
+                self._preproc_ecg_skip_button.setChecked(False)
+                self._preproc_ecg_skip_button.setEnabled(False)
             if self._preproc_ecg_method_combo is not None:
                 self._preproc_ecg_method_combo.setEnabled(False)
             if self._preproc_finish_apply_button is not None:
@@ -160,10 +167,10 @@ class MainWindowPreprocStageMixin:
         raw_input_exists = rawdata_input_fif_path(context).exists()
         resolver = PathResolver(context)
         raw_log_state = preproc_step_indicator_state(resolver, "raw")
-        bad_segment_log_state = preproc_step_indicator_state(
-            resolver, "bad_segment_removal"
-        )
         finish_log_state = preproc_step_indicator_state(resolver, "finish")
+        filter_skipped = preproc_step_is_skipped(resolver, "filter")
+        ecg_skipped = preproc_step_is_skipped(resolver, "ecg_artifact_removal")
+        annotations_skipped = preproc_step_is_skipped(resolver, "annotations")
         self._set_preproc_step_indicator("raw", raw_log_state)
         filter_notches = (
             self._preproc_filter_notches_edit.text()
@@ -191,11 +198,26 @@ class MainWindowPreprocStageMixin:
         filter_preview_exists = self._preproc_filter_preview_raw_path_runtime(
             resolver
         ).exists()
-        downstream_allowed = not filter_review_required
+        filter_lineage_available = (
+            not filter_skipped
+            and preproc_step_lineage_is_current(
+                resolver,
+                "filter",
+            )
+        )
+        if not filter_lineage_available:
+            self._preproc_annotations_mark_filter_edges = False
+        annotations_mark_filter_edges = self._preproc_annotations_mark_filter_edges
+        if (
+            not filter_lineage_available
+            and self._preproc_ecg_review_params.get("mark_filter_edges") is True
+        ):
+            self._preproc_ecg_review_params = {"mark_filter_edges": False}
         annotation_rows, _ = self._annotations_table_rows()
         annotations_panel_state = self._preproc_annotations_panel_state_runtime(
             resolver,
             rows=annotation_rows,
+            mark_filter_edges=annotations_mark_filter_edges,
         )
         ecg_method = (
             self._preproc_ecg_method_combo.currentData()
@@ -214,31 +236,35 @@ class MainWindowPreprocStageMixin:
                 False,
             ),
         )
-        annotations_display_state = annotations_panel_state
-        bad_segment_display_state = bad_segment_log_state
-        ecg_display_state = ecg_panel_state
-        finish_display_state = finish_log_state
-        if filter_panel_state == "yellow":
-            if annotations_display_state != "gray":
-                annotations_display_state = "yellow"
-            if bad_segment_display_state != "gray":
-                bad_segment_display_state = "yellow"
-            if ecg_display_state != "gray":
-                ecg_display_state = "yellow"
-            if finish_display_state != "gray":
-                finish_display_state = "yellow"
-        self._set_preproc_step_indicator("filter", filter_panel_state)
-        self._set_preproc_step_indicator("annotations", annotations_display_state)
-        self._set_preproc_step_indicator(
-            "bad_segment_removal", bad_segment_display_state
-        )
-        self._set_preproc_step_indicator("ecg_artifact_removal", ecg_display_state)
-        self._set_preproc_step_indicator("finish", finish_display_state)
+        base_states = {
+            "raw": raw_log_state,
+            "filter": filter_panel_state,
+            "ecg_artifact_removal": ecg_panel_state,
+            "annotations": annotations_panel_state,
+            "finish": finish_log_state,
+        }
+        skipped_steps = {
+            "filter": filter_skipped,
+            "ecg_artifact_removal": ecg_skipped,
+            "annotations": annotations_skipped,
+        }
+        blocked = False
+        for step in (
+            "raw",
+            "filter",
+            "ecg_artifact_removal",
+            "annotations",
+            "finish",
+        ):
+            base_state = base_states[step]
+            self._set_preproc_step_indicator(
+                step,
+                "yellow" if blocked else base_state,
+            )
+            if base_state == "yellow" and not skipped_steps.get(step, False):
+                blocked = True
         filter_raw_exists = preproc_step_raw_path(resolver, "filter").exists()
         annotations_raw_exists = preproc_step_raw_path(resolver, "annotations").exists()
-        bad_segment_raw_exists = preproc_step_raw_path(
-            resolver, "bad_segment_removal"
-        ).exists()
         ecg_raw_exists = preproc_step_raw_path(
             resolver, "ecg_artifact_removal"
         ).exists()
@@ -247,6 +273,23 @@ class MainWindowPreprocStageMixin:
         finish_raw_exists = finish_raw_path.exists()
         raw_step_exists = preproc_step_raw_path(resolver, "raw").exists()
         raw_ready = raw_log_state == "green" and raw_step_exists
+        filter_route_ready = raw_ready and (
+            filter_skipped or filter_panel_state != "yellow"
+        )
+        ecg_route_ready = filter_route_ready and (
+            ecg_skipped or ecg_panel_state != "yellow"
+        )
+        annotations_route_ready = ecg_route_ready and (
+            annotations_skipped or annotations_panel_state != "yellow"
+        )
+
+        for button, skipped in (
+            (self._preproc_filter_skip_button, filter_skipped),
+            (self._preproc_ecg_skip_button, ecg_skipped),
+            (self._preproc_annotations_skip_button, annotations_skipped),
+        ):
+            if button is not None:
+                button.setChecked(skipped)
 
         if self._preproc_raw_plot_button is not None:
             self._preproc_raw_plot_button.setEnabled(
@@ -260,6 +303,10 @@ class MainWindowPreprocStageMixin:
             self._preproc_filter_plot_button.setEnabled(
                 (filter_review_required and filter_preview_exists)
                 or (filter_panel_state == "green" and filter_raw_exists)
+            )
+        if self._preproc_filter_skip_button is not None:
+            self._preproc_filter_skip_button.setEnabled(
+                filter_skipped or (raw_ready and filter_panel_state != "gray")
             )
         if self._preproc_filter_notches_edit is not None:
             self._preproc_filter_notches_edit.setEnabled(raw_ready)
@@ -284,42 +331,31 @@ class MainWindowPreprocStageMixin:
             advance_message if raw_ready and not valid_advance else None,
         )
         if self._preproc_annotations_edit_button is not None:
-            self._preproc_annotations_edit_button.setEnabled(
-                raw_ready and downstream_allowed
-            )
+            self._preproc_annotations_edit_button.setEnabled(ecg_route_ready)
+        if self._preproc_annotations_advance_button is not None:
+            self._preproc_annotations_advance_button.setEnabled(ecg_route_ready)
         if self._preproc_annotations_save_button is not None:
-            self._preproc_annotations_save_button.setEnabled(
-                raw_ready and downstream_allowed
-            )
+            self._preproc_annotations_save_button.setEnabled(ecg_route_ready)
         if self._preproc_annotations_import_button is not None:
-            self._preproc_annotations_import_button.setEnabled(
-                raw_ready and downstream_allowed
-            )
+            self._preproc_annotations_import_button.setEnabled(ecg_route_ready)
         if self._preproc_annotations_plot_button is not None:
             self._preproc_annotations_plot_button.setEnabled(
-                downstream_allowed
+                ecg_route_ready
                 and annotations_panel_state == "green"
                 and annotations_raw_exists
             )
-        if self._preproc_bad_segment_apply_button is not None:
-            self._preproc_bad_segment_apply_button.setEnabled(
-                raw_ready and downstream_allowed
-            )
-        if self._preproc_bad_segment_plot_button is not None:
-            self._preproc_bad_segment_plot_button.setEnabled(
-                downstream_allowed
-                and bad_segment_log_state == "green"
-                and bad_segment_raw_exists
+        if self._preproc_annotations_skip_button is not None:
+            self._preproc_annotations_skip_button.setEnabled(
+                annotations_skipped
+                or (ecg_route_ready and annotations_panel_state != "gray")
             )
         if self._preproc_ecg_advance_button is not None:
-            self._preproc_ecg_advance_button.setEnabled(
-                raw_ready and downstream_allowed
-            )
+            self._preproc_ecg_advance_button.setEnabled(filter_route_ready)
         valid_ecg, _, ecg_message = normalize_ecg_method_params(
             str(ecg_method),
             self._preproc_ecg_params_by_method.get(str(ecg_method)),
         )
-        ecg_editable = raw_ready and downstream_allowed
+        ecg_editable = filter_route_ready
         set_control_validation_error(
             self._preproc_ecg_advance_button,
             ecg_message if ecg_editable and not valid_ecg else None,
@@ -335,20 +371,26 @@ class MainWindowPreprocStageMixin:
             ),
         )
         if self._preproc_ecg_apply_button is not None:
-            self._preproc_ecg_apply_button.setEnabled(raw_ready and downstream_allowed)
+            self._preproc_ecg_apply_button.setEnabled(filter_route_ready)
         if self._preproc_ecg_plot_button is not None:
             self._preproc_ecg_plot_button.setEnabled(
-                downstream_allowed and ecg_panel_state == "green" and ecg_raw_exists
+                filter_route_ready and ecg_panel_state == "green" and ecg_raw_exists
+            )
+        if self._preproc_ecg_skip_button is not None:
+            self._preproc_ecg_skip_button.setEnabled(
+                ecg_skipped or (filter_route_ready and ecg_panel_state != "gray")
             )
         if self._preproc_ecg_method_combo is not None:
-            self._preproc_ecg_method_combo.setEnabled(raw_ready and downstream_allowed)
+            self._preproc_ecg_method_combo.setEnabled(filter_route_ready)
         if self._preproc_finish_apply_button is not None:
             self._preproc_finish_apply_button.setEnabled(
-                downstream_allowed and finish_source_exists
+                annotations_route_ready and finish_source_exists
             )
         if self._preproc_finish_plot_button is not None:
             self._preproc_finish_plot_button.setEnabled(
-                downstream_allowed and finish_log_state == "green" and finish_raw_exists
+                annotations_route_ready
+                and finish_log_state == "green"
+                and finish_raw_exists
             )
         self._refresh_preproc_ecg_channel_state(context)
         self._refresh_preproc_visualization_controls(context)

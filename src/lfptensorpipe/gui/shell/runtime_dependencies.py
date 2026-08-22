@@ -11,7 +11,6 @@ from lfptensorpipe.app import (
     alignment_method_panel_state,
     alignment_trial_stage_state,
     apply_annotations_step,
-    apply_bad_segment_step,
     apply_ecg_step,
     apply_filter_step,
     apply_finish_step,
@@ -59,6 +58,7 @@ from lfptensorpipe.app import (
     run_extract_features,
     run_localize_apply,
     tensor_metric_panel_state,
+    skip_preproc_step,
     update_alignment_paradigm,
     validate_alignment_method_params,
     validate_tensor_frequency_params,
@@ -67,6 +67,7 @@ from lfptensorpipe.gui.dialogs.alignment_method_params import (
     AlignmentMethodParamsDialog,
 )
 from lfptensorpipe.gui.dialogs.annotation_configure import AnnotationConfigureDialog
+from lfptensorpipe.gui.dialogs.annotations_advance import AnnotationsAdvanceDialog
 from lfptensorpipe.gui.dialogs.autosave_filter import _CloseAutosaveFilter
 from lfptensorpipe.gui.dialogs.channel_select import ChannelSelectDialog
 from lfptensorpipe.gui.dialogs.ecg_advance import ECGAdvanceDialog
@@ -173,6 +174,12 @@ class MainWindowRuntimeDependenciesMixin:
         **kwargs: Any,
     ) -> AnnotationConfigureDialog:
         return AnnotationConfigureDialog(**kwargs)
+
+    def _create_annotations_advance_dialog(
+        self,
+        **kwargs: Any,
+    ) -> AnnotationsAdvanceDialog:
+        return AnnotationsAdvanceDialog(**kwargs)
 
     def _create_feature_axis_configure_dialog(
         self,
@@ -451,9 +458,6 @@ class MainWindowRuntimeDependenciesMixin:
     def _apply_annotations_step_runtime(self, context: Any, **kwargs: Any) -> Any:
         return apply_annotations_step(context, **kwargs)
 
-    def _apply_bad_segment_step_runtime(self, context: Any) -> Any:
-        return apply_bad_segment_step(context)
-
     def _apply_ecg_step_runtime(self, context: Any, **kwargs: Any) -> Any:
         return apply_ecg_step(context, **kwargs)
 
@@ -462,6 +466,9 @@ class MainWindowRuntimeDependenciesMixin:
 
     def _mark_preproc_step_runtime(self, **kwargs: Any) -> Any:
         return mark_preproc_step(**kwargs)
+
+    def _skip_preproc_step_runtime(self, context: Any, step: str) -> Any:
+        return skip_preproc_step(context, step)
 
     def _preproc_filter_panel_state_runtime(
         self,

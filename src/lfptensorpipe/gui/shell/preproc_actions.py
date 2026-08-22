@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.preproc.lineage import preproc_step_lineage_is_current
 from lfptensorpipe.gui.shell.common import (
     Any,
     Path,
@@ -18,6 +19,24 @@ from lfptensorpipe.gui.shell.common import (
 
 
 class MainWindowPreprocActionsMixin:
+    def _on_preproc_skip(self, step: str) -> None:
+        context = self._record_context()
+        display_name = self._preproc_step_display_name(step)
+        if context is None:
+            self.statusBar().showMessage(
+                f"{display_name} Skip unavailable: select project/subject/record."
+            )
+            return
+        ok, message = self._run_with_busy(
+            f"{display_name} Skip",
+            lambda: self._skip_preproc_step_runtime(context, step),
+        )
+        self._refresh_stage_states_from_context()
+        self._refresh_preproc_controls()
+        status = message if ok else f"{display_name} Skip failed: {message}"
+        self.statusBar().showMessage(status)
+        self._post_step_action_sync(reason=f"preproc_{step}_skip")
+
     def _on_preproc_filter_advance(self) -> None:
         context = self._record_context()
         if context is None:
@@ -139,6 +158,35 @@ class MainWindowPreprocActionsMixin:
         self._refresh_preproc_controls()
         self.statusBar().showMessage("Annotations configured.")
 
+    def _on_preproc_annotations_advance(self) -> None:
+        context = self._record_context()
+        if context is None:
+            self.statusBar().showMessage(
+                "Annotations Advance unavailable: select project/subject/record."
+            )
+            return
+        dialog = self._create_annotations_advance_dialog(
+            session_params={
+                "mark_filter_edges": self._preproc_annotations_mark_filter_edges,
+            },
+            mark_filter_edges_available=preproc_step_lineage_is_current(
+                PathResolver(context),
+                "filter",
+            ),
+            parent=self,
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+        if dialog.selected_params is None:
+            return
+        self._preproc_annotations_mark_filter_edges = bool(
+            dialog.selected_params["mark_filter_edges"]
+        )
+        self._mark_record_param_dirty("preproc.annotations")
+        self._refresh_preproc_controls()
+        self._persist_record_params_snapshot(reason="preproc_annotations_advance_save")
+        self.statusBar().showMessage("Annotations Advance parameters updated.")
+
     def _on_preproc_annotations_save(self) -> None:
         context = self._record_context()
         if context is None:
@@ -178,6 +226,7 @@ class MainWindowPreprocActionsMixin:
             lambda: self._apply_annotations_step_runtime(
                 context,
                 rows=clean_rows,
+                mark_filter_edges=self._preproc_annotations_mark_filter_edges,
             ),
         )
         if ok and self._preproc_annotations_table is not None:
@@ -241,23 +290,6 @@ class MainWindowPreprocActionsMixin:
         self._refresh_preproc_controls()
         self.statusBar().showMessage("Annotations CSV imported.")
 
-    def _on_preproc_bad_segment_apply(self) -> None:
-        context = self._record_context()
-        if context is None:
-            self.statusBar().showMessage(
-                "Bad Segment Apply unavailable: select project/subject/record."
-            )
-            return
-        ok, message = self._run_with_busy(
-            "Bad Segment Apply",
-            lambda: self._apply_bad_segment_step_runtime(context),
-        )
-        self._refresh_stage_states_from_context()
-        self._refresh_preproc_controls()
-        prefix = "Bad Segment OK" if ok else "Bad Segment failed"
-        self.statusBar().showMessage(f"{prefix}: {message}")
-        self._post_step_action_sync(reason="preproc_bad_segment_apply")
-
     def _on_preproc_ecg_advance(self) -> None:
         context = self._record_context()
         if context is None:
@@ -285,6 +317,10 @@ class MainWindowPreprocActionsMixin:
             default_params=defaults_by_method[method],
             session_review_params=self._preproc_ecg_review_params,
             default_review_params=default_review_params,
+            mark_filter_edges_available=preproc_step_lineage_is_current(
+                PathResolver(context),
+                "filter",
+            ),
             set_default_callback=_save_ecg_defaults,
             parent=self,
         )

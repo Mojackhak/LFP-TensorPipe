@@ -11,6 +11,7 @@ from typing import Any, Callable
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
 from lfptensorpipe.app.shared.generation_lineage import (
+    accepted_result_generation_id,
     new_result_generation_id,
     params_with_generation_lineage,
 )
@@ -24,6 +25,7 @@ from ..paths import (
 from ..lineage import (
     PreprocInputGenerationChanged,
     capture_preproc_input_generation,
+    preproc_accepted_ancestor_payload,
     preproc_input_generation_matches,
 )
 
@@ -33,6 +35,73 @@ InvalidateFn = Callable[[RecordContext, str], list[Any]]
 ANNOTATION_SUPPORT_SEMANTICS = "clip_overlap_omit_disjoint_half_open_support"
 _ANNOTATION_SUPPORT_SEMANTICS_KEY = "annotation_support_semantics"
 _LEGACY_ANNOTATION_SUPPORT_SEMANTICS = "fully_within_half_open_source_support"
+
+
+def _accepted_filter_support(
+    resolver: PathResolver,
+    source_step: str,
+) -> tuple[str, int]:
+    payload = preproc_accepted_ancestor_payload(resolver, source_step, "filter")
+    if payload is None:
+        raise ValueError(
+            "mark filter edges requires a current Filter ancestor in the "
+            "Annotations source lineage."
+        )
+    generation_id = accepted_result_generation_id(payload)
+    params = payload.get("params")
+    radius = (
+        params.get("filter_support_radius_samples")
+        if isinstance(params, dict)
+        else None
+    )
+    if not isinstance(generation_id, str):
+        raise ValueError("The Filter ancestor does not have an accepted generation ID.")
+    if isinstance(radius, bool) or not isinstance(radius, int) or radius < 0:
+        raise ValueError(
+            "The Filter ancestor does not contain a valid integer "
+            "filter_support_radius_samples value. Re-apply Filter first."
+        )
+    return generation_id, int(radius)
+
+
+def prepare_annotations_plot_review(
+    resolver: PathResolver,
+    reviewed_raw: Any,
+    *,
+    source_step: str,
+    mark_filter_edges: bool,
+    read_raw_fif_fn: Callable[..., Any] | None = None,
+) -> Any:
+    """Validate Annotations plot BAD edits and rebuild owned edge marks."""
+    from lfptensorpipe.preproc.ecg_remover import (
+        ANNOTATIONS_FILTER_EDGE_DESCRIPTION,
+        finalize_reviewed_bad_annotations,
+    )
+
+    if not isinstance(mark_filter_edges, bool):
+        raise ValueError("mark_filter_edges must be a boolean.")
+    radius: int | None = None
+    if mark_filter_edges:
+        _, radius = _accepted_filter_support(resolver, str(source_step))
+    source_path = preproc_step_raw_path(resolver, str(source_step))
+    if read_raw_fif_fn is None:
+        import mne
+
+        read_raw_fif_fn = mne.io.read_raw_fif
+    source_raw = read_raw_fif_fn(str(source_path), preload=False, verbose="ERROR")
+    try:
+        return finalize_reviewed_bad_annotations(
+            source_raw,
+            reviewed_raw,
+            mark_filter_edges=mark_filter_edges,
+            edge_description=ANNOTATIONS_FILTER_EDGE_DESCRIPTION,
+            review_label="Annotations",
+            filter_support_radius_samples=radius,
+        )
+    finally:
+        close = getattr(source_raw, "close", None)
+        if callable(close):
+            close()
 
 
 def annotation_log_has_current_support_semantics(payload: Any) -> bool:
@@ -169,6 +238,7 @@ def apply_annotations_step(
     *,
     source: tuple[str, Path] | None,
     rows: list[dict[str, Any]],
+    mark_filter_edges: bool = False,
     mark_preproc_step_fn: MarkStepFn,
     invalidate_downstream_fn: InvalidateFn,
     read_raw_fif_fn: Callable[..., Any] | None = None,
@@ -211,10 +281,28 @@ def apply_annotations_step(
 
     try:
         import mne
+        from lfptensorpipe.preproc.ecg_remover import (
+            ANNOTATIONS_FILTER_EDGE_DESCRIPTION,
+            finalize_reviewed_bad_annotations,
+        )
 
         if read_raw_fif_fn is None:
             read_raw_fif_fn = mne.io.read_raw_fif
         runtime_copy2 = copy2_fn or shutil.copy2
+        if not isinstance(mark_filter_edges, bool):
+            raise ValueError("mark_filter_edges must be a boolean.")
+        edge_params: dict[str, Any] = {"mark_filter_edges": mark_filter_edges}
+        filter_support_radius_samples: int | None = None
+        if mark_filter_edges:
+            filter_generation_id, filter_support_radius_samples = (
+                _accepted_filter_support(resolver, source_step)
+            )
+            edge_params.update(
+                {
+                    "filter_generation_id": filter_generation_id,
+                    "filter_support_radius_samples": filter_support_radius_samples,
+                }
+            )
 
         config_path = preproc_step_config_path(resolver, "annotations")
         log_path = preproc_step_log_path(resolver, "annotations")
@@ -226,6 +314,7 @@ def apply_annotations_step(
             # Preserve the exact source file before applying annotations.
             runtime_copy2(src, staged_raw)
             raw = read_raw_fif_fn(str(staged_raw), preload=True, verbose="ERROR")
+            source_raw = raw.copy()
             effective_rows, clipped_count, omitted_count = (
                 _clip_annotation_rows_to_raw_support(normalized_rows, raw)
             )
@@ -243,6 +332,23 @@ def apply_annotations_step(
                 orig_time=inherited_annotations.orig_time,
             )
             raw.set_annotations(inherited_annotations + annotations)
+
+            reviewed_raw = raw
+            raw = finalize_reviewed_bad_annotations(
+                source_raw,
+                reviewed_raw,
+                mark_filter_edges=mark_filter_edges,
+                edge_description=ANNOTATIONS_FILTER_EDGE_DESCRIPTION,
+                review_label="Annotations",
+                filter_support_radius_samples=filter_support_radius_samples,
+            )
+            close = getattr(source_raw, "close", None)
+            if callable(close):
+                close()
+            if raw is not reviewed_raw:
+                close = getattr(reviewed_raw, "close", None)
+                if callable(close):
+                    close()
 
             raw.save(str(staged_raw), overwrite=True)
 
@@ -275,6 +381,7 @@ def apply_annotations_step(
                     "clipped_row_count": clipped_count,
                     "omitted_row_count": omitted_count,
                     "csv_path": str(csv_path),
+                    **edge_params,
                     _ANNOTATION_SUPPORT_SEMANTICS_KEY: (ANNOTATION_SUPPORT_SEMANTICS),
                 },
             )
@@ -289,6 +396,7 @@ def apply_annotations_step(
                         "clipped_row_count": clipped_count,
                         "omitted_row_count": omitted_count,
                         "source_step": source_step,
+                        **edge_params,
                         _ANNOTATION_SUPPORT_SEMANTICS_KEY: (
                             ANNOTATION_SUPPORT_SEMANTICS
                         ),

@@ -20,6 +20,9 @@ from lfptensorpipe.app.preproc.lineage import (
 from lfptensorpipe.app.preproc.steps.filter import (
     filter_log_has_current_bad_channel_detection_semantics,
 )
+from lfptensorpipe.app.preproc.steps.annotations import (
+    prepare_annotations_plot_review,
+)
 from lfptensorpipe.app.preproc.steps.ecg import prepare_ecg_plot_review
 from lfptensorpipe.app.runlog_store import (
     RunLogRecord,
@@ -47,7 +50,7 @@ logger = logging.getLogger(__name__)
 PREPROC_PLOT_WINDOW_SIZE = (1200, 800)
 _PREPROC_PLOT_DPI_FALLBACK = 96.0
 _PLOT_CHANGE_TRACKED_STEPS = frozenset(
-    ("filter", "annotations", "bad_segment_removal", "ecg_artifact_removal")
+    ("filter", "ecg_artifact_removal", "annotations")
 )
 _PLOT_ATOMIC_EDIT_STEPS = _PLOT_CHANGE_TRACKED_STEPS.difference({"filter"})
 
@@ -167,7 +170,7 @@ def _preproc_plot_generation_snapshot(
         "source_step": source_step,
         "input_generations": dict(input_generations),
     }
-    if step == "ecg_artifact_removal":
+    if step in {"ecg_artifact_removal", "annotations"}:
         params = payload.get("params")
         snapshot["mark_filter_edges"] = bool(
             isinstance(params, dict) and params.get("mark_filter_edges") is True
@@ -648,6 +651,17 @@ def _finalize_tracked_browser_close(self, token: int, event: Any | None = None) 
                                 generation_snapshot.get("mark_filter_edges", False)
                             )
                             promoted_raw = prepare_ecg_plot_review(
+                                PathResolver(context),
+                                raw,
+                                source_step=str(generation_snapshot["source_step"]),
+                                mark_filter_edges=mark_filter_edges,
+                            )
+                            params_updates = {"mark_filter_edges": mark_filter_edges}
+                        elif step == "annotations":
+                            mark_filter_edges = bool(
+                                generation_snapshot.get("mark_filter_edges", False)
+                            )
+                            promoted_raw = prepare_annotations_plot_review(
                                 PathResolver(context),
                                 raw,
                                 source_step=str(generation_snapshot["source_step"]),

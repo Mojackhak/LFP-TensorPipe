@@ -60,6 +60,12 @@ class MainWindowRecordParamsApplyPreprocMixin:
                     )
                 self._preproc_annotations_table.blockSignals(False)
                 self._highlight_annotation_rows([])
+            mark_filter_edges = _nested_get(
+                snapshot,
+                ("preproc", "annotations", "mark_filter_edges"),
+            )
+            if isinstance(mark_filter_edges, bool):
+                self._preproc_annotations_mark_filter_edges = mark_filter_edges
         else:
             skipped += 1
 

@@ -70,8 +70,8 @@ _LOCALIZE_EXPORTS = (
 _PREPROC_EXPORTS = (
     "ECG_METHODS",
     "FINISH_SOURCE_PRIORITY",
+    "OPTIONAL_PREPROC_STEPS",
     "PREPROC_STEPS",
-    "apply_bad_segment_step",
     "apply_annotations_step",
     "apply_ecg_step",
     "apply_filter_step",
@@ -101,9 +101,12 @@ _PREPROC_EXPORTS = (
     "preproc_step_config_path",
     "preproc_step_log_path",
     "preproc_step_raw_path",
+    "preproc_step_routing_path",
+    "preproc_step_is_skipped",
     "rawdata_input_fif_path",
     "resolve_finish_source",
     "resolve_preproc_step_source",
+    "skip_preproc_step",
     "write_preproc_step_config",
 )
 

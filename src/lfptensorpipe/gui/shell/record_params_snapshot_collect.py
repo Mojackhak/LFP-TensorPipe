@@ -111,6 +111,7 @@ class MainWindowRecordParamsSnapshotCollectMixin:
             },
             "annotations": {
                 "rows": self._collect_annotations_rows_for_params(),
+                "mark_filter_edges": self._preproc_annotations_mark_filter_edges,
             },
             "ecg": {
                 "method": str(

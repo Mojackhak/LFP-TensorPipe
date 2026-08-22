@@ -17,6 +17,26 @@ from PySide6.QtWidgets import (
 from lfptensorpipe.gui.stages.indicator_group_box import IndicatorGroupBox
 
 
+def _create_preproc_skip_button(
+    self,
+    step: str,
+) -> QPushButton:
+    button = QPushButton("Skip")
+    button.setObjectName(f"preproc_{step}_skip_button")
+    button.setAutoDefault(False)
+    button.setCheckable(True)
+    button.setFixedWidth(button.fontMetrics().horizontalAdvance("Skip") + 18)
+    button.setEnabled(False)
+    button.setToolTip(
+        "Checked bypasses this step without changing its indicator or output. "
+        "Click again to restore routing through the existing step state."
+    )
+    button.clicked.connect(
+        lambda _checked=False, step_key=step: self._on_preproc_skip(step_key)
+    )
+    return button
+
+
 def build_preprocess_page(
     self,
     *,
@@ -38,14 +58,13 @@ def build_preprocess_page(
     left_col = QVBoxLayout()
     left_col.setSpacing(page_spacing)
     left_col.addWidget(self._build_preproc_raw_block(), stretch=1)
-    left_col.addWidget(self._build_preproc_filter_block(), stretch=1)
-    left_col.addWidget(self._build_preproc_bad_segment_block(), stretch=1)
-    left_col.addWidget(self._build_preproc_finish_block(), stretch=1)
+    left_col.addWidget(self._build_preproc_filter_block(), stretch=3)
+    left_col.addWidget(self._build_preproc_ecg_block(), stretch=3)
 
     right_col = QVBoxLayout()
     right_col.setSpacing(page_spacing)
-    right_col.addWidget(self._build_preproc_annotations_block(), stretch=3)
-    right_col.addWidget(self._build_preproc_ecg_block(), stretch=1)
+    right_col.addWidget(self._build_preproc_annotations_block(), stretch=6)
+    right_col.addWidget(self._build_preproc_finish_block(), stretch=1)
 
     left_widget = QWidget()
     left_widget.setLayout(left_col)
@@ -78,6 +97,7 @@ def build_preproc_raw_block(self, *, grid_spacing: int) -> QGroupBox:
 def build_preproc_filter_block(self, *, grid_spacing: int) -> QGroupBox:
     block = IndicatorGroupBox("1. Filter")
     self._register_preproc_indicator("filter", indicator=block.indicator_label())
+    self._preproc_filter_skip_button = _create_preproc_skip_button(self, "filter")
     layout = QVBoxLayout(block)
     layout.setContentsMargins(8, 8, 8, 8)
     layout.setSpacing(grid_spacing)
@@ -151,13 +171,14 @@ def build_preproc_filter_block(self, *, grid_spacing: int) -> QGroupBox:
     action_layout.addWidget(self._preproc_filter_advance_button)
     action_layout.addWidget(self._preproc_filter_apply_button)
     action_layout.addWidget(self._preproc_filter_plot_button)
+    action_layout.addWidget(self._preproc_filter_skip_button)
     action_layout.addStretch(1)
     layout.addWidget(action_row)
     return block
 
 
 def build_preproc_finish_block(self, *, grid_spacing: int) -> QGroupBox:
-    block = IndicatorGroupBox("5. Finish")
+    block = IndicatorGroupBox("4. Finish")
     self._register_preproc_indicator("finish", indicator=block.indicator_label())
     layout = QHBoxLayout(block)
     layout.setContentsMargins(8, 8, 8, 8)
@@ -178,41 +199,18 @@ def build_preproc_finish_block(self, *, grid_spacing: int) -> QGroupBox:
     return block
 
 
-def build_preproc_bad_segment_block(self, *, grid_spacing: int) -> QGroupBox:
-    block = IndicatorGroupBox("3. Bad Segment Removal")
-    self._register_preproc_indicator(
-        "bad_segment_removal", indicator=block.indicator_label()
-    )
-    layout = QHBoxLayout(block)
-    layout.setContentsMargins(8, 8, 8, 8)
-    layout.setSpacing(grid_spacing)
-    self._preproc_bad_segment_apply_button = QPushButton("Apply")
-    self._preproc_bad_segment_plot_button = QPushButton("Plot")
-    self._preproc_bad_segment_apply_button.setToolTip("Run bad-segment removal.")
-    self._preproc_bad_segment_plot_button.setToolTip("Plot bad-segment-removal output.")
-    self._preproc_bad_segment_apply_button.clicked.connect(
-        self._on_preproc_bad_segment_apply
-    )
-    self._preproc_bad_segment_plot_button.clicked.connect(
-        self._on_preproc_bad_segment_plot
-    )
-    self._preproc_bad_segment_apply_button.setEnabled(False)
-    self._preproc_bad_segment_plot_button.setEnabled(False)
-    layout.addWidget(self._preproc_bad_segment_apply_button)
-    layout.addWidget(self._preproc_bad_segment_plot_button)
-    layout.addStretch(1)
-    return block
-
-
 def build_preproc_ecg_block(
     self,
     *,
     grid_spacing: int,
     ecg_methods: tuple[str, ...],
 ) -> QGroupBox:
-    block = IndicatorGroupBox("4. ECG Artifact Removal")
+    block = IndicatorGroupBox("2. ECG Artifact Removal")
     self._register_preproc_indicator(
         "ecg_artifact_removal", indicator=block.indicator_label()
+    )
+    self._preproc_ecg_skip_button = _create_preproc_skip_button(
+        self, "ecg_artifact_removal"
     )
     layout = QVBoxLayout(block)
     layout.setContentsMargins(8, 8, 8, 8)
@@ -275,6 +273,7 @@ def build_preproc_ecg_block(
     action_row_layout.addWidget(self._preproc_ecg_advance_button)
     action_row_layout.addWidget(self._preproc_ecg_apply_button)
     action_row_layout.addWidget(self._preproc_ecg_plot_button)
+    action_row_layout.addWidget(self._preproc_ecg_skip_button)
     action_row_layout.addStretch(1)
     layout.addWidget(action_row)
 

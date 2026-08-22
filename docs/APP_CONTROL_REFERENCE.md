@@ -419,28 +419,28 @@ The Preprocess page manages record-level signal cleanup and QC views.
 
 ### 6.1 Shared Step Semantics
 
-`Raw` and `Finish` are required. `Filter`, `Annotations`, `Bad Segment
-Removal`, and `ECG Artifact Removal` are optional and retain their displayed
-order. When an optional step is applied after one or more earlier optional
-steps were skipped, it reads the nearest earlier successful preprocess output.
-`Finish` promotes the latest successful output, including `Raw` when every
-optional step was skipped. The finished output contains zero-duration `EDGE`
-markers at the physical recording start and last sample. Bad Segment Removal
-owns only the internal `EDGE` markers created where retained signal spans are
-stitched together.
+`Raw` and `Finish` are required. `Filter`, `ECG Artifact Removal`, and
+`Annotations` are optional and retain this displayed order. An absent gray or
+checked-Skip optional step is bypassed, so each later step reads the nearest
+earlier green output. `Finish` may therefore promote Annotations, ECG,
+Filter, or Raw. The finished output contains zero-duration `EDGE` markers at
+the physical recording start and last sample. Preprocess never removes BAD
+samples or stitches retained spans; BAD and EDGE annotations remain attached to
+the continuous timeline for downstream masking.
 
-An indicator is gray when a step has not been run, green when its current
-output completed successfully, and yellow when an attempted run failed or a
-previously successful output was made stale by an earlier step. A successful
-log is also shown as yellow when its corresponding output file is missing.
-Whenever the displayed Filter indicator is yellow, each later Preprocess step
-that already has a non-gray state is also displayed yellow; a never-run gray
-step stays gray. This is a display-only projection: it does not rewrite a log
-or artifact, invalidate a result, or add a new action-blocking rule.
+An indicator is gray when a step has not been run, green when its current output
+completed successfully, and yellow when a run is pending, failed, stale, or
+invalid. Skip is an independent routing choice and never changes the owning
+indicator: a skipped step can therefore remain green or yellow. A non-skipped
+yellow step propagates yellow transitively and blocks later Apply actions; a
+skipped yellow step is bypassed and does not propagate that block. Skip retains
+existing files and run logs, records only the routing choice, and invalidates
+later results.
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | Step indicators | Show readiness or staleness for each preprocess step. | User feedback only. | Read-only. |
+| `Skip` (Filter/ECG/Annotations) | Checkable routing toggle. Checked excludes the step from downstream source selection; clicking it again clears Skip and reintroduces the unchanged underlying run state. It never changes the step indicator, artifact, run log, or pending Filter Preview. Each button remains in the owning panel's action row. | `preproc/<step>/routing.yml` and every later result. | The first click requires a green/yellow owning step and a resolved preceding route. A checked Skip remains enabled for the second click. Successful Apply also clears Skip. Clearing Skip reintroduces a yellow underlying step as a downstream blocker. |
 | `Apply` buttons | Execute the corresponding preprocess step. | Step outputs and downstream freshness. | Optional-step controls become available after Raw succeeds; Finish requires at least one valid source. |
 | `Plot` buttons | Open a plot for the current step output. | Human QC only. | Require a successful corresponding step output. |
 
@@ -457,7 +457,9 @@ or artifact, invalidate a result, or add a new action-blocking rule.
 | `Apply` (Filter) | Creates a detection-filtered review Preview and runs automatic BAD detection. It does not accept the Preview as the scientific Filter result. | Pending Filter review state only; an earlier accepted Filter generation and its downstream results are not invalidated until finalization succeeds. The complete currently visible record draft, including blank cutoffs, is retained after the action. | Requires successful Raw and valid filter parameters. A successful Apply turns Filter yellow and temporarily blocks later preprocess actions until the Preview is closed and finalized. Existing later Preprocess indicators project yellow while never-run gray indicators stay gray. |
 | `Plot` (Filter) | Opens a pending review Preview, or an existing accepted Filter result when no Preview is pending. Closing a Preview automatically refilters from the original Raw and accepts it without a confirmation dialog. Closing an accepted result refilters only after annotations or bad-channel selections changed. | Reviewed annotations, accepted Filter output, and dependent-stage freshness after a real accepted change. Independent BAD-boundary filtering and optional `EDGE_filter` marking follow the two Filter Advance controls. | Unavailable before the first successful Apply when no accepted Filter result exists. Available for a valid yellow `review_required` Preview or a green finalized result; other yellow states remain blocked. |
 | Annotation table | Shows the currently configured annotation rows. | Annotation payload. | Read-only except for row selection. |
-| `Configure...` (Annotations) | Opens the annotation editor. | Current annotation rows. | Available after Raw succeeds. |
+| `Configure...` (Annotations) | Opens the annotation editor. | Current annotation rows. | Available after Raw succeeds and the earlier Filter/ECG route is resolved, including any checked Skip. |
+| `Advance` (Annotations) | Opens the compact Annotations Advance dialog immediately from the right of `Configure...` in the first of two compact control rows. The second row contains `Apply`, `Plot`, and `Skip`, so no label is clipped at the default window width. | The current record's Annotations edge-marking policy. | Available whenever Annotations controls are available. |
+| `mark filter edges` (Annotations Advance) | When enabled, rebuilds system-owned `EDGE_filter_post_annotations` around BAD support added or expanded by Annotations Apply or Plot. | Annotations only; numeric samples and BAD support are unchanged. | Off by default. Enabled only when the selected source lineage contains a current accepted Filter generation with an exact integer support radius. |
 | `Apply` (Annotations) | Writes the configured annotations into the preprocess pipeline. Submitted onset values are seconds from the first retained sample; inherited source annotations keep their existing timing and channel scope when the rows are appended. A positive-duration row is clipped to its intersection with the Raw support, and a row with no temporal overlap is silently omitted. | Annotation output used by downstream steps. | Requires successful Raw and a structurally valid annotation set. Duration must remain finite and non-negative; onset may be negative when a positive-duration interval overlaps the Raw. Zero-duration points are retained only inside `[0,n_times/sampling_rate)`. The table, CSV, Raw, config, and log adopt the effective clipped/retained rows after a successful Apply. |
 | `Plot` (Annotations) | Plots the annotated signal. | QC only. | Requires successful annotation output. |
 
@@ -496,20 +498,17 @@ detection. Both detectors use the same remaining channel set. Filter Apply is
 blocked when no usable detection channel remains; existing BAD time intervals
 continue to participate in AutoReject threshold training.
 
-### 6.3 Bad Segment, ECG, Finish, and Visualization
+### 6.3 ECG, Finish, and Visualization
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
-| `Bad Segment Removal` indicator | Reports bad-segment removal readiness. | User feedback only. | Read-only. |
-| `Apply` (Bad Segment Removal) | Removes globally scoped positive-duration annotations whose descriptions begin with `BAD` or `EDGE`, case-insensitively; labels such as `knowledge` or `artifact BAD` and channel-specific spans are retained. It stitches the remaining signal and marks internal stitch points. | Cleaned signal for downstream steps. | Available after Raw succeeds; skipped earlier optional steps are bypassed. |
-| `Plot` (Bad Segment Removal) | Plots bad-segment-removal output. | QC only. | Requires successful bad-segment output. |
-| `Method` (ECG) | Chooses the ECG artifact-removal strategy. | ECG step parameters. | Available after Raw succeeds. |
+| `Method` (ECG) | Chooses the ECG artifact-removal strategy. | ECG step parameters. | Available after Raw succeeds and Filter is absent/gray, green, or bypassed by checked Skip. |
 | `Channels` (ECG) | Opens the ECG channel selector. | ECG channel subset. | Requires channels from the current valid ECG input source. |
-| `Advance` (ECG) | Opens method-specific ECG parameters and the shared `mark filter edges` review policy. | Current-record and global ECG defaults. The review policy is independent of template, perceive, and SVD algorithm parameters. | Available after Raw succeeds. |
-| `Apply` (ECG) | Runs ECG artifact removal. | ECG-cleaned signal. | Requires Raw and valid ECG settings; skipped earlier optional steps are bypassed. |
-| `Plot` (ECG) | Plots ECG-cleaned output and saves accepted annotation or bad-channel edits on close. With `mark filter edges` enabled, newly added or expanded `BAD*` support is surrounded by the exact accepted Filter support and recorded as `EDGE_filter_post_ecg`. | ECG annotations and downstream freshness; ECG-cleaned numeric samples are not recomputed. | Requires successful ECG output. Filter-edge marking additionally requires that the ECG result directly consumed the current accepted Filter generation; it is unavailable across a compressed or stitched intermediate timeline. Existing upstream BAD support cannot be shortened or removed here. |
+| `Advance` (ECG) | Opens method-specific ECG parameters and the shared `mark filter edges` review policy. | Current-record and global ECG defaults. The review policy is independent of template, perceive, and SVD algorithm parameters. | Available after Raw succeeds and Filter is resolved. |
+| `Apply` (ECG) | Runs ECG artifact removal. | ECG-cleaned signal. | Requires Raw, valid ECG settings, and a resolved Filter route: absent/gray, green, or bypassed by checked Skip. |
+| `Plot` (ECG) | Plots ECG-cleaned output and saves accepted annotation or bad-channel edits on close. With `mark filter edges` enabled, newly added or expanded `BAD*` support is surrounded by the exact accepted Filter support and recorded as `EDGE_filter_post_ecg`. | ECG annotations and downstream freshness; ECG-cleaned numeric samples are not recomputed. | Requires successful ECG output. Filter-edge marking requires that ECG consumed the current accepted Filter generation; when Filter is skipped the policy is disabled and false. Existing upstream BAD support cannot be shortened or removed here. |
 | `Finish` indicator | Reports readiness of the finalized preprocess output. | Downstream stage freshness. | Read-only. |
-| `Apply` (Finish) | Writes the finalized preprocess result and adds zero-duration `EDGE` markers at its physical start and last sample. | Tensor, alignment, and feature inputs. | Requires Raw or a later successful optional-step output. |
+| `Apply` (Finish) | Writes the finalized preprocess result and adds zero-duration `EDGE` markers at its physical start and last sample. | Tensor, alignment, and feature inputs. | Requires the nearest green source in priority order Annotations, ECG, Filter, Raw, with no yellow predecessor. |
 | `Plot` (Finish) | Plots the finalized preprocess output. | QC only. | Requires successful finish output. |
 | `Step` (Visualization) | Chooses which preprocess output the PSD/TFR QC views should read. | QC plotting source. | Always available once at least one eligible step exists. |
 | `Advance` (PSD) | Opens PSD plot settings. | PSD QC session/default settings. | Always available. |
@@ -569,9 +568,9 @@ may be added to or expanded during ECG review but may not be shortened or
 removed, because Filter and ECG may have intentionally skipped those samples.
 
 BUG-142/D-354 is `REPRODUCED` / `FIXED-VERIFIED`, P2. The repair applies the
-same MNE-rounded Raw-relative source-sample contract to the two formerly
-direct Preprocess masks: Filter/ECG bad-sample masks and Bad Segment Removal's
-global deletion mask. Positive annotations use clipped half-open rounded
+same MNE-rounded Raw-relative source-sample contract to Filter/ECG bad-sample
+masks and historically to the now-retired Bad Segment Removal deletion mask.
+Positive annotations use clipped half-open rounded
 support, a positive interval whose endpoints round equal is empty, and a true
 zero-duration point masks no sample. BAD/EDGE matching, channel scope, removal
 scope, surviving-annotation remapping, reports, controls, and logging remain
@@ -587,9 +586,10 @@ sealing are complete. Authoritative capture details are retained in the
 ignored iteration 033 log and evidence manifest rather than embedded in this
 tracked control reference.
 
-There is no automatic scan or freshness marker. A known affected earliest
-Filter, Bad Segment Removal, or ECG result must be explicitly applied again at
-that step; the existing dependency flow alone invalidates its later consumers.
+There is no automatic scan or freshness marker. A known affected current
+Filter or ECG result must be explicitly applied again at that step; the
+existing dependency flow alone invalidates its later consumers. Historical
+Bad Segment Removal artifacts remain inert and are not migrated or reapplied.
 Canonical zero-first-sample, on-grid, point, and unrelated results remain
 current. The separately reproduced surviving non-BAD annotation remap is
 `NEEDS-DECISION` and is not part of BUG-142.

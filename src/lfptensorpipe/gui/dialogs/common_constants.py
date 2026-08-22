@@ -42,18 +42,16 @@ TENSOR_METRIC_DEFAULTS_KEY = "metric_defaults"
 PREPROC_VIZ_STEP_ORDER = (
     "raw",
     "filter",
-    "annotations",
-    "bad_segment_removal",
     "ecg_artifact_removal",
+    "annotations",
     "finish",
 )
 PREPROC_VIZ_STEP_LABELS = {
     "raw": "0. Raw",
     "filter": "1. Filter",
-    "annotations": "2. Annotations",
-    "bad_segment_removal": "3. Bad Segment Removal",
-    "ecg_artifact_removal": "4. ECG Artifact Removal",
-    "finish": "5. Finish",
+    "ecg_artifact_removal": "2. ECG Artifact Removal",
+    "annotations": "3. Annotations",
+    "finish": "4. Finish",
 }
 TENSOR_CHANNEL_METRIC_KEYS = {"raw_power", "periodic_aperiodic", "burst"}
 TENSOR_UNDIRECTED_METRIC_KEYS = {

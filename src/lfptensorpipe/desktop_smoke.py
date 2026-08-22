@@ -388,31 +388,6 @@ def _run_reference_preproc_pipeline(
     if not ok_filter:
         raise RuntimeError(f"Filter Apply failed: {message_filter}")
 
-    annotations = (
-        preproc_snapshot.get("annotations", {})
-        if isinstance(preproc_snapshot.get("annotations"), dict)
-        else {}
-    )
-    annotation_rows = list(annotations.get("rows", []))
-    ok_annotations, message_annotations = window._run_with_busy(
-        "Annotations Apply",
-        lambda: window._apply_annotations_step_runtime(
-            context,
-            rows=annotation_rows,
-        ),
-    )
-    window._refresh_stage_states_from_context()
-    if not ok_annotations:
-        raise RuntimeError(f"Annotations Apply failed: {message_annotations}")
-
-    ok_bad_segment, message_bad_segment = window._run_with_busy(
-        "Bad Segment Apply",
-        lambda: window._apply_bad_segment_step_runtime(context),
-    )
-    window._refresh_stage_states_from_context()
-    if not ok_bad_segment:
-        raise RuntimeError(f"Bad Segment Apply failed: {message_bad_segment}")
-
     ecg_snapshot = (
         preproc_snapshot.get("ecg", {})
         if isinstance(preproc_snapshot.get("ecg"), dict)
@@ -422,6 +397,11 @@ def _run_reference_preproc_pipeline(
     params_by_method = ecg_snapshot.get("params_by_method", {})
     ecg_method_kwargs = (
         params_by_method.get(ecg_method) if isinstance(params_by_method, dict) else None
+    )
+    ecg_review = (
+        ecg_snapshot.get("review", {})
+        if isinstance(ecg_snapshot.get("review"), dict)
+        else {}
     )
     ok_ecg, message_ecg = window._run_with_busy(
         "ECG Apply",
@@ -436,11 +416,30 @@ def _run_reference_preproc_pipeline(
             method_kwargs=(
                 dict(ecg_method_kwargs) if isinstance(ecg_method_kwargs, dict) else None
             ),
+            mark_filter_edges=bool(ecg_review.get("mark_filter_edges", False)),
         ),
     )
     window._refresh_stage_states_from_context()
     if not ok_ecg:
         raise RuntimeError(f"ECG Apply failed: {message_ecg}")
+
+    annotations = (
+        preproc_snapshot.get("annotations", {})
+        if isinstance(preproc_snapshot.get("annotations"), dict)
+        else {}
+    )
+    annotation_rows = list(annotations.get("rows", []))
+    ok_annotations, message_annotations = window._run_with_busy(
+        "Annotations Apply",
+        lambda: window._apply_annotations_step_runtime(
+            context,
+            rows=annotation_rows,
+            mark_filter_edges=bool(annotations.get("mark_filter_edges", False)),
+        ),
+    )
+    window._refresh_stage_states_from_context()
+    if not ok_annotations:
+        raise RuntimeError(f"Annotations Apply failed: {message_annotations}")
 
     ok_finish, message_finish = window._run_with_busy(
         "Finish Apply",
@@ -1863,29 +1862,6 @@ def run_smoke_preproc_ui(project_root: str, subject: str, record: str) -> int:
             )
         _run_raw_plot_subprocess(filter_path)
 
-        window._on_preproc_annotations_edit()
-        if warnings:
-            raise RuntimeError(f"Annotations Configure failed: {warnings[-1]}")
-        window._on_preproc_annotations_save()
-        annotations_path = _expected_preproc_plot_path(context, "annotations")
-        if not annotations_path.exists():
-            raise RuntimeError(f"Annotations output is missing: {annotations_path}")
-        if "Annotations OK:" not in window.statusBar().currentMessage():
-            raise RuntimeError(
-                f"Annotations Apply failed: {window.statusBar().currentMessage()}"
-            )
-        _run_raw_plot_subprocess(annotations_path)
-
-        window._on_preproc_bad_segment_apply()
-        bad_segment_path = _expected_preproc_plot_path(context, "bad_segment_removal")
-        if not bad_segment_path.exists():
-            raise RuntimeError(f"Bad Segment output is missing: {bad_segment_path}")
-        if "Bad Segment OK:" not in window.statusBar().currentMessage():
-            raise RuntimeError(
-                f"Bad Segment Apply failed: {window.statusBar().currentMessage()}"
-            )
-        _run_raw_plot_subprocess(bad_segment_path)
-
         window._on_preproc_ecg_advance()
         if "updated" not in window.statusBar().currentMessage().lower():
             raise RuntimeError(
@@ -1939,6 +1915,20 @@ def run_smoke_preproc_ui(project_root: str, subject: str, record: str) -> int:
             _run_raw_plot_subprocess(
                 _expected_preproc_plot_path(context, "ecg_artifact_removal")
             )
+
+        warnings_before = len(warnings)
+        window._on_preproc_annotations_edit()
+        if len(warnings) != warnings_before:
+            raise RuntimeError(f"Annotations Configure failed: {warnings[-1]}")
+        window._on_preproc_annotations_save()
+        annotations_path = _expected_preproc_plot_path(context, "annotations")
+        if not annotations_path.exists():
+            raise RuntimeError(f"Annotations output is missing: {annotations_path}")
+        if "Annotations OK:" not in window.statusBar().currentMessage():
+            raise RuntimeError(
+                f"Annotations Apply failed: {window.statusBar().currentMessage()}"
+            )
+        _run_raw_plot_subprocess(annotations_path)
 
         window._on_preproc_finish_apply()
         finish_path = _expected_preproc_plot_path(context, "finish")

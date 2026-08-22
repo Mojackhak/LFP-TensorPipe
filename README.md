@@ -111,8 +111,10 @@ by the selected trial in `Align Epochs`. `Localize` is separate.
   JSON payloads, not whole projects.
 - In `Import Record`, `Confirm Import` stays disabled until required `Sync` and
   `Reset Reference` settings are saved.
-- In `Preprocess`, `Filter -> Plot` is where you review and edit `bad` spans,
-  while `Annotations` is where you manage named event annotations.
+- Preprocess keeps one continuous timeline in the order `Raw -> Filter -> ECG
+  Artifact Removal -> Annotations -> Finish`. Filter, ECG, and Annotations can
+  be skipped without deleting their retained outputs; BAD/EDGE annotations are
+  masked downstream instead of being physically removed and stitched.
 - `Localize` atlas choices are discovered from the configured Lead-DBS
   installation for the current subject space.
 - When `Localize` is green, `Align Epochs -> Finish` attempts to merge the

@@ -477,6 +477,10 @@ def apply_ecg_step(
         )
         if not valid_review:
             raise ValueError(f"Invalid ECG review parameters: {review_message}")
+        if review_params["mark_filter_edges"] and source_step != "filter":
+            raise ValueError(
+                "mark filter edges requires ECG to consume the current Filter result."
+            )
 
         selected_picks = list(picks) if picks is not None else None
         if selected_picks is not None and not selected_picks:

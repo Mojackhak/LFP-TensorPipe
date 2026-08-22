@@ -19,9 +19,6 @@ from .steps.annotations import (
     _normalize_annotation_rows,
     annotation_log_has_current_support_semantics,
 )
-from .steps.bad_segment import (
-    bad_segment_log_has_current_match_semantics,
-)
 from .steps.ecg import normalize_ecg_method_params, normalize_ecg_review_params
 from .steps.filter import (
     FILTER_EPOCH_COVERAGE_SEMANTICS,
@@ -106,10 +103,6 @@ def preproc_step_indicator_state(resolver: PathResolver, step: str) -> str:
         return state
     assert payload is not None
     if not preproc_step_lineage_is_current(resolver, step):
-        return "yellow"
-    if step == "bad_segment_removal" and not (
-        bad_segment_log_has_current_match_semantics(payload)
-    ):
         return "yellow"
     return "green"
 
@@ -288,6 +281,7 @@ def preproc_annotations_panel_state(
     resolver: PathResolver,
     *,
     rows: list[dict[str, Any]],
+    mark_filter_edges: Any = False,
 ) -> str:
     """Return `gray|yellow|green` for the editable Annotations panel."""
     payload = _read_payload(_step_log_path(resolver, "annotations"))
@@ -301,13 +295,23 @@ def preproc_annotations_panel_state(
         return "yellow"
     if not annotation_log_has_current_support_semantics(payload):
         return "yellow"
+    params = payload.get("params")
+    completed_mark_filter_edges = (
+        params.get("mark_filter_edges", False) if isinstance(params, dict) else None
+    )
+    if not isinstance(mark_filter_edges, bool) or not isinstance(
+        completed_mark_filter_edges, bool
+    ):
+        return "yellow"
     completed_signature = _read_annotations_csv_signature(resolver)
     if completed_signature is None:
         return "yellow"
     current_signature = _annotations_signature(rows)
     if current_signature is None:
         return "yellow"
-    return "green" if current_signature == completed_signature else "yellow"
+    if current_signature != completed_signature:
+        return "yellow"
+    return "green" if mark_filter_edges == completed_mark_filter_edges else "yellow"
 
 
 def _normalize_ecg_signature(

@@ -9,8 +9,8 @@ from __future__ import annotations
 from .service import (
     ECG_METHODS,
     FINISH_SOURCE_PRIORITY,
+    OPTIONAL_PREPROC_STEPS,
     PREPROC_STEPS,
-    apply_bad_segment_step,
     apply_annotations_step,
     apply_ecg_step,
     apply_filter_step,
@@ -35,9 +35,11 @@ from .service import (
     preproc_filter_preview_raw_path,
     preproc_step_log_path,
     preproc_step_raw_path,
+    preproc_step_routing_path,
     rawdata_input_fif_path,
     resolve_finish_source,
     resolve_preproc_step_source,
+    skip_preproc_step,
     write_preproc_step_config,
 )
 from .indicator import (
@@ -47,12 +49,13 @@ from .indicator import (
     preproc_filter_review_required,
     preproc_step_indicator_state,
 )
+from .lineage import preproc_step_is_skipped
 
 __all__ = [
     "ECG_METHODS",
     "FINISH_SOURCE_PRIORITY",
+    "OPTIONAL_PREPROC_STEPS",
     "PREPROC_STEPS",
-    "apply_bad_segment_step",
     "apply_annotations_step",
     "apply_ecg_step",
     "apply_filter_step",
@@ -77,6 +80,8 @@ __all__ = [
     "preproc_filter_preview_raw_path",
     "preproc_step_log_path",
     "preproc_step_raw_path",
+    "preproc_step_routing_path",
+    "preproc_step_is_skipped",
     "preproc_annotations_panel_state",
     "preproc_ecg_panel_state",
     "preproc_filter_panel_state",
@@ -85,5 +90,6 @@ __all__ = [
     "rawdata_input_fif_path",
     "resolve_finish_source",
     "resolve_preproc_step_source",
+    "skip_preproc_step",
     "write_preproc_step_config",
 ]

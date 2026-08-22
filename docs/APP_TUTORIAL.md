@@ -327,11 +327,10 @@ section:
 | Step | Purpose | Demo action | Feeds |
 |---|---|---|---|
 | `0. Raw` | Confirm that the imported raw signal, markers, and duration entered the project correctly | run | filter QC |
-| `1. Filter` | Apply core band-pass and demo-specific notch filtering, and annotate bad spans | run | annotations and bad-span QC |
-| `2. Annotations` | Write manually labeled gait events onto the filtered time axis | run | alignment anchors and feature timing |
-| `3. Bad Segment Removal` | Remove bad spans and mark internal stitch points in the remaining valid signal | run | finish output |
-| `4. ECG Artifact Removal` | Optionally suppress residual cardiac contamination | skip | finish output when needed |
-| `5. Finish` | Export the finalized result with physical start/end edge markers | run | tensor, align, features |
+| `1. Filter` | Apply core band-pass and demo-specific notch filtering, and annotate bad spans | run | ECG and annotation QC |
+| `2. ECG Artifact Removal` | Optionally suppress residual cardiac contamination | skip | annotations when needed |
+| `3. Annotations` | Write manually labeled gait events and final BAD intervals onto the current continuous time axis | run | alignment anchors and feature timing |
+| `4. Finish` | Export the finalized result with physical start/end edge markers | run | tensor, align, features |
 | `Visualization` | Show PSD/TFR QC without rewriting the data | run as needed | manual QC only |
 
 The validated preprocess path for this demo is:
@@ -339,11 +338,10 @@ The validated preprocess path for this demo is:
 1. `Raw -> Apply`
 2. `Filter -> Apply`
 3. `Filter -> Plot` for manual QC
-4. `Annotations -> Configure... -> Apply`
-5. `Bad Segment Removal -> Apply`
-6. skip `ECG Artifact Removal`
-7. `Finish -> Apply`
-8. `Visualization` QC with PSD and TFR plots
+4. leave `ECG Artifact Removal` gray/skipped for this clean demo
+5. `Annotations -> Configure... -> Apply`
+6. `Finish -> Apply`
+7. `Visualization` QC with PSD and TFR plots
 
 ### 5.1 Step 0: Raw
 
@@ -486,59 +484,7 @@ For connectivity metrics, it masks only pairs containing that channel. An
 annotation with no channel assignment remains global.
 
 
-### 5.3 Step 2: Import Annotations
-
-This step writes the manually labeled gait events onto the filtered signal
-timeline. In this demo, those annotations later define the alignment anchors
-and feature windows.
-
-Open `Annotations -> Configure...`.
-
-![Configure Annotations dialog.](assets/app-tutorial/figure-16-configure-annotations-dialog.png)
-
-Import:
-
-- `<demo-project-root>/dataset/sub-001-gait/annotations.csv`
-
-Then click `Apply`.
-
-Every imported row is interpreted in seconds from the first retained sample of
-the current source Raw. Apply intersects each positive-duration interval with
-the record-relative half-open support `[0,n_times/sampling_rate)`. A partial
-overlap is silently clipped, while an interval with no overlap is omitted. A
-zero-duration point is retained only when its onset lies inside that support;
-otherwise it is omitted. After Apply, the table and `annotations.csv` show the
-effective clipped/retained rows written to the Raw.
-
-The below figure is the plot for `Preprocess Signal 2.Annotations`.
-
-![Preprocess plot for step 2 (Annotations).](assets/app-tutorial/figure-17-preprocess-step-2-annotations-browser.png)
-
-At this stage the manually labeled gait events should be visible together with
-the filtered signal.
-
-### 5.4 Step 3: Bad Segment Removal
-
-This step removes previously marked bad spans and stitches the remaining valid
-signal into a clean continuous stream. In this demo, that stitched output is
-the last cleaning step before the record is finalized. Internal `EDGE` markers
-identify the stitch points created by removed spans; this step does not add the
-physical recording-start or recording-end markers.
-
-Removal labels must begin with `BAD` or `EDGE` (letter case is ignored), for
-example `BAD_artifact` or `EDGE_filter`. Descriptions that only contain those
-letters later in the label, such as `knowledge` or `artifact BAD`, remain
-ordinary annotations and do not cause signal samples to be deleted.
-
-Click `Bad Segment Removal -> Apply`.
-
-The below figure is the plot for `Preprocess Signal 3.Bad Segment Removal`.
-
-![Preprocess plot for step 3 (Bad Segment Removal).](assets/app-tutorial/figure-18-preprocess-step-3-bad-segment-browser.png)
-
-This is the cleaned signal that feeds the rest of the tutorial.
-
-### 5.5 Step 4: ECG Artifact Removal
+### 5.3 Step 2: ECG Artifact Removal
 
 This step is an optional cleanup pass for residual cardiac contamination. It is skipped in the demo, as no such contamination is present.
 
@@ -557,28 +503,72 @@ with `BAD`, using the same case-insensitive prefix rule as MNE. For example,
 annotation descriptions and channel scopes are preserved.
 
 After ECG Apply, use ECG Plot to inspect residual cardiac contamination. BAD
-support added or expanded in that browser did not exist when the direct Filter
-input was created. On close, `mark filter edges` optionally expands only this
-new support by the exact accepted Filter FIR radius and records the adjacent
-support as `EDGE_filter_post_ecg`. It does not mark every detected heartbeat or
-the template/SVD correction windows. Existing Filter-input BAD support cannot
-be shortened or removed in ECG Plot; return to Filter Plot and rerun Filter and
-ECG when that review decision changes. The edge option requires ECG to have
-consumed the current Filter result directly and is not applied across a
-Bad-Segment-Removal stitch timeline.
+support added or expanded in that browser did not exist when the Filter input
+was created. On close, `mark filter edges` optionally expands only this new
+support by the exact accepted Filter FIR radius and records the adjacent support
+as `EDGE_filter_post_ecg`. It does not mark every detected heartbeat or the
+template/SVD correction windows. Existing Filter-input BAD support cannot be
+shortened or removed in ECG Plot; return to Filter Plot and rerun Filter and ECG
+when that review decision changes. When Filter is skipped, ECG consumes Raw and
+its `mark filter edges` policy is disabled.
 
-### 5.6 Step 5: Finish
+If ECG was run previously but should no longer participate, press the compact
+`Skip` button at the end of its panel action row. Its checked state bypasses ECG
+without changing the ECG indicator, artifact, or run log. Annotations and Finish
+become stale until they are applied again from the new earlier source. Click the
+checked button again to reintroduce the unchanged ECG result; if that result is
+yellow, it resumes blocking later steps. A successful ECG Apply also clears
+Skip. Filter and Annotations use the same reversible in-panel toggle.
+
+### 5.4 Step 3: Import Annotations
+
+This step writes manually labeled gait events and final BAD intervals onto the
+current continuous signal timeline. In this demo, event annotations later
+define the alignment anchors and feature windows.
+
+Open `Annotations -> Configure...`.
+
+![Configure Annotations dialog.](assets/app-tutorial/figure-16-configure-annotations-dialog.png)
+
+Import:
+
+- `<demo-project-root>/dataset/sub-001-gait/annotations.csv`
+
+Then click `Apply`.
+
+Every imported row is interpreted in seconds from the first sample of the
+current source Raw. Apply intersects each positive-duration interval with the
+record-relative half-open support `[0,n_times/sampling_rate)`. A partial overlap
+is silently clipped, while an interval with no overlap is omitted. A
+zero-duration point is retained only when its onset lies inside that support;
+otherwise it is omitted. After Apply, the table and `annotations.csv` show the
+effective clipped/retained rows written to the Raw.
+
+Use `Annotations -> Advance`, immediately to the right of `Configure...` on the
+first compact control row, to set the default-off `mark filter edges` policy.
+The second row contains `Apply`, `Plot`, and `Skip`. The policy applies to BAD support added
+or expanded by Annotations Apply or Plot. When enabled, it uses the exact Filter
+generation in the current source lineage and writes
+`EDGE_filter_post_annotations`; it does not refilter data or change BAD
+support. The policy is disabled when Filter was skipped.
+
+The existing annotation screenshot predates the renumbering but shows the same
+MNE annotation-review interaction:
+
+![Preprocess plot for Annotations.](assets/app-tutorial/figure-17-preprocess-step-2-annotations-browser.png)
+
+### 5.5 Step 4: Finish
 
 This step exports the finalized preprocess result that downstream modules read.
-In this demo, `Finish -> Apply` promotes the `Bad Segment Removal` output, so
-Tensor, Align, and Features all start from the same cleaned record. Finish also
-adds zero-duration `EDGE` markers at the physical recording start and the last
-sample, regardless of which optional preprocess steps were run.
+In this demo, `Finish -> Apply` promotes the Annotations output, so Tensor,
+Align, and Features all start from the same continuous record. Finish adds
+zero-duration `EDGE` markers at the physical recording start and last sample,
+regardless of which optional preprocess steps were run.
 
 After skipping ECG cleanup in this walkthrough, go directly to `Finish ->
 Apply`.
 
-### 5.7 PSD and TFR QC
+### 5.6 PSD and TFR QC
 
 These QC views let you inspect the cleaned signal in the frequency domain
 without changing any saved preprocess artifact. In this demo, they are the last
@@ -588,9 +578,8 @@ The below figure shows PSD QC on the `0. Raw`.
 
 ![PSD QC for the raw snapshot.](assets/app-tutorial/figure-19-preprocess-psd-raw.png)
 
-The figure shows PSD QC on the cleaned `3. Bad Segment Removal`.
-
-![PSD QC for the cleaned snapshot.](assets/app-tutorial/figure-20-preprocess-psd-bad-segment.png)
+For cleaned-signal QC, select `4. Finish` after Finish Apply. The obsolete Bad
+Segment Removal snapshot is no longer an eligible Visualization source.
 
 The figure shows the TFR visualization parameters dialog.
 

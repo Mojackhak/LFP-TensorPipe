@@ -49,7 +49,7 @@ class MainWindowRecordParamsSnapshotLogsMixin:
                     "basic": dict(self._load_filter_basic_defaults()),
                     "advance": dict(self._load_filter_advance_defaults()),
                 },
-                "annotations": {"rows": []},
+                "annotations": {"rows": [], "mark_filter_edges": False},
                 "ecg": {
                     "method": "svd",
                     "selected_channels": [],
@@ -153,6 +153,13 @@ class MainWindowRecordParamsSnapshotLogsMixin:
             ok_rows, rows, _ = load_annotations_csv_rows(annotations_csv)
             if ok_rows:
                 snapshot["preproc"]["annotations"]["rows"] = rows
+        annotations_params = self._read_completed_log_params(
+            resolver.preproc_root / "annotations" / "lfptensorpipe_log.json"
+        )
+        if isinstance(annotations_params.get("mark_filter_edges"), bool):
+            snapshot["preproc"]["annotations"]["mark_filter_edges"] = (
+                annotations_params["mark_filter_edges"]
+            )
 
         ecg_params = self._read_completed_log_params(
             resolver.preproc_root / "ecg_artifact_removal" / "lfptensorpipe_log.json"

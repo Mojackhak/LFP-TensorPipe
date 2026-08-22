@@ -17,18 +17,15 @@ from .paths import (
     preproc_step_config_path as _preproc_step_config_path_impl,
     preproc_step_log_path as _preproc_step_log_path_impl,
     preproc_step_raw_path as _preproc_step_raw_path_impl,
+    preproc_step_routing_path as _preproc_step_routing_path_impl,
     rawdata_input_fif_path as _rawdata_input_fif_path_impl,
+    write_preproc_step_routing as _write_preproc_step_routing_impl,
     write_preproc_step_config as _write_preproc_step_config_impl,
 )
 from .steps.annotations import (
     _normalize_annotation_rows as _normalize_annotation_rows_impl,
-    annotation_log_has_current_support_semantics,
     apply_annotations_step as _apply_annotations_step_impl,
     load_annotations_csv_rows as _load_annotations_csv_rows_impl,
-)
-from .steps.bad_segment import (
-    apply_bad_segment_step as _apply_bad_segment_step_impl,
-    bad_segment_log_has_current_match_semantics,
 )
 from .steps.ecg import (
     apply_ecg_step as _apply_ecg_step_impl,
@@ -40,16 +37,12 @@ from .steps.ecg import (
     normalize_ecg_params_by_method as _normalize_ecg_params_by_method_impl,
     normalize_ecg_review_params as _normalize_ecg_review_params_impl,
 )
-from .steps.finish import (
-    apply_finish_step as _apply_finish_step_impl,
-    resolve_finish_source as _resolve_finish_source_impl,
-)
+from .steps.finish import apply_finish_step as _apply_finish_step_impl
 from .steps.filter import (
     _normalize_notch_widths as _normalize_notch_widths_impl,
     apply_filter_step as _apply_filter_step_impl,
     finalize_filter_review as _finalize_filter_review_impl,
     default_filter_advance_params as _default_filter_advance_params_impl,
-    filter_log_has_current_bad_channel_detection_semantics,
     filter_nyquist_warning as _filter_nyquist_warning_impl,
     normalize_filter_advance_params as _normalize_filter_advance_params_impl,
     normalize_filter_runtime_params as _normalize_filter_runtime_params_impl,
@@ -60,24 +53,29 @@ from .indicator import (
     preproc_ecg_panel_state as _preproc_ecg_panel_state_impl,
     preproc_filter_panel_state as _preproc_filter_panel_state_impl,
     preproc_filter_review_required as _preproc_filter_review_required_impl,
+    preproc_step_indicator_state as _preproc_step_indicator_state_impl,
 )
-from .lineage import preproc_step_lineage_is_current
+from .lineage import capture_preproc_input_generation, preproc_step_is_skipped
 
 logger = logging.getLogger(__name__)
 
 PREPROC_STEPS = (
     "raw",
     "filter",
-    "annotations",
-    "bad_segment_removal",
     "ecg_artifact_removal",
+    "annotations",
     "finish",
 )
 
-FINISH_SOURCE_PRIORITY = (
+OPTIONAL_PREPROC_STEPS = (
+    "filter",
     "ecg_artifact_removal",
-    "bad_segment_removal",
     "annotations",
+)
+
+FINISH_SOURCE_PRIORITY = (
+    "annotations",
+    "ecg_artifact_removal",
     "filter",
     "raw",
 )
@@ -188,6 +186,10 @@ def preproc_step_log_path(resolver: PathResolver, step: str) -> Path:
 
 def preproc_step_config_path(resolver: PathResolver, step: str) -> Path:
     return _preproc_step_config_path_impl(resolver, step)
+
+
+def preproc_step_routing_path(resolver: PathResolver, step: str) -> Path:
+    return _preproc_step_routing_path_impl(resolver, step)
 
 
 def preproc_filter_preview_raw_path(resolver: PathResolver) -> Path:
@@ -319,71 +321,58 @@ def resolve_preproc_step_source(
         raise ValueError("Raw does not have a preprocess source step.")
 
     resolver = PathResolver(context)
-    filter_index = PREPROC_STEPS.index("filter")
-    if target_index > filter_index and preproc_filter_review_required(resolver):
+    captured = capture_preproc_input_generation(resolver, target_step)
+    if captured is None:
         return None
+    source_step, _ = captured
+    source_path = preproc_step_raw_path(resolver, source_step)
+    if read_run_log_fn is not None:
+        payload = read_run_log_fn(preproc_step_log_path(resolver, source_step))
+        if not isinstance(payload, dict) or payload.get("completed") is not True:
+            return None
+    return source_step, source_path
 
-    runtime_read_run_log = read_run_log_fn or read_run_log
-    filter_log_path = (
-        resolver.preproc_step_dir("filter", create=False) / "lfptensorpipe_log.json"
-    )
-    annotations_log_path = (
-        resolver.preproc_step_dir("annotations", create=False)
-        / "lfptensorpipe_log.json"
-    )
-    bad_segment_log_path = (
-        resolver.preproc_step_dir("bad_segment_removal", create=False)
-        / "lfptensorpipe_log.json"
-    )
 
-    def read_current_source_log(path: Path) -> dict[str, Any] | None:
-        payload = runtime_read_run_log(path)
+def skip_preproc_step(context: RecordContext, step: str) -> tuple[bool, str]:
+    """Toggle independent routing around one optional Preprocess step."""
+    if step not in OPTIONAL_PREPROC_STEPS:
+        raise ValueError(f"Preprocess step cannot be skipped: {step}")
+    resolver = PathResolver(context)
+    currently_skipped = preproc_step_is_skipped(resolver, step)
+    if not currently_skipped:
+        preview_pending = step == "filter" and preproc_filter_review_required(resolver)
         if (
-            path == filter_log_path
-            and isinstance(payload, dict)
-            and bool(payload.get("completed"))
-            and not filter_log_has_current_bad_channel_detection_semantics(payload)
+            _preproc_step_indicator_state_impl(resolver, step) == "gray"
+            and not preview_pending
         ):
-            stale_payload = dict(payload)
-            stale_payload["completed"] = False
-            return stale_payload
-        if (
-            path == annotations_log_path
-            and isinstance(payload, dict)
-            and bool(payload.get("completed"))
-            and not annotation_log_has_current_support_semantics(payload)
-        ):
-            stale_payload = dict(payload)
-            stale_payload["completed"] = False
-            return stale_payload
-        if (
-            path == bad_segment_log_path
-            and isinstance(payload, dict)
-            and bool(payload.get("completed"))
-            and not bad_segment_log_has_current_match_semantics(payload)
-        ):
-            stale_payload = dict(payload)
-            stale_payload["completed"] = False
-            return stale_payload
-        if (
-            isinstance(payload, dict)
-            and bool(payload.get("completed"))
-            and path.parent.name in PREPROC_STEPS
-            and not preproc_step_lineage_is_current(resolver, path.parent.name)
-        ):
-            stale_payload = dict(payload)
-            stale_payload["completed"] = False
-            return stale_payload
-        return payload
+            return False, f"{step} has no run state to skip."
+        if capture_preproc_input_generation(resolver, step) is None:
+            return (
+                False,
+                f"{step} cannot be skipped while an earlier step is unresolved.",
+            )
 
-    return _resolve_finish_source_impl(
-        context,
-        source_priority=tuple(reversed(PREPROC_STEPS[:target_index])),
-        preproc_step_raw_path_fn=preproc_step_raw_path,
-        preproc_step_log_path_fn=preproc_step_log_path,
-        read_run_log_fn=read_current_source_log,
-        required_step="raw",
+    new_skipped = not currently_skipped
+    _write_preproc_step_routing_impl(
+        resolver=resolver,
+        step=step,
+        skipped=new_skipped,
     )
+    invalidate_downstream_preproc_steps(context, step)
+    action = "Skipped" if new_skipped else "Restored"
+    return True, f"{action} preprocess step routing: {step}."
+
+
+def _clear_preproc_step_skip(context: RecordContext, step: str) -> bool:
+    resolver = PathResolver(context)
+    if not preproc_step_is_skipped(resolver, step):
+        return False
+    _write_preproc_step_routing_impl(
+        resolver=resolver,
+        step=step,
+        skipped=False,
+    )
+    return True
 
 
 def apply_finish_step(
@@ -427,6 +416,8 @@ def apply_filter_step(
         read_raw_fif_fn=read_raw_fif_fn,
         mark_lfp_bad_segments_fn=mark_lfp_bad_segments_fn,
     )
+    if ok and _clear_preproc_step_skip(context, "filter"):
+        invalidate_downstream_preproc_steps(context, "filter")
     return ok, message
 
 
@@ -439,7 +430,7 @@ def finalize_filter_review(
     finalize_reviewed_filter_fn: Any | None = None,
     review_source_is_current_fn: Any | None = None,
 ) -> tuple[bool, str]:
-    return _finalize_filter_review_impl(
+    ok, message = _finalize_filter_review_impl(
         context,
         reviewed_annotations=reviewed_annotations,
         reviewed_bads=reviewed_bads,
@@ -449,22 +440,8 @@ def finalize_filter_review(
         finalize_reviewed_filter_fn=finalize_reviewed_filter_fn,
         review_source_is_current_fn=review_source_is_current_fn,
     )
-
-
-def apply_bad_segment_step(
-    context: RecordContext,
-    *,
-    read_raw_fif_fn: Any | None = None,
-    filter_lfp_with_bad_annotations_fn: Any | None = None,
-) -> tuple[bool, str]:
-    ok, message = _apply_bad_segment_step_impl(
-        context,
-        source=resolve_preproc_step_source(context, "bad_segment_removal"),
-        mark_preproc_step_fn=mark_preproc_step,
-        invalidate_downstream_fn=invalidate_downstream_preproc_steps,
-        read_raw_fif_fn=read_raw_fif_fn,
-        filter_lfp_with_bad_annotations_fn=filter_lfp_with_bad_annotations_fn,
-    )
+    if ok:
+        _clear_preproc_step_skip(context, "filter")
     return ok, message
 
 
@@ -491,6 +468,8 @@ def apply_ecg_step(
         read_raw_fif_fn=read_raw_fif_fn,
         raw_call_ecgremover_fn=raw_call_ecgremover_fn,
     )
+    if ok:
+        _clear_preproc_step_skip(context, "ecg_artifact_removal")
     return ok, message
 
 
@@ -508,6 +487,7 @@ def apply_annotations_step(
     context: RecordContext,
     *,
     rows: list[dict[str, Any]],
+    mark_filter_edges: bool = False,
     read_raw_fif_fn: Any | None = None,
     copy2_fn: Any | None = None,
 ) -> tuple[bool, str]:
@@ -515,11 +495,14 @@ def apply_annotations_step(
         context,
         source=resolve_preproc_step_source(context, "annotations"),
         rows=rows,
+        mark_filter_edges=mark_filter_edges,
         mark_preproc_step_fn=mark_preproc_step,
         invalidate_downstream_fn=invalidate_downstream_preproc_steps,
         read_raw_fif_fn=read_raw_fif_fn,
         copy2_fn=copy2_fn,
     )
+    if ok:
+        _clear_preproc_step_skip(context, "annotations")
     return ok, message
 
 
@@ -548,8 +531,13 @@ def preproc_annotations_panel_state(
     resolver: PathResolver,
     *,
     rows: list[dict[str, Any]],
+    mark_filter_edges: Any = False,
 ) -> str:
-    return _preproc_annotations_panel_state_impl(resolver, rows=rows)
+    return _preproc_annotations_panel_state_impl(
+        resolver,
+        rows=rows,
+        mark_filter_edges=mark_filter_edges,
+    )
 
 
 def preproc_ecg_panel_state(

@@ -46,6 +46,7 @@ from lfptensorpipe.gui.shell.common import (
     shutdown_matlab_runtime,
 )
 from lfptensorpipe.gui.dialogs.annotation_configure import AnnotationConfigureDialog
+from lfptensorpipe.gui.dialogs.annotations_advance import AnnotationsAdvanceDialog
 from lfptensorpipe.gui.dialogs.alignment_method_params import (
     AlignmentMethodParamsDialog,
 )
@@ -85,6 +86,7 @@ from lfptensorpipe.gui.shell import main_window_layout as _main_window_layout
 
 __all__ = [
     "AnnotationConfigureDialog",
+    "AnnotationsAdvanceDialog",
     "AlignmentMethodParamsDialog",
     "_CloseAutosaveFilter",
     "BaselineRangeConfigureDialog",
@@ -182,16 +184,18 @@ class MainWindow(
         self._preproc_filter_advance_button: QPushButton | None = None
         self._preproc_filter_apply_button: QPushButton | None = None
         self._preproc_filter_plot_button: QPushButton | None = None
+        self._preproc_filter_skip_button: QPushButton | None = None
         self._preproc_filter_notches_edit: QLineEdit | None = None
         self._preproc_filter_low_freq_edit: QLineEdit | None = None
         self._preproc_filter_high_freq_edit: QLineEdit | None = None
         self._preproc_annotations_table: QTableWidget | None = None
         self._preproc_annotations_edit_button: QPushButton | None = None
+        self._preproc_annotations_advance_button: QPushButton | None = None
         self._preproc_annotations_save_button: QPushButton | None = None
         self._preproc_annotations_import_button: QPushButton | None = None
         self._preproc_annotations_plot_button: QPushButton | None = None
-        self._preproc_bad_segment_apply_button: QPushButton | None = None
-        self._preproc_bad_segment_plot_button: QPushButton | None = None
+        self._preproc_annotations_skip_button: QPushButton | None = None
+        self._preproc_annotations_mark_filter_edges: bool = False
         self._preproc_ecg_method_combo: QComboBox | None = None
         self._preproc_ecg_channels_button: QPushButton | None = None
         self._preproc_ecg_available_channels: tuple[str, ...] = ()
@@ -199,6 +203,7 @@ class MainWindow(
         self._preproc_ecg_advance_button: QPushButton | None = None
         self._preproc_ecg_apply_button: QPushButton | None = None
         self._preproc_ecg_plot_button: QPushButton | None = None
+        self._preproc_ecg_skip_button: QPushButton | None = None
         self._preproc_ecg_params_warnings_shown: set[str] = set()
         self._preproc_finish_apply_button: QPushButton | None = None
         self._preproc_finish_plot_button: QPushButton | None = None

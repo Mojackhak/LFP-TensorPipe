@@ -96,16 +96,6 @@ def _on_preproc_annotations_plot(self) -> None:
     )
 
 
-def _on_preproc_bad_segment_plot(self) -> None:
-    _open_step_plot(
-        self,
-        step="bad_segment_removal",
-        missing_message="Bad Segment Plot unavailable: bad_segment_removal/raw.fif is missing.",
-        title_prefix="Bad Segment",
-        autosave_step="bad_segment_removal",
-    )
-
-
 def _on_preproc_ecg_plot(self) -> None:
     _open_step_plot(
         self,

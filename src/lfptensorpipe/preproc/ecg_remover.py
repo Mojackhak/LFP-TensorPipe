@@ -57,6 +57,7 @@ logger.addHandler(logging.NullHandler())
 Orientation = Literal["positive", "negative"]
 MethodName = Literal["template", "perceive", "svd"]
 ECG_FILTER_EDGE_DESCRIPTION = "EDGE_filter_post_ecg"
+ANNOTATIONS_FILTER_EDGE_DESCRIPTION = "EDGE_filter_post_annotations"
 
 
 class ECGRemovalError(ValueError):
@@ -1857,37 +1858,51 @@ def _ecg_edge_rows(
     return rows
 
 
-def finalize_reviewed_ecg_annotations(
+def finalize_reviewed_bad_annotations(
     source_raw: Any,
     reviewed_raw: Any,
     *,
     mark_filter_edges: bool,
+    edge_description: str,
+    review_label: str,
     filter_support_radius_samples: int | None = None,
 ) -> Any:
-    """Validate reviewed BAD support and deterministically rebuild ECG edges."""
+    """Validate reviewed BAD support and rebuild one owned edge label."""
     try:
         import mne  # type: ignore
     except Exception as exc:  # pragma: no cover
         raise ImportError(
-            "mne is required for finalize_reviewed_ecg_annotations()."
+            "mne is required for finalize_reviewed_bad_annotations()."
         ) from exc
     from lfptensorpipe.preproc.filter import _set_annotations_from_attached_frame
 
     if not isinstance(mark_filter_edges, bool):
         raise ValueError("mark_filter_edges must be a boolean.")
+    normalized_review_label = str(review_label).strip()
+    normalized_edge_description = str(edge_description).strip()
+    if not normalized_review_label or not normalized_edge_description:
+        raise ValueError("review_label and edge_description must be non-empty.")
     if tuple(source_raw.ch_names) != tuple(reviewed_raw.ch_names):
-        raise ValueError("ECG review channels no longer match the accepted input.")
+        raise ValueError(
+            f"{normalized_review_label} review channels no longer match the accepted input."
+        )
     if int(source_raw.n_times) != int(reviewed_raw.n_times):
-        raise ValueError("ECG review length no longer matches the accepted input.")
+        raise ValueError(
+            f"{normalized_review_label} review length no longer matches the accepted input."
+        )
     if float(source_raw.info["sfreq"]) != float(reviewed_raw.info["sfreq"]):
-        raise ValueError("ECG review sampling rate no longer matches the input.")
+        raise ValueError(
+            f"{normalized_review_label} review sampling rate no longer matches the input."
+        )
     if int(source_raw.first_samp) != int(reviewed_raw.first_samp):
-        raise ValueError("ECG review sample origin no longer matches the input.")
+        raise ValueError(
+            f"{normalized_review_label} review sample origin no longer matches the input."
+        )
 
     annotations = reviewed_raw.annotations
     keep = np.asarray(
         [
-            str(description) != ECG_FILTER_EDGE_DESCRIPTION
+            str(description) != normalized_edge_description
             for description in annotations.description
         ],
         dtype=bool,
@@ -1908,7 +1923,8 @@ def finalize_reviewed_ecg_annotations(
     reviewed_support, reviewed_points = _ecg_bad_support_by_channel(out)
     if np.any(source_support & ~reviewed_support):
         raise ValueError(
-            "ECG review cannot shorten or remove BAD support from its accepted input."
+            f"{normalized_review_label} review cannot shorten or remove BAD support "
+            "from its accepted input."
         )
     for channel_index, points in enumerate(source_points):
         missing_points = set(points).difference(reviewed_points[channel_index])
@@ -1920,7 +1936,8 @@ def finalize_reviewed_ecg_annotations(
                 or reviewed_support[channel_index, right]
             ):
                 raise ValueError(
-                    "ECG review cannot remove a zero-duration BAD boundary from "
+                    f"{normalized_review_label} review cannot remove a zero-duration "
+                    "BAD boundary from "
                     "its accepted input."
                 )
 
@@ -1933,7 +1950,7 @@ def finalize_reviewed_ecg_annotations(
     ):
         raise ValueError(
             "A non-negative integer Filter support radius is required to mark "
-            "ECG review edges."
+            f"{normalized_review_label} review edges."
         )
 
     radius = int(filter_support_radius_samples)
@@ -1973,7 +1990,7 @@ def finalize_reviewed_ecg_annotations(
         edge_annotations = mne.Annotations(
             onset=[row[0] for row in rows],
             duration=[row[1] for row in rows],
-            description=[ECG_FILTER_EDGE_DESCRIPTION] * len(rows),
+            description=[normalized_edge_description] * len(rows),
             orig_time=combined.orig_time,
             ch_names=[row[2] for row in rows],
         )
@@ -1988,6 +2005,24 @@ def finalize_reviewed_ecg_annotations(
         )
     _set_annotations_from_attached_frame(out, combined)
     return out
+
+
+def finalize_reviewed_ecg_annotations(
+    source_raw: Any,
+    reviewed_raw: Any,
+    *,
+    mark_filter_edges: bool,
+    filter_support_radius_samples: int | None = None,
+) -> Any:
+    """Validate reviewed ECG BAD support and rebuild ECG-owned edge marks."""
+    return finalize_reviewed_bad_annotations(
+        source_raw,
+        reviewed_raw,
+        mark_filter_edges=mark_filter_edges,
+        edge_description=ECG_FILTER_EDGE_DESCRIPTION,
+        review_label="ECG",
+        filter_support_radius_samples=filter_support_radius_samples,
+    )
 
 
 def raw_call_ecgremover(

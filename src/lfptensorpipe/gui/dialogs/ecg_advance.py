@@ -20,6 +20,7 @@ class ECGAdvanceDialog(QDialog):
         default_params: dict[str, Any],
         session_review_params: dict[str, Any] | None = None,
         default_review_params: dict[str, Any] | None = None,
+        mark_filter_edges_available: bool = True,
         set_default_callback: (
             Callable[[dict[str, Any], dict[str, bool]], None] | None
         ) = None,
@@ -41,6 +42,7 @@ class ECGAdvanceDialog(QDialog):
             default_review_params
         )
         self._set_default_callback = set_default_callback
+        self._mark_filter_edges_available = bool(mark_filter_edges_available)
         self._manual_peak_max = 3.5
         self._manual_threshold_start = 0.0
         self._manual_threshold_step = 0.01
@@ -104,7 +106,10 @@ class ECGAdvanceDialog(QDialog):
         except (KeyError, TypeError, ValueError):
             self._apply_to_fields(default_ecg_method_params(self._method))
         review_candidate = self._normalized_review_or_builtin(session_review_params)
-        self._mark_filter_edges_check.setChecked(review_candidate["mark_filter_edges"])
+        self._mark_filter_edges_check.setChecked(
+            self._mark_filter_edges_available and review_candidate["mark_filter_edges"]
+        )
+        self._mark_filter_edges_check.setEnabled(self._mark_filter_edges_available)
         self._connect_validation_signals()
         self._refresh_validation()
 
@@ -593,7 +598,8 @@ class ECGAdvanceDialog(QDialog):
     def _on_restore_defaults(self) -> None:
         self._apply_to_fields(self._default_params)
         self._mark_filter_edges_check.setChecked(
-            self._default_review_params["mark_filter_edges"]
+            self._mark_filter_edges_available
+            and self._default_review_params["mark_filter_edges"]
         )
         self._refresh_validation()
 

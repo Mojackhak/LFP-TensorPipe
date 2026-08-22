@@ -14,14 +14,16 @@ from lfptensorpipe.app.shared.generation_lineage import (
     preproc_generation_ref,
 )
 
+from .paths import read_preproc_step_routing
+
 _PREPROC_STEPS = (
     "raw",
     "filter",
-    "annotations",
-    "bad_segment_removal",
     "ecg_artifact_removal",
+    "annotations",
     "finish",
 )
+_UPSTREAM_INVALIDATION_PREFIX = "Invalidated by upstream step re-apply:"
 
 
 class PreprocInputGenerationChanged(RuntimeError):
@@ -53,11 +55,49 @@ def _step_semantics_are_current(step: str, payload: dict[str, Any]) -> bool:
         from .steps.annotations import annotation_log_has_current_support_semantics
 
         return annotation_log_has_current_support_semantics(payload)
-    if step == "bad_segment_removal":
-        from .steps.bad_segment import bad_segment_log_has_current_match_semantics
-
-        return bad_segment_log_has_current_match_semantics(payload)
     return True
+
+
+def preproc_step_is_skipped(resolver: PathResolver, step: str) -> bool:
+    """Return the independent routing choice for one optional step."""
+    return read_preproc_step_routing(resolver, step)["skipped"]
+
+
+def _failed_step_is_gray(
+    resolver: PathResolver,
+    step: str,
+    payload: dict[str, Any],
+) -> bool:
+    message = str(payload.get("message", ""))
+    return (
+        message.startswith(_UPSTREAM_INVALIDATION_PREFIX)
+        and not _step_raw_path(resolver, step).exists()
+    )
+
+
+def _filter_preview_blocks_routing(resolver: PathResolver) -> bool:
+    if preproc_step_is_skipped(resolver, "filter"):
+        return False
+    preview_path = (
+        resolver.preproc_step_dir("filter", create=False) / "qc" / "preview_log.json"
+    )
+    try:
+        preview_payload = read_run_log(preview_path)
+    except Exception:
+        return False
+    if (
+        not isinstance(preview_payload, dict)
+        or preview_payload.get("completed") is not False
+    ):
+        return False
+    params = preview_payload.get("params")
+    return bool(
+        isinstance(params, dict)
+        and params.get("review_status") == "required"
+        and params.get("filter_output_role") == "preview"
+        and (preview_path.parent / "preview_raw.fif").exists()
+        and filter_preview_lineage_is_current(resolver, preview_payload)
+    )
 
 
 def _prior_steps(target_step: str) -> tuple[str, ...]:
@@ -74,9 +114,22 @@ def _current_source_step(
     *,
     active: set[str],
 ) -> str | None:
-    for candidate in _prior_steps(target_step):
+    prior_steps = _prior_steps(target_step)
+    if "filter" in prior_steps and _filter_preview_blocks_routing(resolver):
+        return None
+    for candidate in prior_steps:
+        if preproc_step_is_skipped(resolver, candidate):
+            continue
+        payload = _read_step_payload(resolver, candidate)
+        if payload is None:
+            continue
+        if payload.get("completed") is not True:
+            if _failed_step_is_gray(resolver, candidate, payload):
+                continue
+            return None
         if preproc_step_lineage_is_current(resolver, candidate, _active=active):
             return candidate
+        return None
     return None
 
 
@@ -157,6 +210,35 @@ def preproc_input_generation_matches(
     return current == (source_step, input_generations)
 
 
+def preproc_accepted_ancestor_payload(
+    resolver: PathResolver,
+    source_step: str,
+    ancestor_step: str,
+) -> dict[str, Any] | None:
+    """Return one exact accepted ancestor payload from persisted source links."""
+    if source_step not in _PREPROC_STEPS or ancestor_step not in _PREPROC_STEPS:
+        return None
+    if not preproc_step_lineage_is_current(resolver, source_step):
+        return None
+    current = source_step
+    visited: set[str] = set()
+    while current not in visited:
+        visited.add(current)
+        payload = _read_step_payload(resolver, current)
+        if payload is None or payload.get("completed") is not True:
+            return None
+        if current == ancestor_step:
+            return payload
+        if current == "raw":
+            return None
+        params = payload.get("params")
+        next_step = params.get("source_step") if isinstance(params, dict) else None
+        if not isinstance(next_step, str) or next_step not in _PREPROC_STEPS:
+            return None
+        current = next_step
+    return None
+
+
 def filter_preview_lineage_is_current(
     resolver: PathResolver,
     payload: dict[str, Any] | None,
@@ -180,6 +262,8 @@ __all__ = [
     "PreprocInputGenerationChanged",
     "capture_preproc_input_generation",
     "filter_preview_lineage_is_current",
+    "preproc_step_is_skipped",
     "preproc_input_generation_matches",
+    "preproc_accepted_ancestor_payload",
     "preproc_step_lineage_is_current",
 ]

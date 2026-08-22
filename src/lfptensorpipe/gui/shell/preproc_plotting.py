@@ -11,7 +11,6 @@ from .preproc_plotting_backend import (
 )
 from .preproc_plotting_steps import (
     _on_preproc_annotations_plot as _on_preproc_annotations_plot_impl,
-    _on_preproc_bad_segment_plot as _on_preproc_bad_segment_plot_impl,
     _on_preproc_ecg_plot as _on_preproc_ecg_plot_impl,
     _on_preproc_filter_plot as _on_preproc_filter_plot_impl,
     _on_preproc_finish_plot as _on_preproc_finish_plot_impl,
@@ -55,9 +54,6 @@ class MainWindowPreprocPlottingMixin:
 
     def _on_preproc_annotations_plot(self) -> None:
         _on_preproc_annotations_plot_impl(self)
-
-    def _on_preproc_bad_segment_plot(self) -> None:
-        _on_preproc_bad_segment_plot_impl(self)
 
     def _on_preproc_ecg_plot(self) -> None:
         _on_preproc_ecg_plot_impl(self)
