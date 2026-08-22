@@ -7,8 +7,8 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 
-from lfptensorpipe.tabular.nested_value import (
-    cell_is_empty_or_all_nan,
+from lfptensorpipe.tabular.nested_value import cell_is_empty_or_all_nan
+from paper.pd.preproc.nested_value import (
     coerce_cell_to_array,
     infer_nested_template,
     rebuild_cell_from_array,

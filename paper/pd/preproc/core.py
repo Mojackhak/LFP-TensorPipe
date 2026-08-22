@@ -10,11 +10,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from lfptensorpipe.stats.preproc.normalize import baseline_normalize, normalize_df
+from lfptensorpipe.stats.preproc.normalize import baseline_normalize
 from lfptensorpipe.stats.preproc.transform import transform_df
 from lfptensorpipe.tabular.nested_value import cell_is_empty_or_all_nan
 from paper.pd.paths import resolve_project_root, summary_table_root
 from paper.pd.preproc.aggregate import summarize_df
+from paper.pd.preproc.normalize import normalize_df
 from paper.pd.specs import (
     DEFAULT_SCALAR_NORMALIZE_SPEC,
     NORMALIZED_SUFFIX,
@@ -187,8 +188,6 @@ def _normalize_scalar_spectral_table(
         group_cols=list(SCALAR_NORMALIZE_GROUP_COLS),
         baseline=baseline,
         value_col="Value",
-        mode="mean",
-        on_missing_baseline="drop",
     )
 
 
