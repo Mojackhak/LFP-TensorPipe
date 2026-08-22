@@ -248,10 +248,12 @@ class MainWindowRecordParamsSnapshotCollectMixin:
         }
 
     def _collect_features_record_params_snapshot(self) -> dict[str, Any]:
-        current_slug = self._current_features_paradigm_slug()
+        current_slug = (
+            self._current_features_paradigm_slug() or self._shared_stage_trial_slug()
+        )
         if isinstance(current_slug, str) and current_slug:
             self._features_trial_params_by_slug[current_slug] = (
-                self._collect_current_features_trial_params()
+                self._collect_current_features_trial_params(current_slug)
             )
         trial_params_by_slug: dict[str, dict[str, Any]] = {}
         for slug, node in self._features_trial_params_by_slug.items():

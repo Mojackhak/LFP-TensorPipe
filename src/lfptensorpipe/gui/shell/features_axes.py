@@ -8,8 +8,10 @@ from lfptensorpipe.gui.shell.common import (
     FEATURE_AUTO_BAND_METRICS,
     PathResolver,
     QDialog,
+    np,
     pd,
     set_control_validation_error,
+    tensor_metric_log_path,
 )
 
 
@@ -18,13 +20,11 @@ class MainWindowFeaturesAxesMixin:
     def _features_metric_uses_auto_bands(metric_key: str) -> bool:
         return metric_key.strip().lower() in FEATURE_AUTO_BAND_METRICS
 
-    def _features_auto_band_names_from_alignment_raw(
-        self, metric_key: str
-    ) -> list[str]:
+    def _features_alignment_raw_payload(self, metric_key: str) -> pd.DataFrame | None:
         context = self._record_context()
         slug = self._current_features_paradigm_slug()
         if context is None or not isinstance(slug, str):
-            return []
+            return None
         resolver = PathResolver(context)
         accepted_paths = dict(
             accepted_alignment_artifact_paths(
@@ -35,14 +35,22 @@ class MainWindowFeaturesAxesMixin:
         )
         path = accepted_paths.get(metric_key)
         if path is None or not path.is_file():
-            return []
+            return None
         try:
             payload = self._load_pickle(path)
         except Exception:
-            return []
+            return None
         if not isinstance(payload, pd.DataFrame):
-            return []
+            return None
         if "Value" not in payload.columns:
+            return None
+        return payload
+
+    def _features_auto_band_names_from_alignment_raw(
+        self, metric_key: str
+    ) -> list[str]:
+        payload = self._features_alignment_raw_payload(metric_key)
+        if payload is None:
             return []
         source: Any = None
         for item in payload["Value"].tolist():
@@ -60,6 +68,58 @@ class MainWindowFeaturesAxesMixin:
             seen.add(name)
             names.append(name)
         return names
+
+    def _features_frequency_support_for_accepted_metric(
+        self, metric_key: str
+    ) -> tuple[float, float] | None:
+        context = self._record_context()
+        slug = self._current_features_paradigm_slug()
+        if context is None or not isinstance(slug, str):
+            return None
+        resolver = PathResolver(context)
+        accepted_metrics = {
+            accepted_metric
+            for accepted_metric, _path in accepted_alignment_artifact_paths(
+                resolver,
+                trial_slug=slug,
+                stage="finish",
+            )
+        }
+        if metric_key not in accepted_metrics:
+            return None
+        params = self._read_completed_log_params(
+            tensor_metric_log_path(resolver, metric_key)
+        )
+        try:
+            low = float(params["low_freq"])
+            high = float(params["high_freq"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if not np.isfinite(low) or not np.isfinite(high) or high < low:
+            return None
+        return low, high
+
+    def _features_manual_band_support_error(
+        self,
+        metric_key: str,
+        bands: list[dict[str, Any]],
+    ) -> str:
+        support = self._features_frequency_support_for_accepted_metric(metric_key)
+        if support is None:
+            return ""
+        support_low, support_high = support
+        tolerance = max(1.0, abs(support_low), abs(support_high)) * 1e-9
+        for band in bands:
+            start = float(band["start"])
+            end = float(band["end"])
+            if start < support_low - tolerance or end > support_high + tolerance:
+                name = str(band.get("name", "")).strip() or "unnamed"
+                return (
+                    f"{metric_key}: band {name!r} [{start:g}, {end:g}] Hz is "
+                    "outside accepted frequency support "
+                    f"[{support_low:g}, {support_high:g}] Hz."
+                )
+        return ""
 
     def _normalized_features_axes_for_metric(
         self, metric_key: str
@@ -106,24 +166,28 @@ class MainWindowFeaturesAxesMixin:
             return
         metrics = self._features_metric_keys_for_selected_trial()
         current = combo.currentData()
+        preferred = current if isinstance(current, str) else ""
+        if not preferred:
+            slug = self._shared_stage_trial_slug()
+            cached = (
+                self._features_trial_params_by_slug.get(slug)
+                if isinstance(slug, str)
+                else None
+            )
+            if isinstance(cached, dict):
+                preferred = str(cached.get("active_metric", "")).strip()
         combo.blockSignals(True)
         combo.clear()
         for metric_key in metrics:
             combo.addItem(metric_key, metric_key)
-        if isinstance(current, str):
-            idx = combo.findData(current)
+        if preferred:
+            idx = combo.findData(preferred)
             if idx >= 0:
                 combo.setCurrentIndex(idx)
         if combo.count() > 0 and combo.currentIndex() < 0:
             combo.setCurrentIndex(0)
         combo.blockSignals(False)
 
-        valid_keys = set(metrics)
-        self._features_axes_by_metric = {
-            key: value
-            for key, value in self._features_axes_by_metric.items()
-            if key in valid_keys
-        }
         for metric_key in metrics:
             self._normalized_features_axes_for_metric(metric_key)
         self._refresh_features_axis_buttons()
@@ -151,8 +215,16 @@ class MainWindowFeaturesAxesMixin:
                     self._features_axis_bands_button.setEnabled(False)
                     set_control_validation_error(self._features_axis_bands_button, None)
                 else:
-                    count_bands = len(
-                        self._normalized_features_axes_for_metric(metric_key)["bands"]
+                    bands = self._normalized_features_axes_for_metric(metric_key)[
+                        "bands"
+                    ]
+                    count_bands = len(bands)
+                    support_error = self._features_manual_band_support_error(
+                        metric_key,
+                        bands,
+                    )
+                    validation_error = support_error or (
+                        None if count_bands else "At least one band is required."
                     )
                     self._features_axis_bands_button.setText(
                         f"Bands Configure... ({count_bands})"
@@ -160,7 +232,7 @@ class MainWindowFeaturesAxesMixin:
                     self._features_axis_bands_button.setEnabled(True)
                     set_control_validation_error(
                         self._features_axis_bands_button,
-                        None if count_bands else "At least one band is required.",
+                        validation_error,
                     )
             else:
                 self._features_axis_bands_button.setText("Bands Configure... (0)")
@@ -188,6 +260,15 @@ class MainWindowFeaturesAxesMixin:
             self._features_axis_apply_all_button.setEnabled(has_metric)
 
     def _on_features_axis_metric_changed(self, _row: int) -> None:
+        slug = self._shared_stage_trial_slug()
+        active_metric = self._current_features_axis_metric()
+        cached = (
+            self._features_trial_params_by_slug.get(slug)
+            if isinstance(slug, str)
+            else None
+        )
+        if isinstance(cached, dict) and isinstance(active_metric, str):
+            cached["active_metric"] = active_metric
         self._refresh_features_axis_buttons()
         self._refresh_features_controls()
 
@@ -272,9 +353,12 @@ class MainWindowFeaturesAxesMixin:
         source_uses_auto_bands = self._features_metric_uses_auto_bands(metric_key)
         for target_metric in self._features_metric_keys_for_selected_trial():
             target_axes = self._normalized_features_axes_for_metric(target_metric)
-            if not source_uses_auto_bands:
+            target_uses_auto_bands = self._features_metric_uses_auto_bands(
+                target_metric
+            )
+            if not source_uses_auto_bands and not target_uses_auto_bands:
                 target_axes["bands"] = [dict(item) for item in source_axes["bands"]]
-            elif self._features_metric_uses_auto_bands(target_metric):
+            elif target_uses_auto_bands:
                 target_axes["bands"] = []
             target_axes["times"] = [dict(item) for item in source_axes["times"]]
             self._features_axes_by_metric[target_metric] = target_axes
@@ -299,6 +383,13 @@ class MainWindowFeaturesAxesMixin:
                     )
             elif not axes["bands"]:
                 return False, f"{metric_key}: configure at least one band interval."
+            else:
+                support_error = self._features_manual_band_support_error(
+                    metric_key,
+                    axes["bands"],
+                )
+                if support_error:
+                    return False, support_error
             if not axes["times"]:
                 return False, f"{metric_key}: configure at least one phase interval."
         return True, ""

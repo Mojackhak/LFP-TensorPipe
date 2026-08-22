@@ -62,6 +62,18 @@ class MainWindowFeaturesSubsetMixin:
     def _on_features_available_selection_changed(self) -> None:
         self._apply_features_plot_label_placeholders()
         self._refresh_features_controls()
+        selected = self._selected_features_file()
+        slug = self._shared_stage_trial_slug()
+        cached = (
+            self._features_trial_params_by_slug.get(slug)
+            if isinstance(slug, str)
+            else None
+        )
+        if isinstance(selected, dict) and isinstance(cached, dict):
+            cached["selected_relative_stem"] = str(
+                selected.get("relative_stem", "")
+            ).strip()
+            cached["subset"] = self._current_features_subset_selection()
 
     @staticmethod
     def _parse_derived_type_from_stem(stem: str) -> str:
@@ -332,9 +344,39 @@ class MainWindowFeaturesSubsetMixin:
             target = normalized
 
     def _refresh_features_subset_options(self) -> None:
-        self._sync_features_subset_options()
+        preferred_selection = None
+        current = self._current_features_subset_selection()
+        if not any(current.values()):
+            slug = self._shared_stage_trial_slug()
+            cached = (
+                self._features_trial_params_by_slug.get(slug)
+                if isinstance(slug, str)
+                else None
+            )
+            if isinstance(cached, dict):
+                preferred_selection = cached.get("subset")
+        self._sync_features_subset_options(
+            preferred_selection=preferred_selection,
+        )
+        selected = self._selected_features_file()
+        slug = self._shared_stage_trial_slug()
+        cached = (
+            self._features_trial_params_by_slug.get(slug)
+            if isinstance(slug, str)
+            else None
+        )
+        if isinstance(selected, dict) and isinstance(cached, dict):
+            cached["subset"] = self._current_features_subset_selection()
 
     def _on_features_subset_changed(self, _index: int) -> None:
+        slug = self._shared_stage_trial_slug()
+        cached = (
+            self._features_trial_params_by_slug.get(slug)
+            if isinstance(slug, str)
+            else None
+        )
+        if isinstance(cached, dict):
+            cached["subset"] = self._current_features_subset_selection()
         self._refresh_features_subset_options()
 
     @staticmethod

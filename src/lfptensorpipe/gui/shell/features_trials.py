@@ -60,15 +60,12 @@ class MainWindowFeaturesTrialsMixin:
         defaults = self._default_features_trial_params()
         source = node if isinstance(node, dict) else {}
         metric_keys = self._features_metric_keys_for_trial_slug(trial_slug)
-        valid_metric_keys = set(metric_keys)
         raw_axes_by_metric = source.get("axes_by_metric")
         normalized_axes: dict[str, dict[str, list[dict[str, Any]]]] = {}
         if isinstance(raw_axes_by_metric, dict):
             for raw_metric_key, raw_axis_node in raw_axes_by_metric.items():
                 metric_key = str(raw_metric_key).strip()
                 if not metric_key:
-                    continue
-                if valid_metric_keys and metric_key not in valid_metric_keys:
                     continue
                 if not isinstance(raw_axis_node, dict):
                     continue
@@ -200,10 +197,32 @@ class MainWindowFeaturesTrialsMixin:
             else self._current_features_paradigm_slug()
         )
         metric_keys = self._features_metric_keys_for_trial_slug(slug)
+        stored_metric_keys = list(self._features_axes_by_metric)
+        for metric_key in metric_keys:
+            if metric_key not in self._features_axes_by_metric:
+                stored_metric_keys.append(metric_key)
         active_metric = self._current_features_axis_metric() or ""
-        if active_metric not in metric_keys:
-            active_metric = metric_keys[0] if metric_keys else ""
+        cached = (
+            self._features_trial_params_by_slug.get(slug)
+            if isinstance(slug, str)
+            else None
+        )
+        if not active_metric and isinstance(cached, dict):
+            active_metric = str(cached.get("active_metric", "")).strip()
+        allowed_active_metrics = metric_keys if metric_keys else stored_metric_keys
+        if active_metric not in allowed_active_metrics:
+            active_metric = allowed_active_metrics[0] if allowed_active_metrics else ""
         selected = self._selected_features_file()
+        cached_selected_relative_stem = (
+            str(cached.get("selected_relative_stem", "")).strip()
+            if isinstance(cached, dict)
+            else ""
+        )
+        cached_subset = (
+            self._normalize_features_subset_selection(cached.get("subset"))
+            if isinstance(cached, dict)
+            else {"band": "", "channel": "", "region": ""}
+        )
         node = {
             "active_metric": active_metric,
             "axes_by_metric": {
@@ -221,14 +240,18 @@ class MainWindowFeaturesTrialsMixin:
                         )["times"]
                     ],
                 }
-                for metric_key in metric_keys
+                for metric_key in stored_metric_keys
             },
             "selected_relative_stem": (
                 str(selected.get("relative_stem", "")).strip()
                 if isinstance(selected, dict)
-                else ""
+                else cached_selected_relative_stem
             ),
-            "subset": self._current_features_subset_selection(),
+            "subset": (
+                self._current_features_subset_selection()
+                if isinstance(selected, dict)
+                else cached_subset
+            ),
             "filters": {
                 "feature": (
                     self._features_filter_feature_edit.text().strip()
@@ -388,6 +411,7 @@ class MainWindowFeaturesTrialsMixin:
                     self._features_trial_params_by_slug[slug] = params
                 else:
                     params = self._default_features_trial_params()
+                    self._features_trial_params_by_slug[slug] = params
         else:
             params = self._default_features_trial_params()
         return self._apply_features_trial_params_to_ui(
@@ -460,17 +484,11 @@ class MainWindowFeaturesTrialsMixin:
                 item.setForeground(QColor("#000000"))
             item.setFlags(flags)
         self._sync_features_paradigm_selection(self._shared_stage_trial_slug())
+        self._refresh_features_axis_metric_combo()
 
     def _current_features_paradigm_slug(self) -> str | None:
         shared_slug = self._shared_stage_trial_slug()
-        if (
-            isinstance(shared_slug, str)
-            and shared_slug
-            and (
-                not hasattr(self, "_alignment_trial_stage_state_runtime")
-                or self._features_trial_is_selectable(shared_slug)
-            )
-        ):
+        if isinstance(shared_slug, str) and shared_slug:
             return shared_slug
         if self._features_paradigm_list is None:
             return None

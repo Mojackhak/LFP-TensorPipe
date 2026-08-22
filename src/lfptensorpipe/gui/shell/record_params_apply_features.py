@@ -10,11 +10,15 @@ from lfptensorpipe.gui.shell.common import (
 
 class MainWindowRecordParamsApplyFeaturesMixin:
     def _apply_record_params_features_snapshot(self, snapshot: dict[str, Any]) -> int:
-        current_slug = self._current_features_paradigm_slug()
+        current_slug = (
+            self._current_features_paradigm_slug() or self._shared_stage_trial_slug()
+        )
         current_dirty_params: dict[str, Any] | None = None
         if any(key.startswith("features.") for key in self._record_param_dirty_keys):
             if isinstance(current_slug, str) and current_slug:
-                current_dirty_params = self._collect_current_features_trial_params()
+                current_dirty_params = self._collect_current_features_trial_params(
+                    current_slug
+                )
 
         trial_params_by_slug = self._normalize_features_trial_params_map(
             _nested_get(snapshot, ("features", "trial_params_by_slug"))

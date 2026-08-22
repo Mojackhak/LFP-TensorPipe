@@ -221,7 +221,7 @@ class MainWindowAlignmentParadigmsMixin:
         self._refresh_alignment_selected_paradigm()
         if not self._record_param_syncing and previous_slug != slug:
             self._restore_features_trial_params(
-                slug if self._features_trial_is_selectable(slug) else None,
+                slug,
                 respect_dirty_keys=False,
             )
         self._refresh_stage_states_from_context()

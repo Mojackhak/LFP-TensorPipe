@@ -381,7 +381,7 @@ class MainWindowFeaturesConfigMixin:
             self.statusBar().showMessage("Features config import cancelled.")
             return
 
-        self._features_axes_by_metric = {
+        imported_axes = {
             str(key): {
                 "bands": [dict(item) for item in value.get("bands", [])],
                 "times": [dict(item) for item in value.get("times", [])],
@@ -389,6 +389,7 @@ class MainWindowFeaturesConfigMixin:
             for key, value in features_snapshot["axes_by_metric"].items()
             if isinstance(value, dict)
         }
+        self._features_axes_by_metric.update(imported_axes)
         self._refresh_features_axis_metric_combo()
         combo = self._features_axis_metric_combo
         if combo is not None:

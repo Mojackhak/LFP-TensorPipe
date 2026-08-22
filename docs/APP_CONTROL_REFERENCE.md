@@ -1429,13 +1429,42 @@ feature outputs, and controls plotting/export behavior.
 | `Trials` list | Chooses the currently active finished alignment trial. | Which trial is used for extraction and plotting. | Requires finished alignment outputs. |
 | `+` / `-` | Reserved trial list controls for the current page context. | Trial list management. | Availability depends on the current page state. |
 | `Features` indicator | Reports feature-extraction freshness for the selected trial. | User feedback only. | Read-only. |
-| `Metric` | Chooses which metric's feature axes are being edited. | Which bands/phases configuration is active. | Requires a selected trial. |
+| `Metric` | Chooses which currently accepted metric's feature axes are being edited. | Editor selection only; changing the selection does not change extraction parameters. | Requires a selected trial with a current accepted Align Finish metric manifest. |
 | `Bands Configure...` | Opens the band-axis editor for the selected metric. | Feature band definitions for that metric. | Requires a selected metric. |
 | `Phases Configure...` | Opens the phase/time-window editor for the selected metric. `Start (%)` and `End (%)` use the explicit 0-to-100 scale, so `1` means 1%. | Feature phase definitions for that metric. | Requires a selected metric. |
-| `Apply to All Metrics` | Copies the current metric's axes to all metrics in the selected trial. | Trial-wide feature-axis configuration. | Requires a valid source metric axis definition. |
+| `Apply to All Metrics` | Copies phases to every currently accepted metric. Bands are copied only between manually configured metrics; automatic-band metrics continue to inherit their bands from accepted Alignment data. | Trial-wide feature-axis configuration. | Requires a valid source metric axis definition. |
 | `Extract Features` | Runs feature extraction for the selected trial. | Generated feature outputs. | Requires finished alignment outputs and valid axes. |
 | `Import Configs...` | Loads a feature configuration. | Current trial feature config. | Requires a selected trial. |
 | `Export Configs...` | Saves the current feature configuration. | External feature config file. | Requires a selected trial. |
+
+**Feature draft and metric-manifest behavior**
+
+Feature axes and plot controls are stored per trial. Rerunning, failing, or
+cancelling an upstream stage can make Extract Features unavailable or stale,
+but it does not reset the stored feature draft. A temporarily unavailable Align
+Finish manifest means that metric availability is unknown; it is never treated
+as an accepted empty metric set.
+
+Only a current accepted Align Finish result with a complete, nonempty metric
+manifest and every declared `na-raw.pkl` input may reconcile the active metric
+list. Metrics newly added by that manifest receive defaults only for their own
+missing axes. Removed metrics become dormant: they are excluded from the editor
+and the next extraction run, while their stored axes remain available if the
+metric returns. Reordering metrics does not change any axes, and a rename is
+handled as one removal plus one addition unless an explicit mapping exists.
+
+Automatic-band metrics store no manual band rows. Their band names are resolved
+from the accepted Alignment `na-raw.pkl` `Value` index at run time. A new
+accepted Alignment generation may therefore change their resolved bands and
+make prior Feature outputs stale, but it does not change phases or plot
+settings. Manual bands and phases change only through an explicit axis edit,
+confirmed config import, restore-default action, or Apply to All Metrics.
+
+Metric selection, feature-file selection, subset filters, search text, plot
+labels, and plot-advance settings are UI or plotting state. They do not alter
+the extraction axes. If a manual band becomes incompatible with newly accepted
+input support, the saved row is retained and extraction remains blocked until
+the user explicitly corrects it; it is not clipped or restored silently.
 
 **Feature storage behavior**
 

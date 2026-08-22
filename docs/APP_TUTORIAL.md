@@ -861,6 +861,15 @@ explicit 0-to-100 percentage scale: `1` means 1% of the aligned time span, not
 the full span. The next two figures show the tutorial's saved band and phase
 definitions.
 
+These axis settings are a per-trial draft. An upstream rerun can make Extract
+Features stale or temporarily unavailable, but it does not reset the draft.
+When a new Align Finish result is accepted, unchanged metrics keep their axes,
+new metrics receive their own defaults, and removed metrics retain dormant
+settings that are reused if they return. PSI, Burst, and other automatic-band
+metrics continue to obtain band labels from the accepted Alignment raw table;
+their phases remain user configured. Plot subsets and plot-advance controls do
+not change extraction axes.
+
 For numeric axes, the `mean` reducer treats each configured band or phase as a
 continuous interval. It uses trapezoidal integration over the complete interval,
 including the final interval segment. If a requested boundary lies between two

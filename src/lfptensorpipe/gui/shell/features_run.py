@@ -127,6 +127,7 @@ class MainWindowFeaturesRunMixin:
         context = self._record_context()
         slug = self._current_features_paradigm_slug()
         files: list[dict[str, Any]] = []
+        root: Path | None = None
         if context is not None and isinstance(slug, str):
             resolver = PathResolver(context)
             root = resolver.features_root / slug
@@ -193,18 +194,47 @@ class MainWindowFeaturesRunMixin:
                 continue
             filtered.append(row)
         selected = self._selected_features_file()
-        selected_relative_stem = (
-            str(preferred_relative_stem).strip()
-            if isinstance(preferred_relative_stem, str)
-            else ""
-        )
-        if not selected_relative_stem and isinstance(selected, dict):
-            selected_relative_stem = str(selected.get("relative_stem", "")).strip()
         selected_path = (
             Path(selected["path"])
             if isinstance(selected, dict) and "path" in selected
             else None
         )
+        selected_belongs_to_trial = bool(
+            root is not None
+            and selected_path is not None
+            and selected_path.is_relative_to(root)
+        )
+        cached = (
+            self._features_trial_params_by_slug.get(slug)
+            if isinstance(slug, str)
+            else None
+        )
+        if (
+            isinstance(selected, dict)
+            and selected_belongs_to_trial
+            and isinstance(cached, dict)
+        ):
+            cached["selected_relative_stem"] = str(
+                selected.get("relative_stem", "")
+            ).strip()
+            cached["subset"] = self._current_features_subset_selection()
+        selected_relative_stem = (
+            str(preferred_relative_stem).strip()
+            if isinstance(preferred_relative_stem, str)
+            else ""
+        )
+        if (
+            not selected_relative_stem
+            and isinstance(selected, dict)
+            and selected_belongs_to_trial
+        ):
+            selected_relative_stem = str(selected.get("relative_stem", "")).strip()
+        if not selected_relative_stem and isinstance(cached, dict):
+            selected_relative_stem = str(
+                cached.get("selected_relative_stem", "")
+            ).strip()
+        if not selected_belongs_to_trial:
+            selected_path = None
         self._features_filtered_files = filtered
         self._features_available_table.blockSignals(True)
         self._features_available_table.setRowCount(len(filtered))
