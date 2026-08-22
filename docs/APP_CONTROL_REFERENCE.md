@@ -341,7 +341,7 @@ representative coordinates are exported for downstream use.
 | `Atlas` summary | Reports the saved atlas/region selection summary. | Human validation only. | Read-only. |
 | `Import Configs...` | Loads a Localize configuration payload. | Current match and atlas draft. | Requires a selected record. |
 | `Export Configs...` | Saves the current Localize configuration payload. | External JSON config file. | Requires a selected record. |
-| `Apply` | Generates representative-coordinate artifacts for the current record. | Localize outputs consumed by downstream alignment and feature views. | Requires complete match state, saved atlas state, and working MATLAB/Lead-DBS dependencies. |
+| `Apply` | Generates representative-coordinate artifacts for the current record. After a successful rewrite, the main window immediately rescans stage state so invalidated Alignment Finish and Features results turn yellow and dependent actions are blocked without requiring record reselection. | Localize outputs consumed by downstream alignment and feature views, plus their current GUI freshness display and action gating. | Requires complete match state, saved atlas state, and working MATLAB/Lead-DBS dependencies. A failed Apply does not invalidate or rescan downstream stages. |
 | `Contact Viewer` | Launches the external MATLAB-based contact viewer. | Independent viewer process only. | Requires a valid current atlas and representative-coordinate export context. |
 
 Closing the main window first stops accepting new Localize MATLAB work and

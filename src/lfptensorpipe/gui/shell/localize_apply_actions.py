@@ -36,6 +36,8 @@ class MainWindowLocalizeApplyActionsMixin:
                 read_only_project_root=self._demo_data_source_readonly,
             ),
         )
+        if ok:
+            self._refresh_stage_states_from_context()
         self._refresh_localize_action_state()
         prefix = "Localize OK" if ok else "Localize Failed"
         self.statusBar().showMessage(f"{prefix}: {message}")
