@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from concurrent.futures import Future
+from concurrent.futures import Future, TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
 from pathlib import Path
 from queue import Empty, SimpleQueue
@@ -204,6 +204,10 @@ _MATLAB_RUNTIME_SHUTDOWN = threading.Event()
 _MATLAB_RUNTIME_STATE = "idle"
 _MATLAB_RUNTIME_MESSAGE = "Not started."
 _MATLAB_TASK_EXECUTOR = _DaemonSingleWorkerExecutor(thread_name_prefix="lfptp-matlab")
+_MATLAB_ENGINE_QUIT_EXECUTOR = _DaemonSingleWorkerExecutor(
+    thread_name_prefix="lfptp-matlab-quit"
+)
+_MATLAB_ENGINE_QUIT_TASKS: dict[int, tuple[Any, Future[Any]]] = {}
 _MATLAB_TASK_TIMEOUT_S = 60.0
 _MATLAB_SHUTDOWN_TIMEOUT_S = 5.0
 _MATLAB_CONTROL_LOCK = threading.Lock()
@@ -613,10 +617,24 @@ def shutdown_matlab_runtime(timeout_s: float = _MATLAB_SHUTDOWN_TIMEOUT_S) -> bo
         if engine_id in seen_engine_ids:
             continue
         seen_engine_ids.add(engine_id)
+        with _MATLAB_RUNTIME_LOCK:
+            quit_task = _MATLAB_ENGINE_QUIT_TASKS.get(engine_id)
+            if quit_task is None:
+                quit_future = _MATLAB_ENGINE_QUIT_EXECUTOR.submit(owned_engine.quit)
+                _MATLAB_ENGINE_QUIT_TASKS[engine_id] = (owned_engine, quit_future)
+            else:
+                quit_future = quit_task[1]
         try:
-            owned_engine.quit()
+            quit_future.result(timeout=max(deadline - time.monotonic(), 0.0))
+        except FutureTimeoutError:
+            failure = failure or "MATLAB Engine quit exceeded the shutdown timeout."
         except Exception as exc:  # noqa: BLE001
+            with _MATLAB_RUNTIME_LOCK:
+                _MATLAB_ENGINE_QUIT_TASKS.pop(engine_id, None)
             failure = failure or f"MATLAB Engine quit failed: {exc}"
+        else:
+            with _MATLAB_RUNTIME_LOCK:
+                _MATLAB_ENGINE_QUIT_TASKS.pop(engine_id, None)
 
     if failure:
         _set_matlab_runtime_status("failed", f"MATLAB shutdown failed: {failure}")
