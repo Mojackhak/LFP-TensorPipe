@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 import math
+import re
 
 from lfptensorpipe.app.tensor import service as tensor_service
 from lfptensorpipe.app.tensor.cpu_budget import (
@@ -434,6 +435,19 @@ class MainWindowTensorConfigMixin:
             return ["selected_pairs"]
         if "hilbert filter method" in lowered and "hilbert_filter_method" in whitelist:
             return ["hilbert_filter_method"]
+        outer_context, separator, _nested_context = lowered.partition(":")
+        literal_scopes = (outer_context, lowered) if separator else (lowered,)
+        for scope in literal_scopes:
+            literal_fields = [
+                key
+                for key in whitelist
+                if re.search(
+                    rf"(?<![a-z0-9_]){re.escape(key.lower())}(?![a-z0-9_])",
+                    scope,
+                )
+            ]
+            if literal_fields:
+                return literal_fields
         if "band" in lowered and "bands" in whitelist:
             return ["bands"]
         if "specparam freq range" in lowered or "within specparam" in lowered:
@@ -446,9 +460,7 @@ class MainWindowTensorConfigMixin:
                 for key in ("low_freq_hz", "high_freq_hz", "freq_step_hz")
                 if key in whitelist
             ]
-        if "max_cycles" in lowered and "max_cycles" in whitelist:
-            return ["max_cycles"]
-        return [key for key in whitelist if key.lower() in lowered]
+        return []
 
     def _repair_tensor_config_metric_params(
         self,
