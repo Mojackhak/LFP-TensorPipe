@@ -1145,11 +1145,11 @@ not make an otherwise current Burst result stale.
 
 - A loaded threshold snapshot replaces threshold estimation. Percentile and
   Baseline values remain dormant until `Clear thresholds` is selected.
-- The JSON must contain non-negative finite values plus unique channel and band
-  identities. A run accepts a requested channel/band subset, reorders values to
-  the runtime order, and fails Burst before numerical computation if any
-  requested identity is absent or a band's effective notch-split segments do
-  not match.
+- The JSON must contain strictly positive finite values plus unique channel and
+  band identities. A run accepts a requested channel/band subset, reorders
+  values to the runtime order, and fails Burst before numerical computation if
+  any requested identity is absent or a band's effective notch-split segments
+  do not match.
 - Successful Burst runs write `thresholds.json` for the actual runtime subset.
   The source file path is provenance only and is never reopened for the run.
 - `Baseline annotations` determines which labeled baseline periods define the burst threshold context when thresholds are derived from data rather than loaded from file. Missing or wholly excluded baseline data blocks the run; Burst does not fall back to the full recording.
