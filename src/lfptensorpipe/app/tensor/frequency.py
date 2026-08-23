@@ -67,15 +67,19 @@ def _strict_positive_float_list(value: Any, *, field_name: str) -> list[float]:
         parts = [item.strip() for item in value.split(",") if item.strip()]
         if not parts:
             return []
-        items = [float(item) for item in parts]
+        numeric_items: Any = parts
     elif isinstance(value, (int, float)):
-        items = [float(value)]
+        numeric_items = [value]
     elif isinstance(value, (list, tuple)):
-        items = [float(item) for item in value]
+        numeric_items = value
     else:
         raise ValueError(
             f"{field_name} must be a number, list, or comma-separated string."
         )
+    try:
+        items = [float(item) for item in numeric_items]
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must contain positive finite numbers.") from exc
     if any((not np.isfinite(float(item))) or float(item) <= 0.0 for item in items):
         raise ValueError(f"{field_name} must contain positive finite numbers.")
     return [float(item) for item in items]
