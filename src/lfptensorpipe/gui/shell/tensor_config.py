@@ -438,16 +438,18 @@ class MainWindowTensorConfigMixin:
         outer_context, separator, _nested_context = lowered.partition(":")
         literal_scopes = (outer_context, lowered) if separator else (lowered,)
         for scope in literal_scopes:
-            literal_fields = [
-                key
+            literal_matches = [
+                (match.start(), key)
                 for key in whitelist
-                if re.search(
-                    rf"(?<![a-z0-9_]){re.escape(key.lower())}(?![a-z0-9_])",
-                    scope,
+                if (
+                    match := re.search(
+                        rf"(?<![a-z0-9_]){re.escape(key.lower())}(?![a-z0-9_])",
+                        scope,
+                    )
                 )
             ]
-            if literal_fields:
-                return literal_fields
+            if literal_matches:
+                return [min(literal_matches, key=lambda item: item[0])[1]]
         if "band" in lowered and "bands" in whitelist:
             return ["bands"]
         if "specparam freq range" in lowered or "within specparam" in lowered:
