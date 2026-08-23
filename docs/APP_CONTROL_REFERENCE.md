@@ -929,11 +929,13 @@ configuration instead of single-channel configuration.
 
 ![Burst parameter panel.](assets/app-control-reference/controlref-advance-tensor-burst-panel.png)
 
-This panel shows the Burst-specific controls. Burst uses the configured band
-boundaries directly and does not consume `Step (Hz)` as a frequency-grid input.
-The Step row is therefore not shown for Burst. A legacy Burst configuration or
-Python call may still contain a Step value, but the value is ignored and does
-not make an otherwise current Burst result stale.
+This panel shows the Burst-specific basic controls. `Step (Hz)` is configured
+in Burst Advance instead of this panel. It is dormant for Hilbert, so changing
+it does not alter Hilbert computation or freshness. Morlet and Multitaper use
+it to build the retained frequency grid; changing it can alter their Burst
+results and freshness. A legacy Burst configuration or Python call therefore
+interprets a Step value according to the active estimator rather than ignoring
+it globally.
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
