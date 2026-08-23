@@ -141,6 +141,7 @@ def _default_tensor_metric_params(
             "baseline_keep": None,
             "boundary_isolated_filter": True,
             "method": "hilbert",
+            "hilbert_filter_method": "iir",
             "freq_step_hz": 1.0,
             "morlet_n_cycles": 6.0,
             "mt_n_cycles": 7.0,

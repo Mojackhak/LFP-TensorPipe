@@ -38,9 +38,15 @@ from ..mask.annotations import (
     valid_segments_from_annotation_support,
 )
 from .semantics import (
+    HILBERT_FIR_DESIGN,
+    HILBERT_FIR_LENGTH_FACTOR,
+    HILBERT_FIR_PAD,
+    HILBERT_FIR_TRANSITION_POLICY,
+    HILBERT_FIR_WINDOW,
     burst_estimator_signature,
     burst_value_semantics,
     normalize_burst_method,
+    normalize_hilbert_filter_method,
 )
 
 Band = Tuple[float, float]
@@ -220,31 +226,145 @@ def _expand_intervals(
     return _merge_intervals(expanded)
 
 
+def _hilbert_fir_filter_specs(
+    *,
+    sfreq_hz: float,
+    segments: Sequence[Band],
+) -> list[dict[str, Any]]:
+    """Return the fixed FIR specification for every surviving subband."""
+    sfreq = float(sfreq_hz)
+    nyquist = sfreq / 2.0
+    ordered = [(float(low), float(high)) for low, high in segments]
+    specifications: list[dict[str, Any]] = []
+    for index, (low, high) in enumerate(ordered):
+        width = high - low
+        lower_limits = [max(0.25 * low, 2.0), low, width / 2.0]
+        upper_limits = [
+            max(0.25 * high, 2.0),
+            nyquist - high,
+            width / 2.0,
+        ]
+        if index > 0:
+            left_gap = low - ordered[index - 1][1]
+            if left_gap <= 0.0:
+                raise ValueError(
+                    "Hilbert FIR subbands must be separated by a positive gap."
+                )
+            lower_limits.append(left_gap)
+        else:
+            left_gap = None
+        if index + 1 < len(ordered):
+            right_gap = ordered[index + 1][0] - high
+            if right_gap <= 0.0:
+                raise ValueError(
+                    "Hilbert FIR subbands must be separated by a positive gap."
+                )
+            upper_limits.append(right_gap)
+        else:
+            right_gap = None
+
+        lower_transition = float(min(lower_limits))
+        upper_transition = float(min(upper_limits))
+        if lower_transition <= 0.0 or upper_transition <= 0.0:
+            raise ValueError(
+                "Hilbert FIR transition bandwidths must be strictly positive."
+            )
+        lower_passband = low + lower_transition / 2.0
+        upper_passband = high - upper_transition / 2.0
+        if upper_passband <= lower_passband:
+            raise ValueError("Hilbert FIR subband has no positive flat passband.")
+
+        shortest_transition = min(lower_transition, upper_transition)
+        filter_length = int(
+            np.ceil(HILBERT_FIR_LENGTH_FACTOR * sfreq / shortest_transition)
+        )
+        if filter_length % 2 == 0:
+            filter_length += 1
+        specifications.append(
+            {
+                "segment_hz": [low, high],
+                "cutoff_hz": [low, high],
+                "passband_hz": [lower_passband, upper_passband],
+                "stopband_hz": [
+                    low - lower_transition / 2.0,
+                    high + upper_transition / 2.0,
+                ],
+                "transition_bandwidth_hz": [
+                    lower_transition,
+                    upper_transition,
+                ],
+                "adjacent_excluded_gap_hz": [left_gap, right_gap],
+                "filter_length_samples": filter_length,
+                "filter_order": filter_length - 1,
+                "fir_design": HILBERT_FIR_DESIGN,
+                "fir_window": HILBERT_FIR_WINDOW,
+                "phase": "zero",
+                "pad": HILBERT_FIR_PAD,
+                "transition_policy": HILBERT_FIR_TRANSITION_POLICY,
+            }
+        )
+    if not specifications:  # pragma: no cover
+        raise RuntimeError("Hilbert FIR estimator requires at least one subband.")
+    return specifications
+
+
 def _hilbert_magnitude(
     data: np.ndarray,
     *,
     sfreq_hz: float,
     segments: Sequence[Band],
     filter_order: int,
+    filter_method: str = "iir",
 ) -> np.ndarray:
     """Return reconstructed-band Hilbert magnitude for one or more signals."""
+    filter_method_eff = normalize_hilbert_filter_method(filter_method)
     filtered: np.ndarray | None = None
-    iir_params = {
-        "order": int(filter_order),
-        "ftype": "butter",
-        "output": "sos",
-    }
-    for low, high in segments:
-        part = mne.filter.filter_data(
-            np.asarray(data, dtype=float),
-            sfreq=float(sfreq_hz),
-            l_freq=float(low),
-            h_freq=float(high),
-            method="iir",
-            iir_params=iir_params,
-            phase="zero",
-            verbose=False,
+    if filter_method_eff == "iir":
+        filter_specs: Sequence[dict[str, Any] | Band] = list(segments)
+        iir_params = {
+            "order": int(filter_order),
+            "ftype": "butter",
+            "output": "sos",
+        }
+    else:
+        filter_specs = _hilbert_fir_filter_specs(
+            sfreq_hz=float(sfreq_hz),
+            segments=segments,
         )
+        iir_params = None
+
+    for specification in filter_specs:
+        if filter_method_eff == "iir":
+            low, high = specification
+            part = mne.filter.filter_data(
+                np.asarray(data, dtype=float),
+                sfreq=float(sfreq_hz),
+                l_freq=float(low),
+                h_freq=float(high),
+                method="iir",
+                iir_params=iir_params,
+                phase="zero",
+                verbose=False,
+            )
+        else:
+            fir_spec = specification
+            lower_transition, upper_transition = fir_spec["transition_bandwidth_hz"]
+            lower_passband, upper_passband = fir_spec["passband_hz"]
+            part = mne.filter.filter_data(
+                np.asarray(data, dtype=float),
+                sfreq=float(sfreq_hz),
+                l_freq=float(lower_passband),
+                h_freq=float(upper_passband),
+                filter_length=int(fir_spec["filter_length_samples"]),
+                l_trans_bandwidth=float(lower_transition),
+                h_trans_bandwidth=float(upper_transition),
+                method="fir",
+                phase="zero",
+                fir_window=HILBERT_FIR_WINDOW,
+                fir_design=HILBERT_FIR_DESIGN,
+                pad=HILBERT_FIR_PAD,
+                verbose=False,
+            )
         filtered = (
             part.astype(np.float64, copy=True)
             if filtered is None
@@ -292,6 +412,7 @@ def _hilbert_oracle_error(
     segments: Sequence[Band],
     filter_order: int,
     comparison_samples: int,
+    filter_method: str = "iir",
 ) -> np.ndarray:
     """Return normalized isolated-versus-continuous errors for one duration."""
     comparison_samples_eff = int(comparison_samples)
@@ -310,12 +431,14 @@ def _hilbert_oracle_error(
         sfreq_hz=float(sfreq_hz),
         segments=segments,
         filter_order=int(filter_order),
+        filter_method=filter_method,
     )[:, start:stop]
     isolated = _hilbert_magnitude(
         reference_input[:, start:stop],
         sfreq_hz=float(sfreq_hz),
         segments=segments,
         filter_order=int(filter_order),
+        filter_method=filter_method,
     )
     central = slice(
         comparison_samples_eff // 4,
@@ -361,11 +484,13 @@ def _compute_hilbert_guard_samples(
     segments: Sequence[Band],
     filter_order: int,
     tolerance_pct: float,
+    filter_method: str = "iir",
 ) -> tuple[int, dict[str, Any]]:
     """Calibrate one band-specific Hilbert guard against the declared oracle."""
     tolerance = float(tolerance_pct) / 100.0
     if not np.isfinite(tolerance) or not (0.0 < tolerance < 1.0):
         raise ValueError("tolerance_pct must be finite and in (0, 100).")
+    filter_method_eff = normalize_hilbert_filter_method(filter_method)
 
     lowest_frequency = min(float(low) for low, _high in segments)
     base_samples = int(np.ceil(max(8.0, 16.0 / lowest_frequency) * float(sfreq_hz)))
@@ -383,6 +508,7 @@ def _compute_hilbert_guard_samples(
             segments=segments,
             filter_order=int(filter_order),
             comparison_samples=comparison_samples,
+            filter_method=filter_method_eff,
         )
         errors.append(error)
         guard_estimate = _guard_from_errors([error], tolerance=tolerance)
@@ -393,11 +519,6 @@ def _compute_hilbert_guard_samples(
         if len(usable_guards) >= 2 and abs(usable_guards[-1] - usable_guards[-2]) <= 1:
             converged = True
             break
-    if not converged:
-        raise RuntimeError(
-            "Hilbert guard oracle did not converge across five doubled durations."
-        )
-
     guard = _guard_from_errors(errors, tolerance=tolerance)
     retained_error = _tail_error(errors, guard=guard)
     if not np.isfinite(retained_error) or retained_error > tolerance:
@@ -405,8 +526,19 @@ def _compute_hilbert_guard_samples(
             "Hilbert guard oracle has no retained support satisfying the tolerance."
         )
     previous_error = _tail_error(errors, guard=guard - 1) if guard > 0 else float("nan")
+    if guard > 0 and not previous_error > tolerance:
+        raise RuntimeError("Hilbert guard oracle did not return the minimum guard.")
     return int(guard), {
         "mode": "isolated_vs_five_length_continuous_reference",
+        "filter_method": filter_method_eff,
+        "fir_filter_specs": (
+            _hilbert_fir_filter_specs(
+                sfreq_hz=float(sfreq_hz),
+                segments=segments,
+            )
+            if filter_method_eff == "fir"
+            else None
+        ),
         "tolerance_pct": float(tolerance_pct),
         "probe_count": int(errors[0].shape[0]),
         "comparison_sample_counts": comparison_sample_counts,
@@ -416,7 +548,10 @@ def _compute_hilbert_guard_samples(
         "guard_estimates_samples": [int(value) for value in guards],
         "retained_tail_error": float(retained_error),
         "previous_tail_error": float(previous_error),
-        "converged": True,
+        "converged": bool(converged),
+        "acceptance_mode": (
+            "consecutive_guard_stability" if converged else "pooled_declared_durations"
+        ),
     }
 
 
@@ -525,6 +660,7 @@ def _band_magnitude(
     segments: Sequence[Band],
     frequencies_hz: np.ndarray,
     filter_order: int,
+    hilbert_filter_method: str,
     morlet_n_cycles: float,
     mt_n_cycles: float,
     mt_time_bandwidth_product: float,
@@ -541,6 +677,7 @@ def _band_magnitude(
             sfreq_hz=float(sfreq_hz),
             segments=segments,
             filter_order=int(filter_order),
+            filter_method=hilbert_filter_method,
         )
     else:
         magnitude = _spectral_band_magnitude(
@@ -598,6 +735,7 @@ def grid(
     baseline_fallback: str = "full",
     method: str = "hilbert",
     filter_order: int = 4,
+    hilbert_filter_method: str = "iir",
     freq_step_hz: float = 1.0,
     morlet_n_cycles: float = 6.0,
     mt_n_cycles: float = 7.0,
@@ -656,6 +794,8 @@ def grid(
         Burst magnitude estimator: "hilbert", "morlet", or "multitaper".
     filter_order:
         Butterworth IIR order used only by the Hilbert estimator.
+    hilbert_filter_method:
+        Fixed Hilbert subband filter family: "iir" or "fir".
     freq_step_hz:
         Frequency spacing used only by Morlet and Multitaper.
     morlet_n_cycles:
@@ -721,6 +861,7 @@ def grid(
     method_eff = normalize_burst_method(method)
     estimator_signature = burst_estimator_signature(
         method=method_eff,
+        hilbert_filter_method=hilbert_filter_method,
         filter_order=filter_order,
         hilbert_edge_tolerance_pct=hilbert_edge_tolerance_pct,
         freq_step_hz=freq_step_hz,
@@ -729,10 +870,14 @@ def grid(
         mt_time_bandwidth_product=mt_time_bandwidth_product,
     )
     if method_eff == "hilbert":
+        hilbert_filter_method_eff = normalize_hilbert_filter_method(
+            hilbert_filter_method
+        )
         tolerance_pct_eff = float(hilbert_edge_tolerance_pct)
         if not np.isfinite(tolerance_pct_eff) or not (0.0 < tolerance_pct_eff < 100.0):
             raise ValueError("hilbert_edge_tolerance_pct must be in (0, 100).")
     else:
+        hilbert_filter_method_eff = None
         tolerance_pct_eff = None
 
     sfreq = float(raw.info["sfreq"])
@@ -824,13 +969,20 @@ def grid(
         raise ValueError("Burst band upper bounds must be below Nyquist.")
     band_centers = band_union_edges.mean(axis=1)
     frequency_grids_by_band: list[np.ndarray] = []
+    hilbert_fir_filter_specs_by_band: list[list[dict[str, Any]] | None] = []
     for segments in band_segments:
         if method_eff == "hilbert":
             frequency_grids_by_band.append(np.asarray([], dtype=float))
+            hilbert_fir_filter_specs_by_band.append(
+                _hilbert_fir_filter_specs(sfreq_hz=sfreq, segments=segments)
+                if hilbert_filter_method_eff == "fir"
+                else None
+            )
         else:
             frequency_grids_by_band.append(
                 _band_frequency_grid(segments, step_hz=float(freq_step_hz))
             )
+            hilbert_fir_filter_specs_by_band.append(None)
     min_run_samples_by_band = [
         int(np.ceil(float(min_cycles) * sfreq / float(f_center)))
         for f_center in band_centers
@@ -938,6 +1090,7 @@ def grid(
                     segments=segs,
                     filter_order=int(filter_order),
                     tolerance_pct=float(tolerance_pct_eff),
+                    filter_method=str(hilbert_filter_method_eff),
                 )
             elif method_eff == "morlet":
                 edge_guard_samples = _spectral_guard_samples(
@@ -997,6 +1150,7 @@ def grid(
                         segments=segs,
                         frequencies_hz=frequencies,
                         filter_order=filter_order,
+                        hilbert_filter_method=(hilbert_filter_method_eff or "iir"),
                         morlet_n_cycles=morlet_n_cycles,
                         mt_n_cycles=mt_n_cycles,
                         mt_time_bandwidth_product=mt_time_bandwidth_product,
@@ -1038,6 +1192,7 @@ def grid(
                 segments=segs,
                 frequencies_hz=frequencies,
                 filter_order=filter_order,
+                hilbert_filter_method=(hilbert_filter_method_eff or "iir"),
                 morlet_n_cycles=morlet_n_cycles,
                 mt_n_cycles=mt_n_cycles,
                 mt_time_bandwidth_product=mt_time_bandwidth_product,
@@ -1238,7 +1393,20 @@ def grid(
             baseline_match=str(baseline_match),
             baseline_fallback=str(baseline_fallback),
             baseline_intervals=baseline_intervals,
-            filter_order=(int(filter_order) if method_eff == "hilbert" else None),
+            hilbert_filter_method=hilbert_filter_method_eff,
+            filter_order=(
+                int(filter_order)
+                if method_eff == "hilbert" and hilbert_filter_method_eff == "iir"
+                else None
+            ),
+            hilbert_fir_filter_specs_by_band={
+                str(name): specifications
+                for name, specifications in zip(
+                    band_names,
+                    hilbert_fir_filter_specs_by_band,
+                )
+                if specifications is not None
+            },
             freq_step_hz=(
                 float(freq_step_hz) if method_eff in {"morlet", "multitaper"} else None
             ),

@@ -737,7 +737,7 @@ quantities before the common threshold and event-duration rules are applied.
 
 | Method | Band magnitude used by Burst | Main strengths | Main trade-offs | Prefer when |
 |---|---|---|---|---|
-| `hilbert` | Absolute Hilbert envelope after the surviving notch-split subband signals are zero-phase Butterworth filtered and summed | Fastest core estimator; native-sample envelope; direct and conventional for a hypothesis-driven narrow band; usually preserves the sharpest event timing | Sensitive to filter and band definitions; IIR ringing requires a numerical guard; simultaneous frequency components can produce constructive/destructive beating; does not retain within-band frequency location | The primary outcome is conventional band-level burst rate, duration, or occupancy around a known oscillatory band |
+| `hilbert` | Absolute Hilbert envelope after the surviving notch-split subband signals are filtered with the selected zero-phase IIR or FIR and summed | Native-sample envelope; direct and conventional for a hypothesis-driven narrow band; IIR preserves the established fourth-order Butterworth result, while FIR provides a fixed linear-phase alternative | Sensitive to filter and band definitions; both filter families require the final-envelope numerical guard; FIR length can become large for narrow bands or notch gaps; simultaneous frequency components can produce constructive/destructive beating | The primary outcome is conventional band-level burst rate, duration, or occupancy around a known oscillatory band |
 | `morlet` | Square root of mean Morlet power across retained frequency bins | Frequency-local estimation before pooling; follows frequency drift within the named band; avoids cross-frequency phase cancellation; usually better temporal localization than the configured Multitaper window | Cycle count and frequency step affect the result; low frequencies use longer wavelets and greater temporal smoothing; slower than Hilbert; the final Burst tensor pools the frequency axis and therefore does not retain a burst's center-frequency trajectory | Bursts may drift in frequency or contain non-coherent components, while onset and offset timing remain important |
 | `multitaper` | Square root of mean DPSS Multitaper power across retained frequency bins | Multiple orthogonal tapers reduce estimator variance and control spectral leakage; useful for noisy data and stable frequency-specific power | The cycle-defined window and taper averaging smooth event boundaries and can merge nearby short bursts; highest compute cost; time-bandwidth and cycle settings jointly control smoothing | Noise or leakage is the main concern and expected bursts are long enough relative to the analysis window |
 
@@ -763,6 +763,15 @@ Morlet five-sigma support, and Multitaper half-window are different acceptance
 contracts. A stricter Hilbert tolerance generally lengthens its guard and
 reduces valid duration; a larger tolerance generally shortens it.
 
+`Hilbert filter` defaults to `IIR`, which preserves the fourth-order zero-phase
+Butterworth path. `FIR` selects a fixed one-pass, delay-compensated Hamming
+`firwin` design. Its transition widths and odd tap counts are derived separately
+for every surviving subband and recorded in Burst metadata; they are not GUI
+controls. Both choices filter surviving notch-split subbands, sum the real
+signals, and compute one Hilbert magnitude. Their thresholds are not
+interchangeable. FIR does not create a brick-wall boundary: adjacent named
+bands with no spectral gap can still share transition-region energy.
+
 For the tutorial's conventional band-level Burst outcomes, keep the configured
 Hilbert method as the primary analysis. Use Morlet as a method-sensitivity check
 when frequency drift or cross-frequency phase cancellation is plausible. Use
@@ -772,9 +781,9 @@ different methods' absolute magnitudes as the same measurement.
 
 Published comparisons do not establish a universal winner. Schmidt et al.
 reported that a short FIR-plus-Hilbert method best recovered known events in one
-specific synthetic 20 Hz model; the current Hilbert option instead uses a
-fourth-order zero-phase IIR, and their result does not automatically generalize
-to other bands or signal conditions. Lundqvist et al. reported qualitatively
+specific synthetic 20 Hz model; that result does not establish one fixed FIR
+order for all sampling rates, bands, or signal conditions. Lundqvist et al.
+reported qualitatively
 similar time-frequency and Burst outcomes for Morlet, zero-phase
 Butterworth-plus-Hilbert, and Multitaper, then used Multitaper for their reported
 Burst extraction. Treat these studies as motivation for a dataset-specific

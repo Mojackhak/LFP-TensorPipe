@@ -235,6 +235,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "baseline_keep",
         "boundary_isolated_filter",
         "method",
+        "hilbert_filter_method",
         "freq_step_hz",
         "morlet_n_cycles",
         "mt_n_cycles",

@@ -320,6 +320,7 @@ class MainWindowTensorDialogsMixin:
                 "thresholds",
                 "boundary_isolated_filter",
                 "method",
+                "hilbert_filter_method",
                 "freq_step_hz",
                 "morlet_n_cycles",
                 "mt_n_cycles",

@@ -6,7 +6,10 @@ from typing import Any
 
 import numpy as np
 
-from lfptensorpipe.lfp.burst.semantics import normalize_burst_method
+from lfptensorpipe.lfp.burst.semantics import (
+    normalize_burst_method,
+    normalize_hilbert_filter_method,
+)
 
 from .frequency import (
     build_tensor_metric_notch_payload,
@@ -159,6 +162,7 @@ _METRIC_PASSTHROUGH_KEYS: dict[str, frozenset[str]] = {
             "morlet_n_cycles",
             "mt_n_cycles",
             "mt_time_bandwidth_product",
+            "hilbert_filter_method",
             "hilbert_edge_tolerance_pct",
         }
     ),
@@ -479,6 +483,9 @@ def _normalize_metric_compute_params(
         method = normalize_burst_method(metric_params.get("method", "hilbert"))
         normalized["method"] = method
         if method == "hilbert":
+            normalized["hilbert_filter_method"] = normalize_hilbert_filter_method(
+                metric_params.get("hilbert_filter_method", "iir")
+            )
             normalized["hilbert_edge_tolerance_pct"] = _finite_float(
                 metric_params,
                 "hilbert_edge_tolerance_pct",

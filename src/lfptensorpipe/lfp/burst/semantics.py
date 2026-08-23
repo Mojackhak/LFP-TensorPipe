@@ -9,6 +9,12 @@ BURST_NATIVE_DECIM = 1
 BURST_NATIVE_HOP_S = None
 BURST_SAMPLE_SUPPORT_KEY = "burst_sample_support"
 BURST_SAMPLE_SUPPORT = "left_edge_half_open"
+HILBERT_FIR_DESIGN = "firwin"
+HILBERT_FIR_LENGTH_FACTOR = 3.3
+HILBERT_FIR_PAD = "reflect_limited"
+HILBERT_FIR_TRANSITION_POLICY = "cutoff_centered_band_and_notch_bounded"
+HILBERT_FIR_WINDOW = "hamming"
+HILBERT_IIR_FAMILY = "butterworth"
 BURST_VALUE_SEMANTICS: Mapping[str, Any] = {
     "non_burst_value": 0.0,
     "invalid_value": "nan",
@@ -50,9 +56,18 @@ def normalize_burst_method(value: Any) -> str:
     return method
 
 
+def normalize_hilbert_filter_method(value: Any) -> str:
+    """Return one supported Hilbert band-pass filter method."""
+    method = str(value).strip().lower()
+    if method not in {"iir", "fir"}:
+        raise ValueError("Hilbert filter method must be 'iir' or 'fir'.")
+    return method
+
+
 def burst_estimator_signature(
     *,
     method: Any,
+    hilbert_filter_method: Any = "iir",
     filter_order: Any = 4,
     hilbert_edge_tolerance_pct: Any = 10.0,
     freq_step_hz: Any = 1.0,
@@ -63,14 +78,7 @@ def burst_estimator_signature(
     """Return the canonical active-method Burst estimator signature."""
     method_name = normalize_burst_method(method)
     if method_name == "hilbert":
-        if isinstance(filter_order, bool):
-            raise ValueError("filter_order must be a positive integer.")
-        try:
-            order = int(filter_order)
-        except (OverflowError, TypeError, ValueError) as exc:
-            raise ValueError("filter_order must be a positive integer.") from exc
-        if order <= 0 or float(order) != float(filter_order):
-            raise ValueError("filter_order must be a positive integer.")
+        filter_method = normalize_hilbert_filter_method(hilbert_filter_method)
         tolerance = _positive_finite(
             hilbert_edge_tolerance_pct,
             field="hilbert_edge_tolerance_pct",
@@ -79,13 +87,39 @@ def burst_estimator_signature(
             raise ValueError(
                 "hilbert_edge_tolerance_pct must be finite and in (0, 100)."
             )
-        return {
+        signature = {
             "method": "hilbert",
-            "filter_order": order,
+            "filter_method": filter_method,
             "edge_tolerance_pct": tolerance,
             "phase": "zero",
             "band_magnitude": "real_subband_sum_then_hilbert_abs",
         }
+        if filter_method == "iir":
+            if isinstance(filter_order, bool):
+                raise ValueError("filter_order must be a positive integer.")
+            try:
+                order = int(filter_order)
+            except (OverflowError, TypeError, ValueError) as exc:
+                raise ValueError("filter_order must be a positive integer.") from exc
+            if order <= 0 or float(order) != float(filter_order):
+                raise ValueError("filter_order must be a positive integer.")
+            signature.update(
+                {
+                    "filter_family": HILBERT_IIR_FAMILY,
+                    "filter_order": order,
+                }
+            )
+        else:
+            signature.update(
+                {
+                    "fir_design": HILBERT_FIR_DESIGN,
+                    "fir_window": HILBERT_FIR_WINDOW,
+                    "fir_pad": HILBERT_FIR_PAD,
+                    "fir_transition_policy": HILBERT_FIR_TRANSITION_POLICY,
+                    "fir_length_factor": HILBERT_FIR_LENGTH_FACTOR,
+                }
+            )
+        return signature
     step = _positive_finite(freq_step_hz, field="freq_step_hz")
     if method_name == "morlet":
         return {
@@ -118,17 +152,31 @@ def normalize_burst_estimator_signature(value: Any) -> dict[str, Any]:
         raise ValueError("Burst estimator signature must be an object.")
     method = normalize_burst_method(value.get("method"))
     if method == "hilbert":
+        filter_method = normalize_hilbert_filter_method(value.get("filter_method"))
         expected_keys = {
             "method",
-            "filter_order",
+            "filter_method",
             "edge_tolerance_pct",
             "phase",
             "band_magnitude",
         }
+        if filter_method == "iir":
+            expected_keys.update({"filter_family", "filter_order"})
+        else:
+            expected_keys.update(
+                {
+                    "fir_design",
+                    "fir_window",
+                    "fir_pad",
+                    "fir_transition_policy",
+                    "fir_length_factor",
+                }
+            )
         if set(value) != expected_keys:
             raise ValueError("Hilbert estimator signature has invalid keys.")
         normalized = burst_estimator_signature(
             method=method,
+            hilbert_filter_method=filter_method,
             filter_order=value.get("filter_order"),
             hilbert_edge_tolerance_pct=value.get("edge_tolerance_pct"),
         )
@@ -178,10 +226,17 @@ __all__ = [
     "BURST_SAMPLE_SUPPORT",
     "BURST_SAMPLE_SUPPORT_KEY",
     "BURST_VALUE_SEMANTICS",
+    "HILBERT_FIR_DESIGN",
+    "HILBERT_FIR_LENGTH_FACTOR",
+    "HILBERT_FIR_PAD",
+    "HILBERT_FIR_TRANSITION_POLICY",
+    "HILBERT_FIR_WINDOW",
+    "HILBERT_IIR_FAMILY",
     "burst_estimator_signature",
     "burst_value_semantics",
     "has_compatible_burst_value_semantics",
     "has_current_burst_value_semantics",
     "normalize_burst_estimator_signature",
     "normalize_burst_method",
+    "normalize_hilbert_filter_method",
 ]

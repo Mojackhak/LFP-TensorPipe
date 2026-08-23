@@ -63,6 +63,9 @@ def plan_burst(
         ),
     }
     if method == "hilbert":
+        runner_kwargs["hilbert_filter_method"] = str(
+            metric_params.get("hilbert_filter_method", "iir")
+        )
         runner_kwargs["hilbert_edge_tolerance_pct"] = float(
             metric_params.get("hilbert_edge_tolerance_pct", 10.0)
         )

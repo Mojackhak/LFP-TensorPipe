@@ -539,6 +539,10 @@ def _metric_log_signature(
             VALUE_TRANSFORM_POLICY_KEY: burst_policy,
         }
         if estimator_signature["method"] == "hilbert":
+            filter_method = str(params.get("hilbert_filter_method", "")).strip().lower()
+            if filter_method != estimator_signature["filter_method"]:
+                return None
+            signature["hilbert_filter_method"] = filter_method
             tolerance = _as_float(params.get("hilbert_edge_tolerance_pct"), np.nan)
             if not np.isfinite(tolerance) or not (0.0 < tolerance < 100.0):
                 return None
@@ -810,6 +814,7 @@ def _current_metric_signature(
         )
         estimator_signature = burst_estimator_signature(
             method=params.get("method", "hilbert"),
+            hilbert_filter_method=params.get("hilbert_filter_method", "iir"),
             filter_order=4,
             hilbert_edge_tolerance_pct=params.get("hilbert_edge_tolerance_pct", 10.0),
             freq_step_hz=params.get("freq_step_hz", 1.0),
@@ -839,6 +844,9 @@ def _current_metric_signature(
             ),
         }
         if estimator_signature["method"] == "hilbert":
+            signature["hilbert_filter_method"] = str(
+                estimator_signature["filter_method"]
+            )
             signature["hilbert_edge_tolerance_pct"] = float(
                 params.get("hilbert_edge_tolerance_pct", 10.0)
             )

@@ -99,6 +99,7 @@ def run_burst_metric(
     selected_channels: list[str] | None,
     boundary_isolated_filter: bool = True,
     method: str = "hilbert",
+    hilbert_filter_method: str = "iir",
     morlet_n_cycles: float = 6.0,
     mt_n_cycles: float = 7.0,
     mt_time_bandwidth_product: float = 4.0,
@@ -159,6 +160,7 @@ def run_burst_metric(
     method_eff = normalize_burst_method(method)
     estimator_signature = burst_estimator_signature(
         method=method_eff,
+        hilbert_filter_method=hilbert_filter_method,
         filter_order=4,
         hilbert_edge_tolerance_pct=hilbert_edge_tolerance_pct,
         freq_step_hz=step_hz,
@@ -168,7 +170,8 @@ def run_burst_metric(
     )
     if method_eff == "hilbert":
         active_method_params = {
-            "hilbert_edge_tolerance_pct": float(hilbert_edge_tolerance_pct)
+            "hilbert_filter_method": str(estimator_signature["filter_method"]),
+            "hilbert_edge_tolerance_pct": float(hilbert_edge_tolerance_pct),
         }
     elif method_eff == "morlet":
         active_method_params = {
@@ -298,6 +301,7 @@ def run_burst_metric(
             min_cycles=float(min_cycles),
             max_cycles=(float(max_cycles) if max_cycles is not None else None),
             method=method_eff,
+            hilbert_filter_method=str(hilbert_filter_method),
             freq_step_hz=float(step_hz),
             morlet_n_cycles=float(morlet_n_cycles),
             mt_n_cycles=float(mt_n_cycles),

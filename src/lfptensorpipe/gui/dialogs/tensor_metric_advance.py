@@ -52,6 +52,7 @@ class TensorMetricAdvanceDialog(QDialog):
         if metric_key == "burst":
             burst_defaults = {
                 "method": "hilbert",
+                "hilbert_filter_method": "iir",
                 "freq_step_hz": 1.0,
                 "morlet_n_cycles": 6.0,
                 "mt_n_cycles": 7.0,
@@ -430,6 +431,14 @@ class TensorMetricAdvanceDialog(QDialog):
             for item in ("hilbert", "morlet", "multitaper"):
                 method_combo.addItem(item, item)
             method_combo.setToolTip("Burst estimator (hilbert/morlet/multitaper).")
+            hilbert_filter_method = QComboBox()
+            hilbert_filter_method.addItem("IIR", "iir")
+            hilbert_filter_method.addItem("FIR", "fir")
+            hilbert_filter_method.setToolTip(
+                "Band-pass filter used only by the Hilbert estimator. IIR "
+                "preserves the fourth-order zero-phase Butterworth path; FIR "
+                "uses the fixed automatic Hamming firwin contract."
+            )
             freq_step_hz = QLineEdit()
             freq_step_hz.setToolTip(
                 "Frequency spacing for the Morlet or Multitaper computation grid."
@@ -494,6 +503,7 @@ class TensorMetricAdvanceDialog(QDialog):
             )
             boundary_isolated_filter.setEnabled(self._mask_edge_effects)
             form.addRow("Method", method_combo)
+            form.addRow("Hilbert filter", hilbert_filter_method)
             form.addRow("Step (Hz)", freq_step_hz)
             form.addRow("Morlet cycles", morlet_n_cycles)
             form.addRow("MT cycles", mt_n_cycles)
@@ -506,6 +516,7 @@ class TensorMetricAdvanceDialog(QDialog):
             form.addRow("Isolate BAD/EDGE boundaries", boundary_isolated_filter)
             self._fields = {
                 "method": method_combo,
+                "hilbert_filter_method": hilbert_filter_method,
                 "freq_step_hz": freq_step_hz,
                 "morlet_n_cycles": morlet_n_cycles,
                 "mt_n_cycles": mt_n_cycles,
@@ -743,6 +754,7 @@ class TensorMetricAdvanceDialog(QDialog):
         method = str(method_widget.currentData()).strip().lower()
         if self._metric_key == "burst":
             enabled_by_key = {
+                "hilbert_filter_method": method == "hilbert",
                 "freq_step_hz": method in {"morlet", "multitaper"},
                 "morlet_n_cycles": method == "morlet",
                 "mt_n_cycles": method == "multitaper",
