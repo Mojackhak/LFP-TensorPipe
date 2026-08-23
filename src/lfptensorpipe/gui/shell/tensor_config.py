@@ -432,6 +432,8 @@ class MainWindowTensorConfigMixin:
             return ["selected_channels"]
         if "selected pair" in lowered:
             return ["selected_pairs"]
+        if "hilbert filter method" in lowered and "hilbert_filter_method" in whitelist:
+            return ["hilbert_filter_method"]
         if "band" in lowered and "bands" in whitelist:
             return ["bands"]
         if "specparam freq range" in lowered or "within specparam" in lowered:
