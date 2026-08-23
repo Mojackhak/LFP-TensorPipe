@@ -117,9 +117,19 @@ def _normalize_bands(bands: BandSpec) -> tuple[list[str], list[list[Band]], np.n
 
 def _compute_decim(sfreq_hz: float, hop_s: float | None, decim: int | None) -> int:
     if decim is not None:
-        if int(decim) <= 0:
+        if isinstance(decim, (bool, np.bool_)):
             raise ValueError("decim must be a positive integer.")
-        return int(decim)
+        try:
+            decim_value = float(decim)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("decim must be a positive integer.") from exc
+        if (
+            not np.isfinite(decim_value)
+            or decim_value <= 0.0
+            or not decim_value.is_integer()
+        ):
+            raise ValueError("decim must be a positive integer.")
+        return int(decim_value)
     if hop_s is None or float(hop_s) <= 0:
         raise ValueError(
             "Provide hop_s>0 or an explicit decim to define the time grid."
