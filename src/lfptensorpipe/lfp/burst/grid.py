@@ -868,6 +868,21 @@ def grid(
         raise ValueError("baseline_fallback must be 'full' or 'raise'.")
     if not isinstance(boundary_isolated_filter, (bool, np.bool_)):
         raise TypeError("boundary_isolated_filter must be true or false.")
+    target_n_times_eff: int | None = None
+    if target_n_times is not None:
+        if isinstance(target_n_times, (bool, np.bool_)):
+            raise ValueError("target_n_times must be a positive integer.")
+        try:
+            target_n_times_value = float(target_n_times)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("target_n_times must be a positive integer.") from exc
+        if (
+            not np.isfinite(target_n_times_value)
+            or target_n_times_value <= 0.0
+            or not target_n_times_value.is_integer()
+        ):
+            raise ValueError("target_n_times must be a positive integer.")
+        target_n_times_eff = int(target_n_times_value)
     method_eff = normalize_burst_method(method)
     estimator_signature = burst_estimator_signature(
         method=method_eff,
@@ -1329,13 +1344,12 @@ def grid(
 
         # The native-rate contract requires decim_eff == 1 above.
         env_dec = env_burst[:, ::decim_eff]  # (n_channels, n_times_out)
-        if target_n_times is not None:
-            target_n_times_i = int(target_n_times)
-            if env_dec.shape[-1] > target_n_times_i:
-                env_dec = env_dec[..., :target_n_times_i]
-            elif env_dec.shape[-1] < target_n_times_i:
+        if target_n_times_eff is not None:
+            if env_dec.shape[-1] > target_n_times_eff:
+                env_dec = env_dec[..., :target_n_times_eff]
+            elif env_dec.shape[-1] < target_n_times_eff:
                 pad = np.full(
-                    (n_channels, target_n_times_i - env_dec.shape[-1]),
+                    (n_channels, target_n_times_eff - env_dec.shape[-1]),
                     np.nan,
                     dtype=np.float64,
                 )
@@ -1349,13 +1363,15 @@ def grid(
 
     # Time axis (decimated)
     times_out = raw_times[::decim_eff]
-    if target_n_times is not None:
-        target_n_times_i = int(target_n_times)
-        if times_out.shape[0] > target_n_times_i:
-            times_out = times_out[:target_n_times_i]
-        elif times_out.shape[0] < target_n_times_i:
+    if target_n_times_eff is not None:
+        if times_out.shape[0] > target_n_times_eff:
+            times_out = times_out[:target_n_times_eff]
+        elif times_out.shape[0] < target_n_times_eff:
             times_out = np.concatenate(
-                [times_out, np.full(target_n_times_i - times_out.shape[0], np.nan)],
+                [
+                    times_out,
+                    np.full(target_n_times_eff - times_out.shape[0], np.nan),
+                ],
                 axis=0,
             )
 
@@ -1396,9 +1412,7 @@ def grid(
             ],
             hop_s=(float(hop_s) if hop_s is not None else None),
             decim_eff=int(decim_eff),
-            target_n_times=(
-                int(target_n_times) if target_n_times is not None else None
-            ),
+            target_n_times=target_n_times_eff,
             baseline_keep=(list(baseline_keep) if baseline_keep is not None else None),
             baseline_match=str(baseline_match),
             baseline_fallback=str(baseline_fallback),
