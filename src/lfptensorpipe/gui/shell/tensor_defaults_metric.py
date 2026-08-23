@@ -187,7 +187,10 @@ def _load_tensor_metric_default_params(
             normalized_node["notch_radii"] = legacy_notch_radii
         accepted: dict[str, Any] = {}
         repaired: list[str] = []
-        for key, value in normalized_node.items():
+        ordered_keys = [key for key in built_in if key in normalized_node]
+        ordered_keys.extend(key for key in normalized_node if key not in built_in)
+        for key in ordered_keys:
+            value = normalized_node[key]
             candidate = _deep_merge_dict(base, {**accepted, key: value})
             try:
                 validate_metric_storage_params(
