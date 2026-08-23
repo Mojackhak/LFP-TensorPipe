@@ -564,6 +564,7 @@ def _normalize_metric_selectors(
     metric_key: str,
     metric_label: str,
     metric_params: dict[str, Any],
+    allow_empty_selectors: bool = False,
 ) -> tuple[list[str] | None, list[tuple[str, str]] | None]:
     if "spectral_mode" in metric_params:
         raise ValueError(
@@ -573,13 +574,27 @@ def _normalize_metric_selectors(
     metric_channels = svc._normalize_metric_channels(
         metric_params.get("selected_channels")
     )
-    if metric_key in svc.TENSOR_CHANNEL_SELECTOR_KEYS and not metric_channels:
+    empty_channel_draft = isinstance(
+        metric_params.get("selected_channels"), list
+    ) and not metric_params.get("selected_channels")
+    if (
+        metric_key in svc.TENSOR_CHANNEL_SELECTOR_KEYS
+        and not metric_channels
+        and not (allow_empty_selectors and empty_channel_draft)
+    ):
         raise ValueError(f"{metric_label} requires at least one selected channel.")
     metric_pairs = svc._normalize_metric_pairs(metric_params.get("selected_pairs"))
     directed_or_undirected = (
         svc.TENSOR_UNDIRECTED_SELECTOR_KEYS | svc.TENSOR_DIRECTED_SELECTOR_KEYS
     )
-    if metric_key in directed_or_undirected and not metric_pairs:
+    empty_pair_draft = isinstance(
+        metric_params.get("selected_pairs"), list
+    ) and not metric_params.get("selected_pairs")
+    if (
+        metric_key in directed_or_undirected
+        and not metric_pairs
+        and not (allow_empty_selectors and empty_pair_draft)
+    ):
         raise ValueError(f"{metric_label} requires at least one selected pair.")
     return metric_channels, metric_pairs
 
@@ -736,8 +751,9 @@ def validate_metric_storage_params(
     metric_key: str,
     metric_label: str,
     metric_params: dict[str, Any],
+    allow_empty_selectors: bool = False,
 ) -> None:
-    """Validate context-independent values stored by the GUI or config files."""
+    """Validate stored values, optionally retaining an empty selector draft."""
     normalized = _normalize_metric_compute_params(
         metric_key=metric_key,
         metric_label=metric_label,
@@ -780,11 +796,13 @@ def validate_metric_storage_params(
 
     if "selected_channels" in metric_params:
         channels = metric_params.get("selected_channels")
-        if not isinstance(channels, list) or not channels:
+        if not isinstance(channels, list) or (
+            not channels and not allow_empty_selectors
+        ):
             raise ValueError(f"{metric_label} requires at least one selected channel.")
     if "selected_pairs" in metric_params:
         pairs = metric_params.get("selected_pairs")
-        if not isinstance(pairs, list) or not pairs:
+        if not isinstance(pairs, list) or (not pairs and not allow_empty_selectors):
             raise ValueError(f"{metric_label} requires at least one selected pair.")
 
 
@@ -795,7 +813,9 @@ def prepare_metric_plan_inputs(
     metric_key: str,
     metric_label: str,
     metric_params: dict[str, Any],
+    allow_empty_selectors: bool = False,
 ) -> MetricPlanInputs:
+    """Normalize plan inputs, requiring compute-ready selectors by default."""
     normalized_params = _normalize_metric_compute_params(
         metric_key=metric_key,
         metric_label=metric_label,
@@ -806,6 +826,7 @@ def prepare_metric_plan_inputs(
         metric_key=metric_key,
         metric_label=metric_label,
         metric_params=normalized_params,
+        allow_empty_selectors=allow_empty_selectors,
     )
     if metric_channels is not None:
         normalized_params["selected_channels"] = list(metric_channels)

@@ -519,10 +519,23 @@ class MainWindowTensorConfigMixin:
                         legacy_notch_fields=legacy_notch_fields,
                     )
                 )
+                allow_empty_filtered_selectors = (
+                    not normalized.get("selected_channels")
+                    and any(
+                        "unavailable channel(s)" in warning
+                        for warning in metric_warnings
+                    )
+                ) or (
+                    not normalized.get("selected_pairs")
+                    and any(
+                        "unavailable pair(s)" in warning for warning in metric_warnings
+                    )
+                )
                 validate_metric_storage_params(
                     metric_key=metric_key,
                     metric_label=self._tensor_metric_display_name(metric_key),
                     metric_params=normalized,
+                    allow_empty_selectors=allow_empty_filtered_selectors,
                 )
                 if context is not None:
                     prepare_metric_plan_inputs(
@@ -531,6 +544,7 @@ class MainWindowTensorConfigMixin:
                         metric_key=metric_key,
                         metric_label=self._tensor_metric_display_name(metric_key),
                         metric_params=normalized,
+                        allow_empty_selectors=allow_empty_filtered_selectors,
                     )
             except Exception as exc:  # noqa: BLE001
                 fields = self._tensor_import_error_fields(str(exc), whitelist)
