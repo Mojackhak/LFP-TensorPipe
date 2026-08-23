@@ -6,6 +6,8 @@ from typing import Any
 
 import numpy as np
 
+from lfptensorpipe.lfp.burst.semantics import normalize_burst_method
+
 from .frequency import (
     build_tensor_metric_notch_payload,
     validate_periodic_aperiodic_notch_bounds,
@@ -152,6 +154,12 @@ _METRIC_PASSTHROUGH_KEYS: dict[str, frozenset[str]] = {
             "thresholds_source_path",
             "baseline_keep",
             "boundary_isolated_filter",
+            "method",
+            "freq_step_hz",
+            "morlet_n_cycles",
+            "mt_n_cycles",
+            "mt_time_bandwidth_product",
+            "hilbert_edge_tolerance_pct",
         }
     ),
 }
@@ -463,6 +471,49 @@ def _normalize_metric_compute_params(
             )
 
     if metric_key == "burst":
+        method = normalize_burst_method(metric_params.get("method", "hilbert"))
+        normalized["method"] = method
+        if method == "hilbert":
+            normalized["hilbert_edge_tolerance_pct"] = _finite_float(
+                metric_params,
+                "hilbert_edge_tolerance_pct",
+                default=10.0,
+                minimum=0.0,
+                maximum=100.0,
+            )
+        elif method == "morlet":
+            normalized["freq_step_hz"] = _finite_float(
+                metric_params,
+                "freq_step_hz",
+                default=1.0,
+                minimum=0.0,
+            )
+            normalized["morlet_n_cycles"] = _finite_float(
+                metric_params,
+                "morlet_n_cycles",
+                default=6.0,
+                minimum=0.0,
+            )
+        else:
+            normalized["freq_step_hz"] = _finite_float(
+                metric_params,
+                "freq_step_hz",
+                default=1.0,
+                minimum=0.0,
+            )
+            normalized["mt_n_cycles"] = _finite_float(
+                metric_params,
+                "mt_n_cycles",
+                default=7.0,
+                minimum=0.0,
+            )
+            normalized["mt_time_bandwidth_product"] = _finite_float(
+                metric_params,
+                "mt_time_bandwidth_product",
+                default=4.0,
+                minimum=2.0,
+                minimum_inclusive=True,
+            )
         min_cycles = _finite_float(
             metric_params,
             "min_cycles",

@@ -38,12 +38,14 @@ def plan_burst(
     metric_params: dict[str, Any],
     mask_edge_effects: bool,
 ) -> RuntimePlan:
+    method = str(metric_params.get("method", "hilbert"))
     runner_kwargs = {
         "low_freq": float(metric_low),
         "high_freq": float(metric_high),
         "mask_edge_effects": mask_edge_effects,
         "bands": metric_bands,
         "selected_channels": metric_channels,
+        "method": method,
         "boundary_isolated_filter": bool(
             metric_params.get("boundary_isolated_filter", True)
         ),
@@ -60,6 +62,21 @@ def plan_burst(
             else None
         ),
     }
+    if method == "hilbert":
+        runner_kwargs["hilbert_edge_tolerance_pct"] = float(
+            metric_params.get("hilbert_edge_tolerance_pct", 10.0)
+        )
+    elif method == "morlet":
+        runner_kwargs["step_hz"] = float(metric_params.get("freq_step_hz", 1.0))
+        runner_kwargs["morlet_n_cycles"] = float(
+            metric_params.get("morlet_n_cycles", 6.0)
+        )
+    else:
+        runner_kwargs["step_hz"] = float(metric_params.get("freq_step_hz", 1.0))
+        runner_kwargs["mt_n_cycles"] = float(metric_params.get("mt_n_cycles", 7.0))
+        runner_kwargs["mt_time_bandwidth_product"] = float(
+            metric_params.get("mt_time_bandwidth_product", 4.0)
+        )
     if metric_params.get("thresholds") is None:
         runner_kwargs["percentile"] = float(metric_params["percentile"])
         runner_kwargs["baseline_keep"] = _normalize_baseline_keep(

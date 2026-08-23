@@ -421,11 +421,16 @@ def _run_burst_metric(
     *,
     low_freq: float,
     high_freq: float,
-    step_hz: float | None = None,
+    step_hz: float = 1.0,
     mask_edge_effects: bool,
     bands: list[dict[str, Any]],
     selected_channels: list[str] | None,
     boundary_isolated_filter: bool = True,
+    method: str = "hilbert",
+    morlet_n_cycles: float = 6.0,
+    mt_n_cycles: float = 7.0,
+    mt_time_bandwidth_product: float = 4.0,
+    hilbert_edge_tolerance_pct: float = 10.0,
     percentile: float = 75.0,
     baseline_keep: list[str] | None = None,
     min_cycles: float = 2.0,
@@ -442,18 +447,23 @@ def _run_burst_metric(
     burst_grid_fn=None,
     compute_notch_intervals_fn=None,
 ) -> tuple[bool, str]:
-    """Dispatch Burst while accepting the ignored legacy Step keyword."""
-    _ = step_hz
+    """Dispatch Burst method and active estimator parameters."""
     from .runners.burst import run_burst_metric
 
     return run_burst_metric(
         context,
         low_freq=low_freq,
         high_freq=high_freq,
+        step_hz=step_hz,
         mask_edge_effects=mask_edge_effects,
         bands=bands,
         selected_channels=selected_channels,
         boundary_isolated_filter=boundary_isolated_filter,
+        method=method,
+        morlet_n_cycles=morlet_n_cycles,
+        mt_n_cycles=mt_n_cycles,
+        mt_time_bandwidth_product=mt_time_bandwidth_product,
+        hilbert_edge_tolerance_pct=hilbert_edge_tolerance_pct,
         percentile=percentile,
         baseline_keep=baseline_keep,
         min_cycles=min_cycles,

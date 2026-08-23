@@ -1,18 +1,18 @@
 """
-Burst detection on an MNE Raw object with output aligned to the TFR time grid.
+Burst detection on an MNE Raw object with output on the native sample grid.
 
 Algorithm (per channel, per band):
-1) Band-pass filter the Raw signal within the band.
-2) Compute analytic signal via Hilbert transform and take the amplitude envelope.
-3) Compute a percentile threshold (default 75th) on the envelope.
+1) Estimate a band magnitude with Hilbert, Morlet, or Multitaper.
+2) Compute a percentile threshold (default 75th) on the magnitude.
    - If `baseline_keep` is provided, the threshold is computed ONLY from the samples
      covered by matching Raw annotations (e.g., baseline "sit"), and then applied
      to the full recording.
-4) Detect supra-threshold contiguous segments and keep segments whose duration
+3) Detect supra-threshold contiguous segments and keep segments whose duration
    is at least `min_cycles` and, when provided, at most `max_cycles` periods of
    the band center frequency. Segments above the maximum are excluded in full.
-5) Return a tensor on the native time grid. Accepted burst samples contain the
-   envelope amplitude, valid non-burst samples are zero, and invalid support is NaN.
+4) Return a tensor on the native time grid. Accepted burst samples contain the
+   threshold-normalized magnitude, valid non-burst samples are zero, and invalid
+   support is NaN.
 
 This native-rate three-state representation is required for later Burst feature
 extraction. Alignment may derive a separate lower-rate visualization artifact.
@@ -22,17 +22,26 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Mapping, Sequence, Tuple
 
-import numpy as np
 import mne
+import numpy as np
+from mne.time_frequency import tfr_array_morlet, tfr_array_multitaper
 from scipy.signal import hilbert
 
+from ..common import (
+    morlet_mask_radius_time_s_from_freqs_n_cycles,
+    multitaper_mask_radius_time_s_from_freqs_n_cycles,
+)
 from ..mask.annotations import (
     ANNOTATION_SCOPE_SEMANTICS,
     annotation_sample_support_by_channel,
     output_time_mask_by_annotations,
     valid_segments_from_annotation_support,
 )
-from .semantics import burst_value_semantics
+from .semantics import (
+    burst_estimator_signature,
+    burst_value_semantics,
+    normalize_burst_method,
+)
 
 Band = Tuple[float, float]
 BandValueOrSegments = Band | list[Band]
@@ -40,7 +49,6 @@ BandSpec = Mapping[str, BandValueOrSegments]
 
 
 MatchMode = Literal["substring", "exact"]
-EdgeGuard = float | Literal["auto"]
 
 
 def _normalize_bands(bands: BandSpec) -> tuple[list[str], list[list[Band]], np.ndarray]:
@@ -79,6 +87,8 @@ def _normalize_bands(bands: BandSpec) -> tuple[list[str], list[list[Band]], np.n
 
         if len(segs) == 0:
             raise ValueError(f"Band '{bname}' has no segments.")
+
+        segs.sort(key=lambda item: (item[0], item[1]))
 
         for a, b in segs:
             if not (np.isfinite(a) and np.isfinite(b)):
@@ -210,78 +220,341 @@ def _expand_intervals(
     return _merge_intervals(expanded)
 
 
-def _compute_iir_guard_samples(
+def _hilbert_magnitude(
+    data: np.ndarray,
     *,
     sfreq_hz: float,
-    l_freq_hz: float,
-    h_freq_hz: float,
+    segments: Sequence[Band],
     filter_order: int,
-    ftype: str = "butter",
-    phase: str = "zero",
-    strict: bool = False,
-) -> int:
-    """Compute a conservative guard size (in samples) for IIR filtering.
-
-    The guard is meant for masking samples near boundaries of bad/edge segments.
-    When phase='zero' (filtfilt), the filter is applied forward and backward,
-    making the operation non-causal and increasing sensitivity to boundary
-    discontinuities.
-
-    This function tries to estimate the guard size using two quantities:
-      - padlen: number of samples used for padding (estimated by MNE)
-      - n_ring: estimated ringing length (samples)
-
-    The returned guard is max(padlen, n_ring).
-    """
-    iir_params: Dict[str, Any] = {
+) -> np.ndarray:
+    """Return reconstructed-band Hilbert magnitude for one or more signals."""
+    filtered: np.ndarray | None = None
+    iir_params = {
         "order": int(filter_order),
-        "ftype": str(ftype),
-        # Explicitly request SOS for numerical stability across SciPy versions.
+        "ftype": "butter",
         "output": "sos",
     }
-
-    try:
-        iir_params = mne.filter.construct_iir_filter(
-            iir_params,
-            f_pass=[float(l_freq_hz), float(h_freq_hz)],
-            f_stop=None,
+    for low, high in segments:
+        part = mne.filter.filter_data(
+            np.asarray(data, dtype=float),
             sfreq=float(sfreq_hz),
-            btype="bandpass",
-            phase=str(phase),
-            return_copy=True,
+            l_freq=float(low),
+            h_freq=float(high),
+            method="iir",
+            iir_params=iir_params,
+            phase="zero",
             verbose=False,
         )
-    except Exception as exc:
-        # If filter construction fails for any reason, fall back to no dilation.
-        if strict:
-            raise RuntimeError(
-                "Could not determine Burst segment transform support."
-            ) from exc
-        return 0
+        filtered = (
+            part.astype(np.float64, copy=True)
+            if filtered is None
+            else filtered + part.astype(np.float64, copy=False)
+        )
+    if filtered is None:  # pragma: no cover
+        raise RuntimeError("Hilbert estimator requires at least one subband.")
+    return np.abs(hilbert(filtered, axis=-1)).astype(np.float64, copy=False)
 
-    padlen = int(iir_params.get("padlen", 0) or 0)
 
-    system: Any | None
-    if "sos" in iir_params and iir_params["sos"] is not None:
-        system = iir_params["sos"]
-    elif (
-        "b" in iir_params
-        and "a" in iir_params
-        and iir_params["b"] is not None
-        and iir_params["a"] is not None
-    ):
-        system = (iir_params["b"], iir_params["a"])
+def _hilbert_probe_bank(
+    *,
+    n_times: int,
+    sfreq_hz: float,
+    segments: Sequence[Band],
+) -> np.ndarray:
+    """Build the deterministic probe bank declared by the Burst guard contract."""
+    times = np.arange(int(n_times), dtype=float) / float(sfreq_hz)
+    probes: list[np.ndarray] = []
+    midpoint_frequencies: list[float] = []
+    for low, high in segments:
+        frequencies = (
+            float(np.nextafter(float(low), float(high))),
+            (float(low) + float(high)) / 2.0,
+            float(np.nextafter(float(high), float(low))),
+        )
+        midpoint_frequencies.append(frequencies[1])
+        for frequency in frequencies:
+            for phase_index in range(8):
+                phase = float(phase_index) * np.pi / 4.0
+                probes.append(np.sin(2.0 * np.pi * frequency * times + phase))
+
+    multitone = np.zeros(int(n_times), dtype=float)
+    for index, frequency in enumerate(midpoint_frequencies):
+        phase = 2.0 * np.pi * float(index) / float(len(midpoint_frequencies) + 1)
+        multitone += np.sin(2.0 * np.pi * frequency * times + phase)
+    multitone /= float(len(midpoint_frequencies))
+    probes.append(multitone)
+    return np.asarray(probes, dtype=np.float64)
+
+
+def _hilbert_oracle_error(
+    *,
+    sfreq_hz: float,
+    segments: Sequence[Band],
+    filter_order: int,
+    comparison_samples: int,
+) -> np.ndarray:
+    """Return normalized isolated-versus-continuous errors for one duration."""
+    comparison_samples_eff = int(comparison_samples)
+    if comparison_samples_eff <= 0 or comparison_samples_eff % 2:
+        raise ValueError("comparison_samples must be a positive even integer.")
+    reference_samples = 5 * comparison_samples_eff
+    reference_input = _hilbert_probe_bank(
+        n_times=reference_samples,
+        sfreq_hz=float(sfreq_hz),
+        segments=segments,
+    )
+    start = 2 * comparison_samples_eff
+    stop = 3 * comparison_samples_eff
+    reference = _hilbert_magnitude(
+        reference_input,
+        sfreq_hz=float(sfreq_hz),
+        segments=segments,
+        filter_order=int(filter_order),
+    )[:, start:stop]
+    isolated = _hilbert_magnitude(
+        reference_input[:, start:stop],
+        sfreq_hz=float(sfreq_hz),
+        segments=segments,
+        filter_order=int(filter_order),
+    )
+    central = slice(
+        comparison_samples_eff // 4,
+        3 * comparison_samples_eff // 4,
+    )
+    reference_scale = np.median(reference[:, central], axis=1)
+    if np.any(~np.isfinite(reference_scale)) or np.any(reference_scale <= 0.0):
+        raise RuntimeError("Hilbert guard reference magnitude is not positive.")
+    return np.abs(isolated - reference) / reference_scale[:, None]
+
+
+def _guard_from_errors(errors: Sequence[np.ndarray], *, tolerance: float) -> int:
+    """Return the smallest symmetric guard satisfying every error matrix."""
+    required = 0
+    for error in errors:
+        over = np.any(np.asarray(error, dtype=float) > float(tolerance), axis=0)
+        positions = np.flatnonzero(over)
+        if positions.size == 0:
+            continue
+        n_times = int(over.size)
+        nearest_edge_distance = np.minimum(positions, n_times - 1 - positions)
+        required = max(required, int(np.max(nearest_edge_distance)) + 1)
+    return int(required)
+
+
+def _tail_error(errors: Sequence[np.ndarray], *, guard: int) -> float:
+    """Return the pooled maximum error retained by one symmetric guard."""
+    maximum = 0.0
+    has_retained_support = False
+    for error in errors:
+        n_times = int(error.shape[-1])
+        stop = n_times - int(guard) if guard else n_times
+        if stop <= int(guard):
+            continue
+        has_retained_support = True
+        maximum = max(maximum, float(np.max(error[:, int(guard) : stop])))
+    return float(maximum) if has_retained_support else float("inf")
+
+
+def _compute_hilbert_guard_samples(
+    *,
+    sfreq_hz: float,
+    segments: Sequence[Band],
+    filter_order: int,
+    tolerance_pct: float,
+) -> tuple[int, dict[str, Any]]:
+    """Calibrate one band-specific Hilbert guard against the declared oracle."""
+    tolerance = float(tolerance_pct) / 100.0
+    if not np.isfinite(tolerance) or not (0.0 < tolerance < 1.0):
+        raise ValueError("tolerance_pct must be finite and in (0, 100).")
+
+    lowest_frequency = min(float(low) for low, _high in segments)
+    base_samples = int(np.ceil(max(8.0, 16.0 / lowest_frequency) * float(sfreq_hz)))
+    if base_samples % 2:
+        base_samples += 1
+    errors: list[np.ndarray] = []
+    guards: list[int] = []
+    comparison_sample_counts: list[int] = []
+    usable_guards: list[int] = []
+    converged = False
+    for doubling_index in range(5):
+        comparison_samples = int(base_samples * (2**doubling_index))
+        error = _hilbert_oracle_error(
+            sfreq_hz=float(sfreq_hz),
+            segments=segments,
+            filter_order=int(filter_order),
+            comparison_samples=comparison_samples,
+        )
+        errors.append(error)
+        guard_estimate = _guard_from_errors([error], tolerance=tolerance)
+        guards.append(guard_estimate)
+        comparison_sample_counts.append(comparison_samples)
+        if np.isfinite(_tail_error([error], guard=guard_estimate)):
+            usable_guards.append(guard_estimate)
+        if len(usable_guards) >= 2 and abs(usable_guards[-1] - usable_guards[-2]) <= 1:
+            converged = True
+            break
+    if not converged:
+        raise RuntimeError(
+            "Hilbert guard oracle did not converge across five doubled durations."
+        )
+
+    guard = _guard_from_errors(errors, tolerance=tolerance)
+    retained_error = _tail_error(errors, guard=guard)
+    if not np.isfinite(retained_error) or retained_error > tolerance:
+        raise RuntimeError(
+            "Hilbert guard oracle has no retained support satisfying the tolerance."
+        )
+    previous_error = _tail_error(errors, guard=guard - 1) if guard > 0 else float("nan")
+    return int(guard), {
+        "mode": "isolated_vs_five_length_continuous_reference",
+        "tolerance_pct": float(tolerance_pct),
+        "probe_count": int(errors[0].shape[0]),
+        "comparison_sample_counts": comparison_sample_counts,
+        "comparison_durations_s": [
+            float(value) / float(sfreq_hz) for value in comparison_sample_counts
+        ],
+        "guard_estimates_samples": [int(value) for value in guards],
+        "retained_tail_error": float(retained_error),
+        "previous_tail_error": float(previous_error),
+        "converged": True,
+    }
+
+
+def _band_frequency_grid(
+    segments: Sequence[Band],
+    *,
+    step_hz: float,
+) -> np.ndarray:
+    """Build one uniform notch-excluded frequency grid without interpolation."""
+    step = float(step_hz)
+    if not np.isfinite(step) or step <= 0.0:
+        raise ValueError("freq_step_hz must be finite and > 0.")
+    low = min(float(start) for start, _stop in segments)
+    high = max(float(stop) for _start, stop in segments)
+    count = int(np.floor((high - low) / step)) + 1
+    full = np.unique(np.round(low + np.arange(count, dtype=float) * step, 6))
+    keep = np.zeros(full.size, dtype=bool)
+    for index, (start, stop) in enumerate(segments):
+        lower = full >= float(start) if index == 0 else full > float(start)
+        upper = (
+            full <= float(stop) if index == len(segments) - 1 else full < float(stop)
+        )
+        keep |= lower & upper
+    frequencies = full[keep]
+    if frequencies.size == 0:
+        raise ValueError(
+            "Burst frequency grid has no retained bins; reduce Step (Hz) or widen the band."
+        )
+    return frequencies
+
+
+def _spectral_guard_samples(
+    *,
+    method: str,
+    sfreq_hz: float,
+    frequencies_hz: np.ndarray,
+    n_cycles: float,
+) -> int:
+    """Return exact Morlet 5-sigma or Multitaper half-window support."""
+    frequencies = np.asarray(frequencies_hz, dtype=float)
+    cycles = np.full(frequencies.size, float(n_cycles), dtype=float)
+    if method == "morlet":
+        radius_s = morlet_mask_radius_time_s_from_freqs_n_cycles(
+            frequencies,
+            n_cycles=cycles,
+        )
+    elif method == "multitaper":
+        radius_s = multitaper_mask_radius_time_s_from_freqs_n_cycles(
+            frequencies,
+            n_cycles=cycles,
+        )
+    else:  # pragma: no cover
+        raise ValueError("Spectral guard requires morlet or multitaper.")
+    return int(np.ceil(float(sfreq_hz) * float(np.max(radius_s))))
+
+
+def _spectral_band_magnitude(
+    data: np.ndarray,
+    *,
+    method: str,
+    sfreq_hz: float,
+    frequencies_hz: np.ndarray,
+    n_cycles: float,
+    mt_time_bandwidth_product: float,
+    n_jobs: int,
+) -> np.ndarray:
+    """Return sqrt-mean-power magnitude on the native sample grid."""
+    source = np.asarray(data, dtype=float)
+    if source.ndim == 1:
+        source = source[None, :]
+    array = source[None, :, :]
+    cycles = np.full(frequencies_hz.size, float(n_cycles), dtype=float)
+    if method == "morlet":
+        power = tfr_array_morlet(
+            array,
+            sfreq=float(sfreq_hz),
+            freqs=np.asarray(frequencies_hz, dtype=float),
+            n_cycles=cycles,
+            output="power",
+            decim=1,
+            n_jobs=int(n_jobs),
+            use_fft=True,
+        )
+    elif method == "multitaper":
+        power = tfr_array_multitaper(
+            array,
+            sfreq=float(sfreq_hz),
+            freqs=np.asarray(frequencies_hz, dtype=float),
+            n_cycles=cycles,
+            time_bandwidth=float(mt_time_bandwidth_product),
+            output="power",
+            decim=1,
+            n_jobs=int(n_jobs),
+            use_fft=True,
+        )
+    else:  # pragma: no cover
+        raise ValueError("Spectral magnitude requires morlet or multitaper.")
+    return np.sqrt(np.mean(np.asarray(power[0], dtype=float), axis=1))
+
+
+def _band_magnitude(
+    data: np.ndarray,
+    *,
+    method: str,
+    sfreq_hz: float,
+    segments: Sequence[Band],
+    frequencies_hz: np.ndarray,
+    filter_order: int,
+    morlet_n_cycles: float,
+    mt_n_cycles: float,
+    mt_time_bandwidth_product: float,
+    n_jobs: int,
+) -> np.ndarray:
+    """Dispatch one band magnitude while preserving a channel axis."""
+    source = np.asarray(data, dtype=float)
+    squeeze = source.ndim == 1
+    if squeeze:
+        source = source[None, :]
+    if method == "hilbert":
+        magnitude = _hilbert_magnitude(
+            source,
+            sfreq_hz=float(sfreq_hz),
+            segments=segments,
+            filter_order=int(filter_order),
+        )
     else:
-        system = None
-
-    n_ring = 0
-    if system is not None:
-        try:
-            n_ring = int(mne.filter.estimate_ringing_samples(system))
-        except Exception:
-            n_ring = 0
-
-    return int(max(padlen, n_ring))
+        magnitude = _spectral_band_magnitude(
+            source,
+            method=method,
+            sfreq_hz=float(sfreq_hz),
+            frequencies_hz=frequencies_hz,
+            n_cycles=(
+                float(morlet_n_cycles) if method == "morlet" else float(mt_n_cycles)
+            ),
+            mt_time_bandwidth_product=mt_time_bandwidth_product,
+            n_jobs=int(n_jobs),
+        )
+    return magnitude[0] if squeeze else magnitude
 
 
 def _filter_runs_by_length(
@@ -323,14 +596,20 @@ def grid(
     baseline_keep: Sequence[str] | None = None,
     baseline_match: MatchMode = "substring",
     baseline_fallback: str = "full",
+    method: str = "hilbert",
     filter_order: int = 4,
+    freq_step_hz: float = 1.0,
+    morlet_n_cycles: float = 6.0,
+    mt_n_cycles: float = 7.0,
+    mt_time_bandwidth_product: float = 4.0,
+    hilbert_edge_tolerance_pct: float = 10.0,
     edge_anno: Sequence[str] | None = ("bad", "edge"),
     mode: MatchMode = "substring",
-    edge_guard_s: EdgeGuard = "auto",
     boundary_isolated_filter: bool = True,
+    n_jobs: int = 1,
 ) -> Tuple[np.ndarray, Dict[str, Any]]:
     """
-    Compute burst envelope tensor aligned to the TFR time grid.
+    Compute a Burst magnitude tensor on the native sample grid.
 
     Parameters
     ----------
@@ -373,8 +652,20 @@ def grid(
         "full" (default) uses each missing channel's own finite, non-edge
         recording support; "raise" raises if any selected channel lacks usable
         baseline support.
+    method:
+        Burst magnitude estimator: "hilbert", "morlet", or "multitaper".
     filter_order:
-        Butterworth IIR order for band-pass filtering.
+        Butterworth IIR order used only by the Hilbert estimator.
+    freq_step_hz:
+        Frequency spacing used only by Morlet and Multitaper.
+    morlet_n_cycles:
+        Fixed Morlet cycles per retained frequency.
+    mt_n_cycles:
+        Fixed Multitaper window cycles per retained frequency.
+    mt_time_bandwidth_product:
+        DPSS time-bandwidth product used only by Multitaper.
+    hilbert_edge_tolerance_pct:
+        Maximum declared Hilbert oracle error outside the per-band guard.
 
     edge_anno:
         Annotation labels whose intervals should be treated as edges/bad segments.
@@ -389,23 +680,17 @@ def grid(
         - "substring": case-insensitive substring match (default)
         - "exact": case-insensitive exact match after stripping
 
-    edge_guard_s:
-        Amount of dilation to apply to edge_anno intervals, on each side.
-
-        - "auto" (default): compute a conservative per-band guard using the
-          band-pass IIR filter design (max(padlen, estimated ringing)).
-        - float: fixed guard (seconds) applied to all bands.
     boundary_isolated_filter:
-        When True and ``edge_anno`` is active, filter and Hilbert-transform each
-        channel's continuous valid segment independently. When False, preserve
-        the legacy whole-channel transform followed by annotation masking.
+        When True and ``edge_anno`` is active, estimate each channel's continuous
+        valid segment independently. When False, estimate the continuous channel
+        and then apply annotation masking.
 
     Returns
     -------
     tensor:
         ndarray with shape (1, n_channels, n_bands, n_times), float64.
-        Accepted burst samples contain envelope amplitude, valid non-burst samples
-        are 0.0, and invalid samples are NaN.
+        Accepted burst samples contain threshold-normalized magnitude greater
+        than 1.0, valid non-burst samples are 0.0, and invalid samples are NaN.
     metadata:
         Dict describing axes and parameters.
     """
@@ -433,6 +718,22 @@ def grid(
         raise ValueError("baseline_fallback must be 'full' or 'raise'.")
     if not isinstance(boundary_isolated_filter, (bool, np.bool_)):
         raise TypeError("boundary_isolated_filter must be true or false.")
+    method_eff = normalize_burst_method(method)
+    estimator_signature = burst_estimator_signature(
+        method=method_eff,
+        filter_order=filter_order,
+        hilbert_edge_tolerance_pct=hilbert_edge_tolerance_pct,
+        freq_step_hz=freq_step_hz,
+        morlet_n_cycles=morlet_n_cycles,
+        mt_n_cycles=mt_n_cycles,
+        mt_time_bandwidth_product=mt_time_bandwidth_product,
+    )
+    if method_eff == "hilbert":
+        tolerance_pct_eff = float(hilbert_edge_tolerance_pct)
+        if not np.isfinite(tolerance_pct_eff) or not (0.0 < tolerance_pct_eff < 100.0):
+            raise ValueError("hilbert_edge_tolerance_pct must be in (0, 100).")
+    else:
+        tolerance_pct_eff = None
 
     sfreq = float(raw.info["sfreq"])
     decim_eff = _compute_decim(sfreq, hop_s, decim)
@@ -451,8 +752,8 @@ def grid(
     n_channels, n_times = data.shape
     raw_times = np.asarray(raw.times, dtype=float)
 
-    # Edge intervals are derived from raw.annotations and then dilated by a guard
-    # duration (edge_guard_s) before being converted to a sample mask.
+    # Edge intervals are derived from raw.annotations and then dilated by the
+    # active method's per-band guard before being converted to a sample mask.
     edge_intervals: List[Tuple[float, float]] = []
     edge_anno_eff: Sequence[str] | None = edge_anno
     if edge_anno_eff is not None and len(edge_anno_eff) > 0:
@@ -518,7 +819,18 @@ def grid(
         ]
 
     band_names, band_segments, band_union_edges = _normalize_bands(bands)
+    nyquist = sfreq / 2.0
+    if np.any(band_union_edges[:, 1] >= nyquist):
+        raise ValueError("Burst band upper bounds must be below Nyquist.")
     band_centers = band_union_edges.mean(axis=1)
+    frequency_grids_by_band: list[np.ndarray] = []
+    for segments in band_segments:
+        if method_eff == "hilbert":
+            frequency_grids_by_band.append(np.asarray([], dtype=float))
+        else:
+            frequency_grids_by_band.append(
+                _band_frequency_grid(segments, step_hz=float(freq_step_hz))
+            )
     min_run_samples_by_band = [
         int(np.ceil(float(min_cycles) * sfreq / float(f_center)))
         for f_center in band_centers
@@ -570,9 +882,9 @@ def grid(
                     "thresholds contains non-finite values for band index "
                     f"{bi} ('{band_names[bi]}')."
                 )
-            if np.any(thr_arr < 0.0):
+            if np.any(thr_arr <= 0.0):
                 raise ValueError(
-                    "thresholds contains negative values for band index "
+                    "thresholds must be strictly positive for band index "
                     f"{bi} ('{band_names[bi]}')."
                 )
             thresholds_by_band.append(thr_arr)
@@ -582,6 +894,7 @@ def grid(
 
     edge_guard_samples_by_band: List[int] = []
     edge_guard_seconds_by_band: List[float] = []
+    edge_guard_details_by_band: List[Dict[str, Any]] = []
     edge_coverage_by_band: List[float] = []
     baseline_coverage_by_band: List[float] = []
     baseline_coverage_by_band_and_channel: List[List[float]] = []
@@ -592,53 +905,65 @@ def grid(
     valid_fraction_by_band_channel: List[List[float]] = []
     guard_fraction_by_band_channel: List[List[float]] = []
 
-    # Band-pass + Hilbert per band. Notch exclusions are denoising only: if a
-    # band contains multiple surviving segments, reconstruct that band by
-    # summing the filtered segment signals before taking one Hilbert magnitude.
-    iir_params = dict(order=int(filter_order), ftype="butter", output="sos")
-    for bi, (band_name, segs, f_center) in enumerate(
-        zip(band_names, band_segments, band_centers)
+    for bi, (band_name, segs, f_center, frequencies) in enumerate(
+        zip(
+            band_names,
+            band_segments,
+            band_centers,
+            frequency_grids_by_band,
+        )
     ):
         # Compute a per-band edge mask in the sample domain. This mask is derived
-        # from raw.annotations using edge_anno/mode, and dilated by edge_guard_s
-        # to account for boundary transients from band-pass filtering + Hilbert.
+        # from raw.annotations using edge_anno/mode and dilated by the estimator's
+        # declared boundary support.
         edge_guard_samples = 0
         guard_s = 0.0
+        guard_details: Dict[str, Any] = {
+            "mode": "not_applied",
+            "method": method_eff,
+        }
         edge_intervals_dilated: List[Tuple[float, float]] = []
         edge_mask = np.zeros((n_channels, n_times), dtype=bool)
         edge_mask_info: Dict[str, Any] = {}
 
-        legacy_annotation_mask_active = bool(
+        annotation_postmask_active = bool(
             len(edge_intervals) > 0
             and edge_anno_eff is not None
             and len(edge_anno_eff) > 0
         )
-        if boundary_isolated_effective or legacy_annotation_mask_active:
-            if edge_guard_s == "auto":
-                # If a band has multiple segments, take the maximum guard across
-                # segments (conservative).
-                edge_guard_samples = 0
-                for l_freq, h_freq in segs:
-                    edge_guard_samples = max(
-                        edge_guard_samples,
-                        _compute_iir_guard_samples(
-                            sfreq_hz=sfreq,
-                            l_freq_hz=float(l_freq),
-                            h_freq_hz=float(h_freq),
-                            filter_order=int(filter_order),
-                            ftype="butter",
-                            phase="zero",
-                            strict=boundary_isolated_effective,
-                        ),
-                    )
-                guard_s = float(edge_guard_samples) / float(sfreq)
+        if boundary_isolated_effective or annotation_postmask_active:
+            if method_eff == "hilbert":
+                edge_guard_samples, guard_details = _compute_hilbert_guard_samples(
+                    sfreq_hz=sfreq,
+                    segments=segs,
+                    filter_order=int(filter_order),
+                    tolerance_pct=float(tolerance_pct_eff),
+                )
+            elif method_eff == "morlet":
+                edge_guard_samples = _spectral_guard_samples(
+                    method="morlet",
+                    sfreq_hz=sfreq,
+                    frequencies_hz=frequencies,
+                    n_cycles=float(morlet_n_cycles),
+                )
+                guard_details = {
+                    "mode": "morlet_5_sigma",
+                    "method": "morlet",
+                    "n_cycles": float(morlet_n_cycles),
+                }
             else:
-                guard_s = float(edge_guard_s)
-                if not np.isfinite(guard_s) or guard_s < 0:
-                    raise ValueError(
-                        "edge_guard_s must be 'auto' or a non-negative finite float."
-                    )
-                edge_guard_samples = int(np.ceil(guard_s * float(sfreq)))
+                edge_guard_samples = _spectral_guard_samples(
+                    method="multitaper",
+                    sfreq_hz=sfreq,
+                    frequencies_hz=frequencies,
+                    n_cycles=float(mt_n_cycles),
+                )
+                guard_details = {
+                    "mode": "multitaper_half_window",
+                    "method": "multitaper",
+                    "n_cycles": float(mt_n_cycles),
+                }
+            guard_s = float(edge_guard_samples) / float(sfreq)
 
             if edge_intervals:
                 edge_intervals_dilated = _expand_intervals(
@@ -664,27 +989,19 @@ def grid(
                         edge_mask[channel_index, start:stop] = True
                         short_counts[channel_index] += 1
                         continue
-                    filtered_segment: np.ndarray | None = None
                     segment_data = data[channel_index, start:stop]
-                    for l_freq, h_freq in segs:
-                        filt = mne.filter.filter_data(
-                            segment_data,
-                            sfreq=sfreq,
-                            l_freq=float(l_freq),
-                            h_freq=float(h_freq),
-                            method="iir",
-                            iir_params=iir_params,
-                            verbose=False,
-                        )
-                        if filtered_segment is None:
-                            filtered_segment = filt.astype(np.float64, copy=True)
-                        else:
-                            filtered_segment += filt.astype(np.float64, copy=False)
-                    if filtered_segment is None:  # pragma: no cover
-                        raise RuntimeError(f"No valid segments for band '{band_name}'.")
-                    env[channel_index, start:stop] = np.abs(
-                        hilbert(filtered_segment)
-                    ).astype(np.float64, copy=False)
+                    env[channel_index, start:stop] = _band_magnitude(
+                        segment_data,
+                        method=method_eff,
+                        sfreq_hz=sfreq,
+                        segments=segs,
+                        frequencies_hz=frequencies,
+                        filter_order=filter_order,
+                        morlet_n_cycles=morlet_n_cycles,
+                        mt_n_cycles=mt_n_cycles,
+                        mt_time_bandwidth_product=mt_time_bandwidth_product,
+                        n_jobs=n_jobs,
+                    )
                     interior_start = start + edge_guard_samples
                     interior_stop = stop - edge_guard_samples
                     if edge_guard_samples > 0:
@@ -696,14 +1013,14 @@ def grid(
                     processed_counts[channel_index] += 1
             edge_mask_info = {
                 **boundary_support_info,
-                "boundary_processing": "per_valid_segment_iir_hilbert",
+                "boundary_processing": f"per_valid_segment_{method_eff}",
                 "segment_count_by_channel": [int(value) for value in processed_counts],
                 "short_segment_count_by_channel": [
                     int(value) for value in short_counts
                 ],
             }
         else:
-            if legacy_annotation_mask_active:
+            if annotation_postmask_active:
                 edge_mask, edge_mask_info = output_time_mask_by_annotations(
                     raw,
                     times_s=raw_times,
@@ -714,26 +1031,18 @@ def grid(
                     clip_to_raw=True,
                     require_match=False,
                 )
-            filtered_band: np.ndarray | None = None
-            for l_freq, h_freq in segs:
-                filt = mne.filter.filter_data(
-                    data,
-                    sfreq=sfreq,
-                    l_freq=float(l_freq),
-                    h_freq=float(h_freq),
-                    method="iir",
-                    iir_params=iir_params,
-                    verbose=False,
-                )
-                if filtered_band is None:
-                    filtered_band = filt.astype(np.float64, copy=True)
-                else:
-                    filtered_band += filt.astype(np.float64, copy=False)
-
-            if filtered_band is None:  # pragma: no cover
-                raise RuntimeError(f"No valid segments for band '{band_name}'.")
-
-            env = np.abs(hilbert(filtered_band, axis=-1)).astype(np.float64, copy=False)
+            env = _band_magnitude(
+                data,
+                method=method_eff,
+                sfreq_hz=sfreq,
+                segments=segs,
+                frequencies_hz=frequencies,
+                filter_order=filter_order,
+                morlet_n_cycles=morlet_n_cycles,
+                mt_n_cycles=mt_n_cycles,
+                mt_time_bandwidth_product=mt_time_bandwidth_product,
+                n_jobs=n_jobs,
+            )
             analysis_interiors_by_channel = [[(0, n_times)] for _ in ch_names]
             processed_counts = [1 for _ in ch_names]
             short_counts = [0 for _ in ch_names]
@@ -766,6 +1075,7 @@ def grid(
 
         edge_guard_samples_by_band.append(int(edge_guard_samples))
         edge_guard_seconds_by_band.append(float(guard_s))
+        edge_guard_details_by_band.append(dict(guard_details))
         edge_coverage_by_band.append(float(np.mean(edge_mask)))
         baseline_coverage_by_band.append(float(np.mean(baseline_mask_band)))
         baseline_coverage_by_band_and_channel.append(
@@ -803,6 +1113,17 @@ def grid(
                             percentile_eff,
                         )
                     )
+        if np.any(~np.isfinite(thr)) or np.any(thr <= 0.0):
+            invalid_channels = [
+                str(ch_names[index])
+                for index in np.flatnonzero(~np.isfinite(thr) | (thr <= 0.0))
+            ]
+            raise ValueError(
+                "Burst thresholds must be finite and strictly positive for "
+                f"band '{band_name}' and channel(s): "
+                + ", ".join(invalid_channels)
+                + "."
+            )
         thresholds_used.append(thr)
 
         above = env > thr[:, None]
@@ -837,10 +1158,11 @@ def grid(
 
         env_burst = np.zeros_like(env, dtype=np.float64)
         accepted_mask = burst_mask & ~invalid_mask
-        env_burst[accepted_mask] = env[accepted_mask]
+        normalized_magnitude = env / thr[:, None]
+        env_burst[accepted_mask] = normalized_magnitude[accepted_mask]
         env_burst[invalid_mask] = np.nan
 
-        # Decimate to match TFR time grid
+        # The native-rate contract requires decim_eff == 1 above.
         env_dec = env_burst[:, ::decim_eff]  # (n_channels, n_times_out)
         if target_n_times is not None:
             target_n_times_i = int(target_n_times)
@@ -884,6 +1206,8 @@ def grid(
             shape=out4d.shape,
         ),
         params=dict(
+            method=method_eff,
+            estimator_signature=estimator_signature,
             bands_segments_hz={
                 str(name): [[float(a), float(b)] for (a, b) in segs]
                 for name, segs in zip(band_names, band_segments)
@@ -914,15 +1238,31 @@ def grid(
             baseline_match=str(baseline_match),
             baseline_fallback=str(baseline_fallback),
             baseline_intervals=baseline_intervals,
+            filter_order=(int(filter_order) if method_eff == "hilbert" else None),
+            freq_step_hz=(
+                float(freq_step_hz) if method_eff in {"morlet", "multitaper"} else None
+            ),
+            morlet_n_cycles=(
+                float(morlet_n_cycles) if method_eff == "morlet" else None
+            ),
+            mt_n_cycles=(float(mt_n_cycles) if method_eff == "multitaper" else None),
+            mt_time_bandwidth_product=(
+                float(mt_time_bandwidth_product) if method_eff == "multitaper" else None
+            ),
+            hilbert_edge_tolerance_pct=tolerance_pct_eff,
+            frequency_grid_hz_by_band={
+                str(name): [float(value) for value in frequencies.tolist()]
+                for name, frequencies in zip(band_names, frequency_grids_by_band)
+            },
+            interpolation_applied=False,
             edge_anno=(list(edge_anno_eff) if edge_anno_eff is not None else None),
             edge_match=str(mode),
-            edge_guard_s=("auto" if edge_guard_s == "auto" else float(edge_guard_s)),
             boundary_isolated_filter_requested=boundary_isolated_requested,
             boundary_isolated_filter_effective=boundary_isolated_effective,
             boundary_processing=(
-                "per_valid_segment_iir_hilbert"
+                f"per_valid_segment_{method_eff}"
                 if boundary_isolated_effective
-                else "continuous_iir_hilbert_postmask"
+                else f"continuous_{method_eff}_postmask"
             ),
             edge_intervals=[[float(a0), float(a1)] for (a0, a1) in edge_intervals],
             edge_intervals_dilated_by_band=[
@@ -931,6 +1271,7 @@ def grid(
             ],
             edge_guard_samples_by_band=[int(x) for x in edge_guard_samples_by_band],
             edge_guard_seconds_by_band=[float(x) for x in edge_guard_seconds_by_band],
+            edge_guard_details_by_band=edge_guard_details_by_band,
             annotation_scope_semantics=ANNOTATION_SCOPE_SEMANTICS,
             boundary_support_info=boundary_support_info,
             baseline_support_info=baseline_support_info,

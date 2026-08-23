@@ -698,12 +698,12 @@ does not unnecessarily enlarge the mask.
 
 For Burst, keep `Isolate BAD/EDGE boundaries` enabled in Burst Advance for the
 recommended scientific path. The option prevents annotated signal from entering
-the neighboring valid segment's zero-phase band-pass and Hilbert-envelope
-calculation. Burst then masks the automatic transform guard at both ends of each
-valid segment. Disabling the option retains the historical whole-record
-transform followed by BAD/EDGE masking, which is useful only for controlled
-comparison. Global `Mask Edge Effects` off is a diagnostic mode and makes Burst
-boundary isolation dormant.
+the selected Hilbert, Morlet, or Multitaper estimator for the neighboring valid
+segment. Burst then masks the active method's automatic transform guard at both
+ends of each valid segment. Disabling the option retains whole-record estimation
+followed by BAD/EDGE masking, which is useful only for controlled comparison.
+Global `Mask Edge Effects` off is a diagnostic mode and makes Burst boundary
+isolation dormant.
 
 Isolation can reduce usable duration when BAD/EDGE annotations are dense. A
 segment that is too short to support filtering plus both guards is represented
@@ -711,7 +711,61 @@ as invalid `NaN`, not as an unfiltered or non-Burst zero. Review the completed
 Burst tensor metadata's retained-support fractions before interpreting rate or
 occupancy.
 
-### 6.1 Reconstructing Periodic/Aperiodic Notch Intervals
+### 6.1 Choosing a Burst Estimator
+
+Burst Advance provides `hilbert`, `morlet`, and `multitaper`. These methods do
+not differ only in implementation: they estimate different band-level
+quantities before the common threshold and event-duration rules are applied.
+
+| Method | Band magnitude used by Burst | Main strengths | Main trade-offs | Prefer when |
+|---|---|---|---|---|
+| `hilbert` | Absolute Hilbert envelope after the surviving notch-split subband signals are zero-phase Butterworth filtered and summed | Fastest core estimator; native-sample envelope; direct and conventional for a hypothesis-driven narrow band; usually preserves the sharpest event timing | Sensitive to filter and band definitions; IIR ringing requires a numerical guard; simultaneous frequency components can produce constructive/destructive beating; does not retain within-band frequency location | The primary outcome is conventional band-level burst rate, duration, or occupancy around a known oscillatory band |
+| `morlet` | Square root of mean Morlet power across retained frequency bins | Frequency-local estimation before pooling; follows frequency drift within the named band; avoids cross-frequency phase cancellation; usually better temporal localization than the configured Multitaper window | Cycle count and frequency step affect the result; low frequencies use longer wavelets and greater temporal smoothing; slower than Hilbert; the final Burst tensor pools the frequency axis and therefore does not retain a burst's center-frequency trajectory | Bursts may drift in frequency or contain non-coherent components, while onset and offset timing remain important |
+| `multitaper` | Square root of mean DPSS Multitaper power across retained frequency bins | Multiple orthogonal tapers reduce estimator variance and control spectral leakage; useful for noisy data and stable frequency-specific power | The cycle-defined window and taper averaging smooth event boundaries and can merge nearby short bursts; highest compute cost; time-bandwidth and cycle settings jointly control smoothing | Noise or leakage is the main concern and expected bursts are long enough relative to the analysis window |
+
+All three methods return a native-rate band timeline. `NaN` means invalid
+support, `0` means valid non-Burst support, and every accepted positive value is
+the threshold-normalized magnitude `M / Q > 1`. The methods' unnormalized
+magnitudes and amplitude distributions are not interchangeable, so changing the
+method or any active method parameter requires a new threshold and Burst result.
+
+Method-specific boundary support also differs:
+
+- Hilbert uses the smallest per-band numerical guard whose complete retained
+  probe-bank tail stays within `Hilbert edge tolerance (%)`, which defaults to
+  `10`. This percentage is a maximum representative-amplitude-normalized
+  isolated-versus-continuous envelope error, not a percentage of segment length.
+- Morlet masks the explicit five-standard-deviation wavelet radius determined by
+  the retained frequencies and `Morlet cycles`.
+- Multitaper masks half of the longest retained-frequency DPSS window determined
+  by `MT cycles`.
+
+Do not rank methods by guard duration alone: the Hilbert tolerance oracle,
+Morlet five-sigma support, and Multitaper half-window are different acceptance
+contracts. A stricter Hilbert tolerance generally lengthens its guard and
+reduces valid duration; a larger tolerance generally shortens it.
+
+For the tutorial's conventional band-level Burst outcomes, keep the configured
+Hilbert method as the primary analysis. Use Morlet as a method-sensitivity check
+when frequency drift or cross-frequency phase cancellation is plausible. Use
+Multitaper as a robustness check when spectral leakage or noisy power estimates
+are the dominant concern. Do not combine method-specific thresholds or treat
+different methods' absolute magnitudes as the same measurement.
+
+Published comparisons do not establish a universal winner. Schmidt et al.
+reported that a short FIR-plus-Hilbert method best recovered known events in one
+specific synthetic 20 Hz model; the current Hilbert option instead uses a
+fourth-order zero-phase IIR, and their result does not automatically generalize
+to other bands or signal conditions. Lundqvist et al. reported qualitatively
+similar time-frequency and Burst outcomes for Morlet, zero-phase
+Butterworth-plus-Hilbert, and Multitaper, then used Multitaper for their reported
+Burst extraction. Treat these studies as motivation for a dataset-specific
+synthetic oracle and sensitivity analysis, not as proof that one method is
+always superior. See [Schmidt et al., Brain Stimulation
+2020](https://pmc.ncbi.nlm.nih.gov/articles/PMC6961347/) and [Lundqvist et al.,
+Neuron 2016](https://pmc.ncbi.nlm.nih.gov/articles/PMC5220584/).
+
+### 6.2 Reconstructing Periodic/Aperiodic Notch Intervals
 
 Periodic/Aperiodic notch intervals are reconstructed in
 log-frequency/log-power space before SpecParam decomposition. The neighboring
@@ -952,19 +1006,23 @@ event count is never interpreted as a dB value and inverse-transformed.
 Burst scalar features are calculated on the original full-rate Burst tensor,
 not on the resampled Alignment display. The configured Feature phase remains
 a percentage interval; the application maps it back through the saved trial
-geometry before calculating mean Burst amplitude, rate, mean duration, and
-occupancy. Positive Burst amplitudes are reduced in the `log10` domain and
-converted back to volts, so the stored mean is a duration-weighted geometric
-mean. Valid non-Burst zeros remain event-state values and are never passed to
-`log10`. Consequently, changing only the Alignment sample rate must not change
-these scalar values.
+geometry before calculating mean threshold-normalized Burst magnitude, rate,
+mean duration, and occupancy. Positive Burst values `M / Q > 1` are reduced in
+the `log10` domain and converted back to threshold multiples, so the stored mean
+is a duration-weighted geometric mean with unit `threshold multiple`. Valid
+non-Burst zeros remain event-state values and are never passed to `log10`.
+Consequently, changing only the Alignment sample rate must not change these
+scalar values.
 
 Burst notch exclusions are denoising operations and do not define a separate
-subband-pooling metric. If a named Burst band is split around one or more notch
-holes, the application filters the surviving segments, reconstructs the band
-by summing those segment signals, and then computes one Hilbert envelope. This
-preserves the declared whole-band envelope, including cross-segment beating;
-the application does not combine segment envelopes with RSS.
+subband-pooling metric. With Hilbert, a named band split around one or more
+notch holes is reconstructed by filtering and summing the surviving real
+subband signals before one Hilbert envelope is computed. This preserves the
+declared coherent whole-band envelope, including cross-segment beating; the
+application does not combine segment envelopes with RSS. Morlet and Multitaper
+instead remove frequency-grid points inside the closed notch intervals without
+interpolation, compute power at the retained frequencies, and take the square
+root of their mean power.
 
 If a record contains an older Burst tensor or `occupation-*` output, rerun
 Burst, Align Run, Finish, and Extract Features. The application does not guess

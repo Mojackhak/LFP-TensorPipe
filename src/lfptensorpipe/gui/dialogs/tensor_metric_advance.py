@@ -45,8 +45,18 @@ class TensorMetricAdvanceDialog(QDialog):
         self._default_params = dict(default_params)
         self._working_base_params = dict(session_params)
         if metric_key == "burst":
-            self._default_params.setdefault("boundary_isolated_filter", True)
-            self._working_base_params.setdefault("boundary_isolated_filter", True)
+            burst_defaults = {
+                "method": "hilbert",
+                "freq_step_hz": 1.0,
+                "morlet_n_cycles": 6.0,
+                "mt_n_cycles": 7.0,
+                "mt_time_bandwidth_product": 4.0,
+                "hilbert_edge_tolerance_pct": 10.0,
+                "boundary_isolated_filter": True,
+            }
+            for key, value in burst_defaults.items():
+                self._default_params.setdefault(key, value)
+                self._working_base_params.setdefault(key, value)
         self._burst_baseline_annotations = tuple(
             str(item).strip()
             for item in burst_baseline_annotations
@@ -395,6 +405,29 @@ class TensorMetricAdvanceDialog(QDialog):
             self._append_shared_notch_fields(form)
             return
         if self._metric_key == "burst":
+            method_combo = QComboBox()
+            for item in ("hilbert", "morlet", "multitaper"):
+                method_combo.addItem(item, item)
+            method_combo.setToolTip("Burst estimator (hilbert/morlet/multitaper).")
+            freq_step_hz = QLineEdit()
+            freq_step_hz.setToolTip(
+                "Frequency spacing for the Morlet or Multitaper computation grid."
+            )
+            morlet_n_cycles = QLineEdit()
+            morlet_n_cycles.setToolTip(
+                "Fixed Morlet cycles at every retained frequency."
+            )
+            mt_n_cycles = QLineEdit()
+            mt_n_cycles.setToolTip(
+                "Fixed Multitaper window cycles at every retained frequency."
+            )
+            mt_time_bandwidth_product = QLineEdit()
+            mt_time_bandwidth_product.setToolTip(MT_TIME_BANDWIDTH_PRODUCT_TOOLTIP)
+            hilbert_edge_tolerance_pct = QLineEdit()
+            hilbert_edge_tolerance_pct.setToolTip(
+                "Maximum isolated-versus-continuous Hilbert magnitude error "
+                "outside the per-band guard. The default is 10%."
+            )
             thresholds_row = QWidget()
             thresholds_layout = QHBoxLayout(thresholds_row)
             thresholds_layout.setContentsMargins(0, 0, 0, 0)
@@ -425,7 +458,7 @@ class TensorMetricAdvanceDialog(QDialog):
                 baseline_combo.addItem(label, label)
             self._baseline_annotations_combo = baseline_combo
             min_cycles = QLineEdit()
-            min_cycles.setToolTip("Minimum cycles used for burst detection.")
+            min_cycles.setToolTip("Minimum cycles used for Burst detection.")
             max_cycles = QLineEdit()
             max_cycles.setToolTip(
                 "Maximum allowed burst duration in cycles. Longer bursts are "
@@ -434,21 +467,36 @@ class TensorMetricAdvanceDialog(QDialog):
             boundary_isolated_filter = QCheckBox()
             boundary_isolated_filter.setToolTip(
                 "Process each channel's continuous valid BAD/EDGE-delimited "
-                "segments independently during Burst band-pass filtering and "
-                "Hilbert-envelope calculation. This control is effective only "
-                "while global Mask Edge Effects is enabled."
+                "segments independently with the selected Burst estimator. "
+                "This control is effective only while global Mask Edge Effects "
+                "is enabled."
             )
             boundary_isolated_filter.setEnabled(self._mask_edge_effects)
+            form.addRow("Method", method_combo)
+            form.addRow("Step (Hz)", freq_step_hz)
+            form.addRow("Morlet cycles", morlet_n_cycles)
+            form.addRow("MT cycles", mt_n_cycles)
+            form.addRow("MT time-bandwidth product", mt_time_bandwidth_product)
+            form.addRow("Hilbert edge tolerance (%)", hilbert_edge_tolerance_pct)
             form.addRow("Thresholds", thresholds_row)
             form.addRow("Baseline annotations", baseline_combo)
-            form.addRow("Min cycles", min_cycles)
-            form.addRow("Max cycles", max_cycles)
+            form.addRow("Burst min cycles", min_cycles)
+            form.addRow("Burst max cycles", max_cycles)
             form.addRow("Isolate BAD/EDGE boundaries", boundary_isolated_filter)
             self._fields = {
+                "method": method_combo,
+                "freq_step_hz": freq_step_hz,
+                "morlet_n_cycles": morlet_n_cycles,
+                "mt_n_cycles": mt_n_cycles,
+                "mt_time_bandwidth_product": mt_time_bandwidth_product,
+                "hilbert_edge_tolerance_pct": hilbert_edge_tolerance_pct,
                 "min_cycles": min_cycles,
                 "max_cycles": max_cycles,
                 "boundary_isolated_filter": boundary_isolated_filter,
             }
+            method_combo.currentIndexChanged.connect(
+                self._sync_spectral_method_fields_enabled
+            )
             self._append_shared_notch_fields(form)
             return
 
@@ -671,7 +719,23 @@ class TensorMetricAdvanceDialog(QDialog):
         method_widget = self._fields.get("method")
         if not isinstance(method_widget, QComboBox):
             return
-        is_multitaper = str(method_widget.currentData()).strip().lower() == "multitaper"
+        method = str(method_widget.currentData()).strip().lower()
+        if self._metric_key == "burst":
+            enabled_by_key = {
+                "freq_step_hz": method in {"morlet", "multitaper"},
+                "morlet_n_cycles": method == "morlet",
+                "mt_n_cycles": method == "multitaper",
+                "mt_time_bandwidth_product": method == "multitaper",
+                "hilbert_edge_tolerance_pct": method == "hilbert",
+            }
+            for key, enabled in enabled_by_key.items():
+                widget = self._fields.get(key)
+                if widget is not None:
+                    widget.setEnabled(enabled)
+                    if not enabled:
+                        set_control_validation_error(widget, None)
+            return
+        is_multitaper = method == "multitaper"
         for key in ("mt_time_bandwidth_product", "mt_min_cycles"):
             widget = self._fields.get(key)
             if widget is not None:

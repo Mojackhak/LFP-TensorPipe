@@ -18,8 +18,10 @@ from lfptensorpipe.io.burst_thresholds import (
 from lfptensorpipe.lfp.burst.semantics import (
     BURST_NATIVE_DECIM,
     BURST_NATIVE_HOP_S,
+    burst_estimator_signature,
     burst_value_semantics,
     has_compatible_burst_value_semantics,
+    normalize_burst_estimator_signature,
 )
 from lfptensorpipe.lfp.connectivity import CONNECTIVITY_PADDING_MODE
 from lfptensorpipe.lfp.mask.annotations import ANNOTATION_SCOPE_SEMANTICS
@@ -511,6 +513,12 @@ def _metric_log_signature(
         boundary_isolated_filter_effective = bool(
             mask_edge_effects and bool(params.get("boundary_isolated_filter", False))
         )
+        try:
+            estimator_signature = normalize_burst_estimator_signature(
+                params.get("estimator_signature")
+            )
+        except ValueError:
+            return None
         signature = {
             "low_freq": float(params.get("low_freq")),
             "high_freq": float(params.get("high_freq")),
@@ -524,15 +532,22 @@ def _metric_log_signature(
             "notch_intervals_hz": notch_intervals,
             "bands_used": bands_used,
             "selected_channels": channels,
+            "estimator_signature": estimator_signature,
             "value_semantics": burst_value_semantics(),
             VALUE_TRANSFORM_POLICY_KEY: burst_policy,
         }
+        if estimator_signature["method"] == "hilbert":
+            tolerance = _as_float(params.get("hilbert_edge_tolerance_pct"), np.nan)
+            if not np.isfinite(tolerance) or not (0.0 < tolerance < 100.0):
+                return None
+            signature["hilbert_edge_tolerance_pct"] = tolerance
         if threshold_mode == "provided":
             try:
                 _, signature["thresholds_used"] = select_burst_threshold_subset(
                     params.get("thresholds_used"),
                     channels=channels,
                     bands=bands_used,
+                    estimator=estimator_signature,
                 )
             except ValueError:
                 return None
@@ -791,6 +806,15 @@ def _current_metric_signature(
         boundary_isolated_filter_effective = bool(
             mask_edge_effects and bool(params.get("boundary_isolated_filter", True))
         )
+        estimator_signature = burst_estimator_signature(
+            method=params.get("method", "hilbert"),
+            filter_order=4,
+            hilbert_edge_tolerance_pct=params.get("hilbert_edge_tolerance_pct", 10.0),
+            freq_step_hz=params.get("freq_step_hz", 1.0),
+            morlet_n_cycles=params.get("morlet_n_cycles", 6.0),
+            mt_n_cycles=params.get("mt_n_cycles", 7.0),
+            mt_time_bandwidth_product=params.get("mt_time_bandwidth_product", 4.0),
+        )
         signature = {
             "low_freq": prepared.metric_low,
             "high_freq": prepared.metric_high,
@@ -804,6 +828,7 @@ def _current_metric_signature(
             "notch_intervals_hz": notch_intervals,
             "bands_used": bands_used,
             "selected_channels": channels,
+            "estimator_signature": estimator_signature,
             "value_semantics": burst_value_semantics(),
             VALUE_TRANSFORM_POLICY_KEY: transform_policy_metadata(
                 get_transform_policy(
@@ -811,11 +836,16 @@ def _current_metric_signature(
                 )
             ),
         }
+        if estimator_signature["method"] == "hilbert":
+            signature["hilbert_edge_tolerance_pct"] = float(
+                params.get("hilbert_edge_tolerance_pct", 10.0)
+            )
         if threshold_mode == "provided":
             _, thresholds_used = select_burst_threshold_subset(
                 thresholds_payload,
                 channels=channels,
                 bands=runtime_bands,
+                estimator=estimator_signature,
             )
             signature["thresholds_used"] = thresholds_used
             return signature

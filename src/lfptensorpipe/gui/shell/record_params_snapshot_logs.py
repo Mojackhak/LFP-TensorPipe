@@ -229,6 +229,7 @@ class MainWindowRecordParamsSnapshotLogsMixin:
                     "thresholds_used",
                     "thresholds_written",
                     "boundary_isolated_filter_effective",
+                    "estimator_signature",
                 }:
                     continue
                 if (

@@ -12,7 +12,11 @@ from lfptensorpipe.io.burst_thresholds import (
     select_burst_threshold_subset,
     write_burst_threshold_json,
 )
-from lfptensorpipe.lfp.burst.semantics import burst_value_semantics
+from lfptensorpipe.lfp.burst.semantics import (
+    burst_estimator_signature,
+    burst_value_semantics,
+    normalize_burst_method,
+)
 from lfptensorpipe.utils.freqs import split_bands_by_intervals
 from lfptensorpipe.utils.transforms import (
     VALUE_TRANSFORM_POLICY_KEY,
@@ -89,11 +93,16 @@ def run_burst_metric(
     *,
     low_freq: float,
     high_freq: float,
-    step_hz: float | None = None,
+    step_hz: float = 1.0,
     mask_edge_effects: bool,
     bands: list[dict[str, Any]],
     selected_channels: list[str] | None,
     boundary_isolated_filter: bool = True,
+    method: str = "hilbert",
+    morlet_n_cycles: float = 6.0,
+    mt_n_cycles: float = 7.0,
+    mt_time_bandwidth_product: float = 4.0,
+    hilbert_edge_tolerance_pct: float = 10.0,
     percentile: float = 75.0,
     baseline_keep: list[str] | None = None,
     min_cycles: float = 2.0,
@@ -110,8 +119,7 @@ def run_burst_metric(
     burst_grid_fn=None,
     compute_notch_intervals_fn=None,
 ) -> tuple[bool, str]:
-    """Build Burst outputs; ``step_hz`` is accepted only for legacy callers."""
-    _ = step_hz
+    """Build Burst outputs on the native time grid."""
     if burst_grid_fn is None:
         from lfptensorpipe.lfp.burst.grid import grid as burst_grid
     else:
@@ -148,6 +156,31 @@ def run_burst_metric(
     log_path = tensor_metric_log_path(resolver, metric_key, create=True)
     thresholds_artifact_path = metric_dir / "thresholds.json"
     threshold_mode = "provided" if thresholds is not None else "computed"
+    method_eff = normalize_burst_method(method)
+    estimator_signature = burst_estimator_signature(
+        method=method_eff,
+        filter_order=4,
+        hilbert_edge_tolerance_pct=hilbert_edge_tolerance_pct,
+        freq_step_hz=step_hz,
+        morlet_n_cycles=morlet_n_cycles,
+        mt_n_cycles=mt_n_cycles,
+        mt_time_bandwidth_product=mt_time_bandwidth_product,
+    )
+    if method_eff == "hilbert":
+        active_method_params = {
+            "hilbert_edge_tolerance_pct": float(hilbert_edge_tolerance_pct)
+        }
+    elif method_eff == "morlet":
+        active_method_params = {
+            "step_hz": float(step_hz),
+            "morlet_n_cycles": float(morlet_n_cycles),
+        }
+    else:
+        active_method_params = {
+            "step_hz": float(step_hz),
+            "mt_n_cycles": float(mt_n_cycles),
+            "mt_time_bandwidth_product": float(mt_time_bandwidth_product),
+        }
     normalized_source_path = (
         str(thresholds_source_path).strip()
         if threshold_mode == "provided"
@@ -247,6 +280,7 @@ def run_burst_metric(
                     thresholds,
                     channels=picks,
                     bands=burst_bands,
+                    estimator=estimator_signature,
                 )
             )
         effective_percentile = (
@@ -263,11 +297,18 @@ def run_burst_metric(
             baseline_fallback=BURST_BASELINE_FALLBACK,
             min_cycles=float(min_cycles),
             max_cycles=(float(max_cycles) if max_cycles is not None else None),
+            method=method_eff,
+            freq_step_hz=float(step_hz),
+            morlet_n_cycles=float(morlet_n_cycles),
+            mt_n_cycles=float(mt_n_cycles),
+            mt_time_bandwidth_product=float(mt_time_bandwidth_product),
+            hilbert_edge_tolerance_pct=float(hilbert_edge_tolerance_pct),
             hop_s=hop_s_use,
             decim=decim_use,
             picks=picks,
             edge_anno=("bad", "edge") if mask_edge_effects else None,
             boundary_isolated_filter=boundary_isolated_filter,
+            n_jobs=int(n_jobs),
         )
         tensor4d = np.asarray(tensor, dtype=float)
         if tensor4d.ndim == 3:
@@ -312,6 +353,7 @@ def run_burst_metric(
             channels=picks,
             bands=burst_bands,
             values=written_thresholds,
+            estimator=estimator_signature,
         )
         if (
             selected_thresholds_payload is not None
@@ -324,7 +366,9 @@ def run_burst_metric(
         config_payload = {
             "metric_key": metric_key,
             "metric_label": metric_label,
-            "method": "burst_grid",
+            "method": method_eff,
+            "estimator_signature": estimator_signature,
+            **active_method_params,
             "low_freq": float(low_freq),
             "high_freq": float(high_freq),
             "percentile": effective_percentile,
@@ -366,6 +410,9 @@ def run_burst_metric(
         }
         success_message = f"{metric_label} tensor computed."
         log_params = {
+            "method": method_eff,
+            "estimator_signature": estimator_signature,
+            **active_method_params,
             "low_freq": float(low_freq),
             "high_freq": float(high_freq),
             "percentile": effective_percentile,
@@ -434,6 +481,9 @@ def run_burst_metric(
             metric_key,
             completed=False,
             params={
+                "method": method_eff,
+                "estimator_signature": estimator_signature,
+                **active_method_params,
                 "low_freq": float(low_freq),
                 "high_freq": float(high_freq),
                 "threshold_mode": threshold_mode,

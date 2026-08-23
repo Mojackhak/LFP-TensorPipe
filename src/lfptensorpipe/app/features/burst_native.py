@@ -36,7 +36,7 @@ LEGACY_BURST_REDUCER_WARNING = (
     "Burst reducer 'occupation' is deprecated; using 'occupancy'."
 )
 BURST_UNITS = {
-    "mean": "V",
+    "mean": "threshold multiple",
     "rate": "bursts/s",
     "duration": "s",
     "occupancy": "%",
@@ -87,6 +87,14 @@ def _load_native_burst_tensor(
     if np.any(np.isfinite(tensor) & (tensor < 0.0)):
         raise ValueError(
             "Burst tensor contains negative values outside its value contract."
+        )
+    if np.any(np.isinf(tensor)):
+        raise ValueError(
+            "Burst tensor contains infinite values outside its value contract."
+        )
+    if np.any(np.isfinite(tensor) & (tensor > 0.0) & (tensor <= 1.0)):
+        raise ValueError(
+            "Burst tensor contains positive values that are not greater than one."
         )
     axes = metadata.get("axes")
     if not isinstance(axes, dict):
