@@ -63,6 +63,8 @@ def default_tensor_metric_notch_params() -> dict[str, Any]:
 def _strict_positive_float_list(value: Any, *, field_name: str) -> list[float]:
     if value is None:
         return []
+    if isinstance(value, (bool, np.bool_)):
+        raise ValueError(f"{field_name} must contain positive finite numbers.")
     if isinstance(value, str):
         parts = [item.strip() for item in value.split(",") if item.strip()]
         if not parts:
@@ -76,6 +78,8 @@ def _strict_positive_float_list(value: Any, *, field_name: str) -> list[float]:
         raise ValueError(
             f"{field_name} must be a number, list, or comma-separated string."
         )
+    if any(isinstance(item, (bool, np.bool_)) for item in numeric_items):
+        raise ValueError(f"{field_name} must contain positive finite numbers.")
     try:
         items = [float(item) for item in numeric_items]
     except (TypeError, ValueError) as exc:
