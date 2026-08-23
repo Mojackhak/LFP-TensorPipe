@@ -65,6 +65,7 @@ def cycles_from_time_resolution(
     max_cycles: float | None,
     mt_time_bandwidth_product: float = 4.0,
     mt_min_cycles: float = 3.0,
+    mt_max_cycles: float | None = None,
 ) -> np.ndarray:
     if method == "morlet":
         cycles = (
@@ -85,6 +86,7 @@ def cycles_from_time_resolution(
             time_resolution_s=float(time_resolution_s),
             mt_time_bandwidth_product=float(mt_time_bandwidth_product),
             mt_min_cycles=float(mt_min_cycles),
+            mt_max_cycles=(float(mt_max_cycles) if mt_max_cycles is not None else None),
         )
     return np.asarray(cycles, dtype=float)
 
@@ -98,6 +100,7 @@ def compute_mask_radii_seconds(
     max_cycles: float | None,
     mt_time_bandwidth_product: float = 4.0,
     mt_min_cycles: float = 3.0,
+    mt_max_cycles: float | None = None,
 ) -> np.ndarray:
     from lfptensorpipe.lfp.common import (
         morlet_mask_radius_time_s_from_freqs_n_cycles,
@@ -112,6 +115,7 @@ def compute_mask_radii_seconds(
         max_cycles=max_cycles,
         mt_time_bandwidth_product=float(mt_time_bandwidth_product),
         mt_min_cycles=float(mt_min_cycles),
+        mt_max_cycles=mt_max_cycles,
     )
     if method == "morlet":
         return np.asarray(

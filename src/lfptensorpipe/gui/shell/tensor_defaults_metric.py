@@ -71,6 +71,7 @@ def _default_tensor_metric_params(
             "max_cycles": None,
             "mt_time_bandwidth_product": 4.0,
             "mt_min_cycles": 3.0,
+            "mt_max_cycles": None,
         }
     if metric_key == "periodic_aperiodic":
         return {
@@ -84,6 +85,7 @@ def _default_tensor_metric_params(
             "max_cycles": None,
             "mt_time_bandwidth_product": 4.0,
             "mt_min_cycles": 3.0,
+            "mt_max_cycles": None,
             "freq_smooth_enabled": True,
             "freq_smooth_sigma": 1.5,
             "time_smooth_enabled": True,
@@ -104,6 +106,7 @@ def _default_tensor_metric_params(
             "method": "morlet",
             "mt_time_bandwidth_product": 4.0,
             "mt_min_cycles": 3.0,
+            "mt_max_cycles": None,
             "min_cycles": 3.0,
             "max_cycles": None,
             "gc_n_lags": 20 if metric_key == "trgc" else None,
@@ -122,6 +125,7 @@ def _default_tensor_metric_params(
             "method": "morlet",
             "mt_time_bandwidth_product": 4.0,
             "mt_min_cycles": 3.0,
+            "mt_max_cycles": None,
             "time_resolution_s": 0.5,
             "hop_s": 0.025,
             "min_cycles": 3.0,

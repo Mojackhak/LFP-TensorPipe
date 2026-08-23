@@ -29,6 +29,7 @@
         "max_cycles": null,
         "mt_time_bandwidth_product": 4.0,
         "mt_min_cycles": 3.0,
+        "mt_max_cycles": null,
         "notches": [
           41.75,
           83.5,
@@ -60,6 +61,7 @@
         "max_cycles": null,
         "mt_time_bandwidth_product": 4.0,
         "mt_min_cycles": 3.0,
+        "mt_max_cycles": null,
         "freq_smooth_enabled": true,
         "freq_smooth_sigma": 1.5,
         "time_smooth_enabled": true,
@@ -98,6 +100,7 @@
         "method": "morlet",
         "mt_time_bandwidth_product": 4.0,
         "mt_min_cycles": 3.0,
+        "mt_max_cycles": null,
         "min_cycles": 3.0,
         "max_cycles": null,
         "notches": [
@@ -143,6 +146,7 @@
         "method": "morlet",
         "mt_time_bandwidth_product": 4.0,
         "mt_min_cycles": 3.0,
+        "mt_max_cycles": null,
         "min_cycles": 3.0,
         "max_cycles": null,
         "notches": [
@@ -188,6 +192,7 @@
         "method": "morlet",
         "mt_time_bandwidth_product": 4.0,
         "mt_min_cycles": 3.0,
+        "mt_max_cycles": null,
         "min_cycles": 3.0,
         "max_cycles": null,
         "notches": [
@@ -233,6 +238,7 @@
         "method": "morlet",
         "mt_time_bandwidth_product": 4.0,
         "mt_min_cycles": 3.0,
+        "mt_max_cycles": null,
         "min_cycles": 3.0,
         "max_cycles": null,
         "notches": [
@@ -278,6 +284,7 @@
         "method": "morlet",
         "mt_time_bandwidth_product": 4.0,
         "mt_min_cycles": 3.0,
+        "mt_max_cycles": null,
         "min_cycles": 3.0,
         "max_cycles": null,
         "notches": [
@@ -323,6 +330,7 @@
         "method": "morlet",
         "mt_time_bandwidth_product": 4.0,
         "mt_min_cycles": 3.0,
+        "mt_max_cycles": null,
         "min_cycles": 3.0,
         "max_cycles": null,
         "notches": [
@@ -368,6 +376,7 @@
         "method": "morlet",
         "mt_time_bandwidth_product": 4.0,
         "mt_min_cycles": 3.0,
+        "mt_max_cycles": null,
         "min_cycles": 3.0,
         "max_cycles": null,
         "gc_n_lags": 20,
@@ -441,6 +450,7 @@
         "method": "morlet",
         "mt_time_bandwidth_product": 4.0,
         "mt_min_cycles": 3.0,
+        "mt_max_cycles": null,
         "min_cycles": 3.0,
         "max_cycles": null,
         "notches": [

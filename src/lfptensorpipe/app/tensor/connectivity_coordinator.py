@@ -51,6 +51,7 @@ _SHARED_UNDIRECTED_KEYS = (
     "method",
     "mt_time_bandwidth_product",
     "mt_min_cycles",
+    "mt_max_cycles",
     "min_cycles",
     "max_cycles",
     "notches",
@@ -237,6 +238,7 @@ def _prepare_undirected_cohort(
             max_cycles=kwargs.get("max_cycles"),
             mt_time_bandwidth_product=float(kwargs["mt_time_bandwidth_product"]),
             mt_min_cycles=float(kwargs["mt_min_cycles"]),
+            mt_max_cycles=kwargs.get("mt_max_cycles"),
         )
         annotation_skip_radius_s = (
             float(np.min(mask_radii))
@@ -256,6 +258,7 @@ def _prepare_undirected_cohort(
             ),
             "mt_time_bandwidth_product": float(kwargs["mt_time_bandwidth_product"]),
             "mt_min_cycles": float(kwargs["mt_min_cycles"]),
+            "mt_max_cycles": kwargs.get("mt_max_cycles"),
             "min_cycles": kwargs.get("min_cycles"),
             "max_cycles": kwargs.get("max_cycles"),
             "annotation_skip_radius_s": annotation_skip_radius_s,
@@ -326,6 +329,7 @@ def _prepare_trgc(
         "spectral_mode": str(prepared["spectral_mode_use"]),
         "mt_time_bandwidth_product": float(prepared["mt_time_bandwidth_product"]),
         "mt_min_cycles": float(prepared["mt_min_cycles"]),
+        "mt_max_cycles": prepared["mt_max_cycles"],
         "min_cycles": prepared["min_cycles"],
         "max_cycles": prepared["max_cycles"],
         "gc_n_lags": int(prepared["gc_n_lags"]),

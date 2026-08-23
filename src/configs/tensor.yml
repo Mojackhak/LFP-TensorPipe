@@ -32,6 +32,7 @@ metric_defaults:
     max_cycles: 13.0
     mt_time_bandwidth_product: 4.0
     mt_min_cycles: 3.0
+    mt_max_cycles: null
     smooth_enabled: true
     kernel_size: 13
     aperiodic_mode: fixed
@@ -82,6 +83,7 @@ metric_defaults:
     max_cycles: 13.0
     mt_time_bandwidth_product: 4.0
     mt_min_cycles: 3.0
+    mt_max_cycles: null
     selected_channels:
     - '0_1'
     - '1_2'
@@ -116,6 +118,7 @@ metric_defaults:
     method: morlet
     mt_time_bandwidth_product: 4.0
     mt_min_cycles: 3.0
+    mt_max_cycles: null
     min_cycles: 3.0
     max_cycles: 13.0
     gc_n_lags: null
@@ -141,6 +144,7 @@ metric_defaults:
     method: morlet
     mt_time_bandwidth_product: 4.0
     mt_min_cycles: 3.0
+    mt_max_cycles: null
     min_cycles: 3.0
     max_cycles: null
     gc_n_lags: null
@@ -166,6 +170,7 @@ metric_defaults:
     method: morlet
     mt_time_bandwidth_product: 4.0
     mt_min_cycles: 3.0
+    mt_max_cycles: null
     min_cycles: 3.0
     max_cycles: 13.0
     gc_n_lags: null
@@ -191,6 +196,7 @@ metric_defaults:
     method: morlet
     mt_time_bandwidth_product: 4.0
     mt_min_cycles: 3.0
+    mt_max_cycles: null
     min_cycles: 3.0
     max_cycles: 13.0
     gc_n_lags: null
@@ -216,6 +222,7 @@ metric_defaults:
     method: morlet
     mt_time_bandwidth_product: 4.0
     mt_min_cycles: 3.0
+    mt_max_cycles: null
     min_cycles: 3.0
     max_cycles: null
     gc_n_lags: 20
@@ -258,6 +265,7 @@ metric_defaults:
     method: morlet
     mt_time_bandwidth_product: 4.0
     mt_min_cycles: 3.0
+    mt_max_cycles: null
     time_resolution_s: 5.0
     hop_s: 0.25
     min_cycles: 3.0
@@ -319,6 +327,7 @@ metric_defaults:
     method: morlet
     mt_time_bandwidth_product: 4.0
     mt_min_cycles: 3.0
+    mt_max_cycles: null
     min_cycles: 3.0
     max_cycles: 13.0
     gc_n_lags: null
@@ -344,6 +353,7 @@ metric_defaults:
     method: morlet
     mt_time_bandwidth_product: 4.0
     mt_min_cycles: 3.0
+    mt_max_cycles: null
     min_cycles: 3.0
     max_cycles: 13.0
     gc_n_lags: null

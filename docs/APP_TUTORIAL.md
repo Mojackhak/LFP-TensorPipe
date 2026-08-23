@@ -638,6 +638,24 @@ metrics:
 These controls define the base grid. More specialized method-specific and
 metric-specific parameters are configured in each metric's `Advance` dialog.
 
+For Multitaper-capable metrics other than Burst, `Time resolution` is the
+target DPSS window before applying `MT min cycles` and optional
+`MT max cycles` bounds. The effective geometry at frequency `f` is:
+
+```text
+target_cycles = f * time_resolution
+effective_cycles = max(target_cycles, MT min cycles)
+effective_cycles = min(effective_cycles, MT max cycles)  # when configured
+effective_window = effective_cycles / f
+```
+
+Leave `MT max cycles` blank to preserve the target-time/minimum-cycle behavior.
+Setting `MT max cycles` equal to `MT min cycles` gives every frequency the same
+cycle count: higher frequencies then receive shorter physical windows and
+wider absolute frequency smoothing. `Hop` controls output-center spacing and
+does not change the estimator window. Burst keeps its separate fixed
+`MT cycles` estimator parameter.
+
 The validated demo config enables:
 
 - `raw_power`

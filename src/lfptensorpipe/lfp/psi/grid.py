@@ -352,6 +352,7 @@ def grid(
     max_cycles: float | None = None,
     mt_time_bandwidth_product: float = 4.0,
     mt_min_cycles: float = 3.0,
+    mt_max_cycles: float | None = None,
     block_size: int = 1000,
     n_jobs: int = 1,
     outer_n_jobs: int | None = None,
@@ -378,6 +379,7 @@ def grid(
         max_cycles: Optional upper bound for Morlet cycles.
         mt_time_bandwidth_product: Dimensionless DPSS time-bandwidth product.
         mt_min_cycles: Minimum cycles in a Multitaper band window.
+        mt_max_cycles: Optional maximum cycles in a Multitaper band window.
         block_size: Forwarded to :func:`mne_connectivity.phase_slope_index`.
         n_jobs: Parallel jobs forwarded to Morlet PSI. For Multitaper, this is
             the window-loop fallback when `outer_n_jobs` is None.
@@ -494,6 +496,7 @@ def grid(
             time_resolution_s=float(time_resolution_s),
             mt_time_bandwidth_product=float(mt_time_bandwidth_product),
             mt_min_cycles=float(mt_min_cycles),
+            mt_max_cycles=(float(mt_max_cycles) if mt_max_cycles is not None else None),
         )
 
         available_duration_s = float(max(0, data.shape[-1] - 1)) / float(sfreq_use)
@@ -777,6 +780,11 @@ def grid(
             ),
             mt_min_cycles=(
                 float(mt_min_cycles) if method_use == "multitaper" else None
+            ),
+            mt_max_cycles=(
+                float(mt_max_cycles)
+                if method_use == "multitaper" and mt_max_cycles is not None
+                else None
             ),
             mt_effective_window_s=mt_effective_window_s,
             mt_effective_bandwidth_hz=mt_effective_bandwidth_hz,

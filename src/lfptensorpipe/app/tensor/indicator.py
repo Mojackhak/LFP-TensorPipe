@@ -315,10 +315,12 @@ def _spectral_method_signature(
             if require_multitaper_fields
             else _as_float(params.get("mt_min_cycles"), 3.0)
         )
+        maximum_cycles = _as_optional_float(params.get("mt_max_cycles"))
         return {
             "method": method,
             "mt_time_bandwidth_product": product,
             "mt_min_cycles": minimum_cycles,
+            "mt_max_cycles": maximum_cycles,
         }
     return {
         "method": method,

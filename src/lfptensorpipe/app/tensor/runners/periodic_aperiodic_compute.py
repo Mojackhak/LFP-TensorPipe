@@ -117,6 +117,7 @@ def _periodic_annotation_support(
         max_cycles=options.max_cycles,
         mt_time_bandwidth_product=float(options.mt_time_bandwidth_product),
         mt_min_cycles=float(options.mt_min_cycles),
+        mt_max_cycles=options.mt_max_cycles,
     )
     estimator_radius_s = float(np.max(estimator_radii))
     time_smoothing_radius_s = (
@@ -309,6 +310,7 @@ def _run_tfr_grid(
         max_cycles=options.max_cycles,
         mt_time_bandwidth_product=float(options.mt_time_bandwidth_product),
         mt_min_cycles=float(options.mt_min_cycles),
+        mt_max_cycles=options.mt_max_cycles,
         n_jobs=int(options.n_jobs),
     )
     power_tensor = _normalize_power_tensor(power)
@@ -613,6 +615,7 @@ def _apply_edge_masks(
         max_cycles=options.max_cycles,
         mt_time_bandwidth_product=float(options.mt_time_bandwidth_product),
         mt_min_cycles=float(options.mt_min_cycles),
+        mt_max_cycles=options.mt_max_cycles,
     )
     tensor, metadata = svc._apply_dynamic_edge_mask_strict(
         raw=prepared.raw,

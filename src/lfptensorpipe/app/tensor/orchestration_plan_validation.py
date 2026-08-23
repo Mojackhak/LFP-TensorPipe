@@ -378,12 +378,17 @@ def _normalize_metric_compute_params(
                 minimum=2.0,
                 minimum_inclusive=True,
             )
-            normalized["mt_min_cycles"] = _finite_float(
+            mt_min_cycles = _finite_float(
                 metric_params,
                 "mt_min_cycles",
                 default=3.0,
                 minimum=0.0,
             )
+            mt_max_cycles = _optional_finite_float(metric_params, "mt_max_cycles")
+            if mt_max_cycles is not None and mt_max_cycles < mt_min_cycles:
+                raise ValueError("mt_max_cycles must be >= mt_min_cycles.")
+            normalized["mt_min_cycles"] = mt_min_cycles
+            normalized["mt_max_cycles"] = mt_max_cycles
 
     if metric_key == "periodic_aperiodic":
         freq_smooth_enabled = _strict_bool(

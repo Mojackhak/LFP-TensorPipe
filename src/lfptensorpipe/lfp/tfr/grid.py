@@ -31,6 +31,7 @@ def _compute_n_cycles(
     max_cycles: Optional[float],
     mt_time_bandwidth_product: float,
     mt_min_cycles: float,
+    mt_max_cycles: Optional[float],
 ) -> tuple[np.ndarray, str, np.ndarray | None, np.ndarray | None]:
     """Compute n_cycles for Morlet or multitaper with a clear provenance string."""
     method_l = method.lower()
@@ -71,6 +72,7 @@ def _compute_n_cycles(
             time_resolution_s=float(time_resolution_s),
             mt_time_bandwidth_product=float(mt_time_bandwidth_product),
             mt_min_cycles=float(mt_min_cycles),
+            mt_max_cycles=(float(mt_max_cycles) if mt_max_cycles is not None else None),
         )
         return (
             n_cycles_vec,
@@ -110,6 +112,7 @@ def grid(
     # Multitaper controls
     mt_time_bandwidth_product: float = 4.0,
     mt_min_cycles: float = 3.0,
+    mt_max_cycles: Optional[float] = None,
     # Timing / compute controls
     hop_s: Optional[float] = 0.025,
     decim: Optional[int] = None,
@@ -183,6 +186,7 @@ def grid(
         max_cycles=max_cycles,
         mt_time_bandwidth_product=float(mt_time_bandwidth_product),
         mt_min_cycles=float(mt_min_cycles),
+        mt_max_cycles=mt_max_cycles,
     )
 
     method_l = method.lower()
@@ -356,6 +360,11 @@ def grid(
                 float(mt_time_bandwidth_product) if method_l == "multitaper" else None
             ),
             mt_min_cycles=(float(mt_min_cycles) if method_l == "multitaper" else None),
+            mt_max_cycles=(
+                float(mt_max_cycles)
+                if method_l == "multitaper" and mt_max_cycles is not None
+                else None
+            ),
             mt_effective_window_s=mt_effective_window_s,
             mt_effective_bandwidth_hz=mt_effective_bandwidth_hz,
             hop_s=hop_s,

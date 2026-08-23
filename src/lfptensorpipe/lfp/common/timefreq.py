@@ -25,11 +25,13 @@ def multitaper_fixed_p_parameters(
     time_resolution_s: float,
     mt_time_bandwidth_product: float,
     mt_min_cycles: float,
+    mt_max_cycles: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Return fixed-P adaptive Multitaper parameters aligned to frequencies.
 
-    ``time_resolution_s`` is the minimum window duration. Frequencies that need
-    a longer window to include ``mt_min_cycles`` use ``mt_min_cycles / f``.
+    ``time_resolution_s`` is the target window duration before cycle bounds.
+    Low frequencies may use a longer window to include ``mt_min_cycles``;
+    high frequencies may use a shorter window when ``mt_max_cycles`` is set.
     The full DPSS bandwidth is ``P / T`` and the mask radius is ``T / 2``.
     """
     freqs = np.asarray(freqs_hz, dtype=float)
@@ -51,6 +53,14 @@ def multitaper_fixed_p_parameters(
     if not np.isfinite(minimum_cycles) or minimum_cycles <= 0.0:
         raise ValueError("`mt_min_cycles` must be finite and > 0.")
 
+    maximum_cycles: float | None = None
+    if mt_max_cycles is not None:
+        maximum_cycles = float(mt_max_cycles)
+        if not np.isfinite(maximum_cycles) or maximum_cycles <= 0.0:
+            raise ValueError("`mt_max_cycles` must be finite and > 0 when provided.")
+        if maximum_cycles < minimum_cycles:
+            raise ValueError("`mt_max_cycles` must be >= `mt_min_cycles`.")
+
     if product < 3.0:
         warnings.warn(
             "mt_time_bandwidth_product < 3 may provide only about one good taper.",
@@ -66,6 +76,9 @@ def multitaper_fixed_p_parameters(
 
     window_s = np.maximum(minimum_window_s, minimum_cycles / freqs)
     n_cycles = freqs * window_s
+    if maximum_cycles is not None:
+        n_cycles = np.minimum(n_cycles, maximum_cycles)
+        window_s = n_cycles / freqs
     full_bandwidth_hz = product / window_s
     mask_radius_s = window_s / 2.0
     return n_cycles, window_s, full_bandwidth_hz, mask_radius_s

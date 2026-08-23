@@ -33,6 +33,7 @@ def run_raw_power_metric(
     max_cycles: float | None = None,
     mt_time_bandwidth_product: float = 4.0,
     mt_min_cycles: float = 3.0,
+    mt_max_cycles: float | None = None,
     notches: Any = None,
     notch_radii: Any = 2.0,
     n_jobs: int = 1,
@@ -176,6 +177,7 @@ def run_raw_power_metric(
             max_cycles=max_cycles,
             mt_time_bandwidth_product=float(mt_time_bandwidth_product),
             mt_min_cycles=float(mt_min_cycles),
+            mt_max_cycles=mt_max_cycles,
             n_jobs=int(n_jobs),
         )
         tensor = np.asarray(power, dtype=float)
@@ -193,6 +195,7 @@ def run_raw_power_metric(
                 max_cycles=max_cycles,
                 mt_time_bandwidth_product=float(mt_time_bandwidth_product),
                 mt_min_cycles=float(mt_min_cycles),
+                mt_max_cycles=mt_max_cycles,
             )
             if interpolation_applied:
                 tensor, metadata = _apply_dynamic_edge_mask_strict(
@@ -278,6 +281,9 @@ def run_raw_power_metric(
             "max_cycles": (float(max_cycles) if max_cycles is not None else None),
             "mt_time_bandwidth_product": float(mt_time_bandwidth_product),
             "mt_min_cycles": float(mt_min_cycles),
+            "mt_max_cycles": (
+                float(mt_max_cycles) if mt_max_cycles is not None else None
+            ),
             "mask_edge_effects": bool(mask_edge_effects),
             "bands": bands,
             "channels": picks,
@@ -317,6 +323,9 @@ def run_raw_power_metric(
             "max_cycles": (float(max_cycles) if max_cycles is not None else None),
             "mt_time_bandwidth_product": float(mt_time_bandwidth_product),
             "mt_min_cycles": float(mt_min_cycles),
+            "mt_max_cycles": (
+                float(mt_max_cycles) if mt_max_cycles is not None else None
+            ),
             "mask_edge_effects": bool(mask_edge_effects),
             "notches": [float(item) for item in runtime_notches],
             "notch_radii": [float(item) for item in runtime_notch_radii],
@@ -380,6 +389,9 @@ def run_raw_power_metric(
                 "max_cycles": (float(max_cycles) if max_cycles is not None else None),
                 "mt_time_bandwidth_product": float(mt_time_bandwidth_product),
                 "mt_min_cycles": float(mt_min_cycles),
+                "mt_max_cycles": (
+                    float(mt_max_cycles) if mt_max_cycles is not None else None
+                ),
                 "mask_edge_effects": bool(mask_edge_effects),
                 "notches": [float(item) for item in runtime_notches],
                 "notch_radii": [float(item) for item in runtime_notch_radii],

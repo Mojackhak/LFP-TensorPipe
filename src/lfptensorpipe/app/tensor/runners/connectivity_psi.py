@@ -92,6 +92,7 @@ def run_psi_metric(
     method: str = "morlet",
     mt_time_bandwidth_product: float = 4.0,
     mt_min_cycles: float = 3.0,
+    mt_max_cycles: float | None = None,
     min_cycles: float | None = 3.0,
     max_cycles: float | None = None,
     notches: Any = None,
@@ -250,6 +251,7 @@ def run_psi_metric(
             ordered_pairs=True,
             mt_time_bandwidth_product=float(mt_time_bandwidth_product),
             mt_min_cycles=float(mt_min_cycles),
+            mt_max_cycles=mt_max_cycles,
             min_cycles=min_cycles,
             max_cycles=max_cycles,
             cwt_freqs=cwt_freqs,
@@ -341,6 +343,9 @@ def run_psi_metric(
             "hop_s": float(hop_s),
             "mt_time_bandwidth_product": float(mt_time_bandwidth_product),
             "mt_min_cycles": float(mt_min_cycles),
+            "mt_max_cycles": (
+                float(mt_max_cycles) if mt_max_cycles is not None else None
+            ),
             "min_cycles": (float(min_cycles) if min_cycles is not None else None),
             "max_cycles": (float(max_cycles) if max_cycles is not None else None),
             "mask_edge_effects": bool(mask_edge_effects),
@@ -390,6 +395,9 @@ def run_psi_metric(
             "hop_s": float(hop_s),
             "mt_time_bandwidth_product": float(mt_time_bandwidth_product),
             "mt_min_cycles": float(mt_min_cycles),
+            "mt_max_cycles": (
+                float(mt_max_cycles) if mt_max_cycles is not None else None
+            ),
             "min_cycles": (float(min_cycles) if min_cycles is not None else None),
             "max_cycles": (float(max_cycles) if max_cycles is not None else None),
             "mask_edge_effects": bool(mask_edge_effects),
@@ -453,6 +461,9 @@ def run_psi_metric(
                 "hop_s": float(hop_s),
                 "mt_time_bandwidth_product": float(mt_time_bandwidth_product),
                 "mt_min_cycles": float(mt_min_cycles),
+                "mt_max_cycles": (
+                    float(mt_max_cycles) if mt_max_cycles is not None else None
+                ),
                 "min_cycles": (float(min_cycles) if min_cycles is not None else None),
                 "max_cycles": (float(max_cycles) if max_cycles is not None else None),
                 "mask_edge_effects": bool(mask_edge_effects),

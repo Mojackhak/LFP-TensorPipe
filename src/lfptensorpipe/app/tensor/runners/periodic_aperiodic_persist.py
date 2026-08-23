@@ -66,6 +66,11 @@ def write_periodic_aperiodic_failure(
             ),
             "mt_time_bandwidth_product": float(options.mt_time_bandwidth_product),
             "mt_min_cycles": float(options.mt_min_cycles),
+            "mt_max_cycles": (
+                float(options.mt_max_cycles)
+                if options.mt_max_cycles is not None
+                else None
+            ),
             "freq_range_hz": (
                 [float(options.freq_range_hz[0]), float(options.freq_range_hz[1])]
                 if options.freq_range_hz is not None
@@ -197,6 +202,9 @@ def write_periodic_aperiodic_success(
         ),
         "mt_time_bandwidth_product": float(options.mt_time_bandwidth_product),
         "mt_min_cycles": float(options.mt_min_cycles),
+        "mt_max_cycles": (
+            float(options.mt_max_cycles) if options.mt_max_cycles is not None else None
+        ),
         "freq_range_hz": [float(prepared.spec_low), float(prepared.spec_high)],
         "freq_smooth_enabled": bool(options.freq_smooth_enabled),
         "freq_smooth_sigma": (
@@ -307,6 +315,11 @@ def write_periodic_aperiodic_success(
                             options.mt_time_bandwidth_product
                         ),
                         "mt_min_cycles": float(options.mt_min_cycles),
+                        "mt_max_cycles": (
+                            float(options.mt_max_cycles)
+                            if options.mt_max_cycles is not None
+                            else None
+                        ),
                         "freq_range_hz": [
                             float(prepared.spec_low),
                             float(prepared.spec_high),

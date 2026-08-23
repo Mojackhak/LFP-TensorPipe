@@ -67,6 +67,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "max_cycles",
         "mt_time_bandwidth_product",
         "mt_min_cycles",
+        "mt_max_cycles",
         "notches",
         "notch_radii",
         "selected_channels",
@@ -83,6 +84,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "max_cycles",
         "mt_time_bandwidth_product",
         "mt_min_cycles",
+        "mt_max_cycles",
         "freq_smooth_enabled",
         "freq_smooth_sigma",
         "time_smooth_enabled",
@@ -106,6 +108,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "method",
         "mt_time_bandwidth_product",
         "mt_min_cycles",
+        "mt_max_cycles",
         "min_cycles",
         "max_cycles",
         "notches",
@@ -121,6 +124,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "method",
         "mt_time_bandwidth_product",
         "mt_min_cycles",
+        "mt_max_cycles",
         "min_cycles",
         "max_cycles",
         "notches",
@@ -136,6 +140,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "method",
         "mt_time_bandwidth_product",
         "mt_min_cycles",
+        "mt_max_cycles",
         "min_cycles",
         "max_cycles",
         "notches",
@@ -151,6 +156,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "method",
         "mt_time_bandwidth_product",
         "mt_min_cycles",
+        "mt_max_cycles",
         "min_cycles",
         "max_cycles",
         "notches",
@@ -166,6 +172,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "method",
         "mt_time_bandwidth_product",
         "mt_min_cycles",
+        "mt_max_cycles",
         "min_cycles",
         "max_cycles",
         "notches",
@@ -181,6 +188,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "method",
         "mt_time_bandwidth_product",
         "mt_min_cycles",
+        "mt_max_cycles",
         "min_cycles",
         "max_cycles",
         "notches",
@@ -196,6 +204,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "method",
         "mt_time_bandwidth_product",
         "mt_min_cycles",
+        "mt_max_cycles",
         "min_cycles",
         "max_cycles",
         "gc_n_lags",
@@ -213,6 +222,7 @@ TENSOR_CONFIG_FIELDS_BY_METRIC: dict[str, tuple[str, ...]] = {
         "method",
         "mt_time_bandwidth_product",
         "mt_min_cycles",
+        "mt_max_cycles",
         "min_cycles",
         "max_cycles",
         "notches",
@@ -687,6 +697,22 @@ class MainWindowTensorConfigMixin:
                     )
                 out[key] = parsed
                 continue
+            if key == "mt_max_cycles":
+                if value is None:
+                    out[key] = None
+                    continue
+                try:
+                    parsed = float(value)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"tensor.metric_params.{metric_key}.{key} must be a number or null."
+                    ) from exc
+                if not math.isfinite(parsed) or parsed <= 0.0:
+                    raise ValueError(
+                        f"tensor.metric_params.{metric_key}.{key} must be finite and > 0 when provided."
+                    )
+                out[key] = parsed
+                continue
             out[key] = self._tensor_config_json_value(value)
 
         out.update(
@@ -696,6 +722,16 @@ class MainWindowTensorConfigMixin:
                 legacy_mismatched_list_broadcast=legacy_notch_fields,
             )
         )
+        mt_min_cycles = out.get("mt_min_cycles")
+        mt_max_cycles = out.get("mt_max_cycles")
+        if (
+            mt_max_cycles is not None
+            and mt_min_cycles is not None
+            and float(mt_max_cycles) < float(mt_min_cycles)
+        ):
+            raise ValueError(
+                f"tensor.metric_params.{metric_key}.mt_max_cycles must be >= mt_min_cycles."
+            )
         return out, warnings
 
     def _normalize_tensor_config_import_payload(
@@ -777,6 +813,7 @@ class MainWindowTensorConfigMixin:
                 normalized_legacy.pop("mt_bandwidth", None)
                 normalized_legacy["mt_time_bandwidth_product"] = 4.0
                 normalized_legacy["mt_min_cycles"] = 3.0
+                normalized_legacy["mt_max_cycles"] = None
                 metric_params_by_key[metric_key] = normalized_legacy
             warnings.append(
                 "Legacy conversion: Version 3 Tensor config was imported.\n\n"
@@ -784,7 +821,8 @@ class MainWindowTensorConfigMixin:
                 "as notch_radii because those values already represented a radius."
                 "\n\nLegacy Multitaper time_bandwidth and mt_bandwidth values "
                 "were ignored. Version 4 defaults were applied: time-bandwidth "
-                "product = 4.0 and minimum cycles = 3.0. Existing Multitaper "
+                "product = 4.0, minimum cycles = 3.0, and maximum cycles = none. "
+                "Existing Multitaper "
                 "tensors must be recomputed.\n\nRe-export the configuration to "
                 "save the canonical version 4 fields."
             )
@@ -793,13 +831,15 @@ class MainWindowTensorConfigMixin:
                 node = metric_params_by_key.get(metric_key)
                 if not isinstance(node, dict):
                     continue
+                normalized_node = dict(node)
+                normalized_node.setdefault("mt_max_cycles", None)
                 missing_mt_fields = [
                     field_name
                     for field_name in (
                         "mt_time_bandwidth_product",
                         "mt_min_cycles",
                     )
-                    if field_name not in node
+                    if field_name not in normalized_node
                 ]
                 if missing_mt_fields:
                     defaults = self._tensor_import_metric_defaults(
@@ -814,14 +854,13 @@ class MainWindowTensorConfigMixin:
                             f"tensor.metric_params.{metric_key} is missing required "
                             "Multitaper fields: " + ", ".join(missing_mt_fields) + "."
                         )
-                    normalized_node = dict(node)
                     for field_name in missing_mt_fields:
                         normalized_node[field_name] = deepcopy(defaults[field_name])
                         warnings.append(
                             "Missing default restored for "
                             f"{metric_key}.{field_name}."
                         )
-                    metric_params_by_key[metric_key] = normalized_node
+                metric_params_by_key[metric_key] = normalized_node
         unknown_metric_keys = [
             str(metric_key)
             for metric_key in metric_params_by_key.keys()

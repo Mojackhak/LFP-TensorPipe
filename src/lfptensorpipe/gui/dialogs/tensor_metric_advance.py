@@ -17,6 +17,11 @@ MT_MIN_CYCLES_TOOLTIP = (
     "Minimum oscillation cycles in a Multitaper window. Low frequencies use a "
     "longer window when needed. The default is 3.0."
 )
+MT_MAX_CYCLES_TOOLTIP = (
+    "Optional maximum oscillation cycles in a Multitaper window. High "
+    "frequencies use a shorter window when capped. Leave blank for no maximum. "
+    "Set equal to MT min cycles for fixed cycles at every frequency."
+)
 _COMBO_DRAFT_VALUE_PROPERTY = "lfptpDraftValue"
 
 
@@ -201,17 +206,21 @@ class TensorMetricAdvanceDialog(QDialog):
             mt_time_bandwidth_product.setToolTip(MT_TIME_BANDWIDTH_PRODUCT_TOOLTIP)
             mt_min_cycles = QLineEdit()
             mt_min_cycles.setToolTip(MT_MIN_CYCLES_TOOLTIP)
+            mt_max_cycles = QLineEdit()
+            mt_max_cycles.setToolTip(MT_MAX_CYCLES_TOOLTIP)
             form.addRow("Method", method_combo)
             form.addRow("Morlet min cycles", min_cycles)
             form.addRow("Morlet max cycles", max_cycles)
             form.addRow("MT time-bandwidth product", mt_time_bandwidth_product)
-            form.addRow("MT minimum cycles", mt_min_cycles)
+            form.addRow("MT min cycles", mt_min_cycles)
+            form.addRow("MT max cycles", mt_max_cycles)
             self._fields = {
                 "method": method_combo,
                 "min_cycles": min_cycles,
                 "max_cycles": max_cycles,
                 "mt_time_bandwidth_product": mt_time_bandwidth_product,
                 "mt_min_cycles": mt_min_cycles,
+                "mt_max_cycles": mt_max_cycles,
             }
             method_combo.currentIndexChanged.connect(
                 self._sync_spectral_method_fields_enabled
@@ -233,6 +242,8 @@ class TensorMetricAdvanceDialog(QDialog):
             mt_time_bandwidth_product.setToolTip(MT_TIME_BANDWIDTH_PRODUCT_TOOLTIP)
             mt_min_cycles = QLineEdit()
             mt_min_cycles.setToolTip(MT_MIN_CYCLES_TOOLTIP)
+            mt_max_cycles = QLineEdit()
+            mt_max_cycles.setToolTip(MT_MAX_CYCLES_TOOLTIP)
             freq_smooth = QCheckBox()
             freq_smooth.setToolTip(
                 "Enable pre-decomposition frequency-axis Gaussian smoothing."
@@ -269,7 +280,8 @@ class TensorMetricAdvanceDialog(QDialog):
             form.addRow("Morlet min cycles", min_cycles)
             form.addRow("Morlet max cycles", max_cycles)
             form.addRow("MT time-bandwidth product", mt_time_bandwidth_product)
-            form.addRow("MT minimum cycles", mt_min_cycles)
+            form.addRow("MT min cycles", mt_min_cycles)
+            form.addRow("MT max cycles", mt_max_cycles)
             form.addRow("Freq", freq_smooth)
             form.addRow("Freq smooth sigma", freq_smooth_sigma)
             form.addRow("Time", time_smooth)
@@ -286,6 +298,7 @@ class TensorMetricAdvanceDialog(QDialog):
                 "max_cycles": max_cycles,
                 "mt_time_bandwidth_product": mt_time_bandwidth_product,
                 "mt_min_cycles": mt_min_cycles,
+                "mt_max_cycles": mt_max_cycles,
                 "freq_smooth_enabled": freq_smooth,
                 "freq_smooth_sigma": freq_smooth_sigma,
                 "time_smooth_enabled": time_smooth,
@@ -329,6 +342,8 @@ class TensorMetricAdvanceDialog(QDialog):
             mt_time_bandwidth_product.setToolTip(MT_TIME_BANDWIDTH_PRODUCT_TOOLTIP)
             mt_min_cycles = QLineEdit()
             mt_min_cycles.setToolTip(MT_MIN_CYCLES_TOOLTIP)
+            mt_max_cycles = QLineEdit()
+            mt_max_cycles.setToolTip(MT_MAX_CYCLES_TOOLTIP)
             min_cycles = QLineEdit()
             min_cycles.setToolTip("Minimum cycles used for spectral estimation.")
             max_cycles = QLineEdit()
@@ -337,13 +352,15 @@ class TensorMetricAdvanceDialog(QDialog):
             )
             form.addRow("Method", method_combo)
             form.addRow("MT time-bandwidth product", mt_time_bandwidth_product)
-            form.addRow("MT minimum cycles", mt_min_cycles)
+            form.addRow("MT min cycles", mt_min_cycles)
+            form.addRow("MT max cycles", mt_max_cycles)
             form.addRow("Morlet min cycles", min_cycles)
             form.addRow("Morlet max cycles", max_cycles)
             self._fields = {
                 "method": method_combo,
                 "mt_time_bandwidth_product": mt_time_bandwidth_product,
                 "mt_min_cycles": mt_min_cycles,
+                "mt_max_cycles": mt_max_cycles,
                 "min_cycles": min_cycles,
                 "max_cycles": max_cycles,
             }
@@ -381,6 +398,8 @@ class TensorMetricAdvanceDialog(QDialog):
             mt_time_bandwidth_product.setToolTip(MT_TIME_BANDWIDTH_PRODUCT_TOOLTIP)
             mt_min_cycles = QLineEdit()
             mt_min_cycles.setToolTip(MT_MIN_CYCLES_TOOLTIP)
+            mt_max_cycles = QLineEdit()
+            mt_max_cycles.setToolTip(MT_MAX_CYCLES_TOOLTIP)
             min_cycles = QLineEdit()
             min_cycles.setToolTip("Minimum cycles used for spectral estimation.")
             max_cycles = QLineEdit()
@@ -389,13 +408,15 @@ class TensorMetricAdvanceDialog(QDialog):
             )
             form.addRow("Method", method_combo)
             form.addRow("MT time-bandwidth product", mt_time_bandwidth_product)
-            form.addRow("MT minimum cycles", mt_min_cycles)
+            form.addRow("MT min cycles", mt_min_cycles)
+            form.addRow("MT max cycles", mt_max_cycles)
             form.addRow("Morlet min cycles", min_cycles)
             form.addRow("Morlet max cycles", max_cycles)
             self._fields = {
                 "method": method_combo,
                 "mt_time_bandwidth_product": mt_time_bandwidth_product,
                 "mt_min_cycles": mt_min_cycles,
+                "mt_max_cycles": mt_max_cycles,
                 "min_cycles": min_cycles,
                 "max_cycles": max_cycles,
             }
@@ -736,7 +757,7 @@ class TensorMetricAdvanceDialog(QDialog):
                         set_control_validation_error(widget, None)
             return
         is_multitaper = method == "multitaper"
-        for key in ("mt_time_bandwidth_product", "mt_min_cycles"):
+        for key in ("mt_time_bandwidth_product", "mt_min_cycles", "mt_max_cycles"):
             widget = self._fields.get(key)
             if widget is not None:
                 widget.setEnabled(is_multitaper)

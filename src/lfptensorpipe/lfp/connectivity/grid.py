@@ -325,6 +325,7 @@ def grid(
     # Multitaper options
     mt_time_bandwidth_product: float = 4.0,
     mt_min_cycles: float = 3.0,
+    mt_max_cycles: float | None = None,
     mt_adaptive: bool | None = None,
     mt_low_bias: bool | None = None,
     window_multiple: float = 1.0,
@@ -562,6 +563,7 @@ def grid(
             time_resolution_s=float(time_resolution_s),
             mt_time_bandwidth_product=float(mt_time_bandwidth_product),
             mt_min_cycles=float(mt_min_cycles),
+            mt_max_cycles=(float(mt_max_cycles) if mt_max_cycles is not None else None),
         )
         n_cycles_source = "multitaper_fixed_P_adaptive_window"
         available_duration_s = float(max(0, raw.n_times - 1)) / float(sfreq)
@@ -903,6 +905,11 @@ def grid(
                 ),
                 mt_min_cycles=(
                     float(mt_min_cycles) if spectral_mode_use == "multitaper" else None
+                ),
+                mt_max_cycles=(
+                    float(mt_max_cycles)
+                    if spectral_mode_use == "multitaper" and mt_max_cycles is not None
+                    else None
                 ),
                 mt_effective_window_s=(
                     np.asarray(window_len_s, dtype=float)

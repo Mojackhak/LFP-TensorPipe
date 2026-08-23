@@ -26,6 +26,7 @@ def _spectral_runner_kwargs(metric_params: dict[str, Any]) -> dict[str, Any]:
                 "max_cycles": metric_params["max_cycles"],
                 "mt_time_bandwidth_product": 4.0,
                 "mt_min_cycles": 3.0,
+                "mt_max_cycles": None,
             }
         )
     else:
@@ -35,6 +36,7 @@ def _spectral_runner_kwargs(metric_params: dict[str, Any]) -> dict[str, Any]:
                     metric_params["mt_time_bandwidth_product"]
                 ),
                 "mt_min_cycles": float(metric_params["mt_min_cycles"]),
+                "mt_max_cycles": metric_params.get("mt_max_cycles"),
                 "min_cycles": 3.0,
                 "max_cycles": None,
             }
