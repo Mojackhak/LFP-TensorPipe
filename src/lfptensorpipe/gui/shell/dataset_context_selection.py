@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.shared.runlog_store import run_log_read_snapshot
 from lfptensorpipe.gui.shell.common import (
     Path,
     QComboBox,
@@ -296,26 +297,33 @@ class MainWindowDatasetContextSelectionMixin:
         self._features_trial_params_by_slug = {}
         self._preproc_viz_last_step = None
         self._reset_annotations_table()
-        stage_states = scan_stage_states(
-            self._current_project, self._current_subject, self._current_record
-        )
-        self._set_stage_state_maps(stage_states)
-        self._refresh_stage_controls()
-        status_message = (
-            "Context: "
-            f"{self._current_project} | {self._current_subject} | {self._current_record}"
-        )
-        self.statusBar().showMessage(status_message)
-        self._refresh_localize_controls()
-        self._refresh_dataset_action_state()
-        self._refresh_preproc_controls()
-        self._set_tensor_frequency_defaults_from_context(self._record_context())
-        self._refresh_tensor_controls()
-        self._reload_alignment_paradigms()
-        self._refresh_alignment_controls()
-        self._reload_features_paradigms()
-        self._refresh_features_controls()
-        self._sync_record_params_from_logs(include_master=True, clear_dirty=True)
+        with run_log_read_snapshot():
+            stage_states = scan_stage_states(
+                self._current_project, self._current_subject, self._current_record
+            )
+            self._set_stage_state_maps(stage_states)
+            self._refresh_stage_controls()
+            status_message = (
+                "Context: "
+                f"{self._current_project} | {self._current_subject} | "
+                f"{self._current_record}"
+            )
+            self.statusBar().showMessage(status_message)
+            self._refresh_localize_controls()
+            self._refresh_dataset_action_state()
+            self._refresh_preproc_controls()
+            self._set_tensor_frequency_defaults_from_context(self._record_context())
+            self._refresh_tensor_controls()
+            previous_record_param_syncing = self._record_param_syncing
+            self._record_param_syncing = True
+            try:
+                self._reload_alignment_paradigms()
+                self._refresh_alignment_controls()
+                self._reload_features_paradigms()
+            finally:
+                self._record_param_syncing = previous_record_param_syncing
+            self._refresh_features_controls()
+            self._sync_record_params_from_logs(include_master=True, clear_dirty=True)
 
     def _set_empty_record_context(self) -> None:
         self._current_record = None

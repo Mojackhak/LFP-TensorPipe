@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -27,6 +30,10 @@ RUNLOG_VERSION_KEY = "log_version"
 RUNLOG_SCHEMA_VERSION = 1
 RUNLOG_HISTORY_KEY = "history"
 RUNLOG_STATE_KEY = "state"
+
+_RUN_LOG_READ_SNAPSHOT: ContextVar[dict[Path, dict[str, Any] | None] | None] = (
+    ContextVar("run_log_read_snapshot", default=None)
+)
 
 
 @dataclass(frozen=True)
@@ -359,11 +366,31 @@ def write_ui_state(path: str | Path, payload: dict[str, Any]) -> Path:
     return out_path
 
 
+@contextmanager
+def run_log_read_snapshot() -> Iterator[None]:
+    """Reuse validated run-log payloads within one read-only operation."""
+    if _RUN_LOG_READ_SNAPSHOT.get() is not None:
+        yield
+        return
+
+    token = _RUN_LOG_READ_SNAPSHOT.set({})
+    try:
+        yield
+    finally:
+        _RUN_LOG_READ_SNAPSHOT.reset(token)
+
+
 def read_run_log(path: str | Path) -> dict[str, Any] | None:
     """Read and validate a fixed v0.2.0 run-log envelope without write-back."""
     in_path = Path(path)
+    snapshot = _RUN_LOG_READ_SNAPSHOT.get()
+    if snapshot is not None and in_path in snapshot:
+        return deepcopy(snapshot[in_path])
+
     _cleanup_dead_json_temporaries(in_path)
     if not in_path.exists():
+        if snapshot is not None:
+            snapshot[in_path] = None
         return None
 
     with in_path.open("r", encoding="utf-8") as f:
@@ -375,6 +402,9 @@ def read_run_log(path: str | Path) -> dict[str, Any] | None:
     errors = validate_run_log(payload)
     if errors:
         raise ValueError("; ".join(errors))
+    if snapshot is not None:
+        snapshot[in_path] = payload
+        return deepcopy(payload)
     return payload
 
 

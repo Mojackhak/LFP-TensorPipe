@@ -575,7 +575,8 @@ class MainWindowFeaturesTrialsMixin:
             )
         else:
             self._refresh_features_axis_metric_combo()
-            self._refresh_features_available_files()
+            if not self._record_param_syncing:
+                self._refresh_features_available_files()
         self._refresh_stage_states_from_context()
         self._refresh_features_controls()
 
