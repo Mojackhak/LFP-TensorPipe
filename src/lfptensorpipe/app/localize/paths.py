@@ -12,6 +12,7 @@ from lfptensorpipe.app.shared.generation_lineage import (
     accepted_result_generation_id,
     input_generation_receipts_match,
 )
+from lfptensorpipe.app.shared.runlog_store import cache_in_run_log_read_snapshot
 from lfptensorpipe.matlab import infer_matlab_root
 
 if TYPE_CHECKING:
@@ -162,6 +163,9 @@ def localize_log_path(project_root: Path, subject: str, record: str) -> Path:
     return localize_record_dir(project_root, subject, record) / "lfptensorpipe_log.json"
 
 
+@cache_in_run_log_read_snapshot(
+    lambda project_root, subject, record: (project_root, subject, record)
+)
 def localize_indicator_state(project_root: Path, subject: str, record: str) -> str:
     """Derive Localize indicator state from record-level localize log."""
     state = indicator_from_log(localize_log_path(project_root, subject, record))

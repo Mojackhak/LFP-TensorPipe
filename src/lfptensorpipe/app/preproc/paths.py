@@ -9,6 +9,7 @@ import yaml
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
+from lfptensorpipe.app.shared.runlog_store import cache_in_run_log_read_snapshot
 
 
 def rawdata_input_fif_path(context: RecordContext) -> Path:
@@ -60,6 +61,10 @@ def preproc_step_routing_path(resolver: PathResolver, step: str) -> Path:
     return resolver.preproc_step_dir(step, create=False) / "routing.yml"
 
 
+@cache_in_run_log_read_snapshot(
+    lambda resolver, step: (resolver.context, step),
+    copy_result=True,
+)
 def read_preproc_step_routing(
     resolver: PathResolver,
     step: str,

@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Hashable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import wraps
 import json
 import os
 from pathlib import Path
 import stat
 import tempfile
-from typing import Any
+from typing import Any, ParamSpec, TypeVar
 
 REQUIRED_LOG_KEYS = (
     "step",
@@ -34,6 +35,45 @@ RUNLOG_STATE_KEY = "state"
 _RUN_LOG_READ_SNAPSHOT: ContextVar[dict[Path, dict[str, Any] | None] | None] = (
     ContextVar("run_log_read_snapshot", default=None)
 )
+_RUN_LOG_DERIVED_READ_SNAPSHOT: ContextVar[dict[tuple[str, Hashable], Any] | None] = (
+    ContextVar("run_log_derived_read_snapshot", default=None)
+)
+
+_P = ParamSpec("_P")
+_T = TypeVar("_T")
+
+
+def cache_in_run_log_read_snapshot(
+    key_builder: Callable[_P, Hashable | None],
+    *,
+    copy_result: bool = False,
+) -> Callable[[Callable[_P, _T]], Callable[_P, _T]]:
+    """Reuse one pure derived value inside an explicit read snapshot.
+
+    A `None` key bypasses reuse. Mutable results must request independent copies.
+    Calls outside a snapshot retain the decorated function's original behavior.
+    """
+
+    def decorator(function: Callable[_P, _T]) -> Callable[_P, _T]:
+        namespace = f"{function.__module__}.{function.__qualname__}"
+
+        @wraps(function)
+        def wrapped(*args: _P.args, **kwargs: _P.kwargs) -> _T:
+            snapshot = _RUN_LOG_DERIVED_READ_SNAPSHOT.get()
+            if snapshot is None:
+                return function(*args, **kwargs)
+            key = key_builder(*args, **kwargs)
+            if key is None:
+                return function(*args, **kwargs)
+            cache_key = (namespace, key)
+            if cache_key not in snapshot:
+                snapshot[cache_key] = function(*args, **kwargs)
+            result = snapshot[cache_key]
+            return deepcopy(result) if copy_result else result
+
+        return wrapped
+
+    return decorator
 
 
 @dataclass(frozen=True)
@@ -368,15 +408,17 @@ def write_ui_state(path: str | Path, payload: dict[str, Any]) -> Path:
 
 @contextmanager
 def run_log_read_snapshot() -> Iterator[None]:
-    """Reuse validated run-log payloads within one read-only operation."""
+    """Reuse validated logs and pure derived reads in one read-only operation."""
     if _RUN_LOG_READ_SNAPSHOT.get() is not None:
         yield
         return
 
     token = _RUN_LOG_READ_SNAPSHOT.set({})
+    derived_token = _RUN_LOG_DERIVED_READ_SNAPSHOT.set({})
     try:
         yield
     finally:
+        _RUN_LOG_DERIVED_READ_SNAPSHOT.reset(derived_token)
         _RUN_LOG_READ_SNAPSHOT.reset(token)
 
 

@@ -7,6 +7,7 @@ from typing import Any
 
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import read_run_log
+from lfptensorpipe.app.shared.runlog_store import cache_in_run_log_read_snapshot
 from lfptensorpipe.app.shared.generation_lineage import (
     accepted_result_generation_id,
     input_generation_receipts_match,
@@ -133,6 +134,11 @@ def _current_source_step(
     return None
 
 
+@cache_in_run_log_read_snapshot(
+    lambda resolver, step, *, _active=None: (
+        None if _active is not None else (resolver.context, step)
+    )
+)
 def preproc_step_lineage_is_current(
     resolver: PathResolver,
     step: str,

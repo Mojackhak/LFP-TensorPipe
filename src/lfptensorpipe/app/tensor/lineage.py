@@ -20,6 +20,7 @@ from lfptensorpipe.app.shared.generation_lineage import (
     input_generation_receipts_match,
     preproc_generation_ref,
 )
+from lfptensorpipe.app.shared.runlog_store import cache_in_run_log_read_snapshot
 
 from .paths import tensor_metric_log_path, tensor_metric_tensor_path
 
@@ -233,6 +234,9 @@ def tensor_input_generation_changed_during_run() -> bool:
     return not tensor_input_generation_matches(PathResolver(context), expected)
 
 
+@cache_in_run_log_read_snapshot(
+    lambda resolver, metric_key: (resolver.context, metric_key)
+)
 def tensor_metric_lineage_is_current(
     resolver: PathResolver,
     metric_key: str,
@@ -260,6 +264,9 @@ def tensor_metric_lineage_is_current(
     )
 
 
+@cache_in_run_log_read_snapshot(
+    lambda resolver, metric_key: (resolver.context, metric_key)
+)
 def tensor_metric_result_generation_id(
     resolver: PathResolver,
     metric_key: str,

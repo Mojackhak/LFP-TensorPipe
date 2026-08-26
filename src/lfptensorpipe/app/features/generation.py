@@ -17,6 +17,7 @@ from lfptensorpipe.app.shared.generation_lineage import (
     input_generation_receipts_match,
     tensor_generation_ref,
 )
+from lfptensorpipe.app.shared.runlog_store import cache_in_run_log_read_snapshot
 from lfptensorpipe.app.tensor.lineage import (
     tensor_metric_lineage_is_current,
     tensor_metric_result_generation_id,
@@ -214,6 +215,10 @@ def outputs_from_features_entry(
     return outputs
 
 
+@cache_in_run_log_read_snapshot(
+    lambda resolver, *, trial_slug: (resolver.context, trial_slug),
+    copy_result=True,
+)
 def accepted_feature_artifact_paths(
     resolver: PathResolver,
     *,
@@ -268,6 +273,9 @@ def _feature_entry_lineage_is_current(
     )
 
 
+@cache_in_run_log_read_snapshot(
+    lambda resolver, *, trial_slug: (resolver.context, trial_slug)
+)
 def feature_generation_lineage_is_current(
     resolver: PathResolver,
     *,
