@@ -95,6 +95,11 @@ def run_build_tensor(
     input_generations = capture_tensor_input_generation(resolver)
     if input_generations is None:
         return False, "Preprocess finish must be green before Build Tensor."
+    finish_path = svc.preproc_step_raw_path(resolver, "finish")
+    try:
+        channel_inventory = svc._load_tensor_channel_inventory(finish_path)
+    except Exception as exc:  # noqa: BLE001
+        return False, f"Could not read Preprocess Finish channel inventory: {exc}"
 
     merged_metric_params_map = merge_metric_params_map(
         svc,
@@ -115,6 +120,7 @@ def run_build_tensor(
         metrics=metrics,
         merged_metric_params_map=merged_metric_params_map,
         mask_edge_effects=mask_edge_effects,
+        channel_inventory=channel_inventory,
     )
 
     policy_n_jobs, policy_outer_n_jobs = apply_effective_parallel_policy(

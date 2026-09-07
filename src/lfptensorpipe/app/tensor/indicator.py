@@ -66,9 +66,13 @@ from .runners.connectivity_psi import (
 )
 from .runners.periodic_aperiodic_models import MASK_SUPPORT_SEMANTICS
 from .selectors import (
+    TensorChannelInventory,
+    load_tensor_channel_inventory,
     normalize_metric_bands,
     normalize_metric_channels,
     normalize_metric_pairs,
+    select_usable_channels,
+    select_usable_pairs,
 )
 from .validators import validate_bands as _validate_bands
 
@@ -626,16 +630,34 @@ def _current_metric_signature(
     metric_key: str,
     metric_params: dict[str, Any],
     mask_edge_effects: bool,
+    channel_inventory: TensorChannelInventory | None = None,
 ) -> dict[str, Any] | None:
     spec = TENSOR_METRICS_BY_KEY.get(metric_key)
     if spec is None or not spec.supported:
         return None
+    effective_params = dict(metric_params)
+    if isinstance(channel_inventory, TensorChannelInventory):
+        if metric_key in TENSOR_CHANNEL_SELECTOR_KEYS:
+            channels, _excluded_channels = select_usable_channels(
+                effective_params.get("selected_channels"),
+                inventory=channel_inventory,
+            )
+            effective_params["selected_channels"] = channels
+        elif metric_key in (
+            TENSOR_UNDIRECTED_SELECTOR_KEYS | TENSOR_DIRECTED_SELECTOR_KEYS
+        ):
+            pairs, _excluded_pairs = select_usable_pairs(
+                effective_params.get("selected_pairs"),
+                inventory=channel_inventory,
+            )
+            if pairs is not None:
+                effective_params["selected_pairs"] = [list(pair) for pair in pairs]
     prepared = prepare_metric_plan_inputs(
         _VALIDATION_SVC,
         context,
         metric_key=metric_key,
         metric_label=spec.display_name,
-        metric_params=dict(metric_params),
+        metric_params=effective_params,
     )
     params = prepared.metric_params
     notch_payload = _notch_payload(params)
@@ -889,8 +911,13 @@ def tensor_metric_panel_state(
     metric_key: str,
     metric_params: dict[str, Any] | None,
     mask_edge_effects: bool,
+    channel_inventory: TensorChannelInventory | None = None,
 ) -> str:
-    """Return `gray|yellow|green` for one Build Tensor metric row."""
+    """Return `gray|yellow|green` for one Build Tensor metric row.
+
+    Read Finish channel eligibility only when comparing a completed result and
+    the caller has not supplied the current record's channel inventory.
+    """
     if context is None:
         return "gray"
     resolver = PathResolver(context)
@@ -924,11 +951,16 @@ def tensor_metric_panel_state(
         return "yellow"
     current_params = dict(metric_params) if isinstance(metric_params, dict) else {}
     try:
+        if channel_inventory is None:
+            channel_inventory = load_tensor_channel_inventory(
+                resolver.preproc_step_dir("finish", create=False) / "raw.fif"
+            )
         current_signature = _current_metric_signature(
             context,
             metric_key=metric_key,
             metric_params=current_params,
             mask_edge_effects=mask_edge_effects,
+            channel_inventory=channel_inventory,
         )
     except Exception:
         return "yellow"

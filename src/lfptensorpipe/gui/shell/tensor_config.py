@@ -616,7 +616,9 @@ class MainWindowTensorConfigMixin:
                 dropped = len(normalized) - len(filtered)
                 if dropped > 0:
                     warnings.append(
-                        f"{self._tensor_metric_display_name(metric_key)} ignored {dropped} unavailable channel(s)."
+                        f"{self._tensor_metric_display_name(metric_key)} ignored "
+                        f"{dropped} unavailable channel(s), including any channel(s) "
+                        "marked bad in Preprocess Finish."
                     )
                 out[key] = [str(item) for item in filtered]
                 continue
@@ -637,7 +639,9 @@ class MainWindowTensorConfigMixin:
                 dropped = len(normalized_pairs) - len(filtered_pairs)
                 if dropped > 0:
                     warnings.append(
-                        f"{self._tensor_metric_display_name(metric_key)} ignored {dropped} unavailable pair(s)."
+                        f"{self._tensor_metric_display_name(metric_key)} ignored "
+                        f"{dropped} unavailable pair(s), including any pair(s) "
+                        "containing a channel marked bad in Preprocess Finish."
                     )
                 out[key] = [[source, target] for source, target in filtered_pairs]
                 continue

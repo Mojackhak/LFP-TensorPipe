@@ -91,10 +91,14 @@ from .runner_dispatch import (
     _run_undirected_connectivity_metric,
 )
 from .selectors import (
+    load_tensor_channel_inventory as _load_tensor_channel_inventory,
     normalize_metric_bands as _normalize_metric_bands,
     normalize_metric_channels as _normalize_metric_channels,
     normalize_metric_pairs as _normalize_metric_pairs,
     normalize_selected_pairs as _normalize_selected_pairs,
+    select_usable_channels as _select_usable_channels,
+    select_usable_pairs as _select_usable_pairs,
+    tensor_channel_inventory_from_raw as _tensor_channel_inventory_from_raw,
 )
 from .validators import validate_bands as _validate_bands
 

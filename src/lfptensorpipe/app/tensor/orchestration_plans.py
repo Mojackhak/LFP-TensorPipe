@@ -8,6 +8,7 @@ from .orchestration_execution import RuntimePlan
 from .orchestration_plan_dispatch import build_runtime_plan
 from .orchestration_plan_models import TensorPlanBuildResult
 from .orchestration_plan_validation import prepare_metric_plan_inputs
+from .selectors import TensorChannelInventory
 
 
 def write_metric_invalid(
@@ -38,6 +39,7 @@ def build_runtime_plans(
     metrics: list[str],
     merged_metric_params_map: dict[str, dict[str, Any]],
     mask_edge_effects: bool,
+    channel_inventory: TensorChannelInventory,
 ) -> TensorPlanBuildResult:
     overall_ok = True
     messages: list[str] = []
@@ -82,7 +84,51 @@ def build_runtime_plans(
             continue
 
         metric_params = dict(merged_metric_params_map.get(metric_key, {}))
+        exclusion_message = ""
         try:
+            if metric_key in svc.TENSOR_CHANNEL_SELECTOR_KEYS:
+                effective_channels, excluded_channels = svc._select_usable_channels(
+                    metric_params.get("selected_channels"),
+                    inventory=channel_inventory,
+                )
+                metric_params["selected_channels"] = list(effective_channels)
+                if excluded_channels:
+                    names = ", ".join(excluded_channels)
+                    exclusion_message = (
+                        f"{spec.display_name}: excluded Finish bad channel(s): {names}"
+                    )
+                    if not effective_channels:
+                        raise ValueError(
+                            f"{spec.display_name} has no usable selected channels "
+                            "after excluding raw.info['bads']: " + names
+                        )
+            elif metric_key in (
+                svc.TENSOR_UNDIRECTED_SELECTOR_KEYS | svc.TENSOR_DIRECTED_SELECTOR_KEYS
+            ):
+                effective_pairs, excluded_pairs = svc._select_usable_pairs(
+                    metric_params.get("selected_pairs"),
+                    inventory=channel_inventory,
+                )
+                if effective_pairs is not None:
+                    metric_params["selected_pairs"] = [
+                        list(pair) for pair in effective_pairs
+                    ]
+                if excluded_pairs:
+                    involved_bad_channels = [
+                        name
+                        for name in channel_inventory.bad_channels
+                        if any(name in pair for pair in excluded_pairs)
+                    ]
+                    names = ", ".join(involved_bad_channels)
+                    exclusion_message = (
+                        f"{spec.display_name}: excluded {len(excluded_pairs)} "
+                        f"pair(s) containing Finish bad channel(s): {names}"
+                    )
+                    if not effective_pairs:
+                        raise ValueError(
+                            f"{spec.display_name} has no usable selected pairs "
+                            "after excluding raw.info['bads']: " + names
+                        )
             prepared = prepare_metric_plan_inputs(
                 svc,
                 context,
@@ -105,6 +151,8 @@ def build_runtime_plans(
             continue
 
         merged_metric_params_map[metric_key] = dict(prepared.metric_params)
+        if exclusion_message:
+            messages.append(exclusion_message)
 
         try:
             runtime_plans.update(

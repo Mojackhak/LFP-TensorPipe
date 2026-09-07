@@ -240,6 +240,8 @@ class MainWindow(
         self._tensor_advance_button: QPushButton | None = None
         self._tensor_channels_button: QPushButton | None = None
         self._tensor_pairs_button: QPushButton | None = None
+        self._tensor_channel_inventory = None
+        self._tensor_channel_inventory_path = None
         self._tensor_available_channels: tuple[str, ...] = ()
         self._tensor_selected_channels_by_metric: dict[str, tuple[str, ...]] = {}
         self._tensor_selected_pairs_by_metric: dict[

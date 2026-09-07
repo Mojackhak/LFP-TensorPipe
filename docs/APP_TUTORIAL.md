@@ -614,6 +614,33 @@ This stage converts the finalized preprocess signal into time-frequency and
 connectivity tensors. In this demo, those tensors become the source used by
 epoch alignment and feature extraction.
 
+Build Tensor treats the accepted `Finish` Raw as the channel-quality authority.
+Channels listed in `finish/raw.fif` under `raw.info["bads"]` remain in the Raw
+for visual QC, but they are removed before Tensor computation. Raw Power,
+Periodic/Aperiodic, and Burst omit those channels; Coherence, absolute imaginary
+coherence, PLV, ciPLV, PLI, wPLI, TRGC, and PSI omit every pair containing one.
+This whole-channel rule is always active, including when `Mask Edge Effects` is
+off. BAD/EDGE annotations continue to control time support and are not created
+automatically for a bad channel. Align Epochs and Features inherit the reduced
+channel or pair axes from the accepted Tensor outputs.
+
+Bad-channel edits saved from the editable Filter, ECG, or Annotations plots
+invalidate the later preprocess route. Apply `Finish` again before running
+Build Tensor. `Finish -> Plot` remains a QC-only view, so edits made only in
+that plot are not saved. If every explicitly selected channel or pair is
+excluded, correct the selection or unmark the channel upstream; Build Tensor
+does not silently replace the empty selection with all remaining channels.
+Accepting the changed Finish result marks existing Tensor, Alignment, and
+Features results stale under the current preprocess-wide lineage contract.
+
+Metric indicators use the same effective channel or pair selection as
+computation. A completed result can remain green when the requested selection
+also names excluded bad channels, provided its effective selection, other
+parameters, and Finish lineage still match. Removing a bad-channel mark makes
+that channel available after Finish is applied again, but does not select it
+automatically. Clearing the current record resets both selector counts and
+tooltips; no excluded-channel names from the previous record remain visible.
+
 Switch to `Build Tensor`.
 
 ![Build Tensor page.](assets/app-tutorial/figure-23-build-tensor-page.png)

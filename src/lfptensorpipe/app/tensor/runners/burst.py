@@ -254,12 +254,11 @@ def run_burst_metric(
             read_raw_fif = read_raw_fif_fn
 
         raw = read_raw_fif(str(input_path), preload=False, verbose="ERROR")
-        available_channels = set(raw.ch_names)
-        picks = [
-            name
-            for name in (selected_channels or raw.ch_names)
-            if name in available_channels
-        ]
+        inventory = svc._tensor_channel_inventory_from_raw(raw)
+        picks, _excluded_channels = svc._select_usable_channels(
+            selected_channels,
+            inventory=inventory,
+        )
         if not picks:
             raise ValueError(f"{metric_label} requires at least 1 valid channel.")
 

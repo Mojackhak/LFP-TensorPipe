@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.tensor.selectors import load_tensor_channel_inventory
 from lfptensorpipe.gui.shell.common import (
     Any,
     PathResolver,
@@ -172,30 +173,45 @@ class MainWindowTensorStateSelectorsMixin:
         )
 
     def _refresh_tensor_channel_state(self, context: RecordContext | None) -> None:
-        self._ensure_tensor_metric_state_from_defaults(context)
         if context is None:
+            self._tensor_channel_inventory = None
+            self._tensor_channel_inventory_path = None
             self._tensor_available_channels = ()
             for key in list(self._tensor_selected_channels_by_metric.keys()):
                 self._tensor_selected_channels_by_metric[key] = ()
             for key in list(self._tensor_selected_pairs_by_metric.keys()):
                 self._tensor_selected_pairs_by_metric[key] = ()
+            inventory_tooltip = (
+                "Select a record to view available Tensor channels and pairs."
+            )
             if self._tensor_channels_button is not None:
                 self._tensor_channels_button.setText("Select Channels (0/0)")
                 self._tensor_channels_button.setEnabled(False)
+                self._tensor_channels_button.setToolTip(inventory_tooltip)
             if self._tensor_pairs_button is not None:
                 self._tensor_pairs_button.setText("Select Pairs (0/0)")
                 self._tensor_pairs_button.setEnabled(False)
+                self._tensor_pairs_button.setToolTip(inventory_tooltip)
             return
 
         resolver = PathResolver(context)
         raw_path = preproc_step_raw_path(resolver, "finish")
-        channels = (
-            tuple(self._read_channel_names_from_raw(raw_path))
-            if raw_path.exists()
-            else ()
-        )
-        previous_channels = self._tensor_available_channels
+        try:
+            inventory = (
+                load_tensor_channel_inventory(raw_path) if raw_path.exists() else None
+            )
+        except Exception:
+            inventory = None
+        channels = inventory.usable_channels if inventory is not None else ()
+        previous_inventory = self._tensor_channel_inventory
+        previous_inventory_path = self._tensor_channel_inventory_path
+        self._tensor_channel_inventory = inventory
+        self._tensor_channel_inventory_path = raw_path
         self._tensor_available_channels = channels
+        self._ensure_tensor_metric_state_from_defaults(context)
+        restore_defaults_for_inventory = inventory is not None and (
+            previous_inventory is None or previous_inventory_path != raw_path
+        )
 
         if not channels:
             for key in list(self._tensor_selected_channels_by_metric.keys()):
@@ -209,16 +225,18 @@ class MainWindowTensorStateSelectorsMixin:
                 if filtered:
                     self._tensor_selected_channels_by_metric[metric_key] = filtered
                     continue
-                if channels != previous_channels:
+                if restore_defaults_for_inventory:
                     self._tensor_selected_channels_by_metric[metric_key] = (
                         self._tensor_default_selected_channels_for_metric(
                             metric_key,
                             available_channels=channels,
                         )
                     )
+                else:
+                    self._tensor_selected_channels_by_metric[metric_key] = ()
             for metric_key in TENSOR_UNDIRECTED_METRIC_KEYS:
                 source = self._tensor_selected_pairs_by_metric.get(metric_key, ())
-                if channels != previous_channels and not source:
+                if restore_defaults_for_inventory and not source:
                     source = self._tensor_default_selected_pairs_for_metric(
                         metric_key,
                         directed=False,
@@ -233,7 +251,7 @@ class MainWindowTensorStateSelectorsMixin:
                 )
             for metric_key in TENSOR_DIRECTED_METRIC_KEYS:
                 source = self._tensor_selected_pairs_by_metric.get(metric_key, ())
-                if channels != previous_channels and not source:
+                if restore_defaults_for_inventory and not source:
                     source = self._tensor_default_selected_pairs_for_metric(
                         metric_key,
                         directed=True,
@@ -258,4 +276,23 @@ class MainWindowTensorStateSelectorsMixin:
                     channels,
                 )
             )
+        if inventory is None:
+            inventory_tooltip = "Preprocess Finish channel inventory is unavailable."
+        elif inventory.bad_channels:
+            inventory_tooltip = (
+                f"Usable Finish channels: {len(inventory.usable_channels)}/"
+                f"{len(inventory.all_channels)}. Excluded bad channel(s): "
+                + ", ".join(inventory.bad_channels)
+                + "."
+            )
+        else:
+            inventory_tooltip = (
+                f"Usable Finish channels: {len(inventory.usable_channels)}/"
+                f"{len(inventory.all_channels)}."
+            )
+        if self._tensor_channels_button is not None:
+            self._tensor_channels_button.setToolTip(inventory_tooltip)
+        if self._tensor_pairs_button is not None:
+            self._tensor_pairs_button.setToolTip(inventory_tooltip)
+        self._sync_tensor_selector_maps_into_metric_params()
         self._refresh_tensor_pair_button_text()

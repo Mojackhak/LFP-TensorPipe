@@ -131,13 +131,13 @@ def _normalize_pairs(
     selected_pairs: list[tuple[str, str]] | None,
     directed: bool,
 ) -> tuple[list[str], list[tuple[str, str]]]:
-    available_channels = set(raw.ch_names)
+    inventory = svc._tensor_channel_inventory_from_raw(raw)
+    available_channels = set(inventory.usable_channels)
     if selected_pairs is None:
-        picks = [
-            name
-            for name in (selected_channels or raw.ch_names)
-            if name in available_channels
-        ]
+        picks, _excluded_channels = svc._select_usable_channels(
+            selected_channels,
+            inventory=inventory,
+        )
         if len(picks) < 2:
             raise ValueError("Connectivity requires at least 2 valid channels.")
         if directed:
@@ -150,14 +150,22 @@ def _normalize_pairs(
             pairs = list(combinations(picks, 2))
         return picks, pairs
 
-    pairs = svc._normalize_selected_pairs(
+    usable_pairs, _excluded_pairs = svc._select_usable_pairs(
         selected_pairs,
+        inventory=inventory,
+    )
+    pairs = svc._normalize_selected_pairs(
+        usable_pairs,
         available_channels=available_channels,
         directed=directed,
     )
     if not pairs:
         raise ValueError("No valid selected connectivity pairs are available.")
-    picks = [name for name in raw.ch_names if any(name in pair for pair in pairs)]
+    picks = [
+        name
+        for name in inventory.usable_channels
+        if any(name in pair for pair in pairs)
+    ]
     if len(picks) < 2:
         raise ValueError("Connectivity requires at least 2 valid channels.")
     return picks, pairs

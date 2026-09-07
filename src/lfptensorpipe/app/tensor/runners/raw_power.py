@@ -122,6 +122,7 @@ def run_raw_power_metric(
         )
         return False, message
 
+    raw = None
     try:
         if read_raw_fif_fn is None:
             import mne
@@ -131,12 +132,11 @@ def run_raw_power_metric(
             read_raw_fif = read_raw_fif_fn
 
         raw = read_raw_fif(str(input_path), preload=False, verbose="ERROR")
-        available_channels = set(raw.ch_names)
-        picks = [
-            name
-            for name in (selected_channels or raw.ch_names)
-            if name in available_channels
-        ]
+        inventory = svc._tensor_channel_inventory_from_raw(raw)
+        picks, _excluded_channels = svc._select_usable_channels(
+            selected_channels,
+            inventory=inventory,
+        )
         if not picks:
             raise ValueError("No valid channels selected for Raw power.")
 
@@ -265,9 +265,6 @@ def run_raw_power_metric(
                 ],
             }
         )
-        if hasattr(raw, "close"):
-            raw.close()
-
         config_payload = {
             "metric_key": metric_key,
             "metric_label": TENSOR_METRICS_BY_KEY[metric_key].display_name,
@@ -412,6 +409,9 @@ def run_raw_power_metric(
             message=f"Raw power failed: {exc}",
         )
         return False, f"Raw power failed: {exc}"
+    finally:
+        if raw is not None and hasattr(raw, "close"):
+            raw.close()
 
 
 __all__ = ["run_raw_power_metric"]

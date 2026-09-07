@@ -498,6 +498,30 @@ detection. Both detectors use the same remaining channel set. Filter Apply is
 blocked when no usable detection channel remains; existing BAD time intervals
 continue to participate in AutoReject threshold training.
 
+Build Tensor applies a separate whole-channel eligibility rule to the accepted
+`Finish` Raw. A channel listed in `finish/raw.fif` under `raw.info["bads"]`
+remains available for preprocess QC, but it is not eligible for Tensor
+computation. Channel metrics omit that channel, and connectivity metrics omit
+every pair containing it. This exclusion is independent of `Mask Edge Effects`;
+that control continues to govern annotation-derived time support only. Removing
+the bad-channel mark and applying `Finish` again makes the channel eligible for
+future selection, but does not add it automatically to an existing explicit
+Tensor selection.
+
+Channel-inventory reads are read-only and independent of computation. The GUI,
+Build Tensor planning, and metric-state API each close the Raw they open after
+extracting its channel inventory. Computation uses separately opened Raw
+objects. Raw Power and undirected connectivity close their Raw on both success
+and failure, including an empty selection after bad-channel exclusion; Burst
+and PSI retain their existing cleanup. Periodic/Aperiodic and TRGC preparation
+close the Raw when selector preparation fails; successful preparation
+transfers ownership to the calling runner.
+
+Applying a changed `Finish` result retains the existing preprocess-wide
+invalidation contract: accepted Tensor metrics and their Alignment/Features
+dependents are marked stale. The exclusion itself introduces no additional
+configuration field, cache key, or schema version.
+
 ### 6.3 ECG, Finish, and Visualization
 
 | Control | What it does | What it affects | Availability / blocking rule |
@@ -824,6 +848,18 @@ and the execution of tensor generation.
 | Metric checkbox | Includes or excludes the metric from the next tensor build run. | Run payload. | Always available for supported metrics. |
 | Metric name | Selects the active metric shown in the parameter panel. | Which metric is being configured on the right. | Always available for listed metrics. |
 
+Metric indicators compare the effective channel or pair selection after Finish
+bad-channel exclusion with the accepted result. The public
+`tensor_metric_panel_state` API accepts an optional `channel_inventory`: a
+supplied inventory is reused, while an omitted inventory is read from the
+current record's Finish only when a completed result needs a current-signature
+comparison. The GUI supplies its current inventory to avoid repeating that
+read for every metric. If the inventory cannot be read, an existing completed
+result is yellow rather than being validated against unfiltered selectors.
+No record or no metric log retains the existing gray state. Existing lineage
+and parameter checks still apply; this status check does not rerun computation
+or invalidate artifacts.
+
 ### 7.2 Metric Parameter Panel and Run Block
 
 | Control | What it does | What it affects | Availability / blocking rule |
@@ -836,14 +872,18 @@ and the execution of tensor generation.
 | `SpecParam freq range` | Sets the fitting range used by the SpecParam model, not the final display or export range. In practice, it is usually safer to keep this range slightly wider than the final `Low freq` and `High freq` bounds, allowing boundary frequencies to be trimmed using the final `Low freq` and `High freq` bounds because they are often not modeled reliably as oscillatory peaks. | Visible for periodic/aperiodic metrics. |
 | `Percentile` | Sets the percentile used to convert the burst baseline into a burst-detection threshold. Higher percentiles make burst calls more conservative, while lower percentiles admit more candidate bursts. | Burst metric configuration. | Visible for burst metrics. Disabled while a structured external threshold snapshot is loaded because supplied thresholds replace percentile estimation. |
 | `Bands Configure...` | Opens the named-band editor used by metrics that summarize results over frequency bands. Those named bands become part of the metric-specific aggregation or feature definition. | Active metric axis configuration. | Visible only for metrics that expose bands. Every Start/End value must be finite and satisfy `0 < Start < End`; invalid rows are rejected consistently by Apply and default persistence. |
-| `Select Channels` | Opens the active metric's channel selector. Use it to limit computation to the channels that matter for that metric instead of computing every available channel. | Active metric channel subset. | Visible for channel-based metrics. |
-| `Select Pairs` | Opens the active metric's pair selector. Use it when the metric is defined on channel pairs rather than on single channels. | Active metric pair subset. | Visible for pair-based metrics. |
+| `Select Channels` | Opens the active metric's channel selector. Use it to limit computation to the channels that matter for that metric instead of computing every eligible channel. Channels marked bad in the accepted Finish Raw are excluded. | Active metric channel subset. | Visible for channel-based metrics and requires at least one usable Finish channel. |
+| `Select Pairs` | Opens the active metric's pair selector. Use it when the metric is defined on channel pairs rather than on single channels. Pairs containing a channel marked bad in the accepted Finish Raw are excluded. | Active metric pair subset. | Visible for pair-based metrics and requires usable Finish channels. |
 | `Advance` | Opens the advanced dialog for the active metric. This is where method-specific controls such as cycles, multitaper settings, smoothing, or connectivity-specific options are configured. | Active metric advanced settings. | Disabled for unsupported metrics. |
 | `Status` | Reports the active metric state within the current slice. | User feedback only. | Read-only. |
 | `Import Configs...` | Loads a tensor configuration payload. | Current page configuration. | Requires a selected record. |
 | `Export Configs...` | Saves the current tensor configuration payload. | External tensor config file. | Requires a selected record. |
 | `Mask Edge Effects` | Treats samples within annotations whose labels contain `bad` or `edge` as edge-affected. Non-Burst metrics apply their method-specific output mask. Burst applies the toggle before threshold estimation and event detection: checked makes the effective band-specific support invalid, while unchecked leaves annotated support eligible. | Runtime build behavior for every selected metric. | Always available. |
-| `Build Tensor` | Runs tensor generation for all checked metrics. | Tensor outputs for the current record. | Requires preprocess finish outputs and valid metric settings. |
+| `Build Tensor` | Runs tensor generation for all checked metrics after excluding channels listed in the accepted Finish Raw's `raw.info["bads"]`. | Tensor outputs for the current record. | Requires preprocess finish outputs and non-empty effective channel or pair selections for every checked metric. |
+
+With no record selected, both selector buttons show `0/0`, remain disabled, and
+use a neutral tooltip asking the user to select a record. They do not retain
+channel names or bad-channel exclusions from the previously selected record.
 
 If one or more metric results have already been accepted but the record-level
 Build Tensor summary cannot be saved, the run result preserves those metric
@@ -868,6 +908,10 @@ log remains a recovery error and keeps the existing retry path.
 - `Mask Edge Effects` controls annotation-derived masking, not frequency
   cropping or algorithmic availability. PSI-Multitaper output centers without
   a complete centered analysis window remain `NaN` when this control is off.
+- Finish bad-channel exclusion is always active and is not controlled by `Mask
+  Edge Effects`. If an explicit channel or pair selection becomes empty after
+  exclusion, Build Tensor reports the affected metric instead of substituting
+  unrelated channels or falling back to every Raw channel.
 - When `Mask Edge Effects` is on, every finite output time and matched
   annotation endpoint is assigned to a Raw-relative source sample using MNE
   rounding. Positive-duration annotations use half-open source-index support;
@@ -948,8 +992,8 @@ it globally.
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
-| Channel list | Chooses channels for the active metric. | Active metric channel subset. | Requires a channel inventory. |
-| `Select All` | Selects every channel. | Current channel subset. | Always available. |
+| Channel list | Chooses usable Finish channels for the active metric. Channels listed in `raw.info["bads"]` are not offered for Tensor computation. | Active metric channel subset. | Requires at least one usable Finish channel. |
+| `Select All` | Selects every usable Finish channel. | Current channel subset. | Always available while the dialog is open. |
 | `Clear` | Clears the current selection. | Current channel subset. | Always available. |
 | `Set as Default` | Saves the current channel subset as the default for this control. | Future defaults. | Requires a non-empty valid subset for an active channel-based metric. |
 | `Restore Defaults` | Restores the saved default subset. | Current dialog state. | Always available. |
@@ -1175,7 +1219,7 @@ it globally.
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | `Search` | Filters the available channels and configured pairs. | Dialog browsing only. | Always available. |
-| Channel list | Provides channels used to draft new pairs. | Pair draft source/target. | Requires a channel inventory. |
+| Channel list | Provides usable Finish channels used to draft new pairs. Channels listed in `raw.info["bads"]` are excluded. | Pair draft source/target. | Requires a usable channel inventory. |
 | Pair table | Lists the currently configured pairs. | Active metric pair subset. | Read-only except for row selection and delete actions. |
 | `Source` | Draft source channel. | Pair draft. | Required for a valid draft. |
 | `Target` | Draft target channel. | Pair draft. | Required for a valid draft. |
@@ -1201,7 +1245,7 @@ it globally.
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | `Search` | Filters the available channels and configured pairs. | Dialog browsing only. | Always available. |
-| Channel list | Provides channels used to draft new pairs. | Pair draft source/target. | Requires a channel inventory. |
+| Channel list | Provides usable Finish channels used to draft new pairs. Channels listed in `raw.info["bads"]` are excluded. | Pair draft source/target. | Requires a usable channel inventory. |
 | Pair table | Lists the currently configured directed pairs. | Active metric pair subset. | Read-only except for row selection and delete actions. |
 | `Source` | Draft source channel. In directed metrics this is the first endpoint in the ordered pair. | Pair draft. | Required for a valid draft. |
 | `Target` | Draft target channel. In directed metrics reversing source and target creates a different pair. | Pair draft. | Required for a valid draft. |

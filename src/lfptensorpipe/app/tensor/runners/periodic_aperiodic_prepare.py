@@ -62,14 +62,18 @@ def prepare_periodic_aperiodic_runtime(
         read_raw_fif = read_raw_fif_fn
 
     raw = read_raw_fif(str(paths.input_path), preload=False, verbose="ERROR")
-    available_channels = set(raw.ch_names)
-    picks = [
-        name
-        for name in (options.selected_channels or raw.ch_names)
-        if name in available_channels
-    ]
-    if not picks:
-        raise ValueError("No valid channels selected for Periodic/APeriodic.")
+    try:
+        inventory = svc._tensor_channel_inventory_from_raw(raw)
+        picks, _excluded_channels = svc._select_usable_channels(
+            options.selected_channels,
+            inventory=inventory,
+        )
+        if not picks:
+            raise ValueError("No valid channels selected for Periodic/APeriodic.")
+    except Exception:
+        if hasattr(raw, "close"):
+            raw.close()
+        raise
 
     spec_range = options.freq_range_hz
     if spec_range is None:

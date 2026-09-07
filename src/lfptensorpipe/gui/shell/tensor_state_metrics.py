@@ -147,7 +147,7 @@ class MainWindowTensorStateMetricsMixin:
             ]
         if self._tensor_metric_requires_channel_selector(metric_key):
             channels = self._coerce_tensor_channels(params.get("selected_channels"))
-            if self._tensor_available_channels:
+            if getattr(self, "_tensor_channel_inventory", None) is not None:
                 allowed = set(self._tensor_available_channels)
                 channels = tuple(channel for channel in channels if channel in allowed)
             self._tensor_selected_channels_by_metric[metric_key] = channels
@@ -159,7 +159,7 @@ class MainWindowTensorStateMetricsMixin:
                 params.get("selected_pairs"),
                 directed=directed,
             )
-            if self._tensor_available_channels:
+            if getattr(self, "_tensor_channel_inventory", None) is not None:
                 pairs = self._filter_tensor_pairs(
                     pairs,
                     available_channels=self._tensor_available_channels,
@@ -188,7 +188,7 @@ class MainWindowTensorStateMetricsMixin:
                     current = self._coerce_tensor_channels(
                         params.get("selected_channels")
                     )
-                    if available_channels:
+                    if getattr(self, "_tensor_channel_inventory", None) is not None:
                         allowed = set(available_channels)
                         current = tuple(
                             channel for channel in current if channel in allowed
@@ -208,7 +208,7 @@ class MainWindowTensorStateMetricsMixin:
                 current = self._coerce_tensor_pairs(
                     params.get("selected_pairs"), directed=directed
                 )
-                if available_channels:
+                if getattr(self, "_tensor_channel_inventory", None) is not None:
                     current = self._filter_tensor_pairs(
                         current,
                         available_channels=available_channels,

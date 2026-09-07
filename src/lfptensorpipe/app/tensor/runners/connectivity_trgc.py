@@ -59,7 +59,12 @@ from ..paths import (
     tensor_metric_log_path,
     tensor_metric_tensor_path,
 )
-from ..selectors import normalize_selected_pairs
+from ..selectors import (
+    normalize_selected_pairs,
+    select_usable_channels,
+    select_usable_pairs,
+    tensor_channel_inventory_from_raw,
+)
 
 TRGC_GC_BACKEND_PLAN_KEY = "trgc_gc_backend"
 TRGC_GC_TR_BACKEND_PLAN_KEY = "trgc_gc_tr_backend"
@@ -308,33 +313,42 @@ def _prepare_trgc_backend_inputs(
         read_raw_fif = read_raw_fif_fn
 
     raw = read_raw_fif(str(input_path), preload=False, verbose="ERROR")
-    available_channels = set(raw.ch_names)
-    if selected_pairs is None:
-        picks = [
-            name
-            for name in (selected_channels or raw.ch_names)
-            if name in available_channels
-        ]
-        if len(picks) < 2:
-            raise ValueError(f"{metric_label} requires at least 2 valid channels.")
-        pairs_requested = list(permutations(picks, 2))
-    else:
-        pairs_requested = (normalize_selected_pairs_fn or normalize_selected_pairs)(
-            selected_pairs,
-            available_channels=available_channels,
-            directed=True,
-        )
-        if not pairs_requested:
-            raise ValueError(
-                f"No valid selected directed pairs available for {metric_label}."
+    try:
+        inventory = tensor_channel_inventory_from_raw(raw)
+        available_channels = set(inventory.usable_channels)
+        if selected_pairs is None:
+            picks, _excluded_channels = select_usable_channels(
+                selected_channels,
+                inventory=inventory,
             )
-        picks = [
-            name
-            for name in raw.ch_names
-            if any(name in pair for pair in pairs_requested)
-        ]
-        if len(picks) < 2:
-            raise ValueError(f"{metric_label} requires at least 2 valid channels.")
+            if len(picks) < 2:
+                raise ValueError(f"{metric_label} requires at least 2 valid channels.")
+            pairs_requested = list(permutations(picks, 2))
+        else:
+            usable_pairs, _excluded_pairs = select_usable_pairs(
+                selected_pairs,
+                inventory=inventory,
+            )
+            pairs_requested = (normalize_selected_pairs_fn or normalize_selected_pairs)(
+                usable_pairs,
+                available_channels=available_channels,
+                directed=True,
+            )
+            if not pairs_requested:
+                raise ValueError(
+                    f"No valid selected directed pairs available for {metric_label}."
+                )
+            picks = [
+                name
+                for name in inventory.usable_channels
+                if any(name in pair for pair in pairs_requested)
+            ]
+            if len(picks) < 2:
+                raise ValueError(f"{metric_label} requires at least 2 valid channels.")
+    except Exception:
+        if hasattr(raw, "close"):
+            raw.close()
+        raise
 
     pairs_compute = _close_directed_pairs(pairs_requested)
     nyquist = float(raw.info["sfreq"]) / 2.0

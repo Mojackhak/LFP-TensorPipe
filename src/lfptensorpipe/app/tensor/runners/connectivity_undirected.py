@@ -132,6 +132,7 @@ def run_undirected_connectivity_metric(
         )
         return False, message
 
+    raw = None
     try:
         if read_raw_fif_fn is None:
             import mne
@@ -141,19 +142,23 @@ def run_undirected_connectivity_metric(
             read_raw_fif = read_raw_fif_fn
 
         raw = read_raw_fif(str(input_path), preload=False, verbose="ERROR")
-        available_channels = set(raw.ch_names)
+        inventory = svc._tensor_channel_inventory_from_raw(raw)
+        available_channels = set(inventory.usable_channels)
         if selected_pairs is None:
-            picks = [
-                name
-                for name in (selected_channels or raw.ch_names)
-                if name in available_channels
-            ]
+            picks, _excluded_channels = svc._select_usable_channels(
+                selected_channels,
+                inventory=inventory,
+            )
             if len(picks) < 2:
                 raise ValueError(f"{metric_label} requires at least 2 valid channels.")
             pairs = list(combinations(picks, 2))
         else:
-            pairs = _normalize_selected_pairs(
+            usable_pairs, _excluded_pairs = svc._select_usable_pairs(
                 selected_pairs,
+                inventory=inventory,
+            )
+            pairs = _normalize_selected_pairs(
+                usable_pairs,
                 available_channels=available_channels,
                 directed=False,
             )
@@ -162,7 +167,9 @@ def run_undirected_connectivity_metric(
                     f"No valid selected pairs available for {metric_label}."
                 )
             picks = [
-                name for name in raw.ch_names if any(name in pair for pair in pairs)
+                name
+                for name in inventory.usable_channels
+                if any(name in pair for pair in pairs)
             ]
             if len(picks) < 2:
                 raise ValueError(f"{metric_label} requires at least 2 valid channels.")
@@ -327,9 +334,6 @@ def run_undirected_connectivity_metric(
             ),
             "window_group_counts": list(grid_params.get("window_group_counts", [])),
         }
-        if hasattr(raw, "close"):
-            raw.close()
-
         config_payload = {
             "metric_key": metric_key,
             "metric_label": TENSOR_METRICS_BY_KEY[metric_key].display_name,
@@ -491,3 +495,6 @@ def run_undirected_connectivity_metric(
             message=f"{metric_label} failed: {exc}",
         )
         return False, f"{metric_label} failed: {exc}"
+    finally:
+        if raw is not None and hasattr(raw, "close"):
+            raw.close()

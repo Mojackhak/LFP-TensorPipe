@@ -54,6 +54,7 @@ class MainWindowTensorStateRefreshMixin:
                 metric_key=metric_key,
                 metric_params=metric_params,
                 mask_edge_effects=mask_edge_effects,
+                channel_inventory=self._tensor_channel_inventory,
             )
             self._set_indicator_color(indicator, state)
             indicator.setToolTip(
@@ -69,7 +70,6 @@ class MainWindowTensorStateRefreshMixin:
 
     def _refresh_tensor_controls(self) -> None:
         context = self._record_context()
-        self._ensure_tensor_metric_state_from_defaults(context)
         self._refresh_tensor_channel_state(context)
         self._apply_active_tensor_params_to_panel()
         self._refresh_tensor_metric_indicators(context)
