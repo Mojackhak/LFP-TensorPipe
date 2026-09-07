@@ -21,6 +21,7 @@ alignment, and feature extraction.
 - Installation guide: [docs/INSTALL.md](docs/INSTALL.md)
 - Demo tutorial: [docs/APP_TUTORIAL.md](docs/APP_TUTORIAL.md)
 - Control reference: [docs/APP_CONTROL_REFERENCE.md](docs/APP_CONTROL_REFERENCE.md)
+- Command-line workflow: [docs/CLI.md](docs/CLI.md)
 
 Start with the installation guide. The public repository provides source
 snapshots and release downloads; desktop packaging is maintained only in the
@@ -69,6 +70,11 @@ The supported install naming is:
 - product/UI: `LFP-TensorPipe`
 
 ## Practice Setup
+
+The Python package also accepts one page-exported JSON through `lfptp run`.
+Localize, Build Tensor, Align Epochs, and Extract Features use the same backend
+services as the GUI. Align automatically finishes with all generated epochs.
+See [the CLI guide](docs/CLI.md) for target selection, prerequisites, and exits.
 
 Use the following setup while reading
 [docs/APP_TUTORIAL.md](docs/APP_TUTORIAL.md):

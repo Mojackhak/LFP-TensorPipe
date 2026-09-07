@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
-from lfptensorpipe.app.tensor.selectors import load_tensor_channel_inventory
+from lfptensorpipe.app.tensor.selectors import (
+    coerce_tensor_channels,
+    coerce_tensor_pairs,
+    filter_tensor_pairs,
+    load_tensor_channel_inventory,
+    normalize_tensor_pair,
+    parse_tensor_pair_token,
+    tensor_metric_pair_mode,
+)
 from lfptensorpipe.gui.shell.common import (
-    Any,
-    PathResolver,
-    RecordContext,
     TENSOR_CHANNEL_METRIC_KEYS,
     TENSOR_DIRECTED_METRIC_KEYS,
     TENSOR_UNDIRECTED_METRIC_KEYS,
+    PathResolver,
+    RecordContext,
     preproc_step_raw_path,
 )
 
@@ -25,124 +32,21 @@ class MainWindowTensorStateSelectorsMixin:
             params["selected_pairs"] = [[str(a), str(b)] for a, b in pairs]
             self._tensor_metric_params[metric_key] = params
 
-    @staticmethod
-    def _coerce_tensor_channels(value: Any) -> tuple[str, ...]:
-        if not isinstance(value, (list, tuple)):
-            return ()
-        deduped: list[str] = []
-        for item in value:
-            channel = str(item).strip()
-            if not channel or channel in deduped:
-                continue
-            deduped.append(channel)
-        return tuple(deduped)
+    _coerce_tensor_channels = staticmethod(coerce_tensor_channels)
 
-    @classmethod
-    def _coerce_tensor_pairs(
-        cls,
-        value: Any,
-        *,
-        directed: bool,
-    ) -> tuple[tuple[str, str], ...]:
-        if not isinstance(value, (list, tuple)):
-            return ()
-        parsed: list[tuple[str, str]] = []
-        seen: set[tuple[str, str]] = set()
-        for token in value:
-            pair = cls._parse_tensor_pair_token(token)
-            if pair is None:
-                continue
-            try:
-                normalized = cls._normalize_tensor_pair(
-                    pair[0], pair[1], directed=directed
-                )
-            except Exception:
-                continue
-            if normalized in seen:
-                continue
-            seen.add(normalized)
-            parsed.append(normalized)
-        return tuple(parsed)
+    _coerce_tensor_pairs = staticmethod(coerce_tensor_pairs)
 
     @staticmethod
     def _tensor_metric_requires_channel_selector(metric_key: str) -> bool:
         return metric_key in TENSOR_CHANNEL_METRIC_KEYS
 
-    @staticmethod
-    def _tensor_metric_pair_mode(metric_key: str) -> str | None:
-        if metric_key in TENSOR_UNDIRECTED_METRIC_KEYS:
-            return "undirected"
-        if metric_key in TENSOR_DIRECTED_METRIC_KEYS:
-            return "directed"
-        return None
+    _tensor_metric_pair_mode = staticmethod(tensor_metric_pair_mode)
 
-    @staticmethod
-    def _parse_tensor_pair_token(value: Any) -> tuple[str, str] | None:
-        if isinstance(value, (list, tuple)) and len(value) == 2:
-            source = str(value[0]).strip()
-            target = str(value[1]).strip()
-            if source and target:
-                return source, target
-            return None
-        if not isinstance(value, str):
-            return None
-        token = value.strip()
-        if not token:
-            return None
-        if token.startswith("(") and token.endswith(")"):
-            body = token[1:-1]
-            parts = [part.strip() for part in body.split(",", maxsplit=1)]
-            if len(parts) == 2 and parts[0] and parts[1]:
-                return parts[0], parts[1]
-            return None
-        if "-" in token:
-            source, target = token.split("-", maxsplit=1)
-            source = source.strip()
-            target = target.strip()
-            if source and target:
-                return source, target
-        return None
+    _parse_tensor_pair_token = staticmethod(parse_tensor_pair_token)
 
-    @staticmethod
-    def _normalize_tensor_pair(
-        source: str,
-        target: str,
-        *,
-        directed: bool,
-    ) -> tuple[str, str]:
-        src = str(source).strip()
-        dst = str(target).strip()
-        if not src or not dst:
-            raise ValueError("Pair channels cannot be empty.")
-        if src == dst:
-            raise ValueError("Self-pairs are not allowed.")
-        if directed:
-            return src, dst
-        return tuple(sorted((src, dst)))  # type: ignore[return-value]
+    _normalize_tensor_pair = staticmethod(normalize_tensor_pair)
 
-    @classmethod
-    def _filter_tensor_pairs(
-        cls,
-        pairs: tuple[tuple[str, str], ...] | list[tuple[str, str]],
-        *,
-        available_channels: tuple[str, ...],
-        directed: bool,
-    ) -> tuple[tuple[str, str], ...]:
-        allowed = set(available_channels)
-        deduped: list[tuple[str, str]] = []
-        seen: set[tuple[str, str]] = set()
-        for source, target in pairs:
-            try:
-                pair = cls._normalize_tensor_pair(source, target, directed=directed)
-            except Exception:
-                continue
-            if pair[0] not in allowed or pair[1] not in allowed:
-                continue
-            if pair in seen:
-                continue
-            seen.add(pair)
-            deduped.append(pair)
-        return tuple(deduped)
+    _filter_tensor_pairs = staticmethod(filter_tensor_pairs)
 
     @staticmethod
     def _format_pair_button_text(

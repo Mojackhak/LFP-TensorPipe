@@ -73,6 +73,11 @@ The PyInstaller package does not include:
 
 Use this method when you want to run the app from the repository.
 
+This setup provides the `lfptp` and `lfptensorpipe` console commands. Use
+`lfptp run --help` for running exported page JSON without opening the GUI;
+see [Command-line workflow](CLI.md) for the complete interface. Standalone
+desktop installer console packaging is not required for this interface.
+
 ### Maintainer Isolation Note
 
 The commands below remain the standard setup for an ordinary checkout. For

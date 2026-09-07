@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import json
 
-from lfptensorpipe.gui.dialogs.localize_match_actions import build_lead_signature
+from lfptensorpipe.app.localize.config import (
+    build_lead_signature,
+    normalize_localize_lead_signature,
+    normalize_localize_match_payload,
+)
+from lfptensorpipe.app.shared.page_config import page_config_node
 from lfptensorpipe.gui.shell.common import (
     Any,
     Path,
@@ -23,82 +28,9 @@ class MainWindowLocalizeConfigMixin:
     def _localize_config_default_path(self, context: RecordContext) -> Path:
         return PathResolver(context).lfp_root / LOCALIZE_CONFIG_FILE_NAME
 
-    def _normalize_localize_lead_signature(self, payload: Any) -> list[dict[str, Any]]:
-        if not isinstance(payload, list):
-            raise ValueError(
-                "Localize config is missing required `lead_signature` list."
-            )
-        normalized = build_lead_signature(
-            [item for item in payload if isinstance(item, dict)]
-        )
-        if not normalized:
-            raise ValueError("Localize config `lead_signature` is empty.")
-        return normalized
+    _normalize_localize_lead_signature = staticmethod(normalize_localize_lead_signature)
 
-    def _normalize_localize_match_payload(
-        self,
-        payload: Any,
-        *,
-        expected_channels: tuple[str, ...],
-    ) -> dict[str, Any]:
-        if not isinstance(payload, dict):
-            raise ValueError("Localize config is missing required `match` object.")
-        channels_raw = payload.get("channels")
-        mappings_raw = payload.get("mappings")
-        if not isinstance(channels_raw, list):
-            raise ValueError(
-                "Localize config match is missing required `channels` list."
-            )
-        if not isinstance(mappings_raw, list):
-            raise ValueError(
-                "Localize config match is missing required `mappings` list."
-            )
-        channels = tuple(str(item).strip() for item in channels_raw)
-        if channels != expected_channels:
-            raise ValueError(
-                "Imported Localize match channels do not match the current record."
-            )
-
-        rows: list[dict[str, str]] = []
-        seen_channels: set[str] = set()
-        for item in mappings_raw:
-            if not isinstance(item, dict):
-                continue
-            channel = str(item.get("channel", "")).strip()
-            anode = str(item.get("anode", "")).strip()
-            cathode = str(item.get("cathode", "")).strip()
-            rep_coord = str(item.get("rep_coord", "Mid")).strip().title()
-            if channel not in expected_channels:
-                continue
-            if not anode or not cathode:
-                continue
-            if rep_coord not in {"Anode", "Cathode", "Mid"}:
-                rep_coord = "Mid"
-            if channel in seen_channels:
-                raise ValueError(
-                    f"Duplicate Localize match mapping for channel `{channel}`."
-                )
-            seen_channels.add(channel)
-            rows.append(
-                {
-                    "channel": channel,
-                    "anode": anode,
-                    "cathode": cathode,
-                    "rep_coord": rep_coord,
-                }
-            )
-
-        if len(rows) != len(expected_channels):
-            raise ValueError(
-                "Imported Localize match must fully map every current channel."
-            )
-
-        rows.sort(key=lambda row: expected_channels.index(row["channel"]))
-        return {
-            "completed": True,
-            "channels": list(expected_channels),
-            "mappings": rows,
-        }
+    _normalize_localize_match_payload = staticmethod(normalize_localize_match_payload)
 
     def _resolve_localize_dialog_seed(self) -> tuple[str, tuple[str, ...]]:
         atlas_names = self._localize_available_atlases
@@ -299,19 +231,7 @@ class MainWindowLocalizeConfigMixin:
         import_path = Path(file_path_text)
         with import_path.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
-        if not isinstance(payload, dict):
-            raise ValueError("Localize config must be a JSON object.")
-        if payload.get("schema") != LOCALIZE_CONFIG_SCHEMA:
-            raise ValueError(
-                f"Unsupported Localize config schema: {payload.get('schema')!r}."
-            )
-        if payload.get("version") != LOCALIZE_CONFIG_VERSION:
-            raise ValueError(
-                f"Unsupported Localize config version: {payload.get('version')!r}."
-            )
-        localize_node = payload.get("localize")
-        if not isinstance(localize_node, dict):
-            raise ValueError("Localize config is missing required `localize` object.")
+        localize_node = page_config_node(payload, "localize")
         warnings: list[str] = []
         atlas = str(localize_node.get("atlas", "")).strip()
         if atlas not in self._localize_available_atlases:

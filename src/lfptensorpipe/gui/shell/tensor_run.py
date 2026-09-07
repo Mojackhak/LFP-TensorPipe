@@ -2,35 +2,27 @@
 
 from __future__ import annotations
 
-import json
-import os
-from pathlib import Path
 import subprocess
 import sys
-import tempfile
 import time
+from pathlib import Path
 from uuid import uuid4
 
-from lfptensorpipe.desktop_runtime import (
-    TENSOR_WORKER_FLAG,
-    TENSOR_WORKER_MODULE,
-    build_worker_command,
-)
 from lfptensorpipe.app.path_resolver import PathResolver
-from lfptensorpipe.app.tensor.cpu_budget import (
-    DEFAULT_TENSOR_CPU_PERCENT,
-    normalize_tensor_cpu_percent,
-)
 from lfptensorpipe.app.tensor import service as tensor_service
-from lfptensorpipe.app.tensor.orchestration_plan_validation import (
-    prepare_metric_plan_inputs,
-)
 from lfptensorpipe.app.tensor.cancellation import (
     BUILD_TENSOR_CANCELLED_MESSAGE,
     backfill_cancelled_build_tensor_run,
 )
 from lfptensorpipe.app.tensor.connectivity_coordinator import (
     preview_trgc_frequency_group_count,
+)
+from lfptensorpipe.app.tensor.cpu_budget import (
+    DEFAULT_TENSOR_CPU_PERCENT,
+    normalize_tensor_cpu_percent,
+)
+from lfptensorpipe.app.tensor.orchestration_plan_validation import (
+    prepare_metric_plan_inputs,
 )
 from lfptensorpipe.app.tensor.process_tree import (
     BuildTensorProcessTree,
@@ -39,9 +31,19 @@ from lfptensorpipe.app.tensor.process_tree import (
 from lfptensorpipe.app.tensor.transaction_manifest import (
     recover_tensor_run_transactions,
 )
-from lfptensorpipe.lfp.burst.semantics import (
-    BURST_NATIVE_DECIM,
-    BURST_NATIVE_HOP_S,
+from lfptensorpipe.app.tensor.worker import (
+    TENSOR_RUN_COOPERATIVE_TIMEOUT_S,
+    TENSOR_RUN_DESCENDANT_DRAIN_TIMEOUT_S,
+    TENSOR_RUN_TERMINATE_TIMEOUT_S,
+    read_tensor_worker_result,
+    tensor_temp_json_path,
+    tensor_worker_env,
+    write_tensor_worker_request,
+)
+from lfptensorpipe.desktop_runtime import (
+    TENSOR_WORKER_FLAG,
+    TENSOR_WORKER_MODULE,
+    build_worker_command,
 )
 from lfptensorpipe.gui.shell.common import (
     Any,
@@ -49,10 +51,11 @@ from lfptensorpipe.gui.shell.common import (
     RecordContext,
     set_control_validation_error,
 )
+from lfptensorpipe.lfp.burst.semantics import (
+    BURST_NATIVE_DECIM,
+    BURST_NATIVE_HOP_S,
+)
 
-TENSOR_RUN_COOPERATIVE_TIMEOUT_S = 5.0
-TENSOR_RUN_TERMINATE_TIMEOUT_S = 5.0
-TENSOR_RUN_DESCENDANT_DRAIN_TIMEOUT_S = 1.0
 TENSOR_RUN_SUCCESS_LABEL = "Build Tensor"
 TENSOR_STOP_LABEL = "Stop"
 TENSOR_RETRY_RECOVERY_LABEL = "Retry Recovery"
@@ -261,51 +264,13 @@ class MainWindowTensorRunMixin:
             exempt_widgets=exempt_widgets,
         )
 
-    def _tensor_worker_env(self) -> dict[str, str]:
-        env = dict(os.environ)
-        pythonpath_entries: list[str] = []
-        for entry in sys.path:
-            token = str(entry).strip()
-            if token and token not in pythonpath_entries:
-                pythonpath_entries.append(token)
-        for entry in env.get("PYTHONPATH", "").split(os.pathsep):
-            token = entry.strip()
-            if token and token not in pythonpath_entries:
-                pythonpath_entries.append(token)
-        if pythonpath_entries:
-            env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
-        env["MPLBACKEND"] = "Agg"
-        return env
+    _tensor_worker_env = staticmethod(tensor_worker_env)
 
-    def _tensor_temp_json_path(self, stem: str) -> Path:
-        fd, raw_path = tempfile.mkstemp(prefix=f"lfptensorpipe_{stem}_", suffix=".json")
-        os.close(fd)
-        path = Path(raw_path)
-        path.unlink(missing_ok=True)
-        return path
+    _tensor_temp_json_path = staticmethod(tensor_temp_json_path)
 
-    def _write_tensor_worker_request(
-        self, payload: dict[str, Any]
-    ) -> tuple[Path, Path, Path]:
-        request_path = self._tensor_temp_json_path("tensor_request")
-        result_path = self._tensor_temp_json_path("tensor_result")
-        cancel_path = self._tensor_temp_json_path("tensor_cancel")
-        payload = dict(payload)
-        payload["cancel_path"] = str(cancel_path)
-        request_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        return request_path, result_path, cancel_path
+    _write_tensor_worker_request = staticmethod(write_tensor_worker_request)
 
-    def _read_tensor_worker_result(self, path: Path) -> dict[str, Any] | None:
-        if not path.exists():
-            return None
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
-            return None
-        return payload if isinstance(payload, dict) else None
+    _read_tensor_worker_result = staticmethod(read_tensor_worker_result)
 
     def _cleanup_tensor_run_files(self, state: dict[str, Any] | None) -> None:
         if not isinstance(state, dict):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from lfptensorpipe.app.shared.page_config import json_value, page_config_node
 from lfptensorpipe.gui.shell.common import (
     Any,
     Path,
@@ -18,31 +19,7 @@ ALIGNMENT_CONFIG_FILE_NAME = "lfptensorpipe_alignment_config.json"
 
 
 class MainWindowAlignmentConfigMixin:
-    @staticmethod
-    def _alignment_config_json_value(value: Any) -> Any:
-        if isinstance(value, (str, int, float, bool)) or value is None:
-            return value
-        item_method = getattr(value, "item", None)
-        if callable(item_method):
-            try:
-                return MainWindowAlignmentConfigMixin._alignment_config_json_value(
-                    item_method()
-                )
-            except Exception:
-                pass
-        if isinstance(value, dict):
-            return {
-                str(key): MainWindowAlignmentConfigMixin._alignment_config_json_value(
-                    item
-                )
-                for key, item in value.items()
-            }
-        if isinstance(value, (list, tuple)):
-            return [
-                MainWindowAlignmentConfigMixin._alignment_config_json_value(item)
-                for item in value
-            ]
-        raise TypeError(f"Unsupported alignment config value: {type(value).__name__}")
+    _alignment_config_json_value = staticmethod(json_value)
 
     @staticmethod
     def _alignment_config_normalize_labels(
@@ -172,20 +149,7 @@ class MainWindowAlignmentConfigMixin:
         *,
         annotation_labels: list[str] | tuple[str, ...],
     ) -> tuple[dict[str, Any], list[str]]:
-        if not isinstance(payload, dict):
-            raise ValueError("Alignment config must be a JSON object.")
-        if payload.get("schema") != ALIGNMENT_CONFIG_SCHEMA:
-            raise ValueError(
-                f"Unsupported alignment config schema: {payload.get('schema')!r}."
-            )
-        if payload.get("version") != ALIGNMENT_CONFIG_VERSION:
-            raise ValueError(
-                f"Unsupported alignment config version: {payload.get('version')!r}."
-            )
-
-        alignment_node = payload.get("alignment")
-        if not isinstance(alignment_node, dict):
-            raise ValueError("Alignment config is missing required `alignment` object.")
+        alignment_node = page_config_node(payload, "alignment")
 
         method_key = str(alignment_node.get("method", "")).strip()
         if not method_key:

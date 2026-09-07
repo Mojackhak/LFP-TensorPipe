@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-import numpy as np
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QPushButton, QStatusBar, QWidget
+
+from lfptensorpipe.app.features.derive_axes import (
+    normalize_feature_axis_rows as normalize_feature_axis_rows,
+)
 
 
 def build_ui(
@@ -101,42 +102,6 @@ def enforce_button_text_fit(self, *, button_text_horizontal_padding: int) -> Non
         if not button.icon().isNull():
             required_width += button.iconSize().width() + 6
         button.setMinimumWidth(max(button.minimumWidth(), required_width))
-
-
-def normalize_feature_axis_rows(
-    value: Any,
-    *,
-    min_start: float,
-    max_end: float | None = None,
-    allow_duplicate_names: bool = False,
-) -> list[dict[str, float | str]]:
-    if not isinstance(value, list):
-        return []
-    out: list[dict[str, float | str]] = []
-    names: set[str] = set()
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name", "")).strip()
-        if not name:
-            continue
-        if not allow_duplicate_names and name in names:
-            continue
-        try:
-            start = float(item.get("start"))
-            end = float(item.get("end"))
-        except Exception:
-            continue
-        if not np.isfinite(start) or not np.isfinite(end):
-            continue
-        if start < float(min_start) or end <= start:
-            continue
-        if max_end is not None and end > float(max_end):
-            continue
-        if not allow_duplicate_names:
-            names.add(name)
-        out.append({"name": name, "start": start, "end": end})
-    return sorted(out, key=lambda item: float(item["start"]))
 
 
 def placeholder_block(title: str) -> QGroupBox:

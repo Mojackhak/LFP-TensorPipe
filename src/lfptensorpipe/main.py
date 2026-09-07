@@ -8,10 +8,6 @@ import os
 import sys
 from typing import Callable
 
-from PySide6.QtCore import QTimer
-from PySide6.QtGui import QFont, QIcon
-from PySide6.QtWidgets import QApplication
-
 from lfptensorpipe.desktop_runtime import (
     LOCALIZE_VIEWER_WORKER_FLAG,
     PREPROC_PLOT_WORKER_FLAG,
@@ -20,18 +16,6 @@ from lfptensorpipe.desktop_runtime import (
     detect_embedded_worker_flag,
     strip_embedded_worker_flag,
 )
-from lfptensorpipe.desktop_smoke import (
-    run_smoke_demo_config_imports,
-    run_smoke_demo_record_imports,
-    run_smoke_demo_record_parsers,
-    run_smoke_numerical_full_pipeline,
-    run_smoke_numerical_preproc,
-    run_smoke_preproc_ui,
-    run_smoke_raw_plot,
-    run_smoke_tensor_runtime,
-)
-from lfptensorpipe.gui import MainWindow
-from lfptensorpipe.gui.icon_pipeline import preferred_runtime_icon_path
 
 _NULL_STREAM_HANDLES: list[object] = []
 
@@ -49,7 +33,9 @@ def _ensure_console_streams() -> None:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(prog="lfptensorpipe")
+    parser = argparse.ArgumentParser(
+        prog="lfptensorpipe", epilog="Run one exported page JSON with: lfptp run --help"
+    )
     parser.add_argument(
         "--auto-close-ms",
         type=int,
@@ -206,7 +192,23 @@ def main(
             preproc_plot_worker_main=preproc_plot_worker_main,
         )
 
+    if argv_list and argv_list[0] == "run":
+        from lfptensorpipe.cli import main as cli_main
+
+        return cli_main(argv_list[1:])
+
     args = parse_args(argv_list)
+
+    from lfptensorpipe.desktop_smoke import (
+        run_smoke_demo_config_imports,
+        run_smoke_demo_record_imports,
+        run_smoke_demo_record_parsers,
+        run_smoke_numerical_full_pipeline,
+        run_smoke_numerical_preproc,
+        run_smoke_preproc_ui,
+        run_smoke_raw_plot,
+        run_smoke_tensor_runtime,
+    )
 
     if args.smoke_raw_plot_fif:
         smoke_runner = smoke_raw_plot_main or (
@@ -264,6 +266,13 @@ def main(
             str(args.smoke_numerical_records_root),
             str(args.smoke_numerical_configs_root),
         )
+
+    from PySide6.QtCore import QTimer
+    from PySide6.QtGui import QFont, QIcon
+    from PySide6.QtWidgets import QApplication
+
+    from lfptensorpipe.gui import MainWindow
+    from lfptensorpipe.gui.icon_pipeline import preferred_runtime_icon_path
 
     app = QApplication.instance()
     if app is None:

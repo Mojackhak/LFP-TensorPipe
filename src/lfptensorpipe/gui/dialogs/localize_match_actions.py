@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.localize.config import build_lead_signature
+
 from .common import Any, QMessageBox
 from .localize_match_render import (
     _render_channel_list,
@@ -27,37 +29,6 @@ def _mapping_rows(dialog) -> list[dict[str, str]]:
             }
         )
     return rows
-
-
-def build_lead_signature(lead_specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    signature: list[dict[str, Any]] = []
-    for lead in lead_specs:
-        if not isinstance(lead, dict):
-            continue
-        contacts_out: list[dict[str, str]] = []
-        contacts = lead.get("contacts", [])
-        if not isinstance(contacts, list):
-            contacts = []
-        for contact in contacts:
-            if not isinstance(contact, dict):
-                continue
-            token = str(contact.get("token", "")).strip()
-            contact_name = str(contact.get("contact_name", "")).strip()
-            if not token or not contact_name:
-                continue
-            contacts_out.append(
-                {
-                    "token": token,
-                    "contact_name": contact_name,
-                }
-            )
-        signature.append(
-            {
-                "display_name": str(lead.get("display_name", "")).strip(),
-                "contacts": contacts_out,
-            }
-        )
-    return signature
 
 
 def _current_lead_signature(dialog) -> list[dict[str, Any]]:

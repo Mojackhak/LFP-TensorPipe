@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from lfptensorpipe.app.shared.page_config import json_value, page_config_node
 from lfptensorpipe.gui.shell.common import (
     Any,
     Path,
@@ -18,31 +19,7 @@ FEATURES_CONFIG_FILE_NAME = "lfptensorpipe_features_config.json"
 
 
 class MainWindowFeaturesConfigMixin:
-    @staticmethod
-    def _features_config_json_value(value: Any) -> Any:
-        if isinstance(value, (str, int, float, bool)) or value is None:
-            return value
-        item_method = getattr(value, "item", None)
-        if callable(item_method):
-            try:
-                return MainWindowFeaturesConfigMixin._features_config_json_value(
-                    item_method()
-                )
-            except Exception:
-                pass
-        if isinstance(value, dict):
-            return {
-                str(key): MainWindowFeaturesConfigMixin._features_config_json_value(
-                    item
-                )
-                for key, item in value.items()
-            }
-        if isinstance(value, (list, tuple)):
-            return [
-                MainWindowFeaturesConfigMixin._features_config_json_value(item)
-                for item in value
-            ]
-        raise TypeError(f"Unsupported features config value: {type(value).__name__}")
+    _features_config_json_value = staticmethod(json_value)
 
     @staticmethod
     def _features_config_slug_token(slug: str) -> str:
@@ -99,20 +76,7 @@ class MainWindowFeaturesConfigMixin:
         *,
         available_metrics: list[str],
     ) -> tuple[dict[str, Any], list[str]]:
-        if not isinstance(payload, dict):
-            raise ValueError("Features config must be a JSON object.")
-        if payload.get("schema") != FEATURES_CONFIG_SCHEMA:
-            raise ValueError(
-                f"Unsupported features config schema: {payload.get('schema')!r}."
-            )
-        if payload.get("version") != FEATURES_CONFIG_VERSION:
-            raise ValueError(
-                f"Unsupported features config version: {payload.get('version')!r}."
-            )
-
-        features_node = payload.get("features")
-        if not isinstance(features_node, dict):
-            raise ValueError("Features config is missing required `features` object.")
+        features_node = page_config_node(payload, "features")
 
         axes_by_metric = features_node.get("axes_by_metric")
         if not isinstance(axes_by_metric, dict):

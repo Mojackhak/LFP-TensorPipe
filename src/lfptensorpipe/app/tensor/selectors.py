@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from typing import Any
+
+from .params import TENSOR_DIRECTED_SELECTOR_KEYS, TENSOR_UNDIRECTED_SELECTOR_KEYS
 
 
 @dataclass(frozen=True)
@@ -178,3 +181,137 @@ __all__ = [
     "select_usable_pairs",
     "tensor_channel_inventory_from_raw",
 ]
+
+
+def coerce_tensor_channels(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    deduped: list[str] = []
+    for item in value:
+        channel = str(item).strip()
+        if not channel or channel in deduped:
+            continue
+        deduped.append(channel)
+    return tuple(deduped)
+
+
+def coerce_tensor_pairs(
+    value: Any,
+    *,
+    directed: bool,
+) -> tuple[tuple[str, str], ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    parsed: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for token in value:
+        pair = parse_tensor_pair_token(token)
+        if pair is None:
+            continue
+        try:
+            normalized = normalize_tensor_pair(pair[0], pair[1], directed=directed)
+        except Exception:
+            continue
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        parsed.append(normalized)
+    return tuple(parsed)
+
+
+def tensor_metric_pair_mode(metric_key: str) -> str | None:
+    if metric_key in TENSOR_UNDIRECTED_SELECTOR_KEYS:
+        return "undirected"
+    if metric_key in TENSOR_DIRECTED_SELECTOR_KEYS:
+        return "directed"
+    return None
+
+
+def parse_tensor_pair_token(value: Any) -> tuple[str, str] | None:
+    if isinstance(value, (list, tuple)) and len(value) == 2:
+        source = str(value[0]).strip()
+        target = str(value[1]).strip()
+        if source and target:
+            return source, target
+        return None
+    if not isinstance(value, str):
+        return None
+    token = value.strip()
+    if not token:
+        return None
+    if token.startswith("(") and token.endswith(")"):
+        body = token[1:-1]
+        parts = [part.strip() for part in body.split(",", maxsplit=1)]
+        if len(parts) == 2 and parts[0] and parts[1]:
+            return parts[0], parts[1]
+        return None
+    if "-" in token:
+        source, target = token.split("-", maxsplit=1)
+        source = source.strip()
+        target = target.strip()
+        if source and target:
+            return source, target
+    return None
+
+
+def normalize_tensor_pair(
+    source: str,
+    target: str,
+    *,
+    directed: bool,
+) -> tuple[str, str]:
+    src = str(source).strip()
+    dst = str(target).strip()
+    if not src or not dst:
+        raise ValueError("Pair channels cannot be empty.")
+    if src == dst:
+        raise ValueError("Self-pairs are not allowed.")
+    if directed:
+        return src, dst
+    return tuple(sorted((src, dst)))  # type: ignore[return-value]
+
+
+def filter_tensor_pairs(
+    pairs: tuple[tuple[str, str], ...] | list[tuple[str, str]],
+    *,
+    available_channels: tuple[str, ...],
+    directed: bool,
+) -> tuple[tuple[str, str], ...]:
+    allowed = set(available_channels)
+    deduped: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for source, target in pairs:
+        try:
+            pair = normalize_tensor_pair(source, target, directed=directed)
+        except Exception:
+            continue
+        if pair[0] not in allowed or pair[1] not in allowed:
+            continue
+        if pair in seen:
+            continue
+        seen.add(pair)
+        deduped.append(pair)
+    return tuple(deduped)
+
+
+def normalize_tensor_bands_rows(value: Any) -> list[dict[str, float | str]]:
+    if not isinstance(value, list):
+        return []
+    normalized: list[dict[str, float | str]] = []
+    names: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        if not name or name in names:
+            continue
+        try:
+            start = float(item.get("start"))
+            end = float(item.get("end"))
+        except Exception:
+            continue
+        if not isfinite(start) or not isfinite(end) or start <= 0.0 or end <= start:
+            continue
+        names.add(name)
+        normalized.append({"name": name, "start": float(start), "end": float(end)})
+    return sorted(normalized, key=lambda item: float(item["start"]))

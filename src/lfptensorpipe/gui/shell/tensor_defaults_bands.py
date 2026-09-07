@@ -2,37 +2,15 @@
 
 from __future__ import annotations
 
-from math import isfinite
-
+from lfptensorpipe.app.tensor.selectors import (
+    normalize_tensor_bands_rows as _normalize_tensor_bands_rows,
+)
 from lfptensorpipe.gui.shell.common import (
-    Any,
     DEFAULT_TENSOR_BANDS,
     TENSOR_BANDS_DEFAULTS_KEY,
     TENSOR_METRIC_DEFAULTS_KEY,
+    Any,
 )
-
-
-def _normalize_tensor_bands_rows(value: Any) -> list[dict[str, float | str]]:
-    if not isinstance(value, list):
-        return []
-    normalized: list[dict[str, float | str]] = []
-    names: set[str] = set()
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name", "")).strip()
-        if not name or name in names:
-            continue
-        try:
-            start = float(item.get("start"))
-            end = float(item.get("end"))
-        except Exception:
-            continue
-        if not isfinite(start) or not isfinite(end) or start <= 0.0 or end <= start:
-            continue
-        names.add(name)
-        normalized.append({"name": name, "start": float(start), "end": float(end)})
-    return sorted(normalized, key=lambda item: float(item["start"]))
 
 
 def _load_tensor_bands_defaults(self) -> list[dict[str, Any]]:

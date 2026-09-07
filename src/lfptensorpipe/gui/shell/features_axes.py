@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from lfptensorpipe.app.alignment.generation import accepted_alignment_artifact_paths
+from lfptensorpipe.app.features.derive_axes import feature_band_support_error
 from lfptensorpipe.gui.shell.common import (
-    Any,
     FEATURE_AUTO_BAND_METRICS,
+    Any,
     PathResolver,
     QDialog,
     np,
@@ -107,19 +108,7 @@ class MainWindowFeaturesAxesMixin:
         support = self._features_frequency_support_for_accepted_metric(metric_key)
         if support is None:
             return ""
-        support_low, support_high = support
-        tolerance = max(1.0, abs(support_low), abs(support_high)) * 1e-9
-        for band in bands:
-            start = float(band["start"])
-            end = float(band["end"])
-            if start < support_low - tolerance or end > support_high + tolerance:
-                name = str(band.get("name", "")).strip() or "unnamed"
-                return (
-                    f"{metric_key}: band {name!r} [{start:g}, {end:g}] Hz is "
-                    "outside accepted frequency support "
-                    f"[{support_low:g}, {support_high:g}] Hz."
-                )
-        return ""
+        return feature_band_support_error(metric_key, bands, support)
 
     def _normalized_features_axes_for_metric(
         self, metric_key: str
