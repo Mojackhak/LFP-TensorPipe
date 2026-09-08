@@ -450,10 +450,22 @@ later results.
 | --- | --- | --- | --- |
 | `Raw` indicator | Reports raw-step readiness. | User feedback only. | Read-only. |
 | `Plot` (Raw) | Plots the current accepted Raw. If Raw is stale or not yet accepted, it instead plots the exact canonical rawdata input as pending review. Closing never saves browser annotations or bad-channel edits. | Current Raw is QC-only. An ordinary close of a pending canonical review atomically accepts that canonical Raw, creates a fresh Raw generation, and marks existing downstream Preprocess, Tensor, Alignment, and Features results stale. | Enabled when either canonical rawdata or a retained Raw artifact exists. Current Raw close is a no-op. Pending acceptance requires an unchanged canonical source and tracked ordinary close; app shutdown, missing/replaced source, untrackable close, or failure leaves Raw stale. |
-| `Notches` | Defines comma-separated notch-center frequencies for filter execution. Use it to suppress narrow contamination bands without changing the broader passband set by `Low freq` and `High freq`. Leave it blank to disable notch filtering. | Filter output. | Every provided value must be finite, positive, and below the input Nyquist frequency. Unsupported values block Apply instead of being silently dropped. |
+| `Notches` | Defines comma-separated notch-center frequencies for filter execution. Use it to suppress narrow contamination bands without changing the broader passband set by `Low freq` and `High freq`. Leave it blank to disable FIR notch processing; enabled window models require at least one center. Active removePLI displays generated harmonics read-only and retains the manual list. | Filter output. | Every provided value must be finite, positive, and below the input Nyquist frequency. Unsupported values block Apply instead of being silently dropped. |
 | `Low freq` | Sets the high-pass cutoff frequency. Raising it removes more slow drift and movement-related low-frequency content, but it can also remove genuine low-frequency neural signal. Leave it blank to disable high-pass filtering. | Filter output. | A provided value must be finite and nonnegative. |
 | `High freq` | Sets the low-pass cutoff frequency. Lowering it removes more high-frequency noise, but it also narrows the usable signal band for later tensor analysis. Leave it blank to disable low-pass filtering. | Filter output. | A provided value must be finite, positive, and strictly below the input Nyquist frequency. A value at or above Nyquist shows a blocking warning; it is not automatically clipped. |
 | `Advance` (Filter) | Opens advanced filter parameters. | Filter session/default parameters. | Enabled when raw data is available. |
+| `Model` (Filter Advance) | Estimate and subtract line-noise components instead of FIR notch filtering. Off preserves the existing FIR path. | Effective Filter processing and dependent results upon acceptance. | Off by default; notch centers remain independently configured. |
+| Model selector | Selects MNE spectrum_fit, Sinusoidal regression, CleanLine, or removePLI. CleanLine is the factory selection; saved explicit model choices are preserved. Parameter drafts are retained across selections. | Only the enabled model's parameters affect computation. | Enabled when Model is checked. Upstream licenses apply to translated models; see LICENSE. |
+| `Window length (s)` | Sets the estimation window. Each independently filtered valid segment must contain a complete window. | Model fitting and consumed-support edge marking. | Positive; default 4 s. Short segments produce an explicit error. |
+| `Window overlap (%)` | Controls regression or CleanLine window overlap. MNE uses its own overlap-add implementation. | Sinusoidal regression and CleanLine. | At least 0 and less than 100; default 50. |
+| `Fit width (Hz)` | Full range of MNE frequency bins fitted around each notch center; 0 selects its nearest bin. | MNE spectrum_fit only. | Nonnegative; default 1 Hz. Bands must lie strictly inside Nyquist. |
+| `Multitaper bandwidth (Hz)` | Controls spectral estimation bandwidth, not the frequency search width. | MNE spectrum_fit and CleanLine. | MNE permits blank Auto; CleanLine requires a positive number, default 2 Hz. |
+| `Frequency search` / `Search radius (Hz)` | Search center +/- radius for the strongest significant component; off tests only the nearest frequency bin. Radius is retained but inactive when search is off. | CleanLine. | Default on, 0.5 Hz radius. |
+| `Significance threshold` | F-test p-value threshold; smaller values are more selective. | CleanLine advanced parameters. | Strictly between 0 and 1; default 0.01. |
+| `Fundamental frequency (Hz)` / `Harmonic count` | Generate nominal centers as fundamental times 1..count. Basic Notches displays these read-only while preserving its manual list. | removePLI. | Default 50 Hz and 2 harmonics; all centers and the fundamental +/-2 Hz estimator band must fit below Nyquist. |
+| `Amplitude/phase settling time (s)` | Sets adaptation time to 95% response. | removePLI. | Positive; default 1 s. |
+| Tracking bandwidth and settling-time fields | Set initial and final frequency-estimator bandwidth/settling time and transition duration to 95% of the final value. | removePLI advanced parameters. | Bandwidth defaults 50/0.2 Hz, transition 1 s; settling defaults 0.1/4 s, transition 1 s. |
+| Model edge marking | CleanLine and removePLI depend on the whole valid segment; marking their support marks the entire segment. | Existing mark filter edges option. | Off by default. |
 | `Apply` (Filter) | Creates a detection-filtered review Preview and runs automatic BAD detection. It does not accept the Preview as the scientific Filter result. | Pending Filter review state only; an earlier accepted Filter generation and its downstream results are not invalidated until finalization succeeds. The complete currently visible record draft, including blank cutoffs, is retained after the action. | Requires successful Raw and valid filter parameters. A successful Apply turns Filter yellow and temporarily blocks later preprocess actions until the Preview is closed and finalized. Existing later Preprocess indicators project yellow while never-run gray indicators stay gray. |
 | `Plot` (Filter) | Opens a pending review Preview, or an existing accepted Filter result when no Preview is pending. Closing a Preview automatically refilters from the original Raw and accepts it without a confirmation dialog. Closing an accepted result refilters only after annotations or bad-channel selections changed. | Reviewed annotations, accepted Filter output, and dependent-stage freshness after a real accepted change. Independent BAD-boundary filtering and optional `EDGE_filter` marking follow the two Filter Advance controls. | Unavailable before the first successful Apply when no accepted Filter result exists. Available for a valid yellow `review_required` Preview or a green finalized result; other yellow states remain blocked. |
 | Annotation table | Shows the currently configured annotation rows. | Annotation payload. | Read-only except for row selection. |
@@ -1680,3 +1692,153 @@ other dot-prefixed files and ordinary unexpected entries retain their existing
 behavior. No existing file is deleted or renamed. If a previously displayed
 metadata-derived region was selected, reopen the record and re-Apply Localize
 using the remaining real region selection.
+
+### CleanLine per-channel significance thresholds
+
+Filter Advance retains Significance threshold as the global default. Enable
+Per-channel thresholds and use Configure... to edit a channel-name/threshold
+table. Blank cells inherit the global value; explicit values must lie strictly
+between zero and one. Channels come from the current Filter Raw input. Stored
+names absent from that input remain visible for removal and block execution
+when their overrides are active, rather than being silently ignored.
+
+The CleanLine entry of `advance.notch_model.params_by_method` adds
+`per_channel_thresholds_enabled` (default false) and
+`significance_thresholds_by_channel` (default {}). Switching models or disabling
+overrides retains drafts. Example: `{"0_1": 0.001, "2_3": 0.05}`.
+Effective model records omit disabled overrides and entries equal to the global
+threshold. Preview/final logs and configs additionally record
+`cleanline_thresholds_by_channel`, including inherited values for every channel.
+Channel names, never positional indexes, associate thresholds with signals.
+
+Effective threshold changes make Filter stale. Accepting replacement Filter
+output invalidates existing dependent lineage under the current stage contract;
+there is no channel-level artifact cache, so Filter is recomputed as one stage.
+Disabled overrides, other model drafts, dictionary ordering and equivalent
+serialization do not change the effective Filter signature. No new global
+invalidation, version field, migration or startup scan is introduced.
+
+### Tensor notch inheritance after model-based Filter processing
+
+On Preprocess Finish, an accepted Filter log with `params.notch_model.enabled`
+set to true suppresses automatic Tensor notch inheritance. Existing per-metric
+Notches and notch radii remain unchanged, including explicitly empty lists.
+This decision uses the completed Filter log, not the current unsaved UI model
+selection. FIR Filter results (including older logs without notch_model) retain
+the existing inheritance behavior. Filter-derived frequency bounds and runtime
+provenance remain unchanged. No Tensor settings are cleared automatically.
+
+The notch-default loader returns None when inheritance is suppressed, distinct
+from an empty notch payload. The GUI returns before initializing defaults,
+mutating metrics, refreshing controls, or marking Tensor settings dirty.
+The inheritance decision introduces no computation invalidation: effective
+user Tensor setting changes and accepted input generations retain their existing
+metric/downstream invalidation rules. No global rerun or schema change is added.
+
+### Filter model draft and validation behavior
+
+Model drafts persist independently of the active computation. Only the enabled
+model and its active controls are numerically validated. Disabled model drafts,
+unselected model fields, disabled CleanLine search radius/channel overrides and
+inactive FIR notch widths are retained without blocking Apply. Switching to a
+field's execution path validates it. Runtime records use null for inactive FIR
+widths; the original text/value remains in the UI snapshot. Tensor inheritance
+must not interpret a model's inactive FIR width as filter support.
+
+An enabled window model requires nonempty Notches; Apply reports an explicit
+error otherwise. removePLI resolves frequencies from its fundamental and harmonic
+count before basic validation and GUI Nyquist checks, ignoring the retained
+manual list. Snapshot/default saving retains the manual list independently.
+
+Method/Model changes refresh errors after controls are synchronized. Errors point
+to their actual fields; advanced rows expand when an active invalid field needs
+attention. Missing method selects CleanLine; an explicitly unknown method stays
+visible as Unsupported model and requires an explicit supported selection.
+More model parameters precedes its advanced rows and Restore Defaults collapses
+it. Display-only state is not serialized or included in freshness comparisons.
+
+Log restoration overlays only recorded active settings onto the complete model
+snapshot. Disabled effective logs change enabled only. Other models and inactive
+CleanLine subcontrols retain drafts; omitted effective override flags mean disabled,
+not deletion of their saved maps. FIR widths and manual Notches in the snapshot
+are preserved when model execution made them inactive. A log without an existing
+snapshot cannot recover drafts that were never recorded.
+
+These fixes keep invalidation scoped to effective Filter inputs and accepted
+Filter downstream lineage. Draft-only edits, view state and serialization ordering
+must not invalidate computation. No full-suite validation or global rerun is required.
+
+### CleanLine adaptive subtraction
+
+`Limit over-subtraction` is off by default. When enabled, retain the existing
+CleanLine sliding-window detection, significance thresholds, iterative subtraction
+and overlap blending. Accumulate each detected line's fitted waveform separately,
+then optimize one amplitude multiplier in [0, 1] per channel, target frequency and
+processing segment. Do not apply multipliers inside the original iterations.
+All-zero multipliers reproduce the CleanLine input; all-one multipliers reproduce
+its original output within floating-point tolerance.
+
+Add `limit_over_subtraction` (false), `background_radius_hz` (10 Hz), and
+`background_bandwidth_hz` (1 Hz) under CleanLine parameters. Background PSD inherits
+window length, hop and end-aligned tail coverage. Use fixed equal DPSS taper weights
+and average linear power across windows before taking logarithms. Require at least
+two concentrated tapers. The background bandwidth remains independent of the
+CleanLine detection bandwidth. Inactive background drafts do not affect validation
+or freshness. Search radius remains active when frequency scanning is disabled
+but adaptive subtraction is enabled.
+
+Background candidates are within target +/- background radius. Exclude the union
+of actual significant peaks +/- search radius across all windows and iterations,
+including other detected targets. No background-bandwidth padding is added. When
+scanning is off, use the actual fixed Fourier bin. Reject overlapping target search
+intervals in adaptive mode. Fit a straight line to log power separately on each
+side of a target's exclusion envelope, then linearly connect the two boundary
+predictions in log power. Require at least three distinct valid Fourier bins on
+each side; otherwise retain that component with multiplier zero and report why.
+Only the passband between configured low/high cutoffs supplies background points;
+thus bandpass transition regions outside those edges cannot enter the fit.
+
+Minimize the mean squared dB error on each target's exclusion union, weighting
+targets equally. There is no hard notch-depth tolerance. Cache the input/component
+cross-spectral matrix (fixed weights) so candidate PSDs require no repeated FFT or
+CleanLine run. Start coefficients at zero; update in ascending frequency order.
+Coarse samples 0, 0.1, ..., 1 bracket each local minimum; refine candidate brackets
+with bounded Brent search (xatol 1e-3), compare endpoints and choose smaller
+coefficients for numerically tied errors. Stop when coefficient changes are below
+1e-3 or after ten sweeps. Record non-convergence; do not claim global optimality.
+Clamp only numerical nonpositive candidate powers to a machine-precision floor
+for logarithms. Zero/nonfinite background power is unavailable, not fitted.
+
+Reports include channel, segment start/stop samples relative to Raw (stop exclusive),
+target, peak range, merged exclusions, background line coefficients, coefficient,
+mean squared dB error, maximum downward deviation, residual peak and convergence.
+No detection and unavailable backgrounds retain their respective components.
+Preview reports describe preview segments; finalization recomputes from the original
+input and reviewed boundaries and replaces the report. Honor the existing boundary
+isolation switch; with isolation off the entire recording is the processing segment.
+
+Only enabled adaptive parameters affect Filter and its existing downstream lineage.
+Disabled adaptive values, reports and UI state do not affect fingerprints. Preserve
+old effective signatures by omitting disabled adaptive fields. Validate endpoint
+identity, component reconstruction, cached-versus-direct PSD, independent channels,
+frequency drift, search-off exclusions, multiple lines, background failures, GUI
+state and log restoration. Synthetic clean baselines assess PSD and wPLI/ciPLV
+errors; a smoother PSD alone is not proof of recovered neural phase or signal.
+
+The channel-threshold Configure button stays immediately below its own enable
+checkbox, before the new adaptive controls, so its scope remains unambiguous.
+
+### CleanLine channel parallelism
+
+With BAD-boundary isolation enabled, ordinary and adaptive CleanLine process
+independent channels in parallel. Each channel retains its own valid segments,
+threshold, noise estimates and joint frequency-coefficient optimization. Results
+and diagnostics are assembled in input channel order; BAD samples remain untouched.
+The reviewed-filter Python API accepts runtime-only `n_jobs`: `None` selects up to
+four available CPU workers, `1` selects serial execution, and positive integers
+select a worker limit capped by channel count. Other models and continuous filtering
+without boundary isolation retain their existing serial path. Worker processes use
+one inner numerical thread to avoid nested parallelism. No GUI or JSON field is
+added: worker count does not change scientific parameters or stage fingerprints.
+Validate serial/parallel signal and report equivalence and benchmark the complete
+Dys022 valid interval with the first ten seconds excluded before claiming speedup.

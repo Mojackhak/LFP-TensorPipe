@@ -96,8 +96,12 @@ class MainWindowRecordParamsSnapshotLogsMixin:
         )
         if filter_params:
             basic = dict(snapshot["preproc"]["filter"]["basic"])
-            if "notches" in filter_params and isinstance(
-                filter_params["notches"], list
+            logged_model = filter_params.get("notch_model") or {"enabled": False}
+            model_enabled = logged_model.get("enabled", False)
+            if (
+                "notches" in filter_params
+                and isinstance(filter_params["notches"], list)
+                and not (model_enabled and logged_model.get("method") == "removepli")
             ):
                 basic["notches"] = [float(item) for item in filter_params["notches"]]
             if "low_freq" in filter_params:
@@ -120,6 +124,7 @@ class MainWindowRecordParamsSnapshotLogsMixin:
             advance = dict(snapshot["preproc"]["filter"]["advance"])
             for key in (
                 "notch_widths",
+                "notch_model",
                 "epoch_dur",
                 "p2p_thresh",
                 "autoreject_correct_factor",
@@ -127,7 +132,14 @@ class MainWindowRecordParamsSnapshotLogsMixin:
                 "mark_filter_edges",
             ):
                 if key in filter_params:
-                    advance[key] = filter_params[key]
+                    if key == "notch_model":
+                        from lfptensorpipe.preproc.notch import merge_notch_model_log
+
+                        advance[key] = merge_notch_model_log(
+                            advance.get(key), logged_model
+                        )
+                    elif key != "notch_widths" or not model_enabled:
+                        advance[key] = filter_params[key]
             snapshot["preproc"]["filter"]["advance"] = advance
 
         annotations_csv = resolver.preproc_root / "annotations" / "annotations.csv"

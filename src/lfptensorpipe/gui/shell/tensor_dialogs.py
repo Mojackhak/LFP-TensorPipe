@@ -33,6 +33,8 @@ You may continue for within-frequency comparisons using identical settings."""
 class MainWindowTensorDialogsMixin:
     def _inherit_tensor_metric_notches_from_filter(self, context: Any) -> bool:
         inherited_payload = load_tensor_filter_metric_notch_params(context)
+        if inherited_payload is None:
+            return False
         self._ensure_tensor_metric_state_from_defaults(context)
         changed = False
         for spec in self._stage_tensor_metric_specs():

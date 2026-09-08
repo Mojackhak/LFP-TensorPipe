@@ -19,3 +19,17 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Third-party line-noise implementations
+======================================
+The MIT grant above applies to original LFP-TensorPipe code. It does not
+replace upstream terms for these translated implementations:
+
+* src/lfptensorpipe/preproc/cleanline.py: SCCN CleanLine, GPLv2.
+* src/lfptensorpipe/preproc/removepli.py: Mohammad Reza Keshtkaran's removePLI.
+  Its source states GPLv3-or-later AND non-commercial, educational and research
+  use only. Both notices are retained without resolving or waiving that
+  inconsistency. Commercial permission is not granted here.
+
+See LICENSES/THIRD_PARTY_NOTICES.txt and the accompanying GPL texts. A combined
+distribution must comply with applicable upstream terms; it is not MIT-only.

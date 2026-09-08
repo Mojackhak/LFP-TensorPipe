@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 from typing import Any
 
@@ -107,25 +106,6 @@ def preproc_step_indicator_state(resolver: PathResolver, step: str) -> str:
     return "green"
 
 
-def _normalize_notches(value: Any) -> list[float] | None:
-    if value is None:
-        return []
-    if isinstance(value, str):
-        value = [item.strip() for item in value.split(",") if item.strip()]
-    if not isinstance(value, (list, tuple)):
-        return None
-    normalized: set[float] = set()
-    for item in value:
-        try:
-            parsed = float(item)
-        except Exception:
-            return None
-        if not math.isfinite(parsed) or parsed <= 0.0:
-            return None
-        normalized.add(float(parsed))
-    return sorted(normalized)
-
-
 def _filter_signature(
     *,
     notches: Any,
@@ -137,35 +117,28 @@ def _filter_signature(
     ok_advance, normalized_advance, _ = normalize_filter_advance_params(advance_params)
     if not ok_advance:
         return None
-    normalized_notches = _normalize_notches(notches)
-    if normalized_notches is None:
+    from lfptensorpipe.preproc.notch import effective_notch_model
+    from lfptensorpipe.app.preproc.steps.filter import normalize_filter_runtime_params
+
+    active_model = effective_notch_model(normalized_advance["notch_model"])
+    valid, runtime, _ = normalize_filter_runtime_params(
+        notches=notches, l_freq=l_freq, h_freq=h_freq, notch_model=active_model
+    )
+    if not valid:
         return None
-    try:
-        low_freq = (
-            None
-            if l_freq is None or (isinstance(l_freq, str) and not l_freq.strip())
-            else float(l_freq)
-        )
-        high_freq = (
-            None
-            if h_freq is None or (isinstance(h_freq, str) and not h_freq.strip())
-            else float(h_freq)
-        )
-    except Exception:
-        return None
-    if low_freq is not None and (not math.isfinite(low_freq) or low_freq < 0.0):
-        return None
-    if high_freq is not None and (not math.isfinite(high_freq) or high_freq <= 0.0):
-        return None
-    if low_freq is not None and high_freq is not None and high_freq <= low_freq:
-        return None
+    normalized_notches = sorted(set(runtime["notches"]))
+    low_freq = runtime["l_freq"]
+    high_freq = runtime["h_freq"]
     return {
         "low_freq": low_freq,
         "high_freq": high_freq,
         "notches": normalized_notches,
         "notch_widths": (
-            normalized_advance["notch_widths"] if normalized_notches else None
+            normalized_advance["notch_widths"]
+            if normalized_notches and not active_model["enabled"]
+            else None
         ),
+        **({"notch_model": active_model} if active_model["enabled"] else {}),
         "epoch_dur": normalized_advance["epoch_dur"],
         "p2p_thresh": (
             None
@@ -189,6 +162,7 @@ def _filter_signature_from_log(payload: dict[str, Any]) -> dict[str, Any] | None
         h_freq=params.get("high_freq"),
         advance_params={
             "notch_widths": params.get("notch_widths"),
+            "notch_model": params.get("notch_model"),
             "epoch_dur": params.get("epoch_dur"),
             "p2p_thresh": params.get("p2p_thresh"),
             "autoreject_correct_factor": params.get("autoreject_correct_factor"),

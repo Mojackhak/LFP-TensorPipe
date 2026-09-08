@@ -164,6 +164,12 @@ class MainWindowPreprocStageMixin:
                 set_control_validation_error(control, None)
             return
 
+        valid_advance, normalized_advance, advance_message = (
+            normalize_filter_advance_params(self._preproc_filter_advance_params)
+        )
+        self._sync_filter_model_notches(
+            normalized_advance["notch_model"] if valid_advance else None
+        )
         raw_input_exists = rawdata_input_fif_path(context).exists()
         resolver = PathResolver(context)
         raw_log_state = preproc_step_indicator_state(resolver, "raw")
@@ -173,7 +179,7 @@ class MainWindowPreprocStageMixin:
         annotations_skipped = preproc_step_is_skipped(resolver, "annotations")
         self._set_preproc_step_indicator("raw", raw_log_state)
         filter_notches = (
-            self._preproc_filter_notches_edit.text()
+            self._filter_manual_notches_text()
             if self._preproc_filter_notches_edit is not None
             else None
         )
@@ -323,9 +329,6 @@ class MainWindowPreprocStageMixin:
                 self._preproc_filter_high_freq_edit,
             ):
                 set_control_validation_error(control, None)
-        valid_advance, _, advance_message = normalize_filter_advance_params(
-            self._preproc_filter_advance_params
-        )
         set_control_validation_error(
             self._preproc_filter_advance_button,
             advance_message if raw_ready and not valid_advance else None,

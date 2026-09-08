@@ -49,11 +49,13 @@ class MainWindowPreprocActionsMixin:
         default_basic_params = self._load_filter_basic_defaults()
 
         def _save_filter_defaults(advance_params: dict[str, Any]) -> None:
-            notches, low_freq, high_freq = self._collect_filter_runtime_params()
-            self._save_filter_advance_defaults(advance_params)
+            notches = self._filter_manual_notches_text()
+            low_freq = self._preproc_filter_low_freq_edit.text()
+            high_freq = self._preproc_filter_high_freq_edit.text()
             self._save_filter_basic_defaults(
                 {"notches": notches, "l_freq": low_freq, "h_freq": high_freq}
             )
+            self._save_filter_advance_defaults(advance_params)
             self.statusBar().showMessage(
                 "Filter Advance defaults saved to app storage."
             )
@@ -61,7 +63,11 @@ class MainWindowPreprocActionsMixin:
                 reason="preproc_filter_advance_default"
             )
 
+        channel_names = self._read_channel_names_from_raw(
+            preproc_step_raw_path(PathResolver(context), "raw")
+        )
         dialog = self._create_filter_advance_dialog(
+            channel_names=channel_names,
             session_params=self._preproc_filter_advance_params,
             default_params=default_params,
             set_default_callback=_save_filter_defaults,

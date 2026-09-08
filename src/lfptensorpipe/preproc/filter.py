@@ -320,8 +320,9 @@ def _filter_support_geometry(
     h_freq: float | None,
     notches: Sequence[float] | None,
     notch_widths: Union[float, Sequence[float]],
+    notch_model: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Derive exact sequential zero-phase FIR support from MNE kernels."""
+    """Combine FIR kernel support with the active estimator dependency bound."""
     probe = np.zeros(max(1, int(n_times)), dtype=float)
     kernel_lengths: dict[str, int] = {}
 
@@ -342,7 +343,12 @@ def _filter_support_geometry(
         if notches is not None
         else np.empty(0, dtype=float)
     )
-    if resolved_notches.size:
+    model_radius = 0
+    if resolved_notches.size and notch_model and notch_model["enabled"]:
+        from .notch import model_support_samples
+
+        model_radius = model_support_samples(notch_model, sfreq, n_times)
+    elif resolved_notches.size:
         widths = _resolved_notch_widths(resolved_notches, notch_widths)
         transition_half_width = 0.5
         lows = resolved_notches - widths / 2.0 - transition_half_width
@@ -360,9 +366,12 @@ def _filter_support_geometry(
         )
         kernel_lengths["notch"] = int(np.asarray(notch_kernel).size)
 
-    radius_samples = int(sum((length - 1) // 2 for length in kernel_lengths.values()))
+    radius_samples = (
+        int(sum((length - 1) // 2 for length in kernel_lengths.values())) + model_radius
+    )
     return {
         "kernel_lengths": kernel_lengths,
+        "model_support_radius_samples": model_radius,
         "support_radius_samples": radius_samples,
         "support_radius_sec": float(radius_samples / sfreq),
     }
@@ -376,6 +385,9 @@ def _filter_valid_segment(
     h_freq: float | None,
     notches: Sequence[float] | None,
     notch_widths: Union[float, Sequence[float]],
+    significance_thresholds: Sequence[float] | None = None,
+    notch_model: dict[str, Any] | None = None,
+    diagnostics: list[dict[str, Any]] | None = None,
 ) -> np.ndarray:
     """Apply the detection-order filters to one independent valid segment."""
     filtered = np.asarray(data, dtype=float).copy()
@@ -394,7 +406,19 @@ def _filter_valid_segment(
         if notches is not None
         else np.empty(0, dtype=float)
     )
-    if resolved_notches.size:
+    if resolved_notches.size and notch_model and notch_model["enabled"]:
+        from .notch import subtract_notch_model
+
+        filtered = subtract_notch_model(
+            filtered,
+            sfreq,
+            resolved_notches,
+            notch_model,
+            significance_thresholds=significance_thresholds,
+            diagnostics=diagnostics,
+            background_bounds=(l_freq, h_freq),
+        )
+    elif resolved_notches.size:
         filtered = mne.filter.notch_filter(
             filtered,
             sfreq,
@@ -448,20 +472,39 @@ def finalize_reviewed_lfp_filter(
     notch_widths: Union[float, Sequence[float]],
     isolate_bad_boundaries: bool = True,
     mark_filter_edges: bool = False,
+    notch_model: dict[str, Any] | None = None,
+    n_jobs: int | None = None,
 ) -> tuple[mne.io.BaseRaw, dict[str, Any]]:
     """Build the accepted Filter result from original data and reviewed BAD/EDGE.
 
     With ``isolate_bad_boundaries=True`` every global/channel-specific valid
     interval is filtered independently, so reviewed BAD values cannot enter an
     adjacent filter input. ``mark_filter_edges`` independently controls whether
-    the exact sequential FIR support at each valid-interval endpoint is marked
+    the sequential FIR support (or model-window support bound) at each endpoint is marked
     as `EDGE_filter`. With isolation disabled, the reviewed Raw is filtered
-    continuously exactly like MNE whole-Raw filtering.
+    continuously exactly like MNE whole-Raw filtering. ``n_jobs`` limits isolated
+    CleanLine channel workers; None selects up to four CPUs and 1 runs serially.
     """
+    if n_jobs is not None and (
+        isinstance(n_jobs, bool) or not isinstance(n_jobs, int) or n_jobs < 1
+    ):
+        raise ValueError("n_jobs must be None or a positive integer.")
     if mark_filter_edges and not isolate_bad_boundaries:
         raise ValueError(
             "mark_filter_edges requires isolate_bad_boundaries to be true."
         )
+    if notch_model is not None:
+        from .notch import (
+            normalize_notch_model,
+            effective_notch_model,
+            model_notch_frequencies,
+        )
+
+        notch_model = effective_notch_model(normalize_notch_model(notch_model))
+        notches = model_notch_frequencies(notches, notch_model)
+    from .notch import cleanline_channel_thresholds
+
+    thresholds = cleanline_channel_thresholds(notch_model, raw.ch_names)
     out = raw.copy()
     out.load_data()
     reviewed = _without_filter_edges(reviewed_annotations)
@@ -476,13 +519,16 @@ def finalize_reviewed_lfp_filter(
         h_freq=h_freq,
         notches=notches,
         notch_widths=notch_widths,
+        notch_model=notch_model,
     )
     radius = int(support["support_radius_samples"])
     data = out.get_data()
     edge_masks: list[np.ndarray] = []
     segment_counts: dict[str, int] = {}
+    adaptive_reports: list[dict[str, Any]] = []
 
     if not isolate_bad_boundaries:
+        segment_reports = []
         data = _filter_valid_segment(
             data,
             sfreq=sfreq,
@@ -490,23 +536,52 @@ def finalize_reviewed_lfp_filter(
             h_freq=h_freq,
             notches=notches,
             notch_widths=notch_widths,
+            notch_model=notch_model,
+            significance_thresholds=list(thresholds.values()) if thresholds else None,
+            diagnostics=segment_reports,
+        )
+        adaptive_reports.extend(
+            {
+                **entry,
+                "channel": out.ch_names[entry["channel_index"]],
+                "segment_start_sample": 0,
+                "segment_stop_sample": out.n_times,
+            }
+            for entry in segment_reports
         )
         segment_counts = {channel: 1 for channel in out.ch_names}
     else:
-        for channel_index, channel in enumerate(out.ch_names):
-            invalid, point_boundaries = _filter_boundary_support(out, channel=channel)
-            segments = _valid_filter_segments(invalid, point_boundaries)
-            segment_counts[channel] = len(segments)
-            channel_edges = np.zeros(out.n_times, dtype=bool)
+        from joblib import Parallel, delayed, cpu_count, parallel_config
+
+        def filter_channel(channel_index, channel, channel_data, segments):
+            channel_data = channel_data.copy()
+            channel_reports = []
+            channel_edges = np.zeros(channel_data.size, dtype=bool)
             for start, stop in segments:
                 length = stop - start
-                data[channel_index, start:stop] = _filter_valid_segment(
-                    data[channel_index, start:stop],
+                segment_reports = []
+                channel_data[start:stop] = _filter_valid_segment(
+                    channel_data[start:stop],
                     sfreq=sfreq,
                     l_freq=l_freq,
                     h_freq=h_freq,
                     notches=notches,
                     notch_widths=notch_widths,
+                    notch_model=notch_model,
+                    significance_thresholds=(
+                        [thresholds[channel]] if thresholds else None
+                    ),
+                    diagnostics=segment_reports,
+                )
+                channel_reports.extend(
+                    {
+                        **entry,
+                        "channel_index": channel_index,
+                        "channel": channel,
+                        "segment_start_sample": int(start),
+                        "segment_stop_sample": int(stop),
+                    }
+                    for entry in segment_reports
                 )
                 if mark_filter_edges and radius > 0:
                     if length <= 2 * radius:
@@ -514,6 +589,27 @@ def finalize_reviewed_lfp_filter(
                     else:
                         channel_edges[start : start + radius] = True
                         channel_edges[stop - radius : stop] = True
+            return channel_data, channel_reports, channel_edges
+
+        tasks = []
+        for channel_index, channel in enumerate(out.ch_names):
+            invalid, point_boundaries = _filter_boundary_support(out, channel=channel)
+            segments = _valid_filter_segments(invalid, point_boundaries)
+            segment_counts[channel] = len(segments)
+            tasks.append((channel_index, channel, data[channel_index], segments))
+        workers = 1
+        if notch_model and notch_model["enabled"] and notch_model["method"] == "cleanline":
+            workers = min(len(tasks), n_jobs or min(4, cpu_count()))
+        if workers > 1:
+            with parallel_config(backend="loky", inner_max_num_threads=1):
+                results = Parallel(n_jobs=workers)(
+                    delayed(filter_channel)(*task) for task in tasks
+                )
+        else:
+            results = [filter_channel(*task) for task in tasks]
+        for channel_index, (channel_data, reports, channel_edges) in enumerate(results):
+            data[channel_index] = channel_data
+            adaptive_reports.extend(reports)
             if mark_filter_edges:
                 edge_masks.append(channel_edges)
 
@@ -579,6 +675,8 @@ def finalize_reviewed_lfp_filter(
         "segments_by_channel": segment_counts,
         "filter_order": ["bandpass", "notch"],
     }
+    if adaptive_reports:
+        report["cleanline_adaptive"] = adaptive_reports
     return out, report
 
 
@@ -752,6 +850,8 @@ class BadAnnotationConfig:
     autoreject_correct_factor: float = 1.5
     notches: Optional[Sequence[float]] = None
     notch_widths: Union[float, Sequence[float]] = 1.0
+    notch_model: dict[str, Any] | None = None
+    isolate_bad_boundaries: bool = True
     min_good_len_sec: float = 3.0
     merge_gap_sec: float = 0.5
 
@@ -826,7 +926,16 @@ def mark_lfp_bad_segments(
             "Recording duration is shorter than Filter epoch duration; "
             "reduce Epoch duration."
         )
-    notches = np.asarray(cfg.notches, dtype=float) if cfg.notches is not None else None
+    from .notch import (
+        normalize_notch_model,
+        effective_notch_model,
+        model_notch_frequencies,
+    )
+
+    active_model = effective_notch_model(normalize_notch_model(cfg.notch_model))
+    notches = np.asarray(
+        model_notch_frequencies(cfg.notches, active_model), dtype=float
+    )
     notch_widths = cfg.notch_widths
 
     requested_channels = (
@@ -859,14 +968,28 @@ def mark_lfp_bad_segments(
         raw_mark.set_channel_types(eeg_type_map)
 
     # 2) Filter for detection
-    if cfg.l_freq is not None or cfg.h_freq is not None:
+    use_model = bool(active_model["enabled"] and notches is not None and notches.size)
+    model_report = {}
+    if use_model:
+        raw_mark, model_report = finalize_reviewed_lfp_filter(
+            raw_mark,
+            reviewed_annotations=raw_mark.annotations,
+            reviewed_bads=raw_mark.info["bads"],
+            l_freq=cfg.l_freq,
+            h_freq=cfg.h_freq,
+            notches=notches,
+            notch_widths=notch_widths,
+            notch_model=active_model,
+            isolate_bad_boundaries=cfg.isolate_bad_boundaries,
+        )
+    elif cfg.l_freq is not None or cfg.h_freq is not None:
         raw_mark.filter(
             l_freq=cfg.l_freq,
             h_freq=cfg.h_freq,
             fir_design="firwin",
             phase="zero",
         )
-    if (notches is not None) and (notches.size > 0):
+    if (notches is not None) and (notches.size > 0) and not use_model:
         raw_mark.notch_filter(freqs=notches, notch_widths=notch_widths)
 
     # 3) Fixed-length epochs
@@ -1077,6 +1200,8 @@ def mark_lfp_bad_segments(
         "min_good_len_sec": cfg.min_good_len_sec,
         "merge_gap_sec": cfg.merge_gap_sec,
     }
+    if "cleanline_adaptive" in model_report:
+        summary["cleanline_adaptive"] = model_report["cleanline_adaptive"]
     if autoreject_error is not None:
         summary["autoreject_error"] = autoreject_error
     if autoreject_plot_error is not None:

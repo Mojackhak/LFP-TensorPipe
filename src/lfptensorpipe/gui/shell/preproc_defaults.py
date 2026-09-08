@@ -153,6 +153,41 @@ class MainWindowPreprocDefaultsMixin:
     def _format_optional_filter_frequency(value: float | None) -> str:
         return "" if value is None else f"{float(value):g}"
 
+    def _filter_manual_notches_text(self) -> str:
+        edit = self._preproc_filter_notches_edit
+        if edit is None:
+            return ""
+        manual = edit.property("manual_notches_text")
+        return edit.text() if manual is None else str(manual)
+
+    def _sync_filter_model_notches(self, model: dict[str, Any] | None) -> None:
+        from lfptensorpipe.preproc.notch import (
+            effective_notch_model,
+            model_notch_frequencies,
+        )
+
+        edit = self._preproc_filter_notches_edit
+        if edit is None:
+            return
+        active = (
+            effective_notch_model(model) if model is not None else {"enabled": False}
+        )
+        generated = active["enabled"] and active["method"] == "removepli"
+        was_blocked = edit.blockSignals(True)
+        if generated:
+            if edit.property("manual_notches_text") is None:
+                edit.setProperty("manual_notches_text", edit.text())
+            edit.setText(
+                self._format_filter_notches(model_notch_frequencies([], active))
+            )
+        else:
+            manual = edit.property("manual_notches_text")
+            if manual is not None:
+                edit.setText(str(manual))
+                edit.setProperty("manual_notches_text", None)
+        edit.setReadOnly(generated)
+        edit.blockSignals(was_blocked)
+
     def _apply_filter_basic_params_to_fields(self, params: dict[str, Any]) -> None:
         defaults = default_preproc_filter_basic_params()
         candidate = dict(defaults)
@@ -166,6 +201,8 @@ class MainWindowPreprocDefaultsMixin:
                 text = ""
             else:
                 text = str(raw_notches)
+            self._preproc_filter_notches_edit.setProperty("manual_notches_text", None)
+            self._preproc_filter_notches_edit.setReadOnly(False)
             self._preproc_filter_notches_edit.setText(text)
         if self._preproc_filter_low_freq_edit is not None:
             value = candidate["l_freq"]
@@ -187,27 +224,16 @@ class MainWindowPreprocDefaultsMixin:
         )
         for edit in edits:
             set_control_validation_error(edit, None)
-        params = {
-            "notches": (
-                self._preproc_filter_notches_edit.text()
-                if self._preproc_filter_notches_edit is not None
-                else ""
-            ),
-            "l_freq": (
-                self._preproc_filter_low_freq_edit.text()
-                if self._preproc_filter_low_freq_edit is not None
-                else ""
-            ),
-            "h_freq": (
-                self._preproc_filter_high_freq_edit.text()
-                if self._preproc_filter_high_freq_edit is not None
-                else ""
-            ),
-        }
-        valid, _, message = normalize_preproc_filter_basic_params(params)
+        try:
+            self._collect_filter_runtime_params()
+            valid, message = True, ""
+        except ValueError as exc:
+            valid, message = False, str(exc)
         if valid:
             return True, ""
         lowered = message.lower()
+        if "notch_model" in lowered:
+            return False, message
         if "notch" in lowered:
             targets = (self._preproc_filter_notches_edit,)
         elif "l_freq" in lowered and "h_freq" not in lowered:
@@ -287,7 +313,7 @@ class MainWindowPreprocDefaultsMixin:
         self,
     ) -> tuple[list[float], float | None, float | None]:
         notches_text = (
-            self._preproc_filter_notches_edit.text()
+            self._filter_manual_notches_text()
             if self._preproc_filter_notches_edit is not None
             else ""
         )
@@ -301,12 +327,22 @@ class MainWindowPreprocDefaultsMixin:
             if self._preproc_filter_high_freq_edit is not None
             else ""
         )
-        valid, normalized, message = normalize_preproc_filter_basic_params(
-            {
-                "notches": notches_text,
-                "l_freq": low_text,
-                "h_freq": high_text,
-            }
+        from lfptensorpipe.app.preproc.steps.filter import (
+            normalize_filter_runtime_params,
+        )
+        from lfptensorpipe.preproc.notch import (
+            normalize_notch_model,
+            effective_notch_model,
+        )
+
+        model = normalize_notch_model(
+            getattr(self, "_preproc_filter_advance_params", {}).get("notch_model")
+        )
+        valid, normalized, message = normalize_filter_runtime_params(
+            notches=notches_text,
+            l_freq=low_text,
+            h_freq=high_text,
+            notch_model=effective_notch_model(model),
         )
         if not valid:
             raise ValueError(message)

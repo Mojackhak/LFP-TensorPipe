@@ -43,6 +43,7 @@ class TensorFilterInheritance:
     high_freq: float
     notches: tuple[float, ...]
     notch_widths: tuple[float, ...]
+    notch_model_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -311,8 +312,12 @@ def validate_periodic_aperiodic_notch_bounds(params: dict[str, Any]) -> None:
             )
 
 
-def load_tensor_filter_metric_notch_params(context: RecordContext) -> dict[str, Any]:
+def load_tensor_filter_metric_notch_params(
+    context: RecordContext,
+) -> dict[str, Any] | None:
     inheritance = load_tensor_filter_inheritance(context)
+    if inheritance.notch_model_enabled:
+        return None
     return build_tensor_metric_notch_payload(
         list(inheritance.notches),
         list(inheritance.notch_widths),
@@ -606,10 +611,15 @@ def load_tensor_filter_inheritance(context: RecordContext) -> TensorFilterInheri
     high_freq = 200.0
     notches: tuple[float, ...] = ()
     notch_widths: tuple[float, ...] = ()
+    notch_model_enabled = False
 
     if payload is not None and bool(payload.get("completed")):
         params = payload.get("params", {})
         if isinstance(params, dict):
+            model = params.get("notch_model")
+            notch_model_enabled = (
+                isinstance(model, dict) and model.get("enabled") is True
+            )
             requested_low = params.get("low_freq", low_freq)
             requested_high = params.get("high_freq", high_freq)
             low_freq = (
@@ -621,10 +631,14 @@ def load_tensor_filter_inheritance(context: RecordContext) -> TensorFilterInheri
                 else _as_float(requested_high, high_freq)
             )
             notches = _parse_positive_float_tuple(params.get("notches"))
-            notch_widths = _expand_notch_radii_runtime(
-                params.get("notch_widths", 2.0),
-                len(notches),
-                legacy_mismatched_list_broadcast=True,
+            notch_widths = (
+                ()
+                if notch_model_enabled
+                else _expand_notch_radii_runtime(
+                    params.get("notch_widths", 2.0),
+                    len(notches),
+                    legacy_mismatched_list_broadcast=True,
+                )
             )
 
     if high_freq <= low_freq:
@@ -634,6 +648,7 @@ def load_tensor_filter_inheritance(context: RecordContext) -> TensorFilterInheri
         high_freq=float(high_freq),
         notches=notches,
         notch_widths=notch_widths,
+        notch_model_enabled=notch_model_enabled,
     )
 
 

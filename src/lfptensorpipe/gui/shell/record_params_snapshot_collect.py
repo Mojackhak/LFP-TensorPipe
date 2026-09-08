@@ -74,7 +74,7 @@ class MainWindowRecordParamsSnapshotCollectMixin:
     def _collect_preproc_record_params_snapshot(self) -> dict[str, Any]:
         basic_defaults = self._load_filter_basic_defaults()
         notches_text = (
-            self._preproc_filter_notches_edit.text().strip()
+            self._filter_manual_notches_text().strip()
             if self._preproc_filter_notches_edit is not None
             else self._format_filter_notches(basic_defaults.get("notches", []))
         )

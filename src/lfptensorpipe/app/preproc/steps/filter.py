@@ -9,6 +9,14 @@ from typing import Any, Callable
 
 import yaml
 
+from lfptensorpipe.preproc.notch import (
+    default_notch_model,
+    cleanline_channel_thresholds,
+    normalize_notch_model,
+    effective_notch_model,
+    model_notch_frequencies,
+)
+
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.runlog_store import read_run_log
 from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
@@ -65,6 +73,7 @@ def default_filter_advance_params() -> dict[str, Any]:
         "autoreject_correct_factor": float(cfg.autoreject_correct_factor),
         "isolate_bad_boundaries": True,
         "mark_filter_edges": False,
+        "notch_model": default_notch_model(),
     }
 
 
@@ -100,11 +109,18 @@ def normalize_filter_runtime_params(
     notches: Any,
     l_freq: Any,
     h_freq: Any,
+    notch_model: dict[str, Any] | None = None,
 ) -> tuple[bool, dict[str, Any], str]:
     """Normalize nullable basic Filter parameters at the runtime boundary."""
     try:
         low_freq = _optional_float(l_freq, field_name="l_freq")
         high_freq = _optional_float(h_freq, field_name="h_freq")
+        if (
+            notch_model
+            and notch_model["enabled"]
+            and notch_model["method"] == "removepli"
+        ):
+            notches = model_notch_frequencies(None, notch_model)
         if notches is None or (isinstance(notches, str) and not notches.strip()):
             parsed_notches: list[float] = []
         elif isinstance(notches, str):
@@ -118,6 +134,12 @@ def normalize_filter_runtime_params(
     except Exception as exc:  # noqa: BLE001
         return False, {}, str(exc)
 
+    if notch_model and notch_model["enabled"] and not parsed_notches:
+        return (
+            False,
+            {},
+            "Model requires at least one Notches frequency; enter frequencies or disable Model.",
+        )
     if low_freq is not None and low_freq < 0.0:
         return False, {}, "l_freq must be >= 0 when provided."
     if high_freq is not None and high_freq <= 0.0:
@@ -182,6 +204,7 @@ def normalize_filter_advance_params(
         "autoreject_correct_factor",
         "isolate_bad_boundaries",
         "mark_filter_edges",
+        "notch_model",
     ):
         if key in params:
             merged[key] = params[key]
@@ -198,7 +221,12 @@ def normalize_filter_advance_params(
         )
 
     try:
-        notch_widths = _normalize_notch_widths(merged["notch_widths"])
+        notch_model = normalize_notch_model(merged["notch_model"])
+        notch_widths = (
+            merged["notch_widths"]
+            if notch_model["enabled"]
+            else _normalize_notch_widths(merged["notch_widths"])
+        )
         epoch_dur = float(merged["epoch_dur"])
         p2p_raw = merged["p2p_thresh"]
         autoreject_correct_factor = float(merged["autoreject_correct_factor"])
@@ -246,6 +274,7 @@ def normalize_filter_advance_params(
             "autoreject_correct_factor": autoreject_correct_factor,
             "isolate_bad_boundaries": merged["isolate_bad_boundaries"],
             "mark_filter_edges": merged["mark_filter_edges"],
+            "notch_model": notch_model,
         },
         "",
     )
@@ -284,12 +313,13 @@ def apply_filter_step(
         notches=notches,
         l_freq=l_freq,
         h_freq=h_freq,
+        notch_model=effective_notch_model(normalized_params["notch_model"]),
     )
     if not valid_runtime:
         return False, f"Invalid Filter params: {runtime_message}"
     runtime_l_freq = runtime_params["l_freq"]
     runtime_h_freq = runtime_params["h_freq"]
-    runtime_notches = list(runtime_params["notches"])
+    runtime_notches = runtime_params["notches"]
 
     if not src.exists():
         return False, "Missing preprocess raw input for filter step."
@@ -323,7 +353,17 @@ def apply_filter_step(
             l_freq=runtime_l_freq,
             h_freq=runtime_h_freq,
             notches=tuple(runtime_notches) if runtime_notches else None,
-            notch_widths=normalized_params["notch_widths"],
+            notch_widths=(
+                None
+                if normalized_params["notch_model"]["enabled"]
+                else normalized_params["notch_widths"]
+            ),
+            notch_model=(
+                effective_notch_model(normalized_params["notch_model"])
+                if runtime_notches
+                else {"enabled": False}
+            ),
+            isolate_bad_boundaries=normalized_params["isolate_bad_boundaries"],
             epoch_dur=normalized_params["epoch_dur"],
             p2p_thresh=(
                 None
@@ -335,6 +375,7 @@ def apply_filter_step(
             ),
             autoreject_correct_factor=normalized_params["autoreject_correct_factor"],
         )
+        channel_thresholds = cleanline_channel_thresholds(cfg.notch_model, raw.ch_names)
         runtime_reject_plot_path = (
             reject_plot_path
             if thread_module.current_thread() is thread_module.main_thread()
@@ -361,6 +402,12 @@ def apply_filter_step(
                     "low_freq": cfg.l_freq,
                     "high_freq": cfg.h_freq,
                     "notches": list(cfg.notches or []),
+                    "cleanline_thresholds_by_channel": channel_thresholds,
+                    **(
+                        {"cleanline_adaptive": summary["cleanline_adaptive"]}
+                        if "cleanline_adaptive" in summary
+                        else {}
+                    ),
                     "nyquist_freq": nyquist,
                     "bad_annotation_config": asdict(cfg),
                     "summary": summary,
@@ -386,8 +433,15 @@ def apply_filter_step(
                         "low_freq": cfg.l_freq,
                         "high_freq": cfg.h_freq,
                         "notches": list(cfg.notches or []),
+                        "cleanline_thresholds_by_channel": channel_thresholds,
+                        **(
+                            {"cleanline_adaptive": summary["cleanline_adaptive"]}
+                            if "cleanline_adaptive" in summary
+                            else {}
+                        ),
                         "nyquist_freq": nyquist,
                         "notch_widths": cfg.notch_widths,
+                        "notch_model": cfg.notch_model,
                         "epoch_dur": cfg.epoch_dur,
                         "p2p_thresh": (
                             None if cfg.p2p_thresh is None else list(cfg.p2p_thresh)
@@ -488,14 +542,10 @@ def finalize_filter_review(
     if not isinstance(detection_config, dict):
         detection_config = {}
 
-    valid_runtime, runtime_params, runtime_message = normalize_filter_runtime_params(
-        notches=params.get("notches", config.get("notches", [])),
-        l_freq=params.get("low_freq", config.get("low_freq")),
-        h_freq=params.get("high_freq", config.get("high_freq")),
-    )
     persisted_advance: dict[str, Any] = {}
     for key in (
         "notch_widths",
+        "notch_model",
         "epoch_dur",
         "p2p_thresh",
         "autoreject_correct_factor",
@@ -511,10 +561,16 @@ def finalize_filter_review(
     valid_advance, advance, advance_message = normalize_filter_advance_params(
         persisted_advance
     )
-    if not valid_runtime:
-        return False, f"Invalid persisted Filter params: {runtime_message}"
     if not valid_advance:
         return False, f"Invalid persisted Filter Advance params: {advance_message}"
+    valid_runtime, runtime_params, runtime_message = normalize_filter_runtime_params(
+        notches=params.get("notches", config.get("notches", [])),
+        l_freq=params.get("low_freq", config.get("low_freq")),
+        h_freq=params.get("high_freq", config.get("high_freq")),
+        notch_model=effective_notch_model(advance["notch_model"]),
+    )
+    if not valid_runtime:
+        return False, f"Invalid persisted Filter params: {runtime_message}"
 
     cleanup_warning = ""
     try:
@@ -524,6 +580,9 @@ def finalize_filter_review(
             read_raw_fif_fn = mne.io.read_raw_fif
         runtime_finalize = finalize_reviewed_filter_fn or finalize_reviewed_lfp_filter
         raw = read_raw_fif_fn(str(src), preload=True, verbose="ERROR")
+        channel_thresholds = cleanline_channel_thresholds(
+            effective_notch_model(advance["notch_model"]), raw.ch_names
+        )
         finalized, support_report = runtime_finalize(
             raw,
             reviewed_annotations=reviewed_annotations,
@@ -531,16 +590,27 @@ def finalize_filter_review(
             l_freq=runtime_params["l_freq"],
             h_freq=runtime_params["h_freq"],
             notches=runtime_params["notches"],
-            notch_widths=advance["notch_widths"],
+            notch_widths=(
+                None if advance["notch_model"]["enabled"] else advance["notch_widths"]
+            ),
             isolate_bad_boundaries=advance["isolate_bad_boundaries"],
             mark_filter_edges=advance["mark_filter_edges"],
+            **(
+                {"notch_model": effective_notch_model(advance["notch_model"])}
+                if advance["notch_model"]["enabled"]
+                else {}
+            ),
         )
         final_params = {
             **params,
             "low_freq": runtime_params["l_freq"],
             "high_freq": runtime_params["h_freq"],
             "notches": runtime_params["notches"],
-            "notch_widths": advance["notch_widths"],
+            "notch_widths": (
+                None if advance["notch_model"]["enabled"] else advance["notch_widths"]
+            ),
+            "notch_model": effective_notch_model(advance["notch_model"]),
+            "cleanline_thresholds_by_channel": channel_thresholds,
             "epoch_dur": advance["epoch_dur"],
             "p2p_thresh": advance["p2p_thresh"],
             "autoreject_correct_factor": advance["autoreject_correct_factor"],
@@ -552,6 +622,8 @@ def finalize_filter_review(
         }
         final_config = {
             **config,
+            "notch_model": effective_notch_model(advance["notch_model"]),
+            "cleanline_thresholds_by_channel": channel_thresholds,
             "low_freq": runtime_params["l_freq"],
             "high_freq": runtime_params["h_freq"],
             "notches": runtime_params["notches"],
@@ -560,6 +632,10 @@ def finalize_filter_review(
             "review_status": "finalized",
             "filter_output_role": "scientific",
         }
+        for target in (final_params, final_config):
+            target.pop("cleanline_adaptive", None)
+            if "cleanline_adaptive" in support_report:
+                target["cleanline_adaptive"] = support_report["cleanline_adaptive"]
         coverage_semantics = params.get(
             "epoch_coverage_semantics",
             config.get("epoch_coverage_semantics"),

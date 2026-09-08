@@ -9,6 +9,7 @@ description = "Workflow-core Python package for DBS LFP analysis: reproducible e
 readme = "README.md"
 requires-python = "==3.11.*"
 license = { file = "LICENSE" }
+license-files = ["LICENSE", "LICENSES/*.txt"]
 authors = [{ name = "Mojackhak", email = "ankanghu9@gmail.com" }]
 
 dependencies = [
