@@ -906,8 +906,9 @@ log remains a recovery error and keeps the existing retry path.
 - `Time resolution` and `Hop` define the time grid.
 - `SpecParam freq range` is the fit envelope for periodic/aperiodic modeling, not a second copy of the final output bounds.
 - `Mask Edge Effects` controls annotation-derived masking, not frequency
-  cropping or algorithmic availability. PSI-Multitaper output centers without
-  a complete centered analysis window remain `NaN` when this control is off.
+  cropping or algorithmic availability. PSI output centers without a complete
+  centered averaging interval and kernel padding remain `NaN` for both methods
+  when this control is off.
 - Finish bad-channel exclusion is always active and is not controlled by `Mask
   Edge Effects`. If an explicit channel or pair selection becomes empty after
   exclusion, Build Tensor reports the affected metric instead of substituting
@@ -964,6 +965,13 @@ periodic/aperiodic-specific fit range.
 
 This panel reuses the shared tensor grid controls but emphasizes pair-based
 configuration instead of single-channel configuration.
+
+`Step (Hz)` is active for both Morlet and Multitaper. Each method estimates
+complex coherency on that frequency grid before PSI combines adjacent-frequency
+phase information within each band. Frequencies in the same band share the
+longest required central averaging interval while retaining their individual
+spectral-kernel lengths. `Hop` controls output-center spacing rather than the
+independence or effective temporal resolution of those estimates.
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
@@ -1155,9 +1163,9 @@ it globally.
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | `Method` | Chooses the spectral backend used before PSI is computed. | PSI runtime method. | Always available in this dialog. |
-| `MT time-bandwidth product` | Sets the dimensionless DPSS time-bandwidth product. PSI derives the bandwidth in Hz from this value and each band's effective window. | Multitaper smoothing and stability. | Enabled only for Multitaper; must be at least `2`. |
-| `MT min cycles` | Sets the minimum cycles in each Multitaper PSI band window. A band's lowest retained frequency determines whether its window grows. | Multitaper low-frequency stability and temporal support. | Enabled only for Multitaper; must be greater than `0`. |
-| `MT max cycles` | Optionally caps cycles in each Multitaper PSI band window using that band's lowest retained frequency. The resulting shorter window widens the band's Multitaper bandwidth and can reduce the number of supported internal frequency pairs. Leave blank for no cap. | Multitaper PSI temporal support, bandwidth, and frequency-bin availability. | Enabled only for Multitaper; blank or finite, greater than `0`, and not below `MT min cycles`. |
+| `MT time-bandwidth product` | Sets the dimensionless DPSS time-bandwidth product used by the shared local spectral estimator. Full bandwidth at each frequency equals this product divided by that frequency's kernel duration. | Multitaper spectral smoothing and taper count. | Enabled only for Multitaper; must be at least `2`. |
+| `MT min cycles` | Sets the minimum cycles in each frequency's Multitaper kernel. The longest required interval among a band's retained frequencies determines its common averaging interval. | Multitaper low-frequency stability and temporal support. | Enabled only for Multitaper; must be greater than `0`. |
+| `MT max cycles` | Optionally caps cycles in each frequency's Multitaper kernel. Shorter kernels widen the corresponding spectral bandwidth. Leave blank for no cap. | Multitaper temporal support and spectral bandwidth; `Step (Hz)` determines the sampled frequency grid. | Enabled only for Multitaper; blank or finite, greater than `0`, and not below `MT min cycles`. |
 | `Morlet min cycles` | Sets the minimum Morlet cycle count. | Morlet PSI time/frequency trade-off. | Enabled only for Morlet. |
 | `Morlet max cycles` | Sets the optional maximum Morlet cycle count. | Morlet PSI time/frequency trade-off. | Enabled only for Morlet. |
 | `Notches` | Adds metric-local notch exclusions before PSI is computed. | Metric-local runtime filtering. | Supported tensor metrics only. |

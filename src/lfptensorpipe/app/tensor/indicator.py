@@ -24,6 +24,7 @@ from lfptensorpipe.lfp.burst.semantics import (
     normalize_burst_estimator_signature,
 )
 from lfptensorpipe.lfp.connectivity import CONNECTIVITY_PADDING_MODE
+from lfptensorpipe.lfp.psi import PSI_COHERENCY_ESTIMATION
 from lfptensorpipe.lfp.mask.annotations import ANNOTATION_SCOPE_SEMANTICS
 from lfptensorpipe.utils.transforms import (
     VALUE_TRANSFORM_POLICY_KEY,
@@ -471,6 +472,8 @@ def _metric_log_signature(
             signature["mask_support_semantics"] = params.get("mask_support_semantics")
         return signature
     if metric_key == "psi":
+        if params.get("coherency_estimation") != PSI_COHERENCY_ESTIMATION:
+            return None
         pairs = _normalize_pairs(params.get("selected_pairs"), directed=True)
         bands_used = _normalize_runtime_bands_signature(params.get("bands_used"))
         if pairs is None or bands_used is None:
@@ -478,7 +481,6 @@ def _metric_log_signature(
         method_signature = _spectral_method_signature(
             params, require_multitaper_fields=True
         )
-        method = str(method_signature["method"])
         signature = {
             "low_freq": float(params.get("low_freq")),
             "high_freq": float(params.get("high_freq")),
@@ -490,12 +492,8 @@ def _metric_log_signature(
             "bands_used": bands_used,
             "selected_pairs": pairs,
         }
-        if method.strip().lower() == "multitaper":
-            signature["time_axis_mode"] = str(
-                params.get("time_axis_mode", "whole_record_repeat")
-            )
-        else:
-            signature["step_hz"] = float(params.get("step_hz"))
+        signature["coherency_estimation"] = PSI_COHERENCY_ESTIMATION
+        signature["step_hz"] = float(params.get("step_hz"))
         return signature
     if metric_key == "burst":
         burst_policy = transform_policy_metadata(
@@ -796,7 +794,6 @@ def _current_metric_signature(
         if pairs is None or bands_used is None:
             return None
         method_signature = _spectral_method_signature(params)
-        method = str(method_signature["method"])
         signature = {
             "low_freq": prepared.metric_low,
             "high_freq": prepared.metric_high,
@@ -808,10 +805,8 @@ def _current_metric_signature(
             "bands_used": bands_used,
             "selected_pairs": pairs,
         }
-        if method.strip().lower() == "multitaper":
-            signature["time_axis_mode"] = "sliding_window"
-        else:
-            signature["step_hz"] = prepared.metric_step
+        signature["coherency_estimation"] = PSI_COHERENCY_ESTIMATION
+        signature["step_hz"] = prepared.metric_step
         return signature
     if metric_key == "burst":
         channels = _normalize_channels(prepared.metric_channels)

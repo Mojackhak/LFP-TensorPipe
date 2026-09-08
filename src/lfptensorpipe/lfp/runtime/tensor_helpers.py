@@ -297,101 +297,18 @@ def interpolated_support_radii_seconds(
 
 
 def psi_band_radii_seconds(
-    *,
-    metadata: dict[str, Any],
-    method: str,
-    time_resolution_s: float,
-    min_cycles: float | None,
-    max_cycles: float | None,
+    *, metadata: dict[str, Any]
 ) -> tuple[list[str], list[float]]:
-    axes = metadata.get("axes", {}) if isinstance(metadata, dict) else {}
-    params = metadata.get("params", {}) if isinstance(metadata, dict) else {}
-    if not isinstance(axes, dict) or not isinstance(params, dict):
-        raise ValueError("PSI metadata is missing required axes/params.")
-    freq_axis = list(np.asarray(axes.get("freq", []), dtype=object).ravel())
-    band_names = [str(item) for item in freq_axis]
-    if not band_names:
-        raise ValueError("PSI metadata has empty band axis.")
-
-    union = params.get("bands_union_hz")
-    if not isinstance(union, dict):
-        raise ValueError("PSI metadata missing bands_union_hz.")
-
-    if method == "multitaper":
-        windows = np.asarray(
-            params.get("mt_effective_window_s", []), dtype=float
-        ).ravel()
-        if windows.size != len(band_names):
-            raise ValueError(
-                "PSI Multitaper metadata window count does not match the band axis."
-            )
-        if np.any(~np.isfinite(windows)) or np.any(windows <= 0.0):
-            raise ValueError("PSI Multitaper metadata has invalid effective windows.")
-        return band_names, [float(item) / 2.0 for item in windows.tolist()]
-
-    if method == "morlet":
-        cwt_freqs = params.get("cwt_freqs")
-        cwt_cycles = params.get("cwt_n_cycles")
-        if cwt_freqs is not None and cwt_cycles is not None:
-            freqs_arr = np.asarray(cwt_freqs, dtype=float).ravel()
-            cycles_arr = np.asarray(cwt_cycles, dtype=float).ravel()
-            if freqs_arr.size == cycles_arr.size and freqs_arr.size > 0:
-                from lfptensorpipe.lfp.common import (
-                    morlet_mask_radius_time_s_from_freqs_n_cycles,
-                )
-
-                radii_dense = np.asarray(
-                    morlet_mask_radius_time_s_from_freqs_n_cycles(
-                        freqs_arr,
-                        n_cycles=cycles_arr,
-                    ),
-                    dtype=float,
-                )
-                out: list[float] = []
-                for name in band_names:
-                    bounds = union.get(name)
-                    if not isinstance(bounds, (list, tuple)) or len(bounds) != 2:
-                        raise ValueError(
-                            f"PSI metadata missing valid union edges for band: {name}"
-                        )
-                    lo = float(bounds[0])
-                    hi = float(bounds[1])
-                    mask = (freqs_arr >= lo) & (freqs_arr <= hi)
-                    if bool(np.any(mask)):
-                        out.append(float(np.max(radii_dense[mask])))
-                    else:
-                        center = np.asarray([(lo + hi) / 2.0], dtype=float)
-                        out.append(
-                            float(
-                                compute_mask_radii_seconds(
-                                    center,
-                                    method=method,
-                                    time_resolution_s=float(time_resolution_s),
-                                    min_cycles=min_cycles,
-                                    max_cycles=max_cycles,
-                                )[0]
-                            )
-                        )
-                return band_names, out
-
-    out = []
-    for name in band_names:
-        bounds = union.get(name)
-        if not isinstance(bounds, (list, tuple)) or len(bounds) != 2:
-            raise ValueError(f"PSI metadata missing valid union edges for band: {name}")
-        center = np.asarray([(float(bounds[0]) + float(bounds[1])) / 2.0], dtype=float)
-        out.append(
-            float(
-                compute_mask_radii_seconds(
-                    center,
-                    method=method,
-                    time_resolution_s=float(time_resolution_s),
-                    min_cycles=min_cycles,
-                    max_cycles=max_cycles,
-                )[0]
-            )
-        )
-    return band_names, out
+    """Read the actual averaging-plus-kernel support from a PSI artifact."""
+    band_names = [str(item) for item in metadata.get("axes", {}).get("freq", [])]
+    radii = np.asarray(
+        metadata.get("params", {}).get("band_support_radii_s", []), dtype=float
+    ).ravel()
+    if not band_names or radii.size != len(band_names):
+        raise ValueError("PSI support radii do not match the band axis.")
+    if np.any(~np.isfinite(radii)) or np.any(radii <= 0.0):
+        raise ValueError("PSI support radii must be finite and positive.")
+    return band_names, radii.tolist()
 
 
 def parse_positive_float_tuple(value: Any) -> tuple[float, ...]:

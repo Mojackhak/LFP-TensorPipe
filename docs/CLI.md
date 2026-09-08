@@ -65,6 +65,16 @@ settings. Supplying a page JSON does not install it as global defaults. Results
 are reproducible against the same relevant inputs and application settings;
 the page JSON alone is not a portable runtime environment.
 
+## Python PSI execution
+
+Direct calls to the PSI grid can use `outer_n_jobs > 1` to process time blocks
+in separate workers. The PSI outer executor disables joblib's automatic array
+memmapping: MNE Raw cleanup can otherwise delete a shared temporary data file
+before another task loads it. In-memory Raw data is serialized to workers, so
+additional workers can increase memory use. Worker count does not change PSI
+values, masks, or result freshness. Standard GUI/CLI orchestration retains its
+existing single-worker policy; this adds no page or CLI configuration field.
+
 ## Trials and epochs
 
 Align updates the named trial if it exists, or creates that exact trial slug

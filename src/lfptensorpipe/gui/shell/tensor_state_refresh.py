@@ -108,23 +108,7 @@ class MainWindowTensorStateRefreshMixin:
             elif row_key == "percentile":
                 widget.setToolTip("Burst threshold percentile.")
             if row_key == "freq_step_hz":
-                method = (
-                    str(
-                        self._tensor_metric_params.get(metric_key, {}).get(
-                            "method", "morlet"
-                        )
-                    )
-                    .strip()
-                    .lower()
-                )
-                if metric_key == "psi" and method == "multitaper":
-                    enabled = False
-                    widget.setToolTip(
-                        "Disabled for Multitaper PSI; frequency spacing is "
-                        "determined by the sampling rate and effective window."
-                    )
-                else:
-                    widget.setToolTip("Frequency spacing for computation grid.")
+                widget.setToolTip("Frequency spacing for computation grid.")
             widget.setEnabled(enabled)
 
         requires_channels = self._tensor_metric_requires_channel_selector(metric_key)

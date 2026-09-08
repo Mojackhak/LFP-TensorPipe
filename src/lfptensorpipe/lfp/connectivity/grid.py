@@ -6,11 +6,14 @@ time grid produced by :func:`lfp.tfr.grid.grid`.
 
 Design notes
 ------------
-- This implementation always uses **frequency-dependent windowing** (formerly
+- By default this implementation uses **frequency-dependent windowing** (formerly
   called "per_freq"): each frequency (or frequency group) is computed using a
   time window that safely contains either Morlet wavelet support
   (`spectral_mode='cwt_morlet'`) or the multitaper window
   (`spectral_mode='multitaper'`).
+- ``shared_window=True`` uses the longest central averaging interval and
+  kernel padding across the requested frequencies, while retaining each
+  frequency's own spectral kernel. PSI uses one such call per original band.
 - Morlet cycle limits and the Multitaper minimum-cycle rule can impose longer
   low-frequency windows. The resulting lower temporal resolution is the
   intended trade-off for stable low-frequency estimates.
@@ -333,6 +336,7 @@ def grid(
     round_ms: float = 10.0,
     duration_guard_samples: int = 1,
     group_by_samples: bool = True,
+    shared_window: bool = False,
     # connectivity opts
     sm_times: float = 0.0,
     sm_freqs: int = 1,
@@ -370,8 +374,9 @@ def grid(
 
     Notes
     -----
-    This implementation always uses frequency-dependent windowing (per-frequency
-    or per-frequency-group). There is no "global" window mode.
+    Frequency-dependent windowing is the default. ``shared_window=True`` groups
+    all requested frequencies into one call, using their longest central
+    averaging interval and kernel padding without changing individual kernels.
 
     ``padding`` is a programmatic minimum per-side crop. The effective padding
     is always at least one half of the longest spectral-kernel support used by
@@ -696,7 +701,11 @@ def grid(
         half_per_freq = durations / 2.0
         group_key = durations
 
-    groups_idx = _split_contiguous_runs(group_key)
+    groups_idx = (
+        [np.arange(freqs.size, dtype=int)]
+        if shared_window
+        else _split_contiguous_runs(group_key)
+    )
 
     # GC fix (neighbor padding):
     # MNE-Connectivity multivariate GC requires a minimum number of frequency bins per call:
@@ -928,6 +937,7 @@ def grid(
                 round_ms=float(round_ms),
                 duration_guard_samples=int(duration_guard_samples),
                 group_by_samples=bool(group_by_samples),
+                **({"shared_window": True} if shared_window else {}),
                 sm_times=float(sm_times),
                 sm_freqs=int(sm_freqs),
                 sm_kernel=str(sm_kernel),

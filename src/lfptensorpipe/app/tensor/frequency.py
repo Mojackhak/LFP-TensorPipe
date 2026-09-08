@@ -521,20 +521,9 @@ def _interpolated_support_radii_seconds(
 
 
 def _psi_band_radii_seconds(
-    *,
-    metadata: dict[str, Any],
-    method: str,
-    time_resolution_s: float,
-    min_cycles: float | None,
-    max_cycles: float | None,
+    *, metadata: dict[str, Any]
 ) -> tuple[list[str], list[float]]:
-    return _psi_band_radii_seconds_runtime(
-        metadata=dict(metadata),
-        method=method,
-        time_resolution_s=float(time_resolution_s),
-        min_cycles=min_cycles,
-        max_cycles=max_cycles,
-    )
+    return _psi_band_radii_seconds_runtime(metadata=metadata)
 
 
 def _parse_positive_float_tuple(value: Any) -> tuple[float, ...]:

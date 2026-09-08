@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from lfptensorpipe.app.path_resolver import RecordContext
+from lfptensorpipe.lfp.psi import PSI_COHERENCY_ESTIMATION
 from lfptensorpipe.utils.freqs import split_bands_by_intervals
 
 from .. import service as svc
@@ -125,8 +126,6 @@ def run_psi_metric(
         compute_notch_intervals_fn or svc._compute_notch_intervals
     )
     _normalize_metric_method = svc._normalize_metric_method
-    _apply_dynamic_edge_mask_strict = svc._apply_dynamic_edge_mask_strict
-    _psi_band_radii_seconds = svc._psi_band_radii_seconds
     _effective_n_jobs_payload = svc._effective_n_jobs_payload
     _build_frequency_grid = svc._build_frequency_grid
     _normalize_selected_pairs = (
@@ -237,15 +236,11 @@ def run_psi_metric(
                 "Adjust bands or low/high frequency limits."
             )
 
-        cwt_freqs = None
-        if method_norm == "morlet":
-            nyquist = float(raw.info["sfreq"]) / 2.0
-            applied_high = min(float(high_freq), nyquist)
-            cwt_freqs = _build_frequency_grid(
-                float(low_freq),
-                float(applied_high),
-                float(step_hz),
-            )
+        nyquist = float(raw.info["sfreq"]) / 2.0
+        applied_high = min(float(high_freq), nyquist)
+        freqs = _build_frequency_grid(
+            float(low_freq), float(applied_high), float(step_hz)
+        )
 
         tensor, metadata = psi_grid(
             raw,
@@ -260,12 +255,11 @@ def run_psi_metric(
             mt_max_cycles=mt_max_cycles,
             min_cycles=min_cycles,
             max_cycles=max_cycles,
-            cwt_freqs=cwt_freqs,
+            freqs=freqs,
             picks=picks,
             n_jobs=int(n_jobs),
             outer_n_jobs=int(outer_n_jobs),
-            verbose="ERROR",
-            mask_annotations=bool(mask_edge_effects and method_norm == "multitaper"),
+            mask_annotations=bool(mask_edge_effects),
         )
 
         tensor4d = np.asarray(tensor, dtype=float)
@@ -274,22 +268,6 @@ def run_psi_metric(
         if tensor4d.ndim != 4:
             raise ValueError(
                 f"Unexpected {metric_label} tensor shape: {tensor4d.shape}"
-            )
-        if mask_edge_effects:
-            band_names, band_radii = _psi_band_radii_seconds(
-                metadata=metadata,
-                method=method_norm,
-                time_resolution_s=float(time_resolution_s),
-                min_cycles=min_cycles,
-                max_cycles=max_cycles,
-            )
-            tensor4d, metadata = _apply_dynamic_edge_mask_strict(
-                raw=raw,
-                tensor=tensor4d,
-                metadata=metadata,
-                metric_label=metric_label,
-                freqs_lookup=[str(item) for item in band_names],
-                radii_s=[float(item) for item in band_radii],
             )
         metadata = dict(metadata)
         metadata.update(
@@ -319,29 +297,22 @@ def run_psi_metric(
             ),
             "frequency_support_by_band": frequency_support_by_band,
         }
-        count_payload = (
-            {
-                "n_columns_total": int(grid_params.get("n_columns_total", 0)),
-                "n_columns_skipped_masked": int(
-                    grid_params.get("n_columns_skipped_masked", 0)
-                ),
-                "n_columns_dropped_incomplete_window": int(
-                    grid_params.get("n_columns_dropped_incomplete_window", 0)
-                ),
-            }
-            if method_norm == "multitaper"
-            else {}
-        )
+        count_payload = {
+            "n_columns_total": int(grid_params.get("n_columns_total", 0)),
+            "n_columns_skipped_masked": int(
+                grid_params.get("n_columns_skipped_masked", 0)
+            ),
+            "n_columns_dropped_incomplete_window": int(
+                grid_params.get("n_columns_dropped_incomplete_window", 0)
+            ),
+        }
         config_payload = {
             "metric_key": metric_key,
             "metric_label": metric_label,
             "connectivity_metric": "psi",
             "method": str(method_norm),
-            **(
-                {"time_axis_mode": "sliding_window"}
-                if method_norm == "multitaper"
-                else {}
-            ),
+            "time_axis_mode": "sliding_window",
+            "coherency_estimation": PSI_COHERENCY_ESTIMATION,
             "low_freq": float(low_freq),
             "high_freq": float(high_freq),
             "step_hz": float(step_hz),
@@ -392,11 +363,8 @@ def run_psi_metric(
             "high_freq": float(high_freq),
             "step_hz": float(step_hz),
             "method": str(method_norm),
-            **(
-                {"time_axis_mode": "sliding_window"}
-                if method_norm == "multitaper"
-                else {}
-            ),
+            "time_axis_mode": "sliding_window",
+            "coherency_estimation": PSI_COHERENCY_ESTIMATION,
             "time_resolution_s": float(time_resolution_s),
             "hop_s": float(hop_s),
             "mt_time_bandwidth_product": float(mt_time_bandwidth_product),
