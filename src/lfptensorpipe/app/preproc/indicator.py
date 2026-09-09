@@ -113,6 +113,7 @@ def _filter_signature(
     h_freq: Any,
     advance_params: dict[str, Any] | None,
     epoch_coverage_semantics: Any = FILTER_EPOCH_COVERAGE_SEMANTICS,
+    bad_samples_policy: Any = "filtered_reference",
 ) -> dict[str, Any] | None:
     ok_advance, normalized_advance, _ = normalize_filter_advance_params(advance_params)
     if not ok_advance:
@@ -149,6 +150,11 @@ def _filter_signature(
         "isolate_bad_boundaries": normalized_advance["isolate_bad_boundaries"],
         "mark_filter_edges": normalized_advance["mark_filter_edges"],
         "epoch_coverage_semantics": epoch_coverage_semantics,
+        "bad_samples_policy": (
+            bad_samples_policy
+            if normalized_advance["isolate_bad_boundaries"]
+            else "continuous"
+        ),
     }
 
 
@@ -170,6 +176,7 @@ def _filter_signature_from_log(payload: dict[str, Any]) -> dict[str, Any] | None
             "mark_filter_edges": params.get("mark_filter_edges"),
         },
         epoch_coverage_semantics=params.get("epoch_coverage_semantics"),
+        bad_samples_policy=params.get("bad_samples_policy"),
     )
 
 

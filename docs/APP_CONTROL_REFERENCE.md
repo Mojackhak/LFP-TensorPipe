@@ -1833,7 +1833,8 @@ checkbox, before the new adaptive controls, so its scope remains unambiguous.
 With BAD-boundary isolation enabled, ordinary and adaptive CleanLine process
 independent channels in parallel. Each channel retains its own valid segments,
 threshold, noise estimates and joint frequency-coefficient optimization. Results
-and diagnostics are assembled in input channel order; BAD samples remain untouched.
+and diagnostics are assembled in input channel order; BAD samples use the continuous
+filtered reference described below.
 The reviewed-filter Python API accepts runtime-only `n_jobs`: `None` selects up to
 four available CPU workers, `1` selects serial execution, and positive integers
 select a worker limit capped by channel count. Other models and continuous filtering
@@ -1882,3 +1883,32 @@ method and status messages report dropped segments. Close Raw even on failures.
 These QC changes only recompute the requested plot; Filter, Tensor and downstream
 results remain current. Verify method dispatch, draft retention, independent BAD
 support, short/all-short segments, weighting, grids and all-NaN plotting.
+
+### Filtered samples inside BAD/EDGE intervals
+
+Preview and accepted Filter outputs store filtered values throughout BAD/EDGE
+intervals. With boundary isolation enabled, each affected channel first obtains
+a continuous filtered reference from the original full channel using the active
+bandpass/notch/model parameters. Only excluded samples are copied from this
+reference; every valid segment is still independently filtered from original
+samples. The reference never supplies input to a valid-segment estimator. Channels
+without excluded samples do not compute a reference. Point boundaries split valid
+segments without creating excluded samples. An all-BAD channel retains its full
+filtered reference. No second filtering of saved Filter data occurs on review.
+
+This applies to FIR and all four models, including BAD annotations already present
+before Preview. Short BAD intervals need no separate model fit. A whole recording
+that cannot support the chosen model still raises its existing parameter/support
+error; Visualization's short-segment NaN policy does not change Filter behavior.
+CleanLine adaptive coefficients for the continuous reference are recorded separately
+from valid-segment coefficients as `bad_reference` diagnostics. BAD/EDGE annotations
+and downstream exclusion semantics remain intact. Reopening an unchanged plot does
+not recompute, while edits regenerate deterministically from original Raw.
+
+Runtime logs record `bad_samples_policy=filtered_reference` for isolated filtering;
+continuous filtering records `continuous`. This semantic field affects only Filter
+freshness and existing downstream lineage. Older isolated results lack this output
+policy and must be recomputed to adopt it; no source files, unrelated components,
+configuration versions or global cache rules change. Tests verify pre-existing,
+newly marked, short, channel-scoped and all-BAD intervals, valid-sample isolation,
+serial/parallel equality, preview and accepted logs, and removal of a BAD interval.

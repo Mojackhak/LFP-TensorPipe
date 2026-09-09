@@ -526,6 +526,7 @@ def finalize_reviewed_lfp_filter(
     edge_masks: list[np.ndarray] = []
     segment_counts: dict[str, int] = {}
     adaptive_reports: list[dict[str, Any]] = []
+    bad_reference_reports: list[dict[str, Any]] = []
 
     if not isolate_bad_boundaries:
         segment_reports = []
@@ -553,9 +554,35 @@ def finalize_reviewed_lfp_filter(
     else:
         from joblib import Parallel, delayed, cpu_count, parallel_config
 
-        def filter_channel(channel_index, channel, channel_data, segments):
+        def filter_channel(channel_index, channel, channel_data, segments, invalid):
             channel_data = channel_data.copy()
             channel_reports = []
+            reference_reports = []
+            if invalid.any():
+                reference = _filter_valid_segment(
+                    channel_data,
+                    sfreq=sfreq,
+                    l_freq=l_freq,
+                    h_freq=h_freq,
+                    notches=notches,
+                    notch_widths=notch_widths,
+                    notch_model=notch_model,
+                    significance_thresholds=(
+                        [thresholds[channel]] if thresholds else None
+                    ),
+                    diagnostics=reference_reports,
+                )
+                channel_data[invalid] = reference[invalid]
+                reference_reports = [
+                    {
+                        **entry,
+                        "channel_index": channel_index,
+                        "channel": channel,
+                        "segment_start_sample": 0,
+                        "segment_stop_sample": len(channel_data),
+                    }
+                    for entry in reference_reports
+                ]
             channel_edges = np.zeros(channel_data.size, dtype=bool)
             for start, stop in segments:
                 length = stop - start
@@ -589,16 +616,22 @@ def finalize_reviewed_lfp_filter(
                     else:
                         channel_edges[start : start + radius] = True
                         channel_edges[stop - radius : stop] = True
-            return channel_data, channel_reports, channel_edges
+            return channel_data, channel_reports, channel_edges, reference_reports
 
         tasks = []
         for channel_index, channel in enumerate(out.ch_names):
             invalid, point_boundaries = _filter_boundary_support(out, channel=channel)
             segments = _valid_filter_segments(invalid, point_boundaries)
             segment_counts[channel] = len(segments)
-            tasks.append((channel_index, channel, data[channel_index], segments))
+            tasks.append(
+                (channel_index, channel, data[channel_index], segments, invalid)
+            )
         workers = 1
-        if notch_model and notch_model["enabled"] and notch_model["method"] == "cleanline":
+        if (
+            notch_model
+            and notch_model["enabled"]
+            and notch_model["method"] == "cleanline"
+        ):
             workers = min(len(tasks), n_jobs or min(4, cpu_count()))
         if workers > 1:
             with parallel_config(backend="loky", inner_max_num_threads=1):
@@ -607,9 +640,15 @@ def finalize_reviewed_lfp_filter(
                 )
         else:
             results = [filter_channel(*task) for task in tasks]
-        for channel_index, (channel_data, reports, channel_edges) in enumerate(results):
+        for channel_index, (
+            channel_data,
+            reports,
+            channel_edges,
+            reference_reports,
+        ) in enumerate(results):
             data[channel_index] = channel_data
             adaptive_reports.extend(reports)
+            bad_reference_reports.extend(reference_reports)
             if mark_filter_edges:
                 edge_masks.append(channel_edges)
 
@@ -674,9 +713,14 @@ def finalize_reviewed_lfp_filter(
         "n_edge_annotations": len(annotation_rows),
         "segments_by_channel": segment_counts,
         "filter_order": ["bandpass", "notch"],
+        "bad_samples_policy": (
+            "filtered_reference" if isolate_bad_boundaries else "continuous"
+        ),
     }
     if adaptive_reports:
         report["cleanline_adaptive"] = adaptive_reports
+    if bad_reference_reports:
+        report["bad_reference"] = bad_reference_reports
     return out, report
 
 
@@ -970,7 +1014,7 @@ def mark_lfp_bad_segments(
     # 2) Filter for detection
     use_model = bool(active_model["enabled"] and notches is not None and notches.size)
     model_report = {}
-    if use_model:
+    if use_model or cfg.isolate_bad_boundaries:
         raw_mark, model_report = finalize_reviewed_lfp_filter(
             raw_mark,
             reviewed_annotations=raw_mark.annotations,
@@ -989,7 +1033,12 @@ def mark_lfp_bad_segments(
             fir_design="firwin",
             phase="zero",
         )
-    if (notches is not None) and (notches.size > 0) and not use_model:
+    if (
+        (notches is not None)
+        and (notches.size > 0)
+        and not use_model
+        and not cfg.isolate_bad_boundaries
+    ):
         raw_mark.notch_filter(freqs=notches, notch_widths=notch_widths)
 
     # 3) Fixed-length epochs
@@ -1202,6 +1251,9 @@ def mark_lfp_bad_segments(
     }
     if "cleanline_adaptive" in model_report:
         summary["cleanline_adaptive"] = model_report["cleanline_adaptive"]
+    summary["bad_samples_policy"] = model_report.get("bad_samples_policy", "continuous")
+    if "bad_reference" in model_report:
+        summary["bad_reference"] = model_report["bad_reference"]
     if autoreject_error is not None:
         summary["autoreject_error"] = autoreject_error
     if autoreject_plot_error is not None:

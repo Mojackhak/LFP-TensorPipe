@@ -403,6 +403,16 @@ def apply_filter_step(
                     "high_freq": cfg.h_freq,
                     "notches": list(cfg.notches or []),
                     "cleanline_thresholds_by_channel": channel_thresholds,
+                    "bad_samples_policy": (
+                        "filtered_reference"
+                        if cfg.isolate_bad_boundaries
+                        else "continuous"
+                    ),
+                    **(
+                        {"bad_reference": summary["bad_reference"]}
+                        if "bad_reference" in summary
+                        else {}
+                    ),
                     **(
                         {"cleanline_adaptive": summary["cleanline_adaptive"]}
                         if "cleanline_adaptive" in summary
@@ -434,6 +444,16 @@ def apply_filter_step(
                         "high_freq": cfg.h_freq,
                         "notches": list(cfg.notches or []),
                         "cleanline_thresholds_by_channel": channel_thresholds,
+                        "bad_samples_policy": (
+                            "filtered_reference"
+                            if cfg.isolate_bad_boundaries
+                            else "continuous"
+                        ),
+                        **(
+                            {"bad_reference": summary["bad_reference"]}
+                            if "bad_reference" in summary
+                            else {}
+                        ),
                         **(
                             {"cleanline_adaptive": summary["cleanline_adaptive"]}
                             if "cleanline_adaptive" in summary
@@ -603,6 +623,11 @@ def finalize_filter_review(
         )
         final_params = {
             **params,
+            "bad_samples_policy": (
+                "filtered_reference"
+                if advance["isolate_bad_boundaries"]
+                else "continuous"
+            ),
             "low_freq": runtime_params["l_freq"],
             "high_freq": runtime_params["h_freq"],
             "notches": runtime_params["notches"],
@@ -622,6 +647,11 @@ def finalize_filter_review(
         }
         final_config = {
             **config,
+            "bad_samples_policy": (
+                "filtered_reference"
+                if advance["isolate_bad_boundaries"]
+                else "continuous"
+            ),
             "notch_model": effective_notch_model(advance["notch_model"]),
             "cleanline_thresholds_by_channel": channel_thresholds,
             "low_freq": runtime_params["l_freq"],
@@ -633,9 +663,10 @@ def finalize_filter_review(
             "filter_output_role": "scientific",
         }
         for target in (final_params, final_config):
-            target.pop("cleanline_adaptive", None)
-            if "cleanline_adaptive" in support_report:
-                target["cleanline_adaptive"] = support_report["cleanline_adaptive"]
+            for key in ("cleanline_adaptive", "bad_reference"):
+                target.pop(key, None)
+                if key in support_report:
+                    target[key] = support_report[key]
         coverage_semantics = params.get(
             "epoch_coverage_semantics",
             config.get("epoch_coverage_semantics"),
