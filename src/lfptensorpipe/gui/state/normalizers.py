@@ -39,12 +39,20 @@ def nested_set(payload: dict[str, Any], path: tuple[str, ...], value: Any) -> No
 
 
 def default_preproc_viz_psd_params() -> dict[str, Any]:
-    return {
-        "fmin": 1.0,
-        "fmax": 200.0,
-        "n_fft": 1024,
-        "average": True,
-    }
+    return dict(
+        fmin=1.0,
+        fmax=200.0,
+        n_fft=1024,
+        average=True,
+        method="welch",
+        tmin=None,
+        tmax=None,
+        exclude_bad=True,
+        bandwidth=1.0,
+        cycles=None,
+        n_freqs=400,
+        spacing="linear",
+    )
 
 
 def default_preproc_filter_basic_params() -> dict[str, Any]:
@@ -125,113 +133,109 @@ def normalize_preproc_filter_basic_params(
     return True, {"notches": notches, "l_freq": l_freq, "h_freq": h_freq}, ""
 
 
-def normalize_preproc_viz_psd_params(
-    params: dict[str, Any] | None,
-) -> tuple[bool, dict[str, Any], str]:
-    defaults = default_preproc_viz_psd_params()
-    if params is None:
-        return True, defaults, ""
-    if not isinstance(params, dict):
-        return False, defaults, "PSD params must be a dictionary."
-
-    merged = dict(defaults)
-    merged.update({key: params[key] for key in defaults if key in params})
-    try:
-        if isinstance(merged["fmin"], bool) or isinstance(merged["fmax"], bool):
-            raise ValueError("PSD frequency bounds must be numeric.")
-        fmin = float(merged["fmin"])
-        fmax = float(merged["fmax"])
-        raw_n_fft = merged["n_fft"]
-        if isinstance(raw_n_fft, bool):
-            raise ValueError("PSD n_fft must be an integer.")
-        n_fft_number = float(raw_n_fft)
-        if not math.isfinite(n_fft_number) or not n_fft_number.is_integer():
-            raise ValueError("PSD n_fft must be an integer.")
-        n_fft = int(n_fft_number)
-        average_raw = merged["average"]
-        if isinstance(average_raw, str):
-            average = average_raw.strip().lower() in {"1", "true", "yes", "on"}
-        else:
-            average = bool(average_raw)
-    except Exception as exc:  # noqa: BLE001
-        return False, defaults, str(exc)
-
-    if not math.isfinite(fmin) or not math.isfinite(fmax):
-        return False, defaults, "PSD frequency bounds must be finite."
-    if fmin < 0.0:
-        return False, defaults, "PSD fmin must be >= 0."
-    if fmax <= fmin:
-        return False, defaults, "PSD fmax must be greater than fmin."
-    if n_fft < 16:
-        return False, defaults, "PSD n_fft must be >= 16."
-
-    return True, {"fmin": fmin, "fmax": fmax, "n_fft": n_fft, "average": average}, ""
-
-
 def default_preproc_viz_tfr_params() -> dict[str, Any]:
-    return {
-        "fmin": 1.0,
-        "fmax": 120.0,
-        "n_freqs": 40,
-        "decim": 4,
-    }
-
-
-def normalize_preproc_viz_tfr_params(
-    params: dict[str, Any] | None,
-) -> tuple[bool, dict[str, Any], str]:
-    defaults = default_preproc_viz_tfr_params()
-    if params is None:
-        return True, defaults, ""
-    if not isinstance(params, dict):
-        return False, defaults, "TFR params must be a dictionary."
-
-    merged = dict(defaults)
-    merged.update({key: params[key] for key in defaults if key in params})
-    try:
-        if isinstance(merged["fmin"], bool) or isinstance(merged["fmax"], bool):
-            raise ValueError("TFR frequency bounds must be numeric.")
-        fmin = float(merged["fmin"])
-        fmax = float(merged["fmax"])
-        raw_n_freqs = merged["n_freqs"]
-        raw_decim = merged["decim"]
-        if isinstance(raw_n_freqs, bool) or isinstance(raw_decim, bool):
-            raise ValueError("TFR n_freqs and decim must be integers.")
-        n_freqs_number = float(raw_n_freqs)
-        decim_number = float(raw_decim)
-        if (
-            not math.isfinite(n_freqs_number)
-            or not n_freqs_number.is_integer()
-            or not math.isfinite(decim_number)
-            or not decim_number.is_integer()
-        ):
-            raise ValueError("TFR n_freqs and decim must be integers.")
-        n_freqs = int(n_freqs_number)
-        decim = int(decim_number)
-    except Exception as exc:  # noqa: BLE001
-        return False, defaults, str(exc)
-
-    if not math.isfinite(fmin) or not math.isfinite(fmax):
-        return False, defaults, "TFR frequency bounds must be finite."
-    if fmin <= 0.0:
-        return False, defaults, "TFR fmin must be > 0."
-    if fmax <= fmin:
-        return False, defaults, "TFR fmax must be greater than fmin."
-    if n_freqs < 4:
-        return False, defaults, "TFR n_freqs must be >= 4."
-    if decim < 1:
-        return False, defaults, "TFR decim must be >= 1."
-
-    return (
-        True,
-        {
-            "fmin": fmin,
-            "fmax": fmax,
-            "n_freqs": n_freqs,
-            "decim": decim,
-        },
-        "",
+    return dict(
+        fmin=1.0,
+        fmax=120.0,
+        n_freqs=40,
+        decim=4,
+        method="morlet",
+        tmin=None,
+        tmax=None,
+        exclude_bad=True,
+        average=True,
+        cycles=None,
+        window_length_s=4.0,
+        bandwidth=1.0,
+        spacing="log",
     )
+
+
+def _normalize_viz(params, mode):
+    defaults = (
+        default_preproc_viz_psd_params()
+        if mode == "psd"
+        else default_preproc_viz_tfr_params()
+    )
+    if params is not None and not isinstance(params, dict):
+        return False, defaults, f"{mode.upper()} params must be a dictionary."
+    merged = {**defaults, **{k: v for k, v in (params or {}).items() if k in defaults}}
+    try:
+        methods = (
+            ("welch", "multitaper", "morlet")
+            if mode == "psd"
+            else ("morlet", "multitaper")
+        )
+        if merged["method"] not in methods:
+            raise ValueError("Unsupported method.")
+        for key in ("average", "exclude_bad"):
+            if not isinstance(merged[key], bool):
+                raise ValueError(f"{key} must be true or false.")
+        active = ["fmin", "fmax", "tmin", "tmax"]
+        if mode == "psd" and merged["method"] == "welch":
+            active += ["n_fft"]
+        else:
+            active += ["n_freqs"]
+            if merged["spacing"] not in ("linear", "log"):
+                raise ValueError("spacing must be linear or log.")
+        if merged["method"] == "morlet":
+            active += ["cycles"]
+        if merged["method"] == "multitaper":
+            active += ["bandwidth"]
+            if mode == "tfr":
+                active += ["window_length_s"]
+        if mode == "tfr":
+            active += ["decim"]
+        for key in active:
+            raw = merged[key]
+            if key in ("tmin", "tmax", "cycles") and (raw is None or raw == ""):
+                merged[key] = None
+                continue
+            if isinstance(raw, bool):
+                raise ValueError(f"{key} must be numeric.")
+            try:
+                value = float(raw)
+            except (ValueError, TypeError) as exc:
+                raise ValueError(f"{key} must be numeric.") from exc
+            if not math.isfinite(value):
+                raise ValueError(f"{key} must be finite.")
+            if key in ("n_fft", "n_freqs", "decim"):
+                minimum = {"n_fft": 16, "n_freqs": 4, "decim": 1}[key]
+                if not value.is_integer() or value < minimum:
+                    raise ValueError(f"{key} must be an integer >= {minimum}.")
+                value = int(value)
+            elif value < 0 or (key not in ("fmin", "tmin") and value == 0):
+                raise ValueError(f"{key} is outside the allowed range.")
+            merged[key] = value
+        if merged["fmax"] <= merged["fmin"]:
+            raise ValueError("fmax must be greater than fmin.")
+        if merged["fmin"] == 0 and (
+            mode == "tfr"
+            or merged["method"] == "morlet"
+            or (merged["method"] != "welch" and merged["spacing"] == "log")
+        ):
+            raise ValueError(
+                "fmin must be positive for wavelets or logarithmic spacing."
+            )
+        if merged["tmax"] is not None and merged["tmax"] <= (merged["tmin"] or 0):
+            raise ValueError("tmax must be greater than tmin.")
+        if (
+            mode == "tfr"
+            and merged["method"] == "multitaper"
+            and merged["window_length_s"] * merged["bandwidth"] < 2
+        ):
+            raise ValueError("window_length_s times bandwidth must be >= 2.")
+    except ValueError as exc:
+        return False, defaults, str(exc)
+    return True, merged, ""
+
+
+def normalize_preproc_viz_psd_params(params):
+    return _normalize_viz(params, "psd")
+
+
+def normalize_preproc_viz_tfr_params(params):
+    return _normalize_viz(params, "tfr")
 
 
 __all__ = [

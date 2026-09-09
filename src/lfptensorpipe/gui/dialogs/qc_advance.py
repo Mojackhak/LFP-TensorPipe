@@ -37,34 +37,70 @@ class QcAdvanceDialog(QDialog):
         form.setLabelAlignment(Qt.AlignLeft)
         form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
 
-        self._fmin_edit = QLineEdit()
-        self._fmax_edit = QLineEdit()
-        self._fmin_edit.setToolTip("Lower bound for the plot frequency range in Hz.")
-        self._fmax_edit.setToolTip("Upper bound for the plot frequency range in Hz.")
-        form.addRow("Low freq", self._fmin_edit)
-        form.addRow("High freq", self._fmax_edit)
-
-        self._n_fft_edit: QLineEdit | None = None
-        self._average_combo: QComboBox | None = None
-        self._n_freqs_edit: QLineEdit | None = None
-        self._decim_edit: QLineEdit | None = None
-
-        if self._mode == "psd":
-            self._n_fft_edit = QLineEdit()
-            self._average_combo = QComboBox()
-            self._average_combo.addItem("True", True)
-            self._average_combo.addItem("False", False)
-            self._n_fft_edit.setToolTip("FFT length in samples for PSD.")
-            self._average_combo.setToolTip("Average PSD across selected channels.")
-            form.addRow("n_fft", self._n_fft_edit)
-            form.addRow("average", self._average_combo)
-        else:
-            self._n_freqs_edit = QLineEdit()
-            self._decim_edit = QLineEdit()
-            self._n_freqs_edit.setToolTip("Number of frequencies for TFR.")
-            self._decim_edit.setToolTip("Decimation factor for TFR computation.")
-            form.addRow("n_freqs", self._n_freqs_edit)
-            form.addRow("decim", self._decim_edit)
+        self._form = form
+        self._fields = {}
+        defaults = (
+            default_preproc_viz_psd_params()
+            if mode == "psd"
+            else default_preproc_viz_tfr_params()
+        )
+        labels = dict(
+            method="Method",
+            fmin="Low freq",
+            fmax="High freq",
+            tmin="Start time (s)",
+            tmax="Stop time (s)",
+            average="Average channels",
+            exclude_bad="Exclude BAD/EDGE",
+            n_fft="n_fft",
+            n_freqs="n_freqs",
+            spacing="Frequency spacing",
+            decim="decim",
+            cycles="Morlet cycles",
+            bandwidth="Bandwidth (Hz)",
+            window_length_s="Window length (s)",
+        )
+        order = [
+            "method",
+            "fmin",
+            "fmax",
+            "tmin",
+            "tmax",
+            "exclude_bad",
+            "average",
+            "n_fft",
+            "spacing",
+            "n_freqs",
+            "cycles",
+            "window_length_s",
+            "bandwidth",
+            "decim",
+        ]
+        for key in order:
+            if key not in defaults:
+                continue
+            if key in ("method", "spacing", "average", "exclude_bad"):
+                edit = QComboBox()
+                choices = (
+                    (
+                        ["welch", "multitaper", "morlet"]
+                        if mode == "psd"
+                        else ["morlet", "multitaper"]
+                    )
+                    if key == "method"
+                    else (["linear", "log"] if key == "spacing" else [True, False])
+                )
+                for value in choices:
+                    edit.addItem(str(value), value)
+            else:
+                edit = QLineEdit()
+                if key in ("tmin", "tmax", "cycles"):
+                    edit.setPlaceholderText("Auto")
+            form.addRow(labels[key], edit)
+            self._fields[key] = edit
+        for key in ("fmin", "fmax", "n_fft", "n_freqs", "decim"):
+            setattr(self, f"_{key}_edit", self._fields.get(key))
+        self._average_combo = self._fields["average"]
 
         root.addLayout(form)
 
@@ -96,14 +132,11 @@ class QcAdvanceDialog(QDialog):
         root.addWidget(button_row)
 
         self._apply_to_fields(session_params)
-        edits = [self._fmin_edit, self._fmax_edit]
-        if self._mode == "psd":
-            edits.append(self._n_fft_edit)
-        else:
-            edits.extend([self._n_freqs_edit, self._decim_edit])
-        for edit in edits:
-            if edit is not None:
+        for edit in self._fields.values():
+            if isinstance(edit, QLineEdit):
                 edit.editingFinished.connect(self._refresh_validation)
+            else:
+                edit.currentIndexChanged.connect(self._refresh_validation)
         self._refresh_validation()
 
     @property
@@ -118,20 +151,23 @@ class QcAdvanceDialog(QDialog):
         return QMessageBox.warning(self, title, message)
 
     def _apply_to_fields(self, params: dict[str, Any]) -> None:
-        self._fmin_edit.setText(self._draft_text(params.get("fmin", 1.0)))
-        self._fmax_edit.setText(self._draft_text(params.get("fmax", 200.0)))
-        if self._mode == "psd":
-            if self._n_fft_edit is not None:
-                self._n_fft_edit.setText(self._draft_text(params.get("n_fft", 1024)))
-            if self._average_combo is not None:
-                target = bool(params.get("average", True))
-                index = self._average_combo.findData(target)
-                self._average_combo.setCurrentIndex(index if index >= 0 else 0)
-        else:
-            if self._n_freqs_edit is not None:
-                self._n_freqs_edit.setText(self._draft_text(params.get("n_freqs", 40)))
-            if self._decim_edit is not None:
-                self._decim_edit.setText(self._draft_text(params.get("decim", 4)))
+        defaults = (
+            default_preproc_viz_psd_params()
+            if self._mode == "psd"
+            else default_preproc_viz_tfr_params()
+        )
+        for key, edit in self._fields.items():
+            value = params.get(key, defaults[key])
+            edit.blockSignals(True)
+            if isinstance(edit, QComboBox):
+                index = edit.findData(value)
+                if index < 0:
+                    edit.addItem(str(value), value)
+                    index = edit.count() - 1
+                edit.setCurrentIndex(index)
+            else:
+                edit.setText(self._draft_text(value))
+            edit.blockSignals(False)
 
     def _on_restore_defaults(self) -> None:
         self._apply_to_fields(self._default_params)
@@ -157,28 +193,13 @@ class QcAdvanceDialog(QDialog):
         return value if np.isfinite(value) else token
 
     def _collect_draft_params(self) -> dict[str, Any]:
-        if self._mode == "psd":
-            return {
-                "fmin": self._draft_number(self._fmin_edit.text()),
-                "fmax": self._draft_number(self._fmax_edit.text()),
-                "n_fft": self._draft_number(
-                    self._n_fft_edit.text() if self._n_fft_edit is not None else ""
-                ),
-                "average": bool(
-                    self._average_combo.currentData()
-                    if self._average_combo is not None
-                    else True
-                ),
-            }
         return {
-            "fmin": self._draft_number(self._fmin_edit.text()),
-            "fmax": self._draft_number(self._fmax_edit.text()),
-            "n_freqs": self._draft_number(
-                self._n_freqs_edit.text() if self._n_freqs_edit is not None else ""
-            ),
-            "decim": self._draft_number(
-                self._decim_edit.text() if self._decim_edit is not None else ""
-            ),
+            key: (
+                edit.currentData()
+                if isinstance(edit, QComboBox)
+                else self._draft_number(edit.text())
+            )
+            for key, edit in self._fields.items()
         }
 
     def _collect_params(self) -> dict[str, Any]:
@@ -192,34 +213,32 @@ class QcAdvanceDialog(QDialog):
         return normalized
 
     def _refresh_validation(self) -> None:
-        controls = [self._fmin_edit, self._fmax_edit]
-        controls.extend(
-            [self._n_fft_edit]
-            if self._mode == "psd"
-            else [self._n_freqs_edit, self._decim_edit]
-        )
-        for control in controls:
+        method = self._fields["method"].currentData()
+        for key, control in self._fields.items():
+            active = True
+            if key == "n_fft":
+                active = method == "welch"
+            elif key in ("spacing", "n_freqs"):
+                active = method != "welch"
+            elif key == "cycles":
+                active = method == "morlet"
+            elif key in ("bandwidth", "window_length_s"):
+                active = method == "multitaper"
+            self._form.setRowVisible(control, active)
             set_control_validation_error(control, None)
         candidate = self._collect_draft_params()
-        if self._mode == "psd":
-            valid, _, message = normalize_preproc_viz_psd_params(candidate)
-        else:
-            valid, _, message = normalize_preproc_viz_tfr_params(candidate)
-        if valid:
-            return
-        lowered = message.lower()
-        if "frequency" in lowered or "fmin" in lowered or "fmax" in lowered:
-            targets = [self._fmin_edit, self._fmax_edit]
-        elif "n_fft" in lowered:
-            targets = [self._n_fft_edit]
-        elif "n_freqs" in lowered and "decim" not in lowered:
-            targets = [self._n_freqs_edit]
-        elif "decim" in lowered and "n_freqs" not in lowered:
-            targets = [self._decim_edit]
-        else:
-            targets = controls
-        for control in targets:
-            set_control_validation_error(control, message)
+        normalize = (
+            normalize_preproc_viz_psd_params
+            if self._mode == "psd"
+            else normalize_preproc_viz_tfr_params
+        )
+        valid, _, message = normalize(candidate)
+        if not valid:
+            targets = [
+                control for key, control in self._fields.items() if key in message
+            ]
+            for control in targets or [self._fields["method"]]:
+                set_control_validation_error(control, message)
 
     def _on_submit(self, action: str) -> None:
         if action == "set_default":

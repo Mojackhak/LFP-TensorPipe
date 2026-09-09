@@ -550,7 +550,7 @@ configuration field, cache key, or schema version.
 | `Advance` (PSD) | Opens PSD plot settings. | PSD QC session/default settings. | Always available. |
 | `Plot` (PSD) | Plots PSD for the selected preprocess step and channels. | QC only. | Requires selected channels and an eligible preprocess step. |
 | `Advance` (TFR) | Opens TFR plot settings. | TFR QC session/default settings. | Always available. |
-| `Plot` (TFR) | Plots TFR for the selected preprocess step and channels, with red shadows over MNE-rounded sample support from positive-duration `BAD*`/`EDGE*` annotations. Channel-specific shadows follow the selected channels; a multi-channel averaged TFR uses their sample-support union. | QC only; the shadows do not mask data or rewrite preprocess artifacts. | Requires selected channels and an eligible preprocess step. |
+| `Plot` (TFR) | Plots TFR for the selected preprocess step and channels, with red shadows over MNE-rounded sample support from positive-duration `BAD*`/`EDGE*` annotations. Channel-specific shadows follow the selected channels; a multi-channel averaged TFR uses their sample-support union. | QC only; Exclude BAD/EDGE isolates computation and leaves missing support as NaN. With exclusion off, shadows only annotate continuous estimates. | Requires selected channels and an eligible preprocess step. |
 | `Channels` (Visualization) | Chooses channels used by PSD/TFR QC plots. | QC plotting channel subset. | Requires a current channel inventory. |
 
 ### 6.4 Filter Advance
@@ -800,7 +800,7 @@ Further reading:
 | --- | --- | --- | --- |
 | `Low freq` | Sets the lower frequency bound shown in the PSD figure. It changes the QC view only and does not modify stored preprocess outputs. | PSD QC output. | Must be numeric. |
 | `High freq` | Sets the upper frequency bound shown in the PSD figure. Keep it within the range that remains meaningful for the current sampling rate and preprocessing. | PSD QC output. | Must be numeric. |
-| `n_fft` | Sets the FFT length used for PSD estimation. Larger values produce denser frequency sampling, but they also require longer effective data segments and increase runtime. | PSD QC behavior only. | PSD dialog only. |
+| `n_fft` | Sets the Welch window and FFT length. Only complete windows contribute; shorter segments are dropped. | PSD QC behavior only. | PSD dialog only. |
 | `Average` | Chooses whether PSD is averaged across the selected channels before plotting. Turn it off when you need to compare channels individually rather than as one summary trace. | PSD QC behavior only. | PSD dialog only. |
 | `Save` | Saves the current PSD QC settings to the session. | Current PSD session parameters. | May retain invalid values as a red record draft; plotting and valid-only persistence remain blocked. |
 | `Set as Default` | Saves the current PSD QC settings as future defaults. | Future PSD defaults. | Blocks on invalid values. |
@@ -810,7 +810,7 @@ Further reading:
 **Notes**
 
 - `Low freq` and `High freq` only crop the PSD figure. They do not retroactively change the preprocess output.
-- `n_fft` mainly controls spectral sampling density. It is not a substitute for changing the actual filter or tensor frequency range.
+- `n_fft` controls Welch window support and spectral sampling. It is inactive for Multitaper and Morlet.
 
 ### 6.8 TFR Advance
 
@@ -1842,3 +1842,43 @@ one inner numerical thread to avoid nested parallelism. No GUI or JSON field is
 added: worker count does not change scientific parameters or stage fingerprints.
 Validate serial/parallel signal and report equivalence and benchmark the complete
 Dys022 valid interval with the first ten seconds excluded before claiming speedup.
+
+### Visualization spectral methods and missing support
+
+PSD Advance offers Welch (existing default), whole-segment Multitaper and Morlet
+mean power. TFR Advance offers Morlet (existing default) and Multitaper. Each
+retains independent method drafts in the existing visualization settings; only
+active fields are validated. Existing records missing method retain their original
+method. No configuration version or processing-stage fingerprint changes.
+
+Shared controls are frequency bounds, optional start/stop seconds relative to the
+Raw start (stop exclusive), channel averaging, and Exclude BAD/EDGE (default true).
+Welch retains n_fft. Multitaper PSD uses the entire valid segment and full bandwidth
+in Hz, without sliding windows or overlap. Morlet uses optional cycles (blank keeps
+max(2, frequency/4)). Multitaper TFR uses window seconds and full bandwidth Hz;
+n_cycles=f*T and time_bandwidth=T*B, requiring T*B>=2. Spectral grid controls are
+linear/log spacing and number of frequencies; Welch retains its native FFT grid.
+TFR decim controls output sampling only. Defaults: 4-s Multitaper TFR window,
+1-Hz Multitaper bandwidth; PSD uses 400 linearly spaced display frequencies,
+while TFR retains 40 logarithmically spaced frequencies and decim=4.
+
+Split each channel at BAD/EDGE intervals and point boundaries when exclusion is
+on. Never concatenate separated samples. Skip segments lacking estimator support;
+record the channel, segment bounds and reason. Preserve frequency-specific missing
+support: TFR kernel edges are NaN and Morlet mean power uses only supported samples.
+Whole-segment PSDs use a common display grid, interpolating linear power within
+native frequency support without extrapolation and weighting by contributing
+sample duration per frequency. Welch uses only full n_fft windows. All missing
+outputs retain the requested shape filled with NaN. Invalid parameters and actual
+estimator errors still surface. Across-channel averaging is equal-weight finite
+linear power before dB conversion. No automatic notch exclusion or interpolation
+across missing frequency values is performed.
+
+PSD density uses uV^2/Hz; Morlet mean power and TFR use estimator power in uV^2,
+not density. TFR uses actual frequency/time coordinates via pcolormesh. All-NaN
+plots show a no-estimable-data message without computing color limits. Exclusion
+off keeps continuous estimation and annotation shadows. Plot titles identify the
+method and status messages report dropped segments. Close Raw even on failures.
+These QC changes only recompute the requested plot; Filter, Tensor and downstream
+results remain current. Verify method dispatch, draft retention, independent BAD
+support, short/all-short segments, weighting, grids and all-NaN plotting.

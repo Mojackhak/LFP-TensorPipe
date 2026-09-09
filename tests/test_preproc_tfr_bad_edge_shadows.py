@@ -76,8 +76,8 @@ class _TfrPlotHarness:
     def __init__(self, raw: mne.io.RawArray) -> None:
         self._raw = raw
         self._preproc_viz_tfr_params = {
-            "fmin": 4.0,
-            "fmax": 40.0,
+            "fmin": 1.0,
+            "fmax": 4.0,
             "n_freqs": 8,
             "decim": 4,
         }
@@ -86,28 +86,15 @@ class _TfrPlotHarness:
         self.figure = None
         self.warning = None
 
+    def statusBar(self):
+        return Mock()
+
     def _current_preproc_viz_source(self):
         return "raw", Path("/tmp/raw/raw.fif")
 
     def _read_raw_fif(self, path, *, preload, verbose):
         _ = path, preload, verbose
         return self._raw
-
-    def _compute_tfr_array_morlet(
-        self,
-        data,
-        *,
-        sfreq,
-        freqs,
-        n_cycles,
-        output,
-        decim,
-    ):
-        _ = sfreq, n_cycles, output
-        return np.ones(
-            (data.shape[0], data.shape[1], len(freqs), data.shape[-1] // decim),
-            dtype=float,
-        )
 
     def _create_matplotlib_subplots(self):
         figure, axis = plt.subplots()

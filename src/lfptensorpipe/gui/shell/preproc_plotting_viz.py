@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from lfptensorpipe.lfp.common import decimated_times_from_raw
 from lfptensorpipe.lfp.mask.annotations import (
     annotation_sample_support_by_channel,
     valid_segments_from_annotation_support,
@@ -110,137 +109,146 @@ def _on_preproc_viz_tfr_advance(self) -> None:
 
 
 def _on_preproc_viz_psd_plot(self) -> None:
-    valid, plot_params, message = normalize_preproc_viz_psd_params(
-        self._preproc_viz_psd_params
-    )
-    if not valid:
-        self._show_warning("Visualization PSD", f"Invalid parameters:\n{message}")
-        return
-    source = self._current_preproc_viz_source()
-    if source is None:
-        self._show_warning(
-            "Visualization PSD",
-            "No valid visualization source is available.",
-        )
-        return
-    _, raw_path = source
-    picks = list(self._preproc_viz_selected_channels)
-    if not picks:
-        self._show_warning("Visualization PSD", "Select at least one channel.")
-        return
-    if not self._enable_plots:
-        return
-    try:
-        raw = self._read_raw_fif(raw_path, preload=False, verbose="ERROR")
-        spectrum = raw.compute_psd(
-            method="welch",
-            fmin=float(plot_params["fmin"]),
-            fmax=float(plot_params["fmax"]),
-            n_fft=int(plot_params["n_fft"]),
-            picks=picks,
-            verbose="ERROR",
-        )
-        figure = spectrum.plot(average=bool(plot_params["average"]))
-        self._track_plot_figure(figure)
-        if hasattr(raw, "close"):
-            raw.close()
-    except Exception as exc:
-        self._show_warning("Visualization PSD", f"PSD plot failed:\n{exc}")
+    _plot_spectral_qc(self, "psd")
 
 
 def _on_preproc_viz_tfr_plot(self) -> None:
-    valid, plot_params, message = normalize_preproc_viz_tfr_params(
-        self._preproc_viz_tfr_params
+    _plot_spectral_qc(self, "tfr")
+
+
+def _plot_spectral_qc(self, mode):
+    import numpy as np
+    from matplotlib.colors import LogNorm
+    from lfptensorpipe.preproc.spectral_qc import compute_spectral_qc, finite_mean
+
+    normalize = (
+        normalize_preproc_viz_psd_params
+        if mode == "psd"
+        else normalize_preproc_viz_tfr_params
     )
+    valid, params, message = normalize(getattr(self, f"_preproc_viz_{mode}_params"))
+    title = f"Visualization {mode.upper()}"
     if not valid:
-        self._show_warning("Visualization TFR", f"Invalid parameters:\n{message}")
+        self._show_warning(title, f"Invalid parameters: {message}")
         return
     source = self._current_preproc_viz_source()
     if source is None:
-        self._show_warning(
-            "Visualization TFR",
-            "No valid visualization source is available.",
-        )
+        self._show_warning(title, "No valid visualization source is available.")
         return
-    _, raw_path = source
     picks = list(self._preproc_viz_selected_channels)
     if not picks:
-        self._show_warning("Visualization TFR", "Select at least one channel.")
+        self._show_warning(title, "Select at least one channel.")
         return
     if not self._enable_plots:
         return
+    raw = None
     try:
-        import numpy as np
-        from matplotlib.colors import LogNorm
-
-        raw = self._read_raw_fif(raw_path, preload=True, verbose="ERROR")
-        sfreq = float(raw.info["sfreq"])
-        data = raw.get_data(picks=picks, start=0, stop=raw.n_times)
-        if data.shape[0] == 0 or data.shape[1] == 0:
-            raise ValueError("No samples available for selected channels.")
-        fmin = float(plot_params["fmin"])
-        fmax = float(plot_params["fmax"])
-        n_freqs = int(plot_params["n_freqs"])
-        decim = int(plot_params["decim"])
-        freqs = np.logspace(np.log10(fmin), np.log10(fmax), n_freqs, dtype=float)
-        n_cycles = np.maximum(2.0, freqs / 4.0)
-        power = self._compute_tfr_array_morlet(
-            data[np.newaxis, :, :],
-            sfreq=sfreq,
-            freqs=freqs,
-            n_cycles=n_cycles,
-            output="power",
-            decim=decim,
-        )
-        mean_power = power.mean(axis=1).squeeze(0)
-        time_axis = decimated_times_from_raw(
-            raw,
-            decim=decim,
-            target_n_times=mean_power.shape[1],
-        )
-        positive_power = mean_power[np.isfinite(mean_power) & (mean_power > 0.0)]
-        if positive_power.size == 0:
-            raise ValueError(
-                "TFR power contains no positive values for log color scale."
+        _, raw_path = source
+        raw = self._read_raw_fif(raw_path, preload=False, verbose="ERROR")
+        result = compute_spectral_qc(raw, picks, params, mode)
+        freqs, power = result["frequencies"], result["power"] * 1e12
+        labels = picks
+        if params["average"]:
+            power = finite_mean(power, axis=0)[None]
+            labels = ["Channel average"]
+        method = params["method"]
+        if mode == "psd":
+            fig, ax = self._create_matplotlib_subplots()
+            with np.errstate(divide="ignore", invalid="ignore"):
+                display = 10 * np.log10(power)
+            for label, values in zip(labels, display):
+                ax.plot(freqs, values, label=label)
+            ax.set_xlabel("Frequency (Hz)")
+            ax.set_ylabel(
+                "PSD (dB re 1 µV²/Hz)"
+                if result["density"]
+                else "Mean wavelet power (dB re 1 µV²)"
             )
-        vmin = float(positive_power.min())
-        vmax = float(positive_power.max())
-        if vmax <= vmin:
-            vmax = vmin * (1.0 + 1e-6)
-        plot_power = np.maximum(mean_power, vmin)
-        fig, ax = self._create_matplotlib_subplots()
-        image = ax.imshow(
-            plot_power,
-            aspect="auto",
-            origin="lower",
-            extent=[time_axis[0], time_axis[-1], freqs[0], freqs[-1]],
-            cmap="viridis",
-            norm=LogNorm(vmin=vmin, vmax=vmax),
-        )
-        shadow_intervals = _tfr_bad_edge_shadow_intervals(
-            raw,
-            picks=picks,
-            display_start=float(time_axis[0]),
-            display_stop=float(time_axis[-1]),
-        )
-        for start, stop in shadow_intervals:
-            ax.axvspan(
-                start,
-                stop,
-                color=_TFR_BAD_EDGE_SHADOW_COLOR,
-                alpha=_TFR_BAD_EDGE_SHADOW_ALPHA,
-                linewidth=0.0,
-                zorder=2,
+            ax.set_title(f"{mode.upper()} | {method} | {raw_path.parent.name}")
+            ax.legend()
+            if not np.isfinite(display).any():
+                ax.text(
+                    0.5,
+                    0.5,
+                    "No estimable finite power",
+                    transform=ax.transAxes,
+                    ha="center",
+                )
+            self._track_plot_figure(fig)
+            fig.tight_layout()
+            fig.show()
+        else:
+            times = result["times"]
+            # Edges follow the actual log or linear centers, including one time cell.
+            transformed = np.log(freqs) if params["spacing"] == "log" else freqs
+            edges = np.r_[
+                transformed[0] - (transformed[1] - transformed[0]) / 2,
+                (transformed[:-1] + transformed[1:]) / 2,
+                transformed[-1] + (transformed[-1] - transformed[-2]) / 2,
+            ]
+            if params["spacing"] == "log":
+                edges = np.exp(edges)
+            dt = params["decim"] / float(raw.info["sfreq"])
+            time_edges = np.r_[times - dt / 2, times[-1] + dt / 2]
+            time_edges[0] = max(params["tmin"] or 0, time_edges[0])
+            time_edges[-1] = min(
+                params["tmax"] or raw.n_times / raw.info["sfreq"],
+                raw.n_times / raw.info["sfreq"],
+                time_edges[-1],
             )
-        ax.set_xlabel("Time (s)")
-        ax.set_ylabel("Frequency (Hz)")
-        ax.set_yscale("log")
-        ax.set_title(f"TFR ({raw_path.parent.name})")
-        fig.colorbar(image, ax=ax, label="Power (log scale)")
-        fig.tight_layout()
-        self._track_plot_figure(fig)
-        fig.show()
-        if hasattr(raw, "close"):
-            raw.close()
+            for label, values in zip(labels, power):
+                fig, ax = self._create_matplotlib_subplots()
+                positive = values[np.isfinite(values) & (values > 0)]
+                if positive.size:
+                    vmin, vmax = positive.min(), positive.max()
+                    image = ax.pcolormesh(
+                        time_edges,
+                        edges,
+                        np.ma.masked_where(
+                            ~np.isfinite(values) | (values <= 0), values
+                        ),
+                        shading="flat",
+                        cmap="viridis",
+                        norm=LogNorm(vmin, max(vmax, vmin * (1 + 1e-6))),
+                    )
+                    fig.colorbar(image, ax=ax, label="Power (µV², log scale)")
+                else:
+                    ax.text(
+                        0.5,
+                        0.5,
+                        "No estimable finite power",
+                        transform=ax.transAxes,
+                        ha="center",
+                    )
+                ax.set_xlim(time_edges[0], time_edges[-1])
+                ax.set_ylim(edges[0], edges[-1])
+                if params["spacing"] == "log":
+                    ax.set_yscale("log")
+                shadow_picks = picks if params["average"] else [label]
+                for left, right in _tfr_bad_edge_shadow_intervals(
+                    raw,
+                    picks=shadow_picks,
+                    display_start=float(times[0]),
+                    display_stop=float(time_edges[-1]),
+                ):
+                    ax.axvspan(
+                        left,
+                        right,
+                        color=_TFR_BAD_EDGE_SHADOW_COLOR,
+                        alpha=_TFR_BAD_EDGE_SHADOW_ALPHA,
+                        linewidth=0,
+                    )
+                ax.set_xlabel("Time (s)")
+                ax.set_ylabel("Frequency (Hz)")
+                ax.set_title(f"TFR | {method} | {label} | {raw_path.parent.name}")
+                self._track_plot_figure(fig)
+                fig.tight_layout()
+                fig.show()
+        self.statusBar().showMessage(
+            f"{title}: {len(result['dropped'])} segments had insufficient support; missing values remain NaN."
+        )
     except Exception as exc:
-        self._show_warning("Visualization TFR", f"TFR plot failed:\n{exc}")
+        self._show_warning(title, f"Plot failed: {exc}")
+    finally:
+        if raw is not None:
+            raw.close()
