@@ -24,8 +24,10 @@ def bootstrap_raw_step_from_rawdata(
     rawdata_input_fif_path_fn: Callable[[RecordContext], Path],
     preproc_step_raw_path_fn: Callable[[PathResolver, str], Path],
     mark_preproc_step_fn: MarkStepFn,
+    reviewed_raw: Any = None,
+    review_is_current_fn: Callable[[], bool] | None = None,
 ) -> tuple[bool, str]:
-    """Copy canonical rawdata FIF into preproc `raw/` and mark step complete."""
+    """Accept canonical Raw, including optional browser edits, into preproc."""
     resolver = PathResolver(context)
     src = rawdata_input_fif_path_fn(context)
     dst = preproc_step_raw_path_fn(resolver, "raw")
@@ -51,7 +53,12 @@ def bootstrap_raw_step_from_rawdata(
             [dst, log_path],
             cleanup_stale_residues=True,
         ) as output_set:
-            shutil.copy2(src, output_set.staged_path(dst))
+            if reviewed_raw is None:
+                shutil.copy2(src, output_set.staged_path(dst))
+            else:
+                reviewed_raw.save(
+                    str(output_set.staged_path(dst)), fmt="double", overwrite=True
+                )
             mark_preproc_step_fn(
                 resolver=resolver,
                 step="raw",
@@ -59,9 +66,14 @@ def bootstrap_raw_step_from_rawdata(
                 params=success_params,
                 input_path=str(src),
                 output_path=str(dst),
-                message="Copied canonical rawdata input into preproc raw step.",
+                message="Accepted canonical rawdata input into preproc raw step.",
                 log_path=output_set.staged_path(log_path),
             )
+            if review_is_current_fn is not None and not review_is_current_fn():
+                return (
+                    False,
+                    "Raw review source changed before acceptance; edits discarded.",
+                )
             output_set.commit()
     except Exception as exc:  # noqa: BLE001
         mark_preproc_step_fn(

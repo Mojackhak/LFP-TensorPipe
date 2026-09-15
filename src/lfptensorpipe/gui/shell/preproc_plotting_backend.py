@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 PREPROC_PLOT_WINDOW_SIZE = (1200, 800)
 _PREPROC_PLOT_DPI_FALLBACK = 96.0
 _PLOT_CHANGE_TRACKED_STEPS = frozenset(
-    ("filter", "ecg_artifact_removal", "annotations")
+    ("raw", "filter", "ecg_artifact_removal", "annotations")
 )
 _PLOT_ATOMIC_EDIT_STEPS = _PLOT_CHANGE_TRACKED_STEPS.difference({"filter"})
 
@@ -160,7 +160,11 @@ def _preproc_plot_generation_snapshot(
         or not preproc_step_lineage_is_current(resolver, step)
     ):
         return None
-    captured = capture_preproc_input_generation(resolver, step)
+    captured = (
+        ("rawdata", {})
+        if step == "raw"
+        else capture_preproc_input_generation(resolver, step)
+    )
     if captured is None:
         return None
     source_step, input_generations = captured
@@ -204,7 +208,11 @@ def _preproc_plot_generation_stale_reason(
         return "accepted generation is no longer current"
     if accepted_result_generation_id(payload) != snapshot.get("result_generation_id"):
         return "accepted generation changed after this plot was opened"
-    captured = capture_preproc_input_generation(resolver, step)
+    captured = (
+        ("rawdata", {})
+        if step == "raw"
+        else capture_preproc_input_generation(resolver, step)
+    )
     expected_capture = (
         snapshot.get("source_step"),
         snapshot.get("input_generations"),
@@ -291,10 +299,15 @@ def _capture_stale_raw_review_open_state(
                 "Stale Raw review path does not match the canonical rawdata input."
             )
         kind = "raw_retained_view"
+    target_dir = PathResolver(context).preproc_step_dir("raw", create=False)
     return {
         "context": context,
         "opened_disk_state": opened_disk_state,
         "kind": kind,
+        "target_states": {
+            path: _preproc_plot_disk_state(path)
+            for path in (target_dir / "raw.fif", target_dir / "lfptensorpipe_log.json")
+        },
     }
 
 
@@ -312,6 +325,11 @@ def _stale_raw_review_source_reason(
         return "belongs to a record selection changed after this plot was opened"
     if raw_path != rawdata_input_fif_path(context):
         return "no longer matches this record's canonical rawdata input"
+    if any(
+        _preproc_plot_disk_state(path) != state
+        for path, state in open_state["target_states"].items()
+    ):
+        return "has a newer preprocess Raw result after this plot was opened"
     return _preproc_plot_stale_target_reason(
         raw_path,
         opened_disk_state=open_state.get("opened_disk_state"),
@@ -397,7 +415,8 @@ def _promote_edited_preproc_plot_raw(
         [raw_path, log_path],
         cleanup_stale_residues=True,
     ) as output_set:
-        raw.save(str(output_set.staged_path(raw_path)), overwrite=True)
+        save_options = {"fmt": "double"} if step == "raw" else {}
+        raw.save(str(output_set.staged_path(raw_path)), overwrite=True, **save_options)
         append_run_log_event(
             output_set.staged_path(log_path),
             RunLogRecord(
@@ -428,7 +447,13 @@ def _promote_edited_preproc_plot_raw(
             raise RuntimeError(
                 "Editable Preprocess log changed while plot edits were staged."
             )
-        if not preproc_input_generation_matches(
+        if step == "raw":
+            stale_reason = _preproc_plot_generation_stale_reason(
+                context, step, generation_snapshot
+            )
+            if stale_reason is not None:
+                raise RuntimeError(stale_reason)
+        elif not preproc_input_generation_matches(
             resolver,
             step,
             source_step=source_step,
@@ -579,7 +604,10 @@ def _finalize_tracked_browser_close(self, token: int, event: Any | None = None) 
     title_prefix = str(entry.get("title_prefix", "Plot"))
 
     try:
-        if step == "raw":
+        if step == "raw" and (
+            not isinstance(entry.get("tracked_open_state"), dict)
+            or entry["tracked_open_state"].get("kind") != "accepted"
+        ):
             tracked_open_state = entry.get("tracked_open_state")
             if not isinstance(tracked_open_state, dict):
                 self.statusBar().showMessage(f"{title_prefix} plot closed.")
@@ -618,7 +646,28 @@ def _finalize_tracked_browser_close(self, token: int, event: Any | None = None) 
                         self._set_global_ui_lock("plot", False)
 
                     def work() -> tuple[bool, str]:
-                        return self._bootstrap_raw_step_from_rawdata_runtime(context)
+                        from lfptensorpipe.app.preproc.steps.raw import (
+                            bootstrap_raw_step_from_rawdata,
+                        )
+                        from lfptensorpipe.app.preproc.service import (
+                            mark_preproc_step,
+                            preproc_step_raw_path,
+                        )
+
+                        ok, message = bootstrap_raw_step_from_rawdata(
+                            context,
+                            rawdata_input_fif_path_fn=rawdata_input_fif_path,
+                            preproc_step_raw_path_fn=preproc_step_raw_path,
+                            mark_preproc_step_fn=mark_preproc_step,
+                            reviewed_raw=raw,
+                            review_is_current_fn=lambda: _stale_raw_review_source_reason(
+                                self, raw_path=raw_path, open_state=tracked_open_state
+                            )
+                            is None,
+                        )
+                        if ok:
+                            invalidate_downstream_preproc_steps(context, "raw")
+                        return ok, message
 
                     if can_switch_to_busy and hasattr(self, "_run_with_busy"):
                         ok, message = self._run_with_busy("Raw Accept", work)

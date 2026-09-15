@@ -25,7 +25,7 @@ def _on_preproc_raw_plot(self) -> None:
         self.statusBar().showMessage(
             "Current Raw opened from the accepted preprocess artifact."
         )
-        self._open_mne_raw_plot(raw_path, title_prefix="Raw")
+        self._open_mne_raw_plot(raw_path, title_prefix="Raw", autosave_step="raw")
         return
 
     canonical_path = rawdata_input_fif_path(context)
