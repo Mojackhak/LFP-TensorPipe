@@ -407,6 +407,33 @@ were retained.
 
 ### 5.2 Step 1: Filter
 
+In Filter Advance, CleanLine offers optional `Limit over-subtraction`,
+`Background radius (Hz)` and `Background bandwidth (Hz)`. The checkbox is off
+by default; the background defaults are 10 Hz and 1 Hz.
+
+When enabled, each target's estimated waveform is scaled to match a background
+estimated from both sides of the excluded band. The coefficient is nonnegative
+and may exceed one; the resulting spectrum is not forced to be flat or kept above
+a hard floor. Background bandwidth controls a separate PSD estimate, not the
+line-fitting bandwidth. Background fields are inactive when the checkbox is off.
+Save changes for the current record, or use Set as Default / Restore Defaults
+to manage defaults; Cancel discards dialog changes.
+
+Use Plot to inspect both remaining peaks and depressions. Run logs record the
+coefficient, background fit, residual elevation, downward deviation and convergence
+for each channel, processing segment and target. Final acceptance recomputes these
+from the source and reviewed BAD boundaries. With boundary isolation enabled,
+adaptive CleanLine depends on the whole valid segment: enabling Mark filter edges can
+therefore mark that entire segment. Existing BAD and bad-channel flags are retained.
+
+Editing disabled background drafts does not invalidate computation. Effective
+parameter changes affect Filter; accepting a changed Filter result updates the
+state of its dependent results. The subtraction optimizer's coefficient domain
+does not invalidate accepted results whose controls and inputs still match.
+Recorded subtraction-coefficient bounds are run information, not a freshness
+condition.
+These controls do not change Tensor notch settings automatically.
+
 This step performs the base signal cleanup used by the rest of the pipeline. In
 this demo, it applies the tutorial band-pass and SceneRay-specific notch filtering, and annotates bad spans before any event-related processing.
 

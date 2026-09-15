@@ -122,6 +122,8 @@ def _filter_signature(
     from lfptensorpipe.app.preproc.steps.filter import normalize_filter_runtime_params
 
     active_model = effective_notch_model(normalized_advance["notch_model"])
+    if active_model["enabled"]:
+        active_model["params"].pop("coefficient_bounds", None)
     valid, runtime, _ = normalize_filter_runtime_params(
         notches=notches, l_freq=l_freq, h_freq=h_freq, notch_model=active_model
     )

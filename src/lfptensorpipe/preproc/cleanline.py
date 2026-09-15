@@ -197,6 +197,7 @@ def clean_line(
             )
             if diagnostics is not None:
                 diagnostics.extend(
-                    {"channel_index": channel, **entry} for entry in report
+                    {"method": "cleanline", "channel_index": channel, **entry}
+                    for entry in report
                 )
     return result.reshape(data.shape)

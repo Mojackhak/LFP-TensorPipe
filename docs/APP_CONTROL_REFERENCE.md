@@ -1795,16 +1795,21 @@ must not invalidate computation. No full-suite validation or global rerun is req
 
 ### CleanLine adaptive subtraction
 
-`Limit over-subtraction` is off by default. When enabled, retain the existing
-CleanLine sliding-window detection, significance thresholds, iterative subtraction
-and overlap blending. Accumulate each detected line's fitted waveform separately,
-then optimize one amplitude multiplier in [0, 1] per channel, target frequency and
-processing segment. Do not apply multipliers inside the original iterations.
-All-zero multipliers reproduce the CleanLine input; all-one multipliers reproduce
-its original output within floating-point tolerance.
+`Limit over-subtraction` is off by default. CleanLine uses sliding-window
+detection, significance thresholds, iterative subtraction and overlap blending.
+When the control is enabled, each detected line's fitted waveform is accumulated
+separately, then scaled by one nonnegative amplitude multiplier per channel,
+target frequency and processing segment, without a fixed upper bound. Multipliers
+are applied after component fitting. All-zero multipliers reproduce the CleanLine
+input; all-one multipliers reproduce its unscaled output within floating-point
+tolerance.
 
-Add `limit_over_subtraction` (false), `background_radius_hz` (10 Hz), and
-`background_bandwidth_hz` (1 Hz) under CleanLine parameters. Background PSD inherits
+CleanLine has `limit_over_subtraction` (default false),
+`background_radius_hz` (10 Hz) and `background_bandwidth_hz` (1 Hz) parameters.
+The footer order is Save, Set as Default, Restore Defaults, then Cancel.
+The checkbox tooltip explains that coefficients may exceed one and that this
+is a background objective, not a hard power floor at each frequency.
+For CleanLine, background PSD inherits
 window length, hop and end-aligned tail coverage. Use fixed equal DPSS taper weights
 and average linear power across windows before taking logarithms. Require at least
 two concentrated tapers. The background bandwidth remains independent of the
@@ -1827,31 +1832,48 @@ Minimize the mean squared dB error on each target's exclusion union, weighting
 targets equally. There is no hard notch-depth tolerance. Cache the input/component
 cross-spectral matrix (fixed weights) so candidate PSDs require no repeated FFT or
 CleanLine run. Start coefficients at zero; update in ascending frequency order.
-Coarse samples 0, 0.1, ..., 1 bracket each local minimum; refine candidate brackets
-with bounded Brent search (xatol 1e-3), compare endpoints and choose smaller
+For each coordinate, quadratic residual power determines a data-dependent search
+bracket beyond which every objective bin is above its background and increasing.
+This is not a fixed coefficient cap. Nonuniform samples, power minima and background
+crossings bracket candidate minima; refine them with bounded Brent search
+(xatol 1e-3). Explicitly compare zero, one and the current coefficient, and choose smaller
 coefficients for numerically tied errors. Stop when coefficient changes are below
 1e-3 or after ten sweeps. Record non-convergence; do not claim global optimality.
-Clamp only numerical nonpositive candidate powers to a machine-precision floor
-for logarithms. Zero/nonfinite background power is unavailable, not fitted.
+Use a machine-precision numerical floor for candidate power logarithms.
+Zero/nonfinite background power is unavailable, not fitted.
 
-Reports include channel, segment start/stop samples relative to Raw (stop exclusive),
-target, peak range, merged exclusions, background line coefficients, coefficient,
+CleanLine reports use `cleanline_adaptive`. Reports include method, channel,
+segment start/stop
+samples and seconds relative to Raw (stop exclusive),
+target, detected frequency range, merged exclusions, background line coefficients, coefficient,
 mean squared dB error, maximum downward deviation, residual peak and convergence.
 No detection and unavailable backgrounds retain their respective components.
+Unavailable backgrounds still record left/right donor counts and leave fit
+coefficients unset. Skipped targets record null convergence and zero sweeps.
 Preview reports describe preview segments; finalization recomputes from the original
 input and reviewed boundaries and replaces the report. Honor the existing boundary
 isolation switch; with isolation off the entire recording is the processing segment.
+BAD reference diagnostics remain separate from valid-segment diagnostics.
 
-Only enabled adaptive parameters affect Filter and its existing downstream lineage.
-Disabled adaptive values, reports and UI state do not affect fingerprints. Preserve
-old effective signatures by omitting disabled adaptive fields. Validate endpoint
+Enabled adaptive run parameters record `coefficient_bounds` as
+`{"lower": 0.0, "upper": null}`. This field records the coefficient domain used
+by the calculation and is not user-editable. Execution metadata is excluded
+from Filter parameter signatures and does not block viewing or reviewing an
+accepted result. Reading a result does not rewrite its recorded metadata.
+
+Only enabled adaptive parameters affect Filter and its downstream lineage.
+Disabled adaptive fields are omitted from effective parameter signatures;
+reports and UI state do not affect fingerprints. Accepted results remain available
+while their user-controlled parameters and accepted input generations match.
+Downstream generations change only after a changed Filter result is accepted.
+Validate endpoint
 identity, component reconstruction, cached-versus-direct PSD, independent channels,
 frequency drift, search-off exclusions, multiple lines, background failures, GUI
 state and log restoration. Synthetic clean baselines assess PSD and wPLI/ciPLV
 errors; a smoother PSD alone is not proof of recovered neural phase or signal.
 
-The channel-threshold Configure button stays immediately below its own enable
-checkbox, before the new adaptive controls, so its scope remains unambiguous.
+The channel-threshold Configure button sits immediately below its own enable
+checkbox, before the adaptive controls, so its scope is unambiguous.
 
 ### CleanLine channel parallelism
 

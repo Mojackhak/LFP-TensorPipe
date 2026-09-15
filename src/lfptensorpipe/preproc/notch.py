@@ -254,6 +254,8 @@ def effective_notch_model(model: dict[str, Any]) -> dict[str, Any]:
                 "background_bandwidth_hz",
             ):
                 params.pop(key, None)
+        else:
+            params["coefficient_bounds"] = {"lower": 0.0, "upper": None}
         enabled = params.pop("per_channel_thresholds_enabled")
         overrides = params.pop("significance_thresholds_by_channel")
         overrides = overrides if enabled else {}

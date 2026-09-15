@@ -131,7 +131,7 @@ class FilterAdvanceDialog(QDialog):
                     edit.setToolTip("Leave blank for MNE's automatic taper bandwidth.")
                 elif key == "limit_over_subtraction":
                     edit.setToolTip(
-                        "Fit one subtraction coefficient per channel, line and continuous processing segment to an interpolated background spectrum."
+                        "Fit one nonnegative subtraction coefficient per channel, target and processing segment to the estimated background spectrum. Coefficients may exceed 1; this is not a hard power floor at each frequency."
                     )
                 elif key == "background_radius_hz":
                     edit.setToolTip(

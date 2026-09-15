@@ -42,6 +42,37 @@ def _interval_union(peaks, radius):
     return intervals
 
 
+def _coordinate_candidates(gram, coefficients, index, objectives):
+    """Bracket nonnegative search using power vertices and background crossings."""
+    weights = np.r_[1.0, -coefficients.copy()]
+    weights[index + 1] = 0.0
+    quadratic = gram[index + 1, index + 1]
+    cross = np.einsum("if,i->f", gram[index + 1], weights)
+    constant = np.einsum("i,ijf,j->f", weights, gram, weights)
+    critical = []
+    for _, mask, target_db in objectives:
+        active = quadratic[mask] > 0
+        a, b, c = quadratic[mask][active], cross[mask][active], constant[mask][active]
+        vertex = b / a
+        discriminant = vertex**2 + (10 ** (target_db[active] / 10) - c) / a
+        distance = np.sqrt(np.maximum(discriminant, 0))
+        critical.extend((vertex, vertex - distance, vertex + distance))
+    critical = np.concatenate(critical)
+    critical = critical[critical > 0]
+    upper = float(critical.max()) if critical.size else 0.0
+    # Beyond the largest upper crossing/vertex, every contributing bin is above
+    # its target and increasing. Sampling cost does not grow with alpha's size.
+    return np.unique(
+        np.r_[
+            np.linspace(0, 1, 11),
+            coefficients[index],
+            critical,
+            np.expm1(np.linspace(0, np.log1p(upper), 65)),
+            upper,
+        ]
+    )
+
+
 def fit_subtraction(
     data,
     components,
@@ -94,6 +125,8 @@ def fit_subtraction(
             "excluded_intervals_hz": exclusions[index],
             "status": "no_detection",
             "reason": None,
+            "converged": None,
+            "sweeps": 0,
             "background_fit": None,
             "error_db_squared": None,
             "maximum_downward_db": None,
@@ -108,10 +141,20 @@ def fit_subtraction(
             & ~all_excluded
             & (abs(grid - center) <= params["background_radius_hz"])
         )
-        donors_left, donors_right = candidates & (grid < left), candidates & (
-            grid > right
+        donors_left, donors_right = (
+            candidates & (grid < left),
+            candidates & (grid > right),
         )
         evaluation = masks[index] & valid
+        report["background_fit"] = {
+            "center_hz": float(center),
+            "left_slope_intercept_db": None,
+            "right_slope_intercept_db": None,
+            "boundary_hz": [left, right],
+            "boundary_db": None,
+            "left_bins": int(donors_left.sum()),
+            "right_bins": int(donors_right.sum()),
+        }
         if donors_left.sum() < 3 or donors_right.sum() < 3 or not evaluation.any():
             report.update(
                 status="background_unavailable",
@@ -130,17 +173,11 @@ def fit_subtraction(
             float(np.polyval(fit_right, right - center)),
         ]
         target = np.interp(grid[evaluation], [left, right], boundary_db)
-        report.update(
-            status="fitted",
-            background_fit={
-                "center_hz": float(center),
-                "left_slope_intercept_db": fit_left.tolist(),
-                "right_slope_intercept_db": fit_right.tolist(),
-                "boundary_hz": [left, right],
-                "boundary_db": boundary_db,
-                "left_bins": int(donors_left.sum()),
-                "right_bins": int(donors_right.sum()),
-            },
+        report["status"] = "fitted"
+        report["background_fit"].update(
+            left_slope_intercept_db=fit_left.tolist(),
+            right_slope_intercept_db=fit_right.tolist(),
+            boundary_db=boundary_db,
         )
         objectives.append((index, evaluation, target))
     coefficients = np.zeros(len(frequencies))
@@ -167,19 +204,21 @@ def fit_subtraction(
                 trial[index] = value
                 return loss(trial)
 
-            coarse = np.linspace(0, 1, 11)
+            coarse = _coordinate_candidates(gram, coefficients, index, objectives)
             scores = np.array([evaluate(value) for value in coarse])
             choices = [
                 (float(score), float(value)) for score, value in zip(scores, coarse)
             ]
-            choices.append((evaluate(coefficients[index]), float(coefficients[index])))
-            for point in range(11):
+            for point in range(len(coarse)):
                 if (point == 0 or scores[point] <= scores[point - 1]) and (
-                    point == 10 or scores[point] <= scores[point + 1]
+                    point == len(coarse) - 1 or scores[point] <= scores[point + 1]
                 ):
                     result = minimize_scalar(
                         evaluate,
-                        bounds=(coarse[max(0, point - 1)], coarse[min(10, point + 1)]),
+                        bounds=(
+                            coarse[max(0, point - 1)],
+                            coarse[min(len(coarse) - 1, point + 1)],
+                        ),
                         method="bounded",
                         options={"xatol": 1e-3},
                     )

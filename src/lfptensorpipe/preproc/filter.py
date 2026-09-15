@@ -718,8 +718,14 @@ def finalize_reviewed_lfp_filter(
         ),
     }
     if adaptive_reports:
+        for entry in adaptive_reports:
+            entry["segment_start_s"] = entry["segment_start_sample"] / sfreq
+            entry["segment_stop_s"] = entry["segment_stop_sample"] / sfreq
         report["cleanline_adaptive"] = adaptive_reports
     if bad_reference_reports:
+        for entry in bad_reference_reports:
+            entry["segment_start_s"] = entry["segment_start_sample"] / sfreq
+            entry["segment_stop_s"] = entry["segment_stop_sample"] / sfreq
         report["bad_reference"] = bad_reference_reports
     return out, report
 
