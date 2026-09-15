@@ -113,6 +113,8 @@ class MainWindowPreprocStageMixin:
                 )
             if self._preproc_raw_plot_button is not None:
                 self._preproc_raw_plot_button.setEnabled(False)
+            if self._preproc_raw_restore_button is not None:
+                self._preproc_raw_restore_button.setEnabled(False)
             if self._preproc_filter_advance_button is not None:
                 self._preproc_filter_advance_button.setEnabled(False)
             if self._preproc_filter_apply_button is not None:
@@ -311,6 +313,15 @@ class MainWindowPreprocStageMixin:
         if self._preproc_raw_plot_button is not None:
             self._preproc_raw_plot_button.setEnabled(
                 raw_input_exists or raw_step_exists
+            )
+        if self._preproc_raw_restore_button is not None:
+            self._preproc_raw_restore_button.setEnabled(
+                raw_input_exists and raw_step_exists
+            )
+            self._preproc_raw_restore_button.setToolTip(
+                "Restore Raw from the original rawdata, including annotations and bad channels."
+                if raw_input_exists and raw_step_exists
+                else "Restore requires both original rawdata and an existing preproc Raw."
             )
         if self._preproc_filter_advance_button is not None:
             self._preproc_filter_advance_button.setEnabled(raw_ready)

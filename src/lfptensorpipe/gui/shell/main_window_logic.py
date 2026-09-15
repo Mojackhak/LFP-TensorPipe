@@ -182,6 +182,7 @@ class MainWindow(
         self._record_delete_button: QPushButton | None = None
         self._record_rename_button: QPushButton | None = None
         self._preproc_raw_plot_button: QPushButton | None = None
+        self._preproc_raw_restore_button: QPushButton | None = None
         self._preproc_filter_advance_button: QPushButton | None = None
         self._preproc_filter_apply_button: QPushButton | None = None
         self._preproc_filter_plot_button: QPushButton | None = None

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from PySide6.QtWidgets import QMessageBox
+
+from lfptensorpipe.gui.shell.busy_state import global_ui_lock_owner
+from lfptensorpipe.app.preproc.paths import rawdata_input_fif_path
+
 from lfptensorpipe.app.preproc.lineage import preproc_step_lineage_is_current
 from lfptensorpipe.gui.shell.common import (
     Any,
@@ -19,6 +24,51 @@ from lfptensorpipe.gui.shell.common import (
 
 
 class MainWindowPreprocActionsMixin:
+    def _on_preproc_raw_restore(self) -> None:
+        context = self._record_context()
+        if context is None or global_ui_lock_owner(self) is not None:
+            return
+        resolver = PathResolver(context)
+        source = rawdata_input_fif_path(context)
+        target = resolver.preproc_step_dir("raw", create=False) / "raw.fif"
+        if not source.is_file() or not target.is_file():
+            self.statusBar().showMessage(
+                "Raw Restore unavailable: original rawdata or current Raw is missing."
+            )
+            return
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Restore Raw")
+        dialog.setIcon(QMessageBox.Question)
+        dialog.setText(
+            f"{context.subject} / {context.record}\n\n"
+            "Replace the current Raw with the original data from rawdata?"
+        )
+        dialog.setInformativeText(
+            "Edits made in Raw Plot will be discarded. Signal samples, annotations, "
+            "and bad channels will return to their original state. "
+            "Existing downstream results will become stale."
+        )
+        restore = dialog.addButton("Restore", QMessageBox.AcceptRole)
+        cancel = dialog.addButton(QMessageBox.Cancel)
+        dialog.setDefaultButton(cancel)
+        dialog.exec()
+        if dialog.clickedButton() is not restore:
+            return
+        if self._record_context() != context or global_ui_lock_owner(self) is not None:
+            self.statusBar().showMessage(
+                "Raw Restore cancelled: record context changed or is busy."
+            )
+            return
+        ok, message = self._run_with_busy(
+            "Raw Restore", lambda: self._restore_raw_step_from_rawdata_runtime(context)
+        )
+        if ok:
+            self._refresh_stage_states_from_context()
+            self._refresh_preproc_controls()
+        else:
+            self._show_warning("Restore Raw", message)
+        self.statusBar().showMessage(message)
+
     def _on_preproc_skip(self, step: str) -> None:
         context = self._record_context()
         display_name = self._preproc_step_display_name(step)

@@ -252,6 +252,16 @@ def bootstrap_raw_step_from_rawdata(context: RecordContext) -> tuple[bool, str]:
     return ok, message
 
 
+def restore_raw_step_from_rawdata(context: RecordContext) -> tuple[bool, str]:
+    """Restore Raw and invalidate dependents only after successful acceptance."""
+    from .steps.raw import restore_raw_step_from_rawdata as restore
+
+    ok, message = restore(context, mark_preproc_step_fn=mark_preproc_step)
+    if ok:
+        invalidate_downstream_preproc_steps(context, "raw")
+    return ok, message
+
+
 def invalidate_downstream_preproc_steps(
     context: RecordContext, changed_step: str
 ) -> list[Path]:

@@ -415,7 +415,7 @@ The Stages panel is the page navigator for record-scoped processing stages.
 
 Signal Repair is an optional step after Raw for gap and peak interpolation.
 Its results support annotation editing and preserve existing-result routing.
-The screenshots below predate this additional step.
+The page-overview screenshot predates Signal Repair and the Raw Restore button.
 
 The Preprocess page manages record-level signal cleanup and QC views.
 
@@ -452,10 +452,17 @@ can be skipped without invalidating existing results or changing its gray state.
 
 ### 6.2 Raw, Filter, and Annotation Blocks
 
+The Raw card places `Restore` immediately after `Plot`. Opening Plot first is
+optional. Close any open plot before using Restore; the main window is locked
+while a plot or processing operation is active.
+
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | `Raw` indicator | Reports raw-step readiness. | User feedback only. | Read-only. |
 | `Plot` (Raw) | Opens accepted Raw for annotations (including BAD time ranges) and whole-channel bad editing. If Raw is stale or not yet accepted, opens canonical rawdata for pending review. | Normal close atomically saves edits to `preproc/raw/raw.fif` and its log with a fresh Raw generation; canonical rawdata is never modified. Pending acceptance includes browser edits. Changed Raw invalidates this record's downstream Preprocess, Tensor, Alignment, and Features results. | Unchanged accepted Raw close is a no-op. Deleted/replaced results or changed accepted generations cannot be overwritten by an old window. Pending acceptance requires an unchanged canonical source and ordinary close, with a final pre-promotion check. Retained stale Raw without canonical input remains read-only. Double-precision saving preserves untouched samples. |
+| `Restore` (Raw) | Opens a confirmation naming the selected subject and record. | No files change until restoration is confirmed. | Requires both canonical Rawdata and an existing `preproc/raw/raw.fif`; available even when Raw is yellow. Disabled without a record, with either file missing, or while the main window is locked by a plot or processing operation. |
+| `Restore` (confirmation) | Replaces the current Raw with the canonical Rawdata FIF file set, including its original annotations and whole-channel bad marks. | Discards Raw Plot edits, accepts Raw as green, and makes this record's dependent Preprocess, Tensor, Alignment, and Features results stale. Output files, parameter drafts, and Skip choices are retained; no processing runs automatically. | Requires confirmation for the same selected record. A changed record or active operation cancels the action. Copy or replacement failure preserves the previous Raw and log. |
+| `Cancel` (Restore confirmation) | Closes the confirmation without restoring Raw. | No changes to Raw, logs, or downstream state. | Default button in the confirmation. |
 | `Notches` | Defines comma-separated notch-center frequencies for filter execution. Use it to suppress narrow contamination bands without changing the broader passband set by `Low freq` and `High freq`. Leave it blank to disable FIR notch processing; enabled window models require at least one center. Active removePLI displays generated harmonics read-only and retains the manual list. | Filter output. | Every provided value must be finite, positive, and below the input Nyquist frequency. Unsupported values block Apply instead of being silently dropped. |
 | `Low freq` | Sets the high-pass cutoff frequency. Raising it removes more slow drift and movement-related low-frequency content, but it can also remove genuine low-frequency neural signal. Leave it blank to disable high-pass filtering. | Filter output. | A provided value must be finite and nonnegative. |
 | `High freq` | Sets the low-pass cutoff frequency. Lowering it removes more high-frequency noise, but it also narrows the usable signal band for later tensor analysis. Leave it blank to disable low-pass filtering. | Filter output. | A provided value must be finite, positive, and strictly below the input Nyquist frequency. A value at or above Nyquist shows a blocking warning; it is not automatically clipped. |
@@ -481,6 +488,18 @@ can be skipped without invalidating existing results or changing its gray state.
 | `Apply` (Annotations) | Writes the configured annotations into the preprocess pipeline. Submitted onset values are seconds from the first retained sample; inherited source annotations keep their existing timing and channel scope when the rows are appended. A positive-duration row is clipped to its intersection with the Raw support, and a row with no temporal overlap is silently omitted. | Annotation output used by downstream steps. | Requires successful Raw and a structurally valid annotation set. Duration must remain finite and non-negative; onset may be negative when a positive-duration interval overlaps the Raw. Zero-duration points are retained only inside `[0,n_times/sampling_rate)`. The table, CSV, Raw, config, and log adopt the effective clipped/retained rows after a successful Apply. |
 | `Plot` (Annotations) | Plots the annotated signal. | QC only. | Requires successful annotation output. |
 
+Raw Restore reads
+`<project>/rawdata/<subject>/ses-postop/lfp/<record>/raw.fif` and replaces the
+FIF set under
+`<project>/derivatives/lfptensorpipe/<subject>/<record>/preproc/raw/`.
+It preserves the Rawdata source and restores any annotations or bad channels
+already present there; it does not simply clear all labels. After successful
+replacement, the previous Raw files and log are moved to Trash. If Trash is
+unavailable, those files remain at the locations reported in the status message.
+An older Plot cannot save over the restored Raw. See the
+[Raw Restore walkthrough](APP_TUTORIAL.md#512-restore-the-original-raw) for the
+confirmation and follow-up steps.
+
 `Low freq` and `High freq` are independently nullable. A blank low cutoff
 disables only high-pass filtering, a blank high cutoff disables only low-pass
 filtering, and leaving both blank disables band filtering. `Notches` remains
@@ -490,11 +509,11 @@ filtering. Apply and the pending-review transition must retain these canonical
 blank values as `None`; they must not restore application defaults or an older
 accepted Filter log.
 
-After any step action reaches its terminal success, failure, cancellation, or
-pending state, the application persists the complete record draft currently
+Record-draft persistence after step actions saves the complete draft currently
 visible in the GUI. It does not replay historic stage logs across the whole
 record at that point. Log-priority replay is reserved for loading an incoming
-record; this change adds no manual-restore path. Post-action persistence must
+record. Raw Restore retains parameter drafts and Skip choices without reloading
+or writing them. Post-action persistence must
 collect and write the visible draft before clearing its dirty ownership. The
 existing persist helper clears dirty keys only after a successful payload
 write, while a failed write retains them. This rule protects unrelated Filter,

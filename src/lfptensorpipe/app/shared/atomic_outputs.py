@@ -50,6 +50,7 @@ class AtomicOutputSet:
         *,
         replace_fn: ReplaceFn | None = None,
         cleanup_stale_residues: bool = False,
+        retire_existing_fn: Callable[[Path], None] | None = None,
     ) -> None:
         token = uuid4().hex
         self._token = token
@@ -88,6 +89,7 @@ class AtomicOutputSet:
         self._declared_targets = tuple(item.target for item in prepared)
         self._by_target = {item.target: item for item in self._prepared}
         self._replace = replace_fn or (lambda source, target: source.replace(target))
+        self._retire_existing = retire_existing_fn
         self._cleanup_stale_residues_enabled = cleanup_stale_residues
         self._manifest_path: Path | None = None
         self._manifest_payload: dict[str, object] | None = None
@@ -262,7 +264,10 @@ class AtomicOutputSet:
     def _cleanup_obsolete_fif_splits(self) -> None:
         for path in self._obsolete_fif_splits:
             try:
-                path.unlink(missing_ok=True)
+                if self._retire_existing is not None:
+                    self._retire_existing(path)
+                else:
+                    path.unlink(missing_ok=True)
             except OSError:
                 continue
 
@@ -449,10 +454,17 @@ class AtomicOutputSet:
         self._manifest_payload["phase"] = "committed"
         write_transaction_manifest(self._manifest_path, self._manifest_payload)
 
-    def _cleanup_paths(self) -> None:
+    def _cleanup_paths(self, *, retire_existing: bool = False) -> None:
         for item in self._prepared:
             item.temporary.unlink(missing_ok=True)
-            item.backup.unlink(missing_ok=True)
+            if (
+                retire_existing
+                and self._retire_existing is not None
+                and item.backup.exists()
+            ):
+                self._retire_existing(item.backup)
+            else:
+                item.backup.unlink(missing_ok=True)
         self._cleanup_staging_directories()
 
     def _cleanup_staging_directories(self) -> None:
@@ -474,10 +486,10 @@ class AtomicOutputSet:
 
     def _cleanup_accepted_candidate(self) -> None:
         if self._manifest_path is None:
-            self._cleanup_paths()
+            self._cleanup_paths(retire_existing=True)
             return
         try:
-            self._cleanup_paths()
+            self._cleanup_paths(retire_existing=True)
             self._cleanup_manifest()
         except OSError:
             # The committed Tensor manifest owns terminal cleanup.

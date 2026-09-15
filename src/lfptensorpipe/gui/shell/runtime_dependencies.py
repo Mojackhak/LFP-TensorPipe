@@ -437,6 +437,11 @@ class MainWindowRuntimeDependenciesMixin:
     def _bootstrap_raw_step_from_rawdata_runtime(self, context: Any) -> Any:
         return bootstrap_raw_step_from_rawdata(context)
 
+    def _restore_raw_step_from_rawdata_runtime(self, context: Any) -> Any:
+        from lfptensorpipe.app.preproc.service import restore_raw_step_from_rawdata
+
+        return restore_raw_step_from_rawdata(context)
+
     def _apply_filter_step_runtime(self, context: Any, **kwargs: Any) -> Any:
         return apply_filter_step(context, **kwargs)
 

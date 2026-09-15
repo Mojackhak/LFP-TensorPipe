@@ -94,6 +94,15 @@ def build_preproc_raw_block(self, *, grid_spacing: int) -> QGroupBox:
     self._preproc_raw_plot_button.setEnabled(False)
     self._preproc_raw_plot_button.setToolTip("Plot raw input for the current record.")
     layout.addWidget(self._preproc_raw_plot_button)
+    self._preproc_raw_restore_button = QPushButton("Restore")
+    self._preproc_raw_restore_button.setObjectName("preproc_raw_restore_button")
+    self._preproc_raw_restore_button.setAutoDefault(False)
+    self._preproc_raw_restore_button.clicked.connect(self._on_preproc_raw_restore)
+    self._preproc_raw_restore_button.setEnabled(False)
+    self._preproc_raw_restore_button.setToolTip(
+        "Restore Raw from the original rawdata, including annotations and bad channels."
+    )
+    layout.addWidget(self._preproc_raw_restore_button)
     layout.addStretch(1)
     return block
 

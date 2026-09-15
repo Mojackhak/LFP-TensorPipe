@@ -316,7 +316,7 @@ The figure shows the rendered contact-viewer scene.
 
 Signal Repair is an optional step after Raw for gap and peak interpolation.
 Its results support annotation editing and preserve existing-result routing.
-The screenshots below predate this additional step.
+The page-overview screenshot predates Signal Repair and the Raw Restore button.
 
 This stage cleans the imported record and prepares the final continuous signal
 used by tensor building, epoch alignment, and feature extraction.
@@ -340,7 +340,7 @@ section:
 
 The validated preprocess path for this demo is:
 
-1. `Raw -> Apply`
+1. `Raw -> Plot`, review the imported data, then close the plot normally to accept Raw
 2. `Filter -> Apply`
 3. `Filter -> Plot` for manual QC
 4. leave `ECG Artifact Removal` gray/skipped for this clean demo
@@ -357,8 +357,53 @@ The below figure is the plot for `Preprocess Signal step 0.Raw`.
 
 ![Preprocess plot for step 0 (Raw).](assets/app-tutorial/figure-14-preprocess-step-0-raw-browser.png)
 
-Run `Raw -> Apply` first, then use `Plot` to confirm the imported signal and
-markers are visible before filtering.
+The Raw card has two controls, `Plot` followed by `Restore`. See the
+[Raw control reference](APP_CONTROL_REFERENCE.md#62-raw-filter-and-annotation-blocks)
+for their availability and saved outputs.
+
+#### 5.1.1 Review and edit Raw
+
+1. Select the project, subject, and record, then open `Preprocess Signal`.
+2. Click `Raw -> Plot` and check the signal, marker timing, and channel set.
+   Before initial acceptance, or when Raw is stale, this opens the canonical
+   Rawdata for review. A current green Raw opens its saved preprocess copy.
+3. Add annotations when needed. BAD time ranges are annotations; marking a
+   whole channel bad is a separate action made by clicking its channel name.
+4. Close the plot normally. Initial review accepts Raw and its edits into
+   `preproc/raw/raw.fif`. Later edits to accepted Raw are saved there on close.
+   The original Rawdata remains unchanged. Closing an unchanged accepted Raw
+   does not rewrite it.
+
+Proceed to Signal Repair if needed, or continue with Filter after Raw is green.
+
+#### 5.1.2 Restore the original Raw
+
+Use Restore when you want to discard changes to the editable Raw and return to
+the imported data. It restores signal samples, annotations, and whole-channel
+bad marks from Rawdata, including any labels already present in that source.
+
+1. Select the record to restore. Close any open plot and wait for active
+   processing to finish. You do not need to open Plot before using Restore.
+2. Click `Restore`, immediately to the right of `Plot` in `0. Raw`.
+3. Check the subject and record shown in the confirmation. `Cancel` is selected
+   by default and leaves the current data and processing state unchanged.
+4. Click `Restore` in the confirmation to replace the current preprocess Raw
+   with the original Rawdata FIF file set.
+
+After success, Raw is green. Existing dependent Signal Repair, Filter, ECG,
+Annotations, Finish, Tensor, Alignment, and Features results become stale.
+Their files, parameter drafts, and Skip settings are retained. Reapply the
+steps you intend to use, following the current Skip choices, and run Finish
+before rebuilding downstream results. Restoration does not run these steps
+automatically and does not affect other records.
+
+Restore is disabled if either the original Rawdata or the existing preprocess
+Raw is missing. A yellow Raw can still be restored when both files exist. For
+a newly imported record with no accepted preprocess Raw, use Plot and close
+normally to accept it first. If copying or replacement fails, the previous Raw
+and log remain in place. Successful restoration moves the replaced files and
+log to Trash; if that is unavailable, the status message reports where they
+were retained.
 
 ### 5.2 Step 1: Filter
 
