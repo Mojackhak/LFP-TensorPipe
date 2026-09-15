@@ -13,6 +13,7 @@ from lfptensorpipe.app.preproc_service import (
     preproc_step_raw_path,
 )
 from lfptensorpipe.app.runlog_store import read_run_log
+from lfptensorpipe.app.shared.runlog_store import cache_in_run_log_read_snapshot
 from lfptensorpipe.lfp.runtime import (
     ESTIMATOR_MASK_SUPPORT_SEMANTICS,
     apply_dynamic_edge_mask_strict as _apply_dynamic_edge_mask_strict_runtime,
@@ -576,6 +577,9 @@ def _build_frequency_grid(
     )
 
 
+@cache_in_run_log_read_snapshot(
+    lambda context, *, read_raw_fif_fn=None: (context, read_raw_fif_fn)
+)
 def _load_finish_nyquist_hz(
     context: RecordContext,
     *,

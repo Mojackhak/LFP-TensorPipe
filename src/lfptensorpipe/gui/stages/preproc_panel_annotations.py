@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSignalBlocker, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
@@ -198,16 +198,17 @@ def highlight_annotation_rows(self, invalid_rows: list[int]) -> None:
     if self._preproc_annotations_table is None:
         return
     invalid_set = set(invalid_rows)
-    for row_idx in range(self._preproc_annotations_table.rowCount()):
-        for col_idx in range(self._preproc_annotations_table.columnCount()):
-            item = self._preproc_annotations_table.item(row_idx, col_idx)
-            if item is None:
-                item = QTableWidgetItem("")
-                self._preproc_annotations_table.setItem(row_idx, col_idx, item)
-            if row_idx in invalid_set:
-                item.setBackground(Qt.red)
-            else:
-                item.setBackground(Qt.transparent)
+    with QSignalBlocker(self._preproc_annotations_table):
+        for row_idx in range(self._preproc_annotations_table.rowCount()):
+            for col_idx in range(self._preproc_annotations_table.columnCount()):
+                item = self._preproc_annotations_table.item(row_idx, col_idx)
+                if item is None:
+                    item = QTableWidgetItem("")
+                    self._preproc_annotations_table.setItem(row_idx, col_idx, item)
+                if row_idx in invalid_set:
+                    item.setBackground(Qt.red)
+                else:
+                    item.setBackground(Qt.transparent)
 
 
 def append_annotation_rows(self, rows: list[dict[str, Any]]) -> None:

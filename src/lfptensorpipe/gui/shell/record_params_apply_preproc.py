@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+from PySide6.QtCore import QSignalBlocker
+
 from lfptensorpipe.gui.shell.common import (
     Any,
     QTableWidgetItem,
@@ -60,30 +62,25 @@ class MainWindowRecordParamsApplyPreprocMixin:
         if "preproc.annotations" not in self._record_param_dirty_keys:
             rows = _nested_get(snapshot, ("preproc", "annotations", "rows"))
             if isinstance(rows, list) and self._preproc_annotations_table is not None:
-                self._preproc_annotations_table.blockSignals(True)
-                self._preproc_annotations_table.setRowCount(0)
-                for row in rows:
-                    if not isinstance(row, dict):
-                        continue
-                    row_idx = self._preproc_annotations_table.rowCount()
-                    self._preproc_annotations_table.insertRow(row_idx)
-                    self._preproc_annotations_table.setItem(
-                        row_idx,
-                        0,
-                        QTableWidgetItem(str(row.get("description", ""))),
-                    )
-                    self._preproc_annotations_table.setItem(
-                        row_idx,
-                        1,
-                        QTableWidgetItem(str(row.get("onset", ""))),
-                    )
-                    self._preproc_annotations_table.setItem(
-                        row_idx,
-                        2,
-                        QTableWidgetItem(str(row.get("duration", ""))),
-                    )
-                self._preproc_annotations_table.blockSignals(False)
-                self._highlight_annotation_rows([])
+                table = self._preproc_annotations_table
+                valid_rows = [row for row in rows if isinstance(row, dict)]
+                updates_enabled = table.updatesEnabled()
+                with QSignalBlocker(table):
+                    table.setUpdatesEnabled(False)
+                    try:
+                        table.setRowCount(0)
+                        table.setRowCount(len(valid_rows))
+                        for row_idx, row in enumerate(valid_rows):
+                            for column, key in enumerate(
+                                ("description", "onset", "duration")
+                            ):
+                                table.setItem(
+                                    row_idx,
+                                    column,
+                                    QTableWidgetItem(str(row.get(key, ""))),
+                                )
+                    finally:
+                        table.setUpdatesEnabled(updates_enabled)
             mark_filter_edges = _nested_get(
                 snapshot,
                 ("preproc", "annotations", "mark_filter_edges"),
