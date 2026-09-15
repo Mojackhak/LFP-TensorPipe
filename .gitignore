@@ -5,6 +5,7 @@ tools/
 packaging/
 tests/
 test/
+/agent.md
 
 # Editor / transient buffers
 *.tmp
