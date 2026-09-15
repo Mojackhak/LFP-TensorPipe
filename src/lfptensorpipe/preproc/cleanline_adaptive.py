@@ -1,4 +1,4 @@
-"""Background-constrained amplitude scaling of fixed CleanLine components."""
+"""Background-constrained amplitude scaling of fixed line-noise components."""
 
 import numpy as np
 from scipy.optimize import minimize_scalar
@@ -11,7 +11,7 @@ def spectral_matrix(signals, sfreq, width, starts, bandwidth):
     count = int(np.floor(2 * product - 1))
     if count < 2 or count > width or product >= width / 2:
         raise ValueError(
-            "CleanLine background bandwidth and window length must support at least two tapers below Nyquist."
+            "Background bandwidth and window length must support at least two tapers below Nyquist."
         )
     tapers = dpss(width, product, Kmax=count)
     gram = np.zeros((len(signals), len(signals), width // 2 + 1))
@@ -83,6 +83,8 @@ def fit_subtraction(
     starts,
     params,
     background_bounds=None,
+    *,
+    excluded_intervals=None,
 ):
     """Fit segment-constant coefficients and return auditable per-line results."""
     grid, gram = spectral_matrix(
@@ -93,8 +95,11 @@ def fit_subtraction(
         params["background_bandwidth_hz"],
     )
     original = gram[0, 0]
-    radius = params["search_radius_hz"]
-    exclusions = [_interval_union(found, radius) for found in peaks]
+    exclusions = (
+        [_interval_union(found, params["search_radius_hz"]) for found in peaks]
+        if excluded_intervals is None
+        else excluded_intervals
+    )
     masks = [
         (
             np.logical_or.reduce(

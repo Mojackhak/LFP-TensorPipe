@@ -416,6 +416,15 @@ def apply_filter_step(
                         if "cleanline_adaptive" in summary
                         else {}
                     ),
+                    **(
+                        {
+                            "mne_spectrum_fit_adaptive": summary[
+                                "mne_spectrum_fit_adaptive"
+                            ]
+                        }
+                        if "mne_spectrum_fit_adaptive" in summary
+                        else {}
+                    ),
                     "nyquist_freq": nyquist,
                     "bad_annotation_config": asdict(cfg),
                     "summary": summary,
@@ -455,6 +464,15 @@ def apply_filter_step(
                         **(
                             {"cleanline_adaptive": summary["cleanline_adaptive"]}
                             if "cleanline_adaptive" in summary
+                            else {}
+                        ),
+                        **(
+                            {
+                                "mne_spectrum_fit_adaptive": summary[
+                                    "mne_spectrum_fit_adaptive"
+                                ]
+                            }
+                            if "mne_spectrum_fit_adaptive" in summary
                             else {}
                         ),
                         "nyquist_freq": nyquist,
@@ -659,7 +677,11 @@ def finalize_filter_review(
             "filter_output_role": "scientific",
         }
         for target in (final_params, final_config):
-            for key in ("cleanline_adaptive", "bad_reference"):
+            for key in (
+                "cleanline_adaptive",
+                "mne_spectrum_fit_adaptive",
+                "bad_reference",
+            ):
                 target.pop(key, None)
                 if key in support_report:
                     target[key] = support_report[key]

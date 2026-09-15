@@ -26,6 +26,9 @@ def default_notch_model() -> dict[str, Any]:
             "mne_spectrum_fit": {
                 "window_length_s": 4.0,
                 "fit_width_hz": 1.0,
+                "limit_over_subtraction": False,
+                "background_radius_hz": 10.0,
+                "background_bandwidth_hz": 1.0,
                 "multitaper_bandwidth_hz": None,
             },
             "cleanline": {
@@ -94,6 +97,12 @@ def normalize_notch_model(value: Any) -> dict[str, Any]:
             continue
         for field, default in list(defaults.items()):
             raw = supplied.get(field, default)
+            if (
+                field in {"background_radius_hz", "background_bandwidth_hz"}
+                and supplied.get("limit_over_subtraction", False) is False
+            ):
+                defaults[field] = deepcopy(raw)
+                continue
             if key == "cleanline" and (
                 (
                     field == "search_radius_hz"
@@ -101,10 +110,6 @@ def normalize_notch_model(value: Any) -> dict[str, Any]:
                         "frequency_search_enabled", defaults["frequency_search_enabled"]
                     )
                     is False
-                    and supplied.get("limit_over_subtraction", False) is False
-                )
-                or (
-                    field in {"background_radius_hz", "background_bandwidth_hz"}
                     and supplied.get("limit_over_subtraction", False) is False
                 )
                 or (
@@ -157,14 +162,14 @@ def normalize_notch_model(value: Any) -> dict[str, Any]:
                 defaults[field] = None
             else:
                 defaults[field] = _model_number(raw, f"{key}.{field}")
-    if enabled and method == "cleanline":
+    if enabled and method in {"cleanline", "mne_spectrum_fit"}:
         active = result["params_by_method"][method]
         if (
             active["limit_over_subtraction"]
             and active["window_length_s"] * active["background_bandwidth_hz"] < 3
         ):
             raise ValueError(
-                "notch_model.cleanline.background_bandwidth_hz requires window length times bandwidth >= 3 for at least two tapers."
+                f"notch_model.{method}.background_bandwidth_hz requires window length times bandwidth >= 3 for at least two tapers."
             )
     result.update(enabled=enabled, method=method)
     return result
@@ -182,10 +187,11 @@ def merge_notch_model_log(draft, logged):
         recorded = logged.get(
             "params", logged.get("params_by_method", {}).get(method, {})
         )
-        if method == "cleanline":
+        if method in {"cleanline", "mne_spectrum_fit"}:
             values["limit_over_subtraction"] = recorded.get(
                 "limit_over_subtraction", False
             )
+        if method == "cleanline":
             values["per_channel_thresholds_enabled"] = recorded.get(
                 "per_channel_thresholds_enabled", False
             )
@@ -246,7 +252,7 @@ def effective_notch_model(model: dict[str, Any]) -> dict[str, Any]:
         and not params["limit_over_subtraction"]
     ):
         params.pop("search_radius_hz", None)
-    if model["method"] == "cleanline":
+    if model["method"] in {"cleanline", "mne_spectrum_fit"}:
         if not params["limit_over_subtraction"]:
             for key in (
                 "limit_over_subtraction",
@@ -256,6 +262,7 @@ def effective_notch_model(model: dict[str, Any]) -> dict[str, Any]:
                 params.pop(key, None)
         else:
             params["coefficient_bounds"] = {"lower": 0.0, "upper": None}
+    if model["method"] == "cleanline":
         enabled = params.pop("per_channel_thresholds_enabled")
         overrides = params.pop("significance_thresholds_by_channel")
         overrides = overrides if enabled else {}
@@ -298,8 +305,104 @@ def model_support_samples(model: dict[str, Any], sfreq: float, n_times: int) -> 
     params = model["params"]
     width = max(1, int(np.ceil(params["window_length_s"] * sfreq)))
     if model["method"] == "mne_spectrum_fit":
+        if params.get("limit_over_subtraction", False):
+            return max(0, int(n_times) - 1)
         return width + width // 2 - 1
     return width - 1
+
+
+def _mne_fitted_bands(n_times, width, sfreq, frequencies, fit_width):
+    """Resolve MNE's explicit bins, including its enlarged final COLA window."""
+    if width < 2:
+        raise ValueError(
+            "Adaptive MNE requires a fitting window of at least two samples."
+        )
+    half = fit_width / 2
+    # MNE uses (width + 1) // 2 overlap and appends the remainder to the last
+    # window. Only the regular and last window lengths can change FFT bins.
+    hop = width // 2
+    final_width = width + (n_times - width) % hop
+    lengths = {final_width}
+    if n_times - width >= hop:
+        lengths.add(width)
+    fitted = [set() for _ in frequencies]
+    boundaries = [[float(f - half), float(f + half)] for f in frequencies]
+    for length in sorted(lengths):
+        grid = np.fft.rfftfreq(length, 1 / sfreq)
+        for index, center in enumerate(frequencies):
+            selected = (grid > center - half) & (grid < center + half)
+            selected[np.argmin(abs(grid - center))] = True
+            values = grid[selected]
+            fitted[index].update(values.tolist())
+            padding = sfreq / length / 2 if fit_width == 0 else 0.0
+            boundaries[index][0] = min(
+                boundaries[index][0], float(values.min() - padding)
+            )
+            boundaries[index][1] = max(
+                boundaries[index][1], float(values.max() + padding)
+            )
+    ordered = sorted(boundaries)
+    if any(left[1] >= right[0] for left, right in zip(ordered, ordered[1:])):
+        raise ValueError(
+            "Adaptive MNE fitting bands must not overlap or share Fourier bins."
+        )
+    return fitted, [[pair] for pair in boundaries]
+
+
+def _adaptive_mne(
+    data, sfreq, frequencies, params, width, diagnostics, background_bounds
+):
+    """Scale independent MNE target fits using the shared background optimizer."""
+    import mne
+    from .cleanline_adaptive import fit_subtraction
+
+    fitted, exclusions = _mne_fitted_bands(
+        data.shape[-1], width, sfreq, frequencies, params["fit_width_hz"]
+    )
+    components = np.array(
+        [
+            data
+            - mne.filter.notch_filter(
+                data,
+                sfreq,
+                freqs=[center],
+                method="spectrum_fit",
+                filter_length=width,
+                notch_widths=params["fit_width_hz"],
+                mt_bandwidth=params["multitaper_bandwidth_hz"],
+                verbose="ERROR",
+            )
+            for center in frequencies
+        ]
+    )
+    flat = data.reshape(-1, data.shape[-1])
+    components = components.reshape(len(frequencies), len(flat), data.shape[-1])
+    starts = list(range(0, data.shape[-1] - width + 1, (width + 1) // 2))
+    if starts[-1] != data.shape[-1] - width:
+        starts.append(data.shape[-1] - width)
+    result = np.empty_like(flat)
+    for channel, signal in enumerate(flat):
+        result[channel], reports = fit_subtraction(
+            signal,
+            components[:, channel],
+            fitted,
+            frequencies,
+            sfreq,
+            width,
+            starts,
+            params,
+            background_bounds,
+            excluded_intervals=exclusions,
+        )
+        for index, row in enumerate(reports):
+            row["fitted_frequency_range_hz"] = row.pop("peak_range_hz")
+            row["fitted_frequencies_hz"] = sorted(fitted[index])
+        if diagnostics is not None:
+            diagnostics.extend(
+                {"method": "mne_spectrum_fit", "channel_index": channel, **row}
+                for row in reports
+            )
+    return result.reshape(data.shape)
 
 
 def subtract_notch_model(
@@ -358,6 +461,10 @@ def subtract_notch_model(
         half = params["fit_width_hz"] / 2
         if np.any(freqs - half <= 0) or np.any(freqs + half >= sfreq / 2):
             raise ValueError("Model fitting bands must lie strictly within Nyquist.")
+        if params.get("limit_over_subtraction", False):
+            return _adaptive_mne(
+                x, sfreq, freqs, params, width, diagnostics, background_bounds
+            )
         return mne.filter.notch_filter(
             x,
             sfreq,

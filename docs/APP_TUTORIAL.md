@@ -407,9 +407,13 @@ were retained.
 
 ### 5.2 Step 1: Filter
 
-In Filter Advance, CleanLine offers optional `Limit over-subtraction`,
-`Background radius (Hz)` and `Background bandwidth (Hz)`. The checkbox is off
-by default; the background defaults are 10 Hz and 1 Hz.
+In Filter Advance, CleanLine and MNE spectrum_fit offer optional
+`Limit over-subtraction`, `Background radius (Hz)` and `Background bandwidth (Hz)`.
+The checkbox is off by default; the background defaults are 10 Hz and 1 Hz.
+Settings are retained independently for each method. For MNE, start by evaluating
+the default 4-second window and 1-Hz full fit width (0.5 Hz on either side),
+leaving its fitting multitaper bandwidth on Auto. A wider fitting band can deepen
+spectral depressions and does not necessarily improve the background-scaled result.
 
 When enabled, each target's estimated waveform is scaled to match a background
 estimated from both sides of the excluded band. The coefficient is nonnegative
@@ -423,7 +427,7 @@ Use Plot to inspect both remaining peaks and depressions. Run logs record the
 coefficient, background fit, residual elevation, downward deviation and convergence
 for each channel, processing segment and target. Final acceptance recomputes these
 from the source and reviewed BAD boundaries. With boundary isolation enabled,
-adaptive CleanLine depends on the whole valid segment: enabling Mark filter edges can
+adaptive MNE depends on the whole valid segment: enabling Mark filter edges can
 therefore mark that entire segment. Existing BAD and bad-channel flags are retained.
 
 Editing disabled background drafts does not invalidate computation. Effective

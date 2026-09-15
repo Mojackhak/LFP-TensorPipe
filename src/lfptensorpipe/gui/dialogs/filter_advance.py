@@ -70,7 +70,7 @@ class FilterAdvanceDialog(QDialog):
         )
         mark_filter_edges_tooltip = (
             "Mark combined filter support at each interval edge as EDGE_filter. "
-            "CleanLine and removePLI can mark whole valid segments because their "
+            "CleanLine, adaptive MNE spectrum_fit and removePLI can mark whole valid segments because their "
             "estimation depends on the whole segment. Off (default) accepts MNE "
             "padding results without adding these annotations."
         )
@@ -135,11 +135,11 @@ class FilterAdvanceDialog(QDialog):
                     )
                 elif key == "background_radius_hz":
                     edit.setToolTip(
-                        "Background candidates extend this far on each side of the requested line center; detected noise bands are excluded."
+                        "Background candidates extend this far on each side of the requested line center; all detected or fitted noise bands are excluded."
                     )
                 elif key == "background_bandwidth_hz":
                     edit.setToolTip(
-                        "Full multitaper bandwidth for background PSD. Uses the existing window length and overlap; independent of detection bandwidth."
+                        "Full multitaper bandwidth for background PSD, independent of fitting bandwidth. Uses the existing window length, CleanLine overlap or approximately 50% MNE overlap."
                     )
                 elif key == "fit_width_hz":
                     edit.setToolTip(
@@ -400,8 +400,10 @@ class FilterAdvanceDialog(QDialog):
             cleanline["frequency_search_enabled"].isChecked()
             or cleanline["limit_over_subtraction"].isChecked()
         )
-        for key in ("background_radius_hz", "background_bandwidth_hz"):
-            cleanline[key].setEnabled(cleanline["limit_over_subtraction"].isChecked())
+        for method in ("cleanline", "mne_spectrum_fit"):
+            edits = self._model_edits[method]
+            for key in ("background_radius_hz", "background_bandwidth_hz"):
+                edits[key].setEnabled(edits["limit_over_subtraction"].isChecked())
 
     @staticmethod
     def _parse_notch_widths(text: str) -> float | list[float]:

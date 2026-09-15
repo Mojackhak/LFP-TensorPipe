@@ -721,7 +721,7 @@ def finalize_reviewed_lfp_filter(
         for entry in adaptive_reports:
             entry["segment_start_s"] = entry["segment_start_sample"] / sfreq
             entry["segment_stop_s"] = entry["segment_stop_sample"] / sfreq
-        report["cleanline_adaptive"] = adaptive_reports
+        report[f"{notch_model['method']}_adaptive"] = adaptive_reports
     if bad_reference_reports:
         for entry in bad_reference_reports:
             entry["segment_start_s"] = entry["segment_start_sample"] / sfreq
@@ -1255,8 +1255,9 @@ def mark_lfp_bad_segments(
         "min_good_len_sec": cfg.min_good_len_sec,
         "merge_gap_sec": cfg.merge_gap_sec,
     }
-    if "cleanline_adaptive" in model_report:
-        summary["cleanline_adaptive"] = model_report["cleanline_adaptive"]
+    for key in ("cleanline_adaptive", "mne_spectrum_fit_adaptive"):
+        if key in model_report:
+            summary[key] = model_report[key]
     summary["bad_samples_policy"] = model_report.get("bad_samples_policy", "continuous")
     if "bad_reference" in model_report:
         summary["bad_reference"] = model_report["bad_reference"]

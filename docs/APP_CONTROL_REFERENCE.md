@@ -1793,7 +1793,7 @@ These fixes keep invalidation scoped to effective Filter inputs and accepted
 Filter downstream lineage. Draft-only edits, view state and serialization ordering
 must not invalidate computation. No full-suite validation or global rerun is required.
 
-### CleanLine adaptive subtraction
+### CleanLine and MNE spectrum_fit adaptive subtraction
 
 `Limit over-subtraction` is off by default. CleanLine uses sliding-window
 detection, significance thresholds, iterative subtraction and overlap blending.
@@ -1804,8 +1804,11 @@ are applied after component fitting. All-zero multipliers reproduce the CleanLin
 input; all-one multipliers reproduce its unscaled output within floating-point
 tolerance.
 
-CleanLine has `limit_over_subtraction` (default false),
+Both CleanLine and MNE spectrum_fit have `limit_over_subtraction` (default false),
 `background_radius_hz` (10 Hz) and `background_bandwidth_hz` (1 Hz) parameters.
+The controls are independent for each method. MNE defaults to a 4-second window,
+1-Hz full fit width and automatic fitting bandwidth. Its background controls
+appear together, with fitting bandwidth under More model parameters.
 The footer order is Save, Set as Default, Restore Defaults, then Cancel.
 The checkbox tooltip explains that coefficients may exceed one and that this
 is a background objective, not a hard power floor at each frequency.
@@ -1817,9 +1820,23 @@ CleanLine detection bandwidth. Inactive background drafts do not affect validati
 or freshness. Search radius remains active when frequency scanning is disabled
 but adaptive subtraction is enabled.
 
-Background candidates are within target +/- background radius. Exclude the union
-of actual significant peaks +/- search radius across all windows and iterations,
-including other detected targets. No background-bandwidth padding is added. When
+MNE estimates each target component from the same input, retaining MNE's own
+fitting windows, tapers, overlap and tail behavior. All-one coefficients reproduce
+the standard joint spectrum_fit output. Background PSD uses the configured window
+length, approximately 50% overlap and end-aligned tail coverage. Its exclusion
+intervals cover the configured full fit band and actually selected Fourier bins;
+zero fit width uses the selected bin's extent. Adaptive MNE rejects overlapping
+bands or Fourier bins assigned to more than one target, and requires a fitting
+window of at least two samples for its overlapping windows. Fitted frequencies are
+reported as fits, not significant detections. With the checkbox off, MNE uses
+standard spectrum_fit output and window support. With it on, coefficients depend
+on the complete processing segment, so Mark filter edges may mark the entire
+segment, as with adaptive CleanLine.
+
+Background candidates are within target +/- background radius. For CleanLine,
+exclude the union of actual significant peaks +/- search radius across all windows
+and iterations, including other detected targets. MNE uses the fitted exclusions
+described above. No background-bandwidth padding is added. When
 scanning is off, use the actual fixed Fourier bin. Reject overlapping target search
 intervals in adaptive mode. Fit a straight line to log power separately on each
 side of a target's exclusion envelope, then linearly connect the two boundary
@@ -1842,10 +1859,10 @@ coefficients for numerically tied errors. Stop when coefficient changes are belo
 Use a machine-precision numerical floor for candidate power logarithms.
 Zero/nonfinite background power is unavailable, not fitted.
 
-CleanLine reports use `cleanline_adaptive`. Reports include method, channel,
-segment start/stop
+CleanLine reports use `cleanline_adaptive`; MNE reports use
+`mne_spectrum_fit_adaptive`. Reports include method, channel, segment start/stop
 samples and seconds relative to Raw (stop exclusive),
-target, detected frequency range, merged exclusions, background line coefficients, coefficient,
+target, detected or fitted frequency range, merged exclusions, background line coefficients, coefficient,
 mean squared dB error, maximum downward deviation, residual peak and convergence.
 No detection and unavailable backgrounds retain their respective components.
 Unavailable backgrounds still record left/right donor counts and leave fit
