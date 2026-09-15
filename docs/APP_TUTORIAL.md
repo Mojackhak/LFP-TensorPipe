@@ -314,6 +314,10 @@ The figure shows the rendered contact-viewer scene.
 
 ## 5. Preprocess Signal and QC
 
+Signal Repair is an optional step after Raw for gap and peak interpolation.
+Its results support annotation editing and preserve existing-result routing.
+The screenshots below predate this additional step.
+
 This stage cleans the imported record and prepares the final continuous signal
 used by tensor building, epoch alignment, and feature extraction.
 
@@ -327,10 +331,11 @@ section:
 | Step | Purpose | Demo action | Feeds |
 |---|---|---|---|
 | `0. Raw` | Confirm that the imported raw signal, markers, and duration entered the project correctly | run | filter QC |
-| `1. Filter` | Apply core band-pass and demo-specific notch filtering, and annotate bad spans | run | ECG and annotation QC |
-| `2. ECG Artifact Removal` | Optionally suppress residual cardiac contamination | skip | annotations when needed |
-| `3. Annotations` | Write manually labeled gait events and final BAD intervals onto the current continuous time axis | run | alignment anchors and feature timing |
-| `4. Finish` | Export the finalized result with physical start/end edge markers | run | tensor, align, features |
+| `1. Signal Repair` | Optionally interpolate short gaps and transient peaks | skip unless needed | filter input |
+| `2. Filter` | Apply core band-pass and demo-specific notch filtering, and annotate bad spans | run | ECG and annotation QC |
+| `3. ECG Artifact Removal` | Optionally suppress residual cardiac contamination | skip | annotations when needed |
+| `4. Annotations` | Write manually labeled gait events and final BAD intervals onto the current continuous time axis | run | alignment anchors and feature timing |
+| `5. Finish` | Export the finalized result with physical start/end edge markers | run | tensor, align, features |
 | `Visualization` | Show PSD/TFR QC without rewriting the data | run as needed | manual QC only |
 
 The validated preprocess path for this demo is:
@@ -578,7 +583,7 @@ The below figure shows PSD QC on the `0. Raw`.
 
 ![PSD QC for the raw snapshot.](assets/app-tutorial/figure-19-preprocess-psd-raw.png)
 
-For cleaned-signal QC, select `4. Finish` after Finish Apply. The obsolete Bad
+For cleaned-signal QC, select `5. Finish` after Finish Apply. The obsolete Bad
 Segment Removal snapshot is no longer an eligible Visualization source.
 
 The figure shows the TFR visualization parameters dialog.

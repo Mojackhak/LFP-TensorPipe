@@ -413,20 +413,25 @@ The Stages panel is the page navigator for record-scoped processing stages.
 
 ## 6. Preprocess Signal
 
+Signal Repair is an optional step after Raw for gap and peak interpolation.
+Its results support annotation editing and preserve existing-result routing.
+The screenshots below predate this additional step.
+
 The Preprocess page manages record-level signal cleanup and QC views.
 
 ![Preprocess Signal page.](assets/app-control-reference/controlref-basic-preprocess-signal.png)
 
 ### 6.1 Shared Step Semantics
 
-`Raw` and `Finish` are required. `Filter`, `ECG Artifact Removal`, and
+`Raw` and `Finish` are required. `Signal Repair`, `Filter`, `ECG Artifact Removal`, and
 `Annotations` are optional and retain this displayed order. An absent gray or
 checked-Skip optional step is bypassed, so each later step reads the nearest
 earlier green output. `Finish` may therefore promote Annotations, ECG,
-Filter, or Raw. The finished output contains zero-duration `EDGE` markers at
+Filter, Signal Repair, or Raw. The finished output contains zero-duration `EDGE` markers at
 the physical recording start and last sample. Preprocess never removes BAD
-samples or stitches retained spans; BAD and EDGE annotations remain attached to
-the continuous timeline for downstream masking.
+samples or stitches retained spans. Successful gap interpolation replaces only
+its BAD_gap support with INTERPOLATED_gap; other BAD and EDGE annotations remain
+attached to the continuous timeline for downstream masking.
 
 An indicator is gray when a step has not been run, green when its current output
 completed successfully, and yellow when a run is pending, failed, stale, or
@@ -435,7 +440,8 @@ indicator: a skipped step can therefore remain green or yellow. A non-skipped
 yellow step propagates yellow transitively and blocks later Apply actions; a
 skipped yellow step is bypassed and does not propagate that block. Skip retains
 existing files and run logs, records only the routing choice, and invalidates
-later results.
+later results when the effective source changes. An unexecuted Signal Repair
+can be skipped without invalidating existing results or changing its gray state.
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
@@ -467,7 +473,7 @@ later results.
 | Tracking bandwidth and settling-time fields | Set initial and final frequency-estimator bandwidth/settling time and transition duration to 95% of the final value. | removePLI advanced parameters. | Bandwidth defaults 50/0.2 Hz, transition 1 s; settling defaults 0.1/4 s, transition 1 s. |
 | Model edge marking | CleanLine and removePLI depend on the whole valid segment; marking their support marks the entire segment. | Existing mark filter edges option. | Off by default. |
 | `Apply` (Filter) | Creates a detection-filtered review Preview and runs automatic BAD detection. It does not accept the Preview as the scientific Filter result. | Pending Filter review state only; an earlier accepted Filter generation and its downstream results are not invalidated until finalization succeeds. The complete currently visible record draft, including blank cutoffs, is retained after the action. | Requires successful Raw and valid filter parameters. A successful Apply turns Filter yellow and temporarily blocks later preprocess actions until the Preview is closed and finalized. Existing later Preprocess indicators project yellow while never-run gray indicators stay gray. |
-| `Plot` (Filter) | Opens a pending review Preview, or an existing accepted Filter result when no Preview is pending. Closing a Preview automatically refilters from the original Raw and accepts it without a confirmation dialog. Closing an accepted result refilters only after annotations or bad-channel selections changed. | Reviewed annotations, accepted Filter output, and dependent-stage freshness after a real accepted change. Independent BAD-boundary filtering and optional `EDGE_filter` marking follow the two Filter Advance controls. | Unavailable before the first successful Apply when no accepted Filter result exists. Available for a valid yellow `review_required` Preview or a green finalized result; other yellow states remain blocked. |
+| `Plot` (Filter) | Opens a pending review Preview, or an existing accepted Filter result when no Preview is pending. Closing a Preview automatically refilters from the selected upstream Raw or Signal Repair and accepts it without a confirmation dialog. Closing an accepted result refilters only after annotations or bad-channel selections changed. | Reviewed annotations, accepted Filter output, and dependent-stage freshness after a real accepted change. Independent BAD-boundary filtering and optional `EDGE_filter` marking follow the two Filter Advance controls. | Unavailable before the first successful Apply when no accepted Filter result exists. Available for a valid yellow `review_required` Preview or a green finalized result; other yellow states remain blocked. |
 | Annotation table | Shows the currently configured annotation rows. | Annotation payload. | Read-only except for row selection. |
 | `Configure...` (Annotations) | Opens the annotation editor. | Current annotation rows. | Available after Raw succeeds and the earlier Filter/ECG route is resolved, including any checked Skip. |
 | `Advance` (Annotations) | Opens the compact Annotations Advance dialog immediately from the right of `Configure...` in the first of two compact control rows. The second row contains `Apply`, `Plot`, and `Skip`, so no label is clipped at the default window width. | The current record's Annotations edge-marking policy. | Available whenever Annotations controls are available. |

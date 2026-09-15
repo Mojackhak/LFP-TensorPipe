@@ -27,6 +27,37 @@ from lfptensorpipe.gui.shell.common import (
 
 
 class MainWindowPreprocDefaultsMixin:
+    def _load_signal_repair_defaults(self) -> dict[str, Any]:
+        from lfptensorpipe.preproc.signal_repair import (
+            default_signal_repair_params,
+            normalize_signal_repair_params,
+        )
+
+        payload = self._config_store.read_yaml("preproc.yml", default={})
+        params = default_signal_repair_params()
+        try:
+            stored = payload.get("signal_repair_defaults", {})
+            for kind, values in params.items():
+                values.update(stored.get(kind, {}))
+                values["enabled"] = True
+            normalize_signal_repair_params(params)
+        except (AttributeError, TypeError, ValueError, KeyError) as exc:
+            self._show_preproc_params_warning_once(
+                f"Invalid Signal Repair defaults; using built-in defaults: {exc}"
+            )
+            params = default_signal_repair_params()
+        for values in params.values():
+            values["enabled"] = False
+        return params
+
+    def _save_signal_repair_defaults(self, params: dict[str, Any]) -> None:
+        payload = self._config_store.read_yaml("preproc.yml", default={})
+        payload["signal_repair_defaults"] = {
+            kind: {key: value for key, value in values.items() if key != "enabled"}
+            for kind, values in params.items()
+        }
+        self._config_store.write_yaml("preproc.yml", payload)
+
     def _show_preproc_params_warning_once(self, message: str) -> None:
         shown = getattr(self, "_preproc_params_warnings_shown", set())
         if message in shown:

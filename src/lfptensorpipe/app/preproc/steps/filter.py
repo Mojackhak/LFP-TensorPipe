@@ -296,7 +296,6 @@ def apply_filter_step(
     from lfptensorpipe.preproc.filter import BadAnnotationConfig, mark_lfp_bad_segments
 
     resolver = PathResolver(context)
-    src = preproc_step_raw_path(resolver, "raw")
     preview = preproc_filter_preview_raw_path(resolver)
     preview_config_path = preproc_filter_preview_config_path(resolver)
     preview_log_path = preproc_filter_preview_log_path(resolver)
@@ -321,12 +320,11 @@ def apply_filter_step(
     runtime_h_freq = runtime_params["h_freq"]
     runtime_notches = runtime_params["notches"]
 
-    if not src.exists():
-        return False, "Missing preprocess raw input for filter step."
     captured = capture_preproc_input_generation(resolver, "filter")
-    if captured is None or captured[0] != "raw":
+    if captured is None:
         return False, "Filter source changed before input read."
-    _, input_generations = captured
+    source_step, input_generations = captured
+    src = preproc_step_raw_path(resolver, source_step)
 
     try:
         if read_raw_fif_fn is None:
@@ -489,7 +487,7 @@ def apply_filter_step(
             if not preproc_input_generation_matches(
                 resolver,
                 "filter",
-                source_step="raw",
+                source_step=source_step,
                 input_generations=input_generations,
             ):
                 raise PreprocInputGenerationChanged(
@@ -517,19 +515,17 @@ def finalize_filter_review(
     from lfptensorpipe.preproc.filter import finalize_reviewed_lfp_filter
 
     resolver = PathResolver(context)
-    src = preproc_step_raw_path(resolver, "raw")
     dst = preproc_step_raw_path(resolver, "filter")
     preview = preproc_filter_preview_raw_path(resolver)
     preview_config_path = preproc_filter_preview_config_path(resolver)
     preview_log_path = preproc_filter_preview_log_path(resolver)
     config_path = preproc_step_config_path(resolver, "filter")
     log_path = preproc_step_log_path(resolver, "filter")
-    if not src.exists():
-        return False, "Missing preprocess raw input for Filter finalization."
     captured = capture_preproc_input_generation(resolver, "filter")
-    if captured is None or captured[0] != "raw":
+    if captured is None:
         return False, "Filter source changed before input read."
-    _, input_generations = captured
+    source_step, input_generations = captured
+    src = preproc_step_raw_path(resolver, source_step)
     result_generation_id = new_result_generation_id()
     if review_source_is_current_fn is not None and not review_source_is_current_fn():
         return False, "Filter review source changed before input read."
@@ -709,20 +705,20 @@ def finalize_filter_review(
                 params=params_with_generation_lineage(
                     {
                         **final_params,
-                        "source_step": "raw",
+                        "source_step": source_step,
                     },
                     result_generation_id=result_generation_id,
                     input_generations=input_generations,
                 ),
                 input_path=str(src),
                 output_path=str(dst),
-                message="Filter review finalized from the original Raw.",
+                message=f"Filter review finalized from {source_step}.",
                 log_path=output_set.staged_path(log_path),
             )
             if not preproc_input_generation_matches(
                 resolver,
                 "filter",
-                source_step="raw",
+                source_step=source_step,
                 input_generations=input_generations,
             ):
                 raise PreprocInputGenerationChanged(

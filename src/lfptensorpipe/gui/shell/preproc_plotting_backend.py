@@ -13,6 +13,7 @@ from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.preproc.indicator import preproc_filter_review_required
 from lfptensorpipe.app.preproc.paths import rawdata_input_fif_path
 from lfptensorpipe.app.preproc.lineage import (
+    preproc_step_is_skipped,
     capture_preproc_input_generation,
     filter_preview_lineage_is_current,
     preproc_input_generation_matches,
@@ -51,7 +52,7 @@ logger = logging.getLogger(__name__)
 PREPROC_PLOT_WINDOW_SIZE = (1200, 800)
 _PREPROC_PLOT_DPI_FALLBACK = 96.0
 _PLOT_CHANGE_TRACKED_STEPS = frozenset(
-    ("raw", "filter", "ecg_artifact_removal", "annotations")
+    ("raw", "filter", "signal_repair", "ecg_artifact_removal", "annotations")
 )
 _PLOT_ATOMIC_EDIT_STEPS = _PLOT_CHANGE_TRACKED_STEPS.difference({"filter"})
 
@@ -415,7 +416,7 @@ def _promote_edited_preproc_plot_raw(
         [raw_path, log_path],
         cleanup_stale_residues=True,
     ) as output_set:
-        save_options = {"fmt": "double"} if step == "raw" else {}
+        save_options = {"fmt": "double"} if step in {"raw", "signal_repair"} else {}
         raw.save(str(output_set.staged_path(raw_path)), overwrite=True, **save_options)
         append_run_log_event(
             output_set.staged_path(log_path),
@@ -763,7 +764,10 @@ def _finalize_tracked_browser_close(self, token: int, event: Any | None = None) 
         ):
             opened_signature = entry.get("opened_signature")
             closed_signature = _preproc_plot_raw_signature(raw)
-            if opened_signature == closed_signature:
+            repair_review = getattr(entry["browser"], "_signal_repair_review", None)
+            if opened_signature == closed_signature and not (
+                repair_review is not None and repair_review.changed
+            ):
                 self.statusBar().showMessage(f"{title_prefix} plot closed.")
             else:
                 stale_reason = _preproc_plot_stale_target_reason(
@@ -794,7 +798,14 @@ def _finalize_tracked_browser_close(self, token: int, event: Any | None = None) 
                     else:
                         assert isinstance(generation_snapshot, dict)
                         promoted_raw = raw
-                        params_updates = None
+                        params_updates = (
+                            {
+                                "intervals": repair_review.intervals,
+                                "summary": repair_review.summary,
+                            }
+                            if repair_review is not None
+                            else None
+                        )
                         if step == "ecg_artifact_removal":
                             mark_filter_edges = bool(
                                 generation_snapshot.get("mark_filter_edges", False)
@@ -833,7 +844,12 @@ def _finalize_tracked_browser_close(self, token: int, event: Any | None = None) 
                                 if callable(promoted_close):
                                     promoted_close()
                         try:
-                            invalidate_downstream_preproc_steps(context, step)
+                            bypassed = (
+                                step == "signal_repair"
+                                and preproc_step_is_skipped(PathResolver(context), step)
+                            )
+                            if not bypassed:
+                                invalidate_downstream_preproc_steps(context, step)
                         except Exception as exc:  # noqa: BLE001
                             logger.warning(
                                 "Could not invalidate downstream results after "
@@ -845,7 +861,7 @@ def _finalize_tracked_browser_close(self, token: int, event: Any | None = None) 
                         self._refresh_preproc_controls()
                         self.statusBar().showMessage(
                             f"{title_prefix} plot closed: saved edited "
-                            f"{raw_path.name}; downstream invalidated."
+                            f"{raw_path.name}."
                         )
         elif step is None:
             self.statusBar().showMessage(f"{title_prefix} plot closed.")
@@ -1111,6 +1127,8 @@ def _open_mne_raw_plot(
         except Exception as exc:
             self.statusBar().showMessage(f"{title_prefix} Plot failed: {exc}")
             return
+    raw = None
+    browser = None
     try:
         raw = self._read_raw_fif(raw_path, preload=True, verbose="ERROR")
         if stale_raw_review:
@@ -1140,7 +1158,27 @@ def _open_mne_raw_plot(
         previous_plot_size = os.environ.get("MNE_BROWSE_RAW_SIZE")
         os.environ["MNE_BROWSE_RAW_SIZE"] = _preproc_plot_figsize_env_value(self)
         try:
-            browser = raw.plot(block=False, title=f"{title_prefix}: {raw_path.name}")
+            if autosave_step == "signal_repair":
+                import mne
+
+                from lfptensorpipe.gui.dialogs.signal_repair_review import (
+                    attach_signal_repair_review,
+                )
+
+                with mne.viz.use_browser_backend("qt"):
+                    browser = raw.plot(
+                        block=False,
+                        title=f"{title_prefix}: {raw_path.name}",
+                        precompute=False,
+                    )
+                payload = read_run_log(raw_path.parent / "lfptensorpipe_log.json")
+                attach_signal_repair_review(
+                    browser, raw, payload["params"].get("intervals", [])
+                )
+            else:
+                browser = raw.plot(
+                    block=False, title=f"{title_prefix}: {raw_path.name}"
+                )
         finally:
             if previous_plot_size is None:
                 os.environ.pop("MNE_BROWSE_RAW_SIZE", None)
@@ -1203,6 +1241,10 @@ def _open_mne_raw_plot(
                 title_prefix=title_prefix,
             )
     except Exception as exc:
+        if browser is not None:
+            _request_close_registered_browser({"browser": browser})
+        if raw is not None:
+            raw.close()
         self.statusBar().showMessage(f"{title_prefix} Plot failed: {exc}")
 
 

@@ -41,6 +41,7 @@ TENSOR_BANDS_DEFAULTS_KEY = "bands_defaults"
 TENSOR_METRIC_DEFAULTS_KEY = "metric_defaults"
 PREPROC_VIZ_STEP_ORDER = (
     "raw",
+    "signal_repair",
     "filter",
     "ecg_artifact_removal",
     "annotations",
@@ -48,10 +49,11 @@ PREPROC_VIZ_STEP_ORDER = (
 )
 PREPROC_VIZ_STEP_LABELS = {
     "raw": "0. Raw",
-    "filter": "1. Filter",
-    "ecg_artifact_removal": "2. ECG Artifact Removal",
-    "annotations": "3. Annotations",
-    "finish": "4. Finish",
+    "signal_repair": "1. Signal Repair",
+    "filter": "2. Filter",
+    "ecg_artifact_removal": "3. ECG Artifact Removal",
+    "annotations": "4. Annotations",
+    "finish": "5. Finish",
 }
 TENSOR_CHANNEL_METRIC_KEYS = {"raw_power", "periodic_aperiodic", "burst"}
 TENSOR_UNDIRECTED_METRIC_KEYS = {

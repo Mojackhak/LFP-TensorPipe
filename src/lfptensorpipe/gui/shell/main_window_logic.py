@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.preproc.signal_repair import default_signal_repair_params
 from lfptensorpipe.gui.shell import common as _shell_common
 from lfptensorpipe.gui.shell import window_shutdown as _window_shutdown
 from lfptensorpipe.gui.shell.common import (
@@ -338,6 +339,7 @@ class MainWindow(
         self._localize_matlab_timer.setInterval(250)
         self._localize_matlab_timer.timeout.connect(self._poll_localize_matlab_status)
         self._left_column_widget: QWidget | None = None
+        self._preproc_signal_repair_params = default_signal_repair_params()
         self._preproc_filter_advance_params = self._load_filter_advance_defaults()
         self._preproc_ecg_params_by_method = self._load_ecg_advance_defaults()
         self._preproc_ecg_review_params = self._load_ecg_review_defaults()

@@ -7,6 +7,7 @@ from pathlib import Path
 
 PREPROC_STEPS = {
     "raw",
+    "signal_repair",
     "filter",
     "annotations",
     "bad_segment_removal",

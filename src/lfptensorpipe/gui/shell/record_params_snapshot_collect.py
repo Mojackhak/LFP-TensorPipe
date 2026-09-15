@@ -95,6 +95,7 @@ class MainWindowRecordParamsSnapshotCollectMixin:
         }
         ecg_params_by_method = deepcopy(self._preproc_ecg_params_by_method)
         return {
+            "signal_repair": deepcopy(self._preproc_signal_repair_params),
             "filter": {
                 "basic": dict(basic),
                 "advance": dict(self._preproc_filter_advance_params),

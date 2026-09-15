@@ -108,3 +108,9 @@ def _build_preproc_status_row(self, step: str) -> QWidget:
     return _builders.build_preproc_status_row(
         self, step, grid_spacing=_grid_spacing(self)
     )
+
+
+def _build_preproc_signal_repair_block(self) -> QGroupBox:
+    return _builders.build_preproc_signal_repair_block(
+        self, grid_spacing=_grid_spacing(self)
+    )

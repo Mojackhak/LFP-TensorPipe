@@ -304,6 +304,14 @@ def append_run_log_event(
             state = deepcopy(existing_state)
 
     history.append(dict(entry))
+    # Reversible arrays belong to the current Repair ledger, not each review event.
+    for index, event in enumerate(history):
+        if event.get("step") == "signal_repair":
+            event = deepcopy(event)
+            for interval in event.get("params", {}).get("intervals", []):
+                interval.pop("original_samples", None)
+                interval.pop("interpolated_samples", None)
+            history[index] = event
     if state_patch is not None:
         if not isinstance(state_patch, dict):
             raise ValueError("state_patch must be a dict when provided.")

@@ -61,6 +61,7 @@ logger = logging.getLogger(__name__)
 
 PREPROC_STEPS = (
     "raw",
+    "signal_repair",
     "filter",
     "ecg_artifact_removal",
     "annotations",
@@ -68,6 +69,7 @@ PREPROC_STEPS = (
 )
 
 OPTIONAL_PREPROC_STEPS = (
+    "signal_repair",
     "filter",
     "ecg_artifact_removal",
     "annotations",
@@ -77,6 +79,7 @@ FINISH_SOURCE_PRIORITY = (
     "annotations",
     "ecg_artifact_removal",
     "filter",
+    "signal_repair",
     "raw",
 )
 
@@ -344,6 +347,7 @@ def skip_preproc_step(context: RecordContext, step: str) -> tuple[bool, str]:
         if (
             _preproc_step_indicator_state_impl(resolver, step) == "gray"
             and not preview_pending
+            and step != "signal_repair"
         ):
             return False, f"{step} has no run state to skip."
         if capture_preproc_input_generation(resolver, step) is None:
@@ -358,7 +362,8 @@ def skip_preproc_step(context: RecordContext, step: str) -> tuple[bool, str]:
         step=step,
         skipped=new_skipped,
     )
-    invalidate_downstream_preproc_steps(context, step)
+    if step != "signal_repair" or preproc_step_log_path(resolver, step).is_file():
+        invalidate_downstream_preproc_steps(context, step)
     action = "Skipped" if new_skipped else "Restored"
     return True, f"{action} preprocess step routing: {step}."
 
@@ -555,3 +560,16 @@ def preproc_ecg_panel_state(
         method_kwargs=method_kwargs,
         mark_filter_edges=mark_filter_edges,
     )
+
+
+def apply_signal_repair_step(
+    context: RecordContext, *, params: dict[str, Any]
+) -> tuple[bool, str]:
+    """Accept Repair and invalidate dependent generations only after success."""
+    from .steps.signal_repair import apply_signal_repair_step as apply
+
+    ok, message = apply(context, params=params, mark_preproc_step_fn=mark_preproc_step)
+    if ok:
+        _clear_preproc_step_skip(context, "signal_repair")
+        invalidate_downstream_preproc_steps(context, "signal_repair")
+    return ok, message

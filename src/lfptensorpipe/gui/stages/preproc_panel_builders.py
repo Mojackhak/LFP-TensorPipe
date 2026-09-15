@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import (
     QComboBox,
+    QCheckBox,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -57,14 +59,16 @@ def build_preprocess_page(
 
     left_col = QVBoxLayout()
     left_col.setSpacing(page_spacing)
-    left_col.addWidget(self._build_preproc_raw_block(), stretch=1)
-    left_col.addWidget(self._build_preproc_filter_block(), stretch=3)
-    left_col.addWidget(self._build_preproc_ecg_block(), stretch=3)
+    left_col.addWidget(self._build_preproc_raw_block())
+    left_col.addWidget(self._build_preproc_signal_repair_block())
+    left_col.addWidget(self._build_preproc_filter_block())
+    left_col.addWidget(self._build_preproc_ecg_block())
+    left_col.addStretch(1)
 
     right_col = QVBoxLayout()
     right_col.setSpacing(page_spacing)
     right_col.addWidget(self._build_preproc_annotations_block(), stretch=6)
-    right_col.addWidget(self._build_preproc_finish_block(), stretch=1)
+    right_col.addWidget(self._build_preproc_finish_block())
 
     left_widget = QWidget()
     left_widget.setLayout(left_col)
@@ -94,8 +98,43 @@ def build_preproc_raw_block(self, *, grid_spacing: int) -> QGroupBox:
     return block
 
 
+def build_preproc_signal_repair_block(self, *, grid_spacing: int) -> QGroupBox:
+    block = IndicatorGroupBox("1. Signal Repair")
+    self._register_preproc_indicator("signal_repair", indicator=block.indicator_label())
+    layout = QVBoxLayout(block)
+    layout.setContentsMargins(8, 8, 8, 8)
+    layout.setSpacing(grid_spacing)
+    for kind in ("gaps", "peaks"):
+        checkbox = QCheckBox(f"Interpolate {kind}")
+        checkbox.setObjectName(f"preproc_signal_repair_{kind}")
+        checkbox.setEnabled(False)
+        checkbox.toggled.connect(
+            lambda checked, key=kind: self._on_preproc_signal_repair_toggle(
+                key, checked
+            )
+        )
+        setattr(self, f"_preproc_signal_repair_{kind}", checkbox)
+        layout.addWidget(checkbox)
+    actions = QHBoxLayout()
+    actions.setSpacing(grid_spacing)
+    for name in ("advance", "apply", "plot"):
+        button = QPushButton(name.title())
+        button.setObjectName(f"preproc_signal_repair_{name}_button")
+        button.setEnabled(False)
+        button.clicked.connect(getattr(self, f"_on_preproc_signal_repair_{name}"))
+        setattr(self, f"_preproc_signal_repair_{name}_button", button)
+        actions.addWidget(button)
+    self._preproc_signal_repair_skip_button = _create_preproc_skip_button(
+        self, "signal_repair"
+    )
+    actions.addWidget(self._preproc_signal_repair_skip_button)
+    actions.addStretch(1)
+    layout.addLayout(actions)
+    return block
+
+
 def build_preproc_filter_block(self, *, grid_spacing: int) -> QGroupBox:
-    block = IndicatorGroupBox("1. Filter")
+    block = IndicatorGroupBox("2. Filter")
     self._register_preproc_indicator("filter", indicator=block.indicator_label())
     self._preproc_filter_skip_button = _create_preproc_skip_button(self, "filter")
     layout = QVBoxLayout(block)
@@ -178,7 +217,7 @@ def build_preproc_filter_block(self, *, grid_spacing: int) -> QGroupBox:
 
 
 def build_preproc_finish_block(self, *, grid_spacing: int) -> QGroupBox:
-    block = IndicatorGroupBox("4. Finish")
+    block = IndicatorGroupBox("5. Finish")
     self._register_preproc_indicator("finish", indicator=block.indicator_label())
     layout = QHBoxLayout(block)
     layout.setContentsMargins(8, 8, 8, 8)
@@ -205,7 +244,7 @@ def build_preproc_ecg_block(
     grid_spacing: int,
     ecg_methods: tuple[str, ...],
 ) -> QGroupBox:
-    block = IndicatorGroupBox("2. ECG Artifact Removal")
+    block = IndicatorGroupBox("3. ECG Artifact Removal")
     self._register_preproc_indicator(
         "ecg_artifact_removal", indicator=block.indicator_label()
     )
@@ -282,7 +321,7 @@ def build_preproc_ecg_block(
 
 def build_preproc_visualization_block(self, *, grid_spacing: int) -> QGroupBox:
     block = QGroupBox("Visualization")
-    layout = QVBoxLayout(block)
+    layout = QGridLayout(block)
     layout.setContentsMargins(8, 8, 8, 8)
     layout.setSpacing(grid_spacing)
 
@@ -299,7 +338,7 @@ def build_preproc_visualization_block(self, *, grid_spacing: int) -> QGroupBox:
         "Choose which preprocess output to visualize."
     )
     step_row_layout.addWidget(self._preproc_viz_step_combo, stretch=1)
-    layout.addWidget(step_row)
+    layout.addWidget(step_row, 0, 0)
 
     psd_row = QWidget()
     psd_row_layout = QHBoxLayout(psd_row)
@@ -319,7 +358,7 @@ def build_preproc_visualization_block(self, *, grid_spacing: int) -> QGroupBox:
     psd_row_layout.addWidget(self._preproc_viz_psd_advance_button)
     psd_row_layout.addWidget(self._preproc_viz_psd_plot_button)
     psd_row_layout.addStretch(1)
-    layout.addWidget(psd_row)
+    layout.addWidget(psd_row, 1, 0)
 
     tfr_row = QWidget()
     tfr_row_layout = QHBoxLayout(tfr_row)
@@ -339,7 +378,7 @@ def build_preproc_visualization_block(self, *, grid_spacing: int) -> QGroupBox:
     tfr_row_layout.addWidget(self._preproc_viz_tfr_advance_button)
     tfr_row_layout.addWidget(self._preproc_viz_tfr_plot_button)
     tfr_row_layout.addStretch(1)
-    layout.addWidget(tfr_row)
+    layout.addWidget(tfr_row, 1, 1)
 
     channels_row = QWidget()
     channels_row_layout = QHBoxLayout(channels_row)
@@ -354,7 +393,9 @@ def build_preproc_visualization_block(self, *, grid_spacing: int) -> QGroupBox:
         self._on_preproc_viz_channels_select
     )
     channels_row_layout.addWidget(self._preproc_viz_channels_button, stretch=1)
-    layout.addWidget(channels_row)
+    layout.addWidget(channels_row, 0, 1)
+    layout.setColumnStretch(0, 1)
+    layout.setColumnStretch(1, 1)
 
     return block
 

@@ -435,3 +435,73 @@ class MainWindowPreprocActionsMixin:
                     f"Finish succeeded, but Tensor notch inheritance failed:\n{exc}",
                 )
         self.statusBar().showMessage(f"{prefix}: {message}")
+
+    def _on_preproc_signal_repair_toggle(self, kind: str, checked: bool) -> None:
+        self._preproc_signal_repair_params[kind]["enabled"] = checked
+        self._mark_record_param_dirty("preproc.signal_repair")
+        self._refresh_preproc_controls()
+
+    def _on_preproc_signal_repair_advance(self) -> None:
+        from lfptensorpipe.gui.dialogs.signal_repair_advance import (
+            SignalRepairAdvanceDialog,
+        )
+
+        context = self._record_context()
+        if context is None:
+            return
+        raw = self._read_raw_fif(
+            preproc_step_raw_path(PathResolver(context), "raw"),
+            preload=False,
+            verbose="ERROR",
+        )
+        try:
+            sfreq = float(raw.info["sfreq"])
+        finally:
+            raw.close()
+        dialog = SignalRepairAdvanceDialog(
+            params=self._preproc_signal_repair_params,
+            sfreq=sfreq,
+            default_params=self._load_signal_repair_defaults(),
+            set_default_callback=self._save_signal_repair_defaults,
+            parent=self,
+        )
+        if dialog.exec() == QDialog.Accepted:
+            self._preproc_signal_repair_params = dialog.selected_params
+            self._mark_record_param_dirty("preproc.signal_repair")
+            self._refresh_preproc_controls()
+            self._persist_record_params_snapshot(reason="preproc_signal_repair_advance")
+
+    def _on_preproc_signal_repair_apply(self) -> None:
+        from lfptensorpipe.app.preproc.service import apply_signal_repair_step
+        from lfptensorpipe.app.preproc.lineage import PreprocInputGenerationChanged
+
+        context = self._record_context()
+        if context is None:
+            return
+        try:
+            ok, message = self._run_with_busy(
+                "Signal Repair Apply",
+                lambda: apply_signal_repair_step(
+                    context, params=self._preproc_signal_repair_params
+                ),
+            )
+        except (ValueError, OSError, PreprocInputGenerationChanged) as exc:
+            self._show_warning("Signal Repair", str(exc))
+            return
+        self._refresh_stage_states_from_context()
+        self._refresh_preproc_controls()
+        self.statusBar().showMessage(
+            ("Signal Repair OK: " if ok else "Signal Repair failed: ") + message
+        )
+        self._post_step_action_sync(reason="preproc_signal_repair_apply")
+
+    def _on_preproc_signal_repair_plot(self) -> None:
+        from lfptensorpipe.gui.shell.preproc_plotting_steps import _open_step_plot
+
+        _open_step_plot(
+            self,
+            step="signal_repair",
+            missing_message="Signal Repair Plot unavailable: no saved result.",
+            title_prefix="Signal Repair",
+            autosave_step="signal_repair",
+        )

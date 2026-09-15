@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+
 import yaml
 
 from lfptensorpipe.app import load_alignment_epoch_picks
@@ -43,6 +44,7 @@ class MainWindowRecordParamsSnapshotLogsMixin:
         ecg_review_defaults = self._load_ecg_review_defaults()
         return {
             "preproc": {
+                "signal_repair": self._load_signal_repair_defaults(),
                 "filter": {
                     "basic": dict(self._load_filter_basic_defaults()),
                     "advance": dict(self._load_filter_advance_defaults()),
@@ -91,6 +93,11 @@ class MainWindowRecordParamsSnapshotLogsMixin:
     def _merge_preproc_logs_into_snapshot(
         self, snapshot: dict[str, Any], resolver: PathResolver
     ) -> None:
+        repair_params = self._read_completed_log_params(
+            resolver.preproc_root / "signal_repair" / "lfptensorpipe_log.json"
+        )
+        if isinstance(repair_params.get("settings"), dict):
+            snapshot["preproc"]["signal_repair"] = deepcopy(repair_params["settings"])
         filter_params = self._read_completed_log_params(
             resolver.preproc_root / "filter" / "lfptensorpipe_log.json"
         )

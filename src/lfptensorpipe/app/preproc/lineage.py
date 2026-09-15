@@ -19,6 +19,7 @@ from .paths import read_preproc_step_routing
 
 _PREPROC_STEPS = (
     "raw",
+    "signal_repair",
     "filter",
     "ecg_artifact_removal",
     "annotations",
@@ -248,17 +249,16 @@ def filter_preview_lineage_is_current(
     resolver: PathResolver,
     payload: dict[str, Any] | None,
 ) -> bool:
-    """Return whether a pending Filter Preview still matches Raw."""
+    """Return whether a pending Filter Preview still matches its selected source."""
     if not isinstance(payload, dict):
         return False
-    if not preproc_step_lineage_is_current(resolver, "raw"):
+    captured = capture_preproc_input_generation(resolver, "filter")
+    if captured is None:
         return False
-    raw_payload = _read_step_payload(resolver, "raw")
+    _, expected = captured
     return input_generation_receipts_match(
         payload,
-        expected={
-            preproc_generation_ref("raw"): accepted_result_generation_id(raw_payload)
-        },
+        expected=expected,
         require_result_generation=False,
     )
 

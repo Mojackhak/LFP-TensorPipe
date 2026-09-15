@@ -28,6 +28,7 @@ class MainWindowPreprocStageMixin:
     def _preproc_step_display_name(step: str) -> str:
         mapping = {
             "raw": "Raw",
+            "signal_repair": "Signal Repair",
             "filter": "Filter",
             "annotations": "Annotations",
             "ecg_artifact_removal": "ECG Artifact Removal",
@@ -37,6 +38,9 @@ class MainWindowPreprocStageMixin:
 
     def _build_preproc_raw_block(self) -> QGroupBox:
         return _stage_preproc_panel._build_preproc_raw_block(self)
+
+    def _build_preproc_signal_repair_block(self) -> QGroupBox:
+        return _stage_preproc_panel._build_preproc_signal_repair_block(self)
 
     def _build_preproc_filter_block(self) -> QGroupBox:
         return _stage_preproc_panel._build_preproc_filter_block(self)
@@ -98,6 +102,7 @@ class MainWindowPreprocStageMixin:
 
     def _refresh_preproc_controls(self) -> None:
         context = self._record_context()
+        self._refresh_signal_repair_controls(context)
         if context is None:
             for step, indicator in self._preproc_step_indicators.items():
                 self._set_indicator_color(indicator, "gray")
@@ -242,7 +247,10 @@ class MainWindowPreprocStageMixin:
                 False,
             ),
         )
+        repair_state = preproc_step_indicator_state(resolver, "signal_repair")
+        repair_skipped = preproc_step_is_skipped(resolver, "signal_repair")
         base_states = {
+            "signal_repair": repair_state,
             "raw": raw_log_state,
             "filter": filter_panel_state,
             "ecg_artifact_removal": ecg_panel_state,
@@ -250,6 +258,7 @@ class MainWindowPreprocStageMixin:
             "finish": finish_log_state,
         }
         skipped_steps = {
+            "signal_repair": repair_skipped,
             "filter": filter_skipped,
             "ecg_artifact_removal": ecg_skipped,
             "annotations": annotations_skipped,
@@ -257,6 +266,7 @@ class MainWindowPreprocStageMixin:
         blocked = False
         for step in (
             "raw",
+            "signal_repair",
             "filter",
             "ecg_artifact_removal",
             "annotations",
@@ -279,7 +289,8 @@ class MainWindowPreprocStageMixin:
         finish_raw_exists = finish_raw_path.exists()
         raw_step_exists = preproc_step_raw_path(resolver, "raw").exists()
         raw_ready = raw_log_state == "green" and raw_step_exists
-        filter_route_ready = raw_ready and (
+        repair_route_ready = raw_ready and (repair_skipped or repair_state != "yellow")
+        filter_route_ready = repair_route_ready and (
             filter_skipped or filter_panel_state != "yellow"
         )
         ecg_route_ready = filter_route_ready and (
@@ -304,7 +315,7 @@ class MainWindowPreprocStageMixin:
         if self._preproc_filter_advance_button is not None:
             self._preproc_filter_advance_button.setEnabled(raw_ready)
         if self._preproc_filter_apply_button is not None:
-            self._preproc_filter_apply_button.setEnabled(raw_ready)
+            self._preproc_filter_apply_button.setEnabled(repair_route_ready)
         if self._preproc_filter_plot_button is not None:
             self._preproc_filter_plot_button.setEnabled(
                 (filter_review_required and filter_preview_exists)
@@ -397,3 +408,50 @@ class MainWindowPreprocStageMixin:
             )
         self._refresh_preproc_ecg_channel_state(context)
         self._refresh_preproc_visualization_controls(context)
+
+    def _refresh_signal_repair_controls(self, context) -> None:
+        from lfptensorpipe.app.runlog_store import read_run_log
+        from lfptensorpipe.preproc.signal_repair import normalize_signal_repair_params
+
+        resolver = PathResolver(context) if context is not None else None
+        ready = (
+            resolver is not None
+            and preproc_step_indicator_state(resolver, "raw") == "green"
+        )
+        for kind in ("gaps", "peaks"):
+            checkbox = getattr(self, f"_preproc_signal_repair_{kind}")
+            checkbox.blockSignals(True)
+            checkbox.setChecked(self._preproc_signal_repair_params[kind]["enabled"])
+            checkbox.blockSignals(False)
+            checkbox.setEnabled(ready)
+        enabled = any(
+            group["enabled"] for group in self._preproc_signal_repair_params.values()
+        )
+        self._preproc_signal_repair_advance_button.setEnabled(ready)
+        self._preproc_signal_repair_apply_button.setEnabled(ready and enabled)
+        skipped = resolver is not None and preproc_step_is_skipped(
+            resolver, "signal_repair"
+        )
+        self._preproc_signal_repair_skip_button.setEnabled(ready or skipped)
+        self._preproc_signal_repair_skip_button.setChecked(skipped)
+        state = (
+            preproc_step_indicator_state(resolver, "signal_repair")
+            if resolver
+            else "gray"
+        )
+        self._preproc_signal_repair_plot_button.setEnabled(state == "green")
+        self._preproc_signal_repair_apply_button.setToolTip(
+            "Repair from Raw and save immediately."
+        )
+        if resolver and state == "green":
+            payload = read_run_log(
+                resolver.preproc_step_dir("signal_repair", create=False)
+                / "lfptensorpipe_log.json"
+            )
+            effective = normalize_signal_repair_params(
+                self._preproc_signal_repair_params
+            )
+            if payload["params"].get("effective_params") != effective:
+                self._preproc_signal_repair_apply_button.setToolTip(
+                    "Settings have unapplied changes; the saved result remains available."
+                )

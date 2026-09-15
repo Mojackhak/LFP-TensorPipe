@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from lfptensorpipe.gui.shell.common import (
     Any,
     QTableWidgetItem,
@@ -18,6 +20,28 @@ from lfptensorpipe.gui.shell.common import (
 class MainWindowRecordParamsApplyPreprocMixin:
     def _apply_record_params_preproc_snapshot(self, snapshot: dict[str, Any]) -> int:
         skipped = 0
+        if "preproc.signal_repair" not in self._record_param_dirty_keys:
+            from lfptensorpipe.preproc.signal_repair import (
+                normalize_signal_repair_params,
+            )
+
+            candidate = _nested_get(snapshot, ("preproc", "signal_repair"))
+            params = self._load_signal_repair_defaults()
+            defaults = deepcopy(params)
+            if isinstance(candidate, dict):
+                for kind in params:
+                    if isinstance(candidate.get(kind), dict):
+                        params[kind].update(candidate[kind])
+            try:
+                normalize_signal_repair_params(params)
+            except (TypeError, ValueError, KeyError) as exc:
+                self._show_preproc_params_warning_once(
+                    f"Invalid saved Signal Repair parameters; using defaults: {exc}"
+                )
+                params = defaults
+            self._preproc_signal_repair_params = params
+        else:
+            skipped += 1
 
         if "preproc.filter" not in self._record_param_dirty_keys:
             basic = _nested_get(snapshot, ("preproc", "filter", "basic"))

@@ -27,7 +27,7 @@ from lfptensorpipe.gui.stages.preproc_panel_builders import (
 
 
 def build_preproc_annotations_block(self, *, grid_spacing: int) -> QGroupBox:
-    block = IndicatorGroupBox("3. Annotations")
+    block = IndicatorGroupBox("4. Annotations")
     layout = QVBoxLayout(block)
     layout.setContentsMargins(8, 8, 8, 8)
     layout.setSpacing(grid_spacing)
