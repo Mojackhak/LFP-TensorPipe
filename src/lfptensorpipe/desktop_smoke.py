@@ -28,6 +28,11 @@ from lfptensorpipe.app.alignment_service import (
 from lfptensorpipe.app.config_store import AppConfigStore
 from lfptensorpipe.app.dataset.source_parser import parse_record_source
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
+from lfptensorpipe.app.preproc.paths import (
+    preproc_filter_preview_config_path,
+    preproc_filter_preview_log_path,
+    preproc_filter_preview_raw_path,
+)
 from lfptensorpipe.app.preproc_service import (
     preproc_step_log_path,
     preproc_step_raw_path,
@@ -225,7 +230,7 @@ def _import_record_via_dialog(
         options=options,
     )
     preview = ParsedImportPreview(
-        raw=raw,
+        base_raw=raw,
         report=report,
         source_path=source_path.expanduser().resolve(),
         is_fif_input=is_fif_input,
@@ -353,6 +358,50 @@ def _bootstrap_raw_step(window: MainWindow, context: RecordContext) -> None:
         raise RuntimeError(message)
 
 
+def _finalize_smoke_filter_review(window: MainWindow, context: RecordContext) -> None:
+    """Accept the generated preview through the production review finalizer."""
+    resolver = PathResolver(context)
+    preview_path = preproc_filter_preview_raw_path(resolver)
+    preview_log_path = preproc_filter_preview_log_path(resolver)
+    for path in (
+        preview_path,
+        preproc_filter_preview_config_path(resolver),
+        preview_log_path,
+    ):
+        if not path.exists():
+            raise RuntimeError(f"Filter preview artifact is missing: {path}")
+    preview_log = read_run_log(preview_log_path)
+    if (
+        preview_log is None
+        or preview_log.get("completed") is not False
+        or preview_log.get("params", {}).get("review_status") != "required"
+    ):
+        raise RuntimeError("Filter preview is not pending review.")
+
+    raw = window._read_raw_fif(preview_path, preload=False, verbose="ERROR")
+    try:
+        annotations = raw.annotations.copy()
+        bads = list(raw.info["bads"])
+    finally:
+        raw.close()
+    ok, message = window._finalize_filter_review_runtime(
+        context,
+        reviewed_annotations=annotations,
+        reviewed_bads=bads,
+    )
+    if not ok:
+        raise RuntimeError(f"Filter review failed: {message}")
+    window._refresh_stage_states_from_context()
+    window._refresh_preproc_controls()
+    final_log = read_run_log(preproc_step_log_path(resolver, "filter"))
+    if (
+        not preproc_step_raw_path(resolver, "filter").exists()
+        or final_log is None
+        or final_log.get("completed") is not True
+    ):
+        raise RuntimeError("Filter review did not produce an accepted output.")
+
+
 def _run_reference_preproc_pipeline(
     window: MainWindow,
     *,
@@ -380,13 +429,14 @@ def _run_reference_preproc_pipeline(
             context,
             advance_params=dict(advance),
             notches=list(basic.get("notches", [])),
-            l_freq=float(basic.get("l_freq", 0.0)),
-            h_freq=float(basic.get("h_freq", 0.0)),
+            l_freq=basic.get("l_freq"),
+            h_freq=basic.get("h_freq"),
         ),
     )
     window._refresh_stage_states_from_context()
     if not ok_filter:
         raise RuntimeError(f"Filter Apply failed: {message_filter}")
+    _finalize_smoke_filter_review(window, context)
 
     ecg_snapshot = (
         preproc_snapshot.get("ecg", {})
@@ -1447,7 +1497,7 @@ def run_smoke_demo_record_imports(records_root: str) -> int:
                     options=options,
                 )
                 preview = ParsedImportPreview(
-                    raw=raw,
+                    base_raw=raw,
                     report=report,
                     source_path=Path(str(paths["file_path"])).expanduser().resolve(),
                     is_fif_input=is_fif_input,
@@ -1853,13 +1903,12 @@ def run_smoke_preproc_ui(project_root: str, subject: str, record: str) -> int:
             )
 
         window._on_preproc_filter_apply()
-        filter_path = _expected_preproc_plot_path(context, "filter")
-        if not filter_path.exists():
-            raise RuntimeError(f"Filter output is missing: {filter_path}")
         if "Filter OK:" not in window.statusBar().currentMessage():
             raise RuntimeError(
                 f"Filter Apply failed: {window.statusBar().currentMessage()}"
             )
+        _finalize_smoke_filter_review(window, context)
+        filter_path = _expected_preproc_plot_path(context, "filter")
         _run_raw_plot_subprocess(filter_path)
 
         window._on_preproc_ecg_advance()
@@ -1885,7 +1934,7 @@ def run_smoke_preproc_ui(project_root: str, subject: str, record: str) -> int:
             warnings_before = len(warnings)
             window._on_preproc_ecg_apply()
             if len(warnings) != warnings_before:
-                raise RuntimeError(f"ECG Apply failed: {warnings[-1]}")
+                _smoke_print(f"ECG Apply warning: {warnings[-1]}")
             ecg_path = _expected_preproc_plot_path(context, "ecg_artifact_removal")
             if not ecg_path.exists():
                 raise RuntimeError(f"ECG output is missing: {ecg_path}")
@@ -1896,11 +1945,12 @@ def run_smoke_preproc_ui(project_root: str, subject: str, record: str) -> int:
             ecg_log = read_run_log(
                 preproc_step_log_path(resolver, "ecg_artifact_removal")
             )
-            if not isinstance(ecg_log, dict) or not isinstance(
-                ecg_log.get("params", {}).get("method_kwargs"),
-                dict,
+            if (
+                not isinstance(ecg_log, dict)
+                or ecg_log.get("completed") is not True
+                or not isinstance(ecg_log.get("params", {}).get("method_kwargs"), dict)
             ):
-                raise RuntimeError("ECG log is missing method_kwargs.")
+                raise RuntimeError("ECG log is incomplete or missing method_kwargs.")
         else:
             warnings_before = len(warnings)
             window._on_preproc_ecg_channels_select()
