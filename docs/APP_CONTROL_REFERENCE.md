@@ -10,7 +10,8 @@ This page is a GUI control reference, not a workflow guide.
 ## 1. Configs
 
 The configs dialog stores runtime dependencies used by Localize and related
-MATLAB-backed actions.
+MATLAB-backed actions. Open `LFP-TensorPipe -> Preferences...` on macOS or
+`Settings -> Configs` on Windows.
 
 ![Configs dialog.](assets/app-control-reference/controlref-advance-configs-dialog.png)
 
@@ -138,8 +139,7 @@ GUI controls use one visible-value contract across every stage:
   not an invalid saved default. Examples include Alignment annotation choices
   and channel-to-contact mappings.
 - External configuration import previews every normalization before acceptance.
-  Missing keys, repaired empty values, legacy-field conversions, and removed
-  unavailable values are reported separately. A required value is restored
+  Missing keys, normalized fields, and removed unavailable values are reported separately. A required value is restored
   only when a documented safe default exists; otherwise import fails.
 
 An invalid or changed draft makes the affected panel stale without deleting its
@@ -205,12 +205,6 @@ device/app version. Parser source priority is unchanged. In particular, the
 current Sceneray reader may use a finite txt rate when the CSV rate is NaN,
 negative infinity, or zero; a positive-infinite CSV rate remains selected ahead
 of txt and is rejected rather than silently replaced by the txt value.
-This parser-classification behavior is `FIXED-VERIFIED` for direct parsing and
-Record Import dispatch. It creates no preview or record from rejected input and
-does not scan or rewrite existing records. The official audit evidence seal is
-complete in iteration `026-BUG-136` and does not change this user-facing
-behavior.
-
 PINS `Packet num` and `Packet length` fields must represent finite mathematical
 integers. Values written as `1`, `1.0`, or `1e0` are equivalent, but a
 fractional value is rejected instead of being rounded or truncated. Correct the
@@ -222,18 +216,9 @@ Nested or nested-empty arrays are rejected during `Parse`; the importer does not
 flatten them into time samples or create a zero-length preview. Correct the
 source export and parse it again before confirming the import.
 
-Medtronic `SampleRateInHz` is source metadata, not an editable control. After
-the existing nonpositive check and before Gain, NaN, positive infinity, or
-floating overflow is rejected as `PARSE_SCHEMA_INVALID` with exact message
-`SampleRateInHz must be finite and > 0 at BrainSenseTimeDomain[{order}].`
-Negative infinity, zero, and finite-negative values retain the existing
-positivity message. BUG-138/D-350 is `REPRODUCED` / `FIXED-VERIFIED`: the
-`84`-case rate module, `106`-case focused set, and all `1469` collected tests
-pass; the complete suite retains exactly two established warnings. The
-official iteration `028-BUG-138` capture, end-tree construction, final
-tracked/ignored patch replay, manifest verification, and evidence seal are
-complete. No GUI control, preview state, persistence, freshness, or
-invalidation behavior changes.
+Medtronic `SampleRateInHz` is source metadata, not an editable control. It
+must be finite and strictly positive before Gain is applied. Invalid rates
+block Parse and do not create a record.
 
 Legacy CSV channel names are read from the original logical header, trimmed at
 their outer edges once, and required to be non-empty and case-sensitively
@@ -397,6 +382,9 @@ representative coordinates are evaluated against atlas membership.
 | `Save` | Saves the current atlas configuration back to the Localize page. | Atlas summary and Apply input. | May retain an empty interested-region draft; Apply, Set as Default, and Export remain blocked. |
 | `Cancel` | Closes the dialog without saving changes. | No atlas payload update. | Always available. |
 
+Atlas region discovery ignores macOS AppleDouble metadata files whose basenames
+begin with `._`. Select the corresponding real `.nii` or `.nii.gz` region files.
+
 ## 5. Stages Overview
 
 The Stages panel is the page navigator for record-scoped processing stages.
@@ -413,15 +401,14 @@ The Stages panel is the page navigator for record-scoped processing stages.
 
 ## 6. Preprocess Signal
 
-Signal Repair is an optional step after Raw for gap and peak interpolation.
-Its results support annotation editing and preserve existing-result routing.
-The page-overview screenshot predates Signal Repair and the Raw Restore button.
-
-The Preprocess page manages record-level signal cleanup and QC views.
+Follow the page in order: **0 Raw → 1 Signal Repair → 2 Filter →
+3 ECG Artifact Removal → 4 Annotations → 5 Finish**. Each step's controls,
+Advance settings, and review behavior appear together below. PSD and TFR
+provide additional QC views of any eligible step output.
 
 ![Preprocess Signal page.](assets/app-control-reference/controlref-basic-preprocess-signal.png)
 
-### 6.1 Shared Step Semantics
+**Shared step behavior**
 
 `Raw` and `Finish` are required. `Signal Repair`, `Filter`, `ECG Artifact Removal`, and
 `Annotations` are optional and retain this displayed order. An absent gray or
@@ -446,15 +433,11 @@ can be skipped without invalidating existing results or changing its gray state.
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | Step indicators | Show readiness or staleness for each preprocess step. | User feedback only. | Read-only. |
-| `Skip` (Filter/ECG/Annotations) | Checkable routing toggle. Checked excludes the step from downstream source selection; clicking it again clears Skip and reintroduces the unchanged underlying run state. It never changes the step indicator, artifact, run log, or pending Filter Preview. Each button remains in the owning panel's action row. | `preproc/<step>/routing.yml` and every later result. | The first click requires a green/yellow owning step and a resolved preceding route. A checked Skip remains enabled for the second click. Successful Apply also clears Skip. Clearing Skip reintroduces a yellow underlying step as a downstream blocker. |
+| `Skip` (optional steps) | Checkable routing toggle. Checked excludes the step from downstream source selection; clicking it again clears Skip and reintroduces the unchanged underlying run state. It never changes the step indicator, artifact, run log, or pending Filter Preview. Each button remains in the owning panel's action row. | `preproc/<step>/routing.yml` and every later result. | Filter, ECG, and Annotations require a green/yellow owning step and a resolved preceding route for the first click. Signal Repair also permits skipping an unexecuted gray step. A checked Skip remains enabled for the second click. Successful Apply also clears Skip. Clearing Skip reintroduces a yellow underlying step as a downstream blocker. |
 | `Apply` buttons | Execute the corresponding preprocess step. | Step outputs and downstream freshness. | Optional-step controls become available after Raw succeeds; Finish requires at least one valid source. |
 | `Plot` buttons | Open a plot for the current step output. | Human QC only. | Require a successful corresponding step output. |
 
-### 6.2 Raw, Filter, and Annotation Blocks
-
-The Raw card places `Restore` immediately after `Plot`. Opening Plot first is
-optional. Close any open plot before using Restore; the main window is locked
-while a plot or processing operation is active.
+### 6.1 Step 0: Raw
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
@@ -463,30 +446,6 @@ while a plot or processing operation is active.
 | `Restore` (Raw) | Opens a confirmation naming the selected subject and record. | No files change until restoration is confirmed. | Requires both canonical Rawdata and an existing `preproc/raw/raw.fif`; available even when Raw is yellow. Disabled without a record, with either file missing, or while the main window is locked by a plot or processing operation. |
 | `Restore` (confirmation) | Replaces the current Raw with the canonical Rawdata FIF file set, including its original annotations and whole-channel bad marks. | Discards Raw Plot edits, accepts Raw as green, and makes this record's dependent Preprocess, Tensor, Alignment, and Features results stale. Output files, parameter drafts, and Skip choices are retained; no processing runs automatically. | Requires confirmation for the same selected record. A changed record or active operation cancels the action. Copy or replacement failure preserves the previous Raw and log. |
 | `Cancel` (Restore confirmation) | Closes the confirmation without restoring Raw. | No changes to Raw, logs, or downstream state. | Default button in the confirmation. |
-| `Notches` | Defines comma-separated notch-center frequencies for filter execution. Use it to suppress narrow contamination bands without changing the broader passband set by `Low freq` and `High freq`. Leave it blank to disable FIR notch processing; enabled window models require at least one center. Active removePLI displays generated harmonics read-only and retains the manual list. | Filter output. | Every provided value must be finite, positive, and below the input Nyquist frequency. Unsupported values block Apply instead of being silently dropped. |
-| `Low freq` | Sets the high-pass cutoff frequency. Raising it removes more slow drift and movement-related low-frequency content, but it can also remove genuine low-frequency neural signal. Leave it blank to disable high-pass filtering. | Filter output. | A provided value must be finite and nonnegative. |
-| `High freq` | Sets the low-pass cutoff frequency. Lowering it removes more high-frequency noise, but it also narrows the usable signal band for later tensor analysis. Leave it blank to disable low-pass filtering. | Filter output. | A provided value must be finite, positive, and strictly below the input Nyquist frequency. A value at or above Nyquist shows a blocking warning; it is not automatically clipped. |
-| `Advance` (Filter) | Opens advanced filter parameters. | Filter session/default parameters. | Enabled when raw data is available. |
-| `Model` (Filter Advance) | Estimate and subtract line-noise components instead of FIR notch filtering. Off preserves the existing FIR path. | Effective Filter processing and dependent results upon acceptance. | Off by default; notch centers remain independently configured. |
-| Model selector | Selects MNE spectrum_fit, Sinusoidal regression, CleanLine, or removePLI. CleanLine is the factory selection; saved explicit model choices are preserved. Parameter drafts are retained across selections. | Only the enabled model's parameters affect computation. | Enabled when Model is checked. Upstream licenses apply to translated models; see LICENSE. |
-| `Window length (s)` | Sets the estimation window. Each independently filtered valid segment must contain a complete window. | Model fitting and consumed-support edge marking. | Positive; default 4 s. Short segments produce an explicit error. |
-| `Window overlap (%)` | Controls regression or CleanLine window overlap. MNE uses its own overlap-add implementation. | Sinusoidal regression and CleanLine. | At least 0 and less than 100; default 50. |
-| `Fit width (Hz)` | Full range of MNE frequency bins fitted around each notch center; 0 selects its nearest bin. | MNE spectrum_fit only. | Nonnegative; default 1 Hz. Bands must lie strictly inside Nyquist. |
-| `Multitaper bandwidth (Hz)` | Controls spectral estimation bandwidth, not the frequency search width. | MNE spectrum_fit and CleanLine. | MNE permits blank Auto; CleanLine requires a positive number, default 2 Hz. |
-| `Frequency search` / `Search radius (Hz)` | Search center +/- radius for the strongest significant component; off tests only the nearest frequency bin. Radius is retained but inactive when search is off. | CleanLine. | Default on, 0.5 Hz radius. |
-| `Significance threshold` | F-test p-value threshold; smaller values are more selective. | CleanLine advanced parameters. | Strictly between 0 and 1; default 0.01. |
-| `Fundamental frequency (Hz)` / `Harmonic count` | Generate nominal centers as fundamental times 1..count. Basic Notches displays these read-only while preserving its manual list. | removePLI. | Default 50 Hz and 2 harmonics; all centers and the fundamental +/-2 Hz estimator band must fit below Nyquist. |
-| `Amplitude/phase settling time (s)` | Sets adaptation time to 95% response. | removePLI. | Positive; default 1 s. |
-| Tracking bandwidth and settling-time fields | Set initial and final frequency-estimator bandwidth/settling time and transition duration to 95% of the final value. | removePLI advanced parameters. | Bandwidth defaults 50/0.2 Hz, transition 1 s; settling defaults 0.1/4 s, transition 1 s. |
-| Model edge marking | CleanLine and removePLI depend on the whole valid segment; marking their support marks the entire segment. | Existing mark filter edges option. | Off by default. |
-| `Apply` (Filter) | Creates a detection-filtered review Preview and runs automatic BAD detection. It does not accept the Preview as the scientific Filter result. | Pending Filter review state only; an earlier accepted Filter generation and its downstream results are not invalidated until finalization succeeds. The complete currently visible record draft, including blank cutoffs, is retained after the action. | Requires successful Raw and valid filter parameters. A successful Apply turns Filter yellow and temporarily blocks later preprocess actions until the Preview is closed and finalized. Existing later Preprocess indicators project yellow while never-run gray indicators stay gray. |
-| `Plot` (Filter) | Opens a pending review Preview, or an existing accepted Filter result when no Preview is pending. Closing a Preview automatically refilters from the selected upstream Raw or Signal Repair and accepts it without a confirmation dialog. Closing an accepted result refilters only after annotations or bad-channel selections changed. | Reviewed annotations, accepted Filter output, and dependent-stage freshness after a real accepted change. Independent BAD-boundary filtering and optional `EDGE_filter` marking follow the two Filter Advance controls. | Unavailable before the first successful Apply when no accepted Filter result exists. Available for a valid yellow `review_required` Preview or a green finalized result; other yellow states remain blocked. |
-| Annotation table | Shows the currently configured annotation rows. | Annotation payload. | Read-only except for row selection. |
-| `Configure...` (Annotations) | Opens the annotation editor. | Current annotation rows. | Available after Raw succeeds and the earlier Filter/ECG route is resolved, including any checked Skip. |
-| `Advance` (Annotations) | Opens the compact Annotations Advance dialog immediately from the right of `Configure...` in the first of two compact control rows. The second row contains `Apply`, `Plot`, and `Skip`, so no label is clipped at the default window width. | The current record's Annotations edge-marking policy. | Available whenever Annotations controls are available. |
-| `mark filter edges` (Annotations Advance) | When enabled, rebuilds system-owned `EDGE_filter_post_annotations` around BAD support added or expanded by Annotations Apply or Plot. | Annotations only; numeric samples and BAD support are unchanged. | Off by default. Enabled only when the selected source lineage contains a current accepted Filter generation with an exact integer support radius. |
-| `Apply` (Annotations) | Writes the configured annotations into the preprocess pipeline. Submitted onset values are seconds from the first retained sample; inherited source annotations keep their existing timing and channel scope when the rows are appended. A positive-duration row is clipped to its intersection with the Raw support, and a row with no temporal overlap is silently omitted. | Annotation output used by downstream steps. | Requires successful Raw and a structurally valid annotation set. Duration must remain finite and non-negative; onset may be negative when a positive-duration interval overlaps the Raw. Zero-duration points are retained only inside `[0,n_times/sampling_rate)`. The table, CSV, Raw, config, and log adopt the effective clipped/retained rows after a successful Apply. |
-| `Plot` (Annotations) | Plots the annotated signal. | QC only. | Requires successful annotation output. |
 
 Raw Restore reads
 `<project>/rawdata/<subject>/ses-postop/lfp/<record>/raw.fif` and replaces the
@@ -496,100 +455,144 @@ It preserves the Rawdata source and restores any annotations or bad channels
 already present there; it does not simply clear all labels. After successful
 replacement, the previous Raw files and log are moved to Trash. If Trash is
 unavailable, those files remain at the locations reported in the status message.
-An older Plot cannot save over the restored Raw. See the
+A Plot opened before Restore cannot save over the restored Raw. See the
 [Raw Restore walkthrough](APP_TUTORIAL.md#512-restore-the-original-raw) for the
 confirmation and follow-up steps.
 
-`Low freq` and `High freq` are independently nullable. A blank low cutoff
-disables only high-pass filtering, a blank high cutoff disables only low-pass
-filtering, and leaving both blank disables band filtering. `Notches` remains
-independent: configured notch centers still run when both cutoffs are blank,
-so all three basic fields must be blank to request no frequency-domain
-filtering. Apply and the pending-review transition must retain these canonical
-blank values as `None`; they must not restore application defaults or an older
-accepted Filter log.
+### 6.2 Step 1: Signal Repair
 
-Record-draft persistence after step actions saves the complete draft currently
-visible in the GUI. It does not replay historic stage logs across the whole
-record at that point. Log-priority replay is reserved for loading an incoming
-record. Raw Restore retains parameter drafts and Skip choices without reloading
-or writing them. Post-action persistence must
-collect and write the visible draft before clearing its dirty ownership. The
-existing persist helper clears dirty keys only after a successful payload
-write, while a failed write retains them. This rule protects unrelated Filter,
-Annotations, ECG, Tensor, Alignment, Localize, and Features draft fields when
-any one action completes.
+Signal Repair interpolates eligible gaps and transient peaks in accepted Raw.
+It preserves the continuous time axis, channel order, and sample count. Gap and
+peak interpolation are independently enabled and disabled by default.
 
-In any editable MNE Raw plot, press `a` to enter annotation mode and drag across
-the signal to create an all-channel interval. To make the interval
-channel-specific, hold `Shift` and left-click its shaded region over each
-affected trace. A channel-specific interval uses a lighter fill and dashed
-outline. Clicking a channel name instead marks or unmarks the entire channel in
-`raw.info["bads"]`; it does not scope one annotation interval. Global BAD/EDGE
-intervals mask every local channel and connectivity pair. A channel-specific
-interval masks only that local channel and connectivity pairs containing it.
+| Control | What it does | Availability / effect |
+| --- | --- | --- |
+| `Interpolate gaps` | Enables interpolation of short intervals labeled exactly `BAD_gap`, ignoring case. | Enables the Gap interpolation group in Advance. |
+| `Interpolate peaks` | Enables detection and interpolation of transient peaks. | Enables the Peak interpolation group in Advance. |
+| `Advance` | Opens independent gap and peak settings. | Requires current Raw input. |
+| `Apply` | Detects eligible intervals, repairs them from Raw, and saves the result and review list. | At least one repair type must be enabled with valid active parameters. |
+| `Plot` | Opens the signal and Repair review list. | Requires a saved repair result. |
+| `Skip` | Bypasses Signal Repair without deleting its saved result. | Reversible; an unexecuted gray repair step can also be skipped. |
 
-Channels already listed in `raw.info["bads"]` remain present in Filter output
-but do not participate in automatic peak-to-peak or AutoReject BAD-window
-detection. Both detectors use the same remaining channel set. Filter Apply is
-blocked when no usable detection channel remains; existing BAD time intervals
-continue to participate in AutoReject threshold training.
+#### 6.2.1 Advance: interpolation settings
 
-Build Tensor applies a separate whole-channel eligibility rule to the accepted
-`Finish` Raw. A channel listed in `finish/raw.fif` under `raw.info["bads"]`
-remains available for preprocess QC, but it is not eligible for Tensor
-computation. Channel metrics omit that channel, and connectivity metrics omit
-every pair containing it. This exclusion is independent of `Mask Edge Effects`;
-that control continues to govern annotation-derived time support only. Removing
-the bad-channel mark and applying `Finish` again makes the channel eligible for
-future selection, but does not add it automatically to an existing explicit
-Tensor selection.
+The tables give factory defaults. Saved defaults and record-specific settings
+can differ, as illustrated by the screenshots. Each group has its own method
+and sample limits; disabled groups do not affect processing.
 
-Channel-inventory reads are read-only and independent of computation. The GUI,
-Build Tensor planning, and metric-state API each close the Raw they open after
-extracting its channel inventory. Computation uses separately opened Raw
-objects. Raw Power and undirected connectivity close their Raw on both success
-and failure, including an empty selection after bad-channel exclusion; Burst
-and PSI retain their existing cleanup. Periodic/Aperiodic and TRGC preparation
-close the Raw when selector preparation fails; successful preparation
-transfers ownership to the calling runner.
+| Parameter | Factory default | Meaning and active condition |
+| --- | --- | --- |
+| `Interpolation method` | `Linear` | Linear joins the nearest usable sample on each side. PCHIP uses a shape-preserving piecewise cubic interpolant through surrounding context. Available independently for gaps and peaks. |
+| `Max gap samples` | `1` | Maximum consecutive gap samples to replace; integer at least 1. Longer spans remain unrepaired. |
+| `Max peak samples` | `1` | Maximum consecutive detected peak samples to replace; integer at least 1 for Amplitude MAD and Local z-score. Fixed at 1 and read-only for Local discontinuity. |
+| `Duration` | Calculated | Read-only conversion of maximum sample count to milliseconds at the recording's sampling rate. Anchor samples are excluded. |
+| `Context samples per side` | `2` | Surrounding samples on each side used by PCHIP; integer at least 2. Visible only for PCHIP. Linear uses one anchor on each side. |
+| `Save` | — | Saves dialog values to the record draft; Apply computes the repair result. |
+| `Set as Default` | — | Saves the current settings as application defaults. |
+| `Restore Default` | — | Loads saved defaults into the dialog. |
+| `Cancel` | — | Discards dialog edits. |
 
-Applying a changed `Finish` result retains the existing preprocess-wide
-invalidation contract: accepted Tensor metrics and their Alignment/Features
-dependents are marked stale. The exclusion itself introduces no additional
-configuration field, cache key, or schema version.
+Repair uses eligible EEG, SEEG, ECoG, and DBS channels; globally bad channels
+are excluded. Anchor/context samples must be finite and outside BAD/EDGE and
+existing interpolation support. Repair does not cross annotated point boundaries
+or use a detected peak as an anchor. Intervals that
+are too long or lack valid surrounding support remain unchanged. Accepted gap
+repair replaces only the repaired time/channel support of BAD_gap with
+INTERPOLATED_gap; other BAD and EDGE annotations retain their meaning.
 
-### 6.3 ECG, Finish, and Visualization
+#### 6.2.2 Advance: peak detection
+
+`Detection method` defaults to Amplitude MAD. Selecting a detector exposes only
+its relevant fields. Larger thresholds require a stronger deviation before a
+sample becomes a candidate. Sample-count and interpolation-support conditions
+must also pass before that candidate can be repaired.
+
+| Detector | Detection rule | Active parameters |
+| --- | --- | --- |
+| `Amplitude MAD` | Subtracts a rolling-median baseline and compares residual amplitude with a local median and robust scale (`1.4826 × MAD`). | Baseline window, detection window, MAD threshold. |
+| `Local z-score` | Subtracts a rolling-median baseline and compares residual amplitude with the local mean and sample standard deviation. | Baseline window, detection window, Z-score threshold. |
+| `Local discontinuity` | Tests a one-sample prediction residual and its entering/leaving slopes against separate left/right backgrounds. Both slopes must form a transient peak, and every threshold condition must pass. | Background window, guard interval, prediction residual threshold, boundary slope threshold. |
+
+For Amplitude MAD and Local z-score:
+
+| Parameter | Factory default | Meaning / units |
+| --- | --- | --- |
+| `Baseline window (s)` | `0.2` | Positive duration of the rolling-median baseline used before detection. |
+| `Detection window (s)` | `1` | Positive duration of the local window used to estimate the detector's center and scale. |
+| `MAD threshold` | `8` | Positive, dimensionless robust-deviation threshold for Amplitude MAD. |
+| `Z-score threshold` | `3` | Positive, dimensionless standard-deviation threshold for Local z-score. |
+
+The Local z-score screenshot uses a record-specific threshold of 5:
+
+![Signal Repair Advance with Local z-score and Linear interpolation.](assets/app-control-reference/controlref-advance-signal-repair-dialog.png)
+
+Selecting PCHIP exposes its context field. This Amplitude MAD example also uses
+a record-specific threshold of 5:
+
+![Amplitude MAD with PCHIP context.](assets/app-control-reference/controlref-advance-signal-repair-mad-pchip.png)
+
+For Local discontinuity:
+
+| Parameter | Factory default | Meaning / units |
+| --- | --- | --- |
+| `Background window (s)` | `1` | Total positive background duration, divided equally between the left and right sides, outside the guard intervals. |
+| `Guard interval (ms)` | `10` | Additional duration excluded on each side of the candidate; zero is allowed. |
+| `Prediction residual threshold` | `6` | Positive robust z threshold for deviation from the immediate neighbors' linear prediction, tested against both backgrounds. |
+| `Boundary slope threshold` | `6` | Positive robust z threshold applied to both entering and leaving slopes against both backgrounds. |
+
+Both robust thresholds use the background median and `1.4826 × MAD` scale.
+Insufficient background support or zero scale does not produce a candidate.
+The screenshot uses record-specific residual and slope thresholds of 5:
+
+![Local discontinuity settings.](assets/app-control-reference/controlref-advance-signal-repair-discontinuity.png)
+
+#### 6.2.3 Review: accept or reject an interpolation
+
+Repair review lists reversible repairs with their channel, type, start, end,
+sample count, and Accept state. Select a row to center its interval in the plot;
+select the matching channel in the browser and zoom in to inspect individual
+samples. Skipped candidates appear in the run report rather than in this list.
+
+Checking Accept uses the saved interpolated samples and adds the managed
+INTERPOLATED_gap or INTERPOLATED_peak label. Clearing it restores original
+samples; rejecting a gap repair also restores its original gap annotation.
+Manage these labels through the review list. Other annotations remain editable.
+Closing Plot saves changed decisions and annotation edits. An unchanged review
+does not rewrite the result or invalidate dependent stages.
+
+See the [matched interpolation example](APP_TUTORIAL.md#524-compare-interpolation-with-the-original-sample)
+for the same detected peak with Accept unchecked and checked.
+
+### 6.3 Step 2: Filter
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
-| `Method` (ECG) | Chooses the ECG artifact-removal strategy. | ECG step parameters. | Available after Raw succeeds and Filter is absent/gray, green, or bypassed by checked Skip. |
-| `Channels` (ECG) | Opens the ECG channel selector. | ECG channel subset. | Requires channels from the current valid ECG input source. |
-| `Advance` (ECG) | Opens method-specific ECG parameters and the shared `mark filter edges` review policy. | Current-record and global ECG defaults. The review policy is independent of template, perceive, and SVD algorithm parameters. | Available after Raw succeeds and Filter is resolved. |
-| `Apply` (ECG) | Runs ECG artifact removal. | ECG-cleaned signal. | Requires Raw, valid ECG settings, and a resolved Filter route: absent/gray, green, or bypassed by checked Skip. |
-| `Plot` (ECG) | Plots ECG-cleaned output and saves accepted annotation or bad-channel edits on close. With `mark filter edges` enabled, newly added or expanded `BAD*` support is surrounded by the exact accepted Filter support and recorded as `EDGE_filter_post_ecg`. | ECG annotations and downstream freshness; ECG-cleaned numeric samples are not recomputed. | Requires successful ECG output. Filter-edge marking requires that ECG consumed the current accepted Filter generation; when Filter is skipped the policy is disabled and false. Existing upstream BAD support cannot be shortened or removed here. |
-| `Finish` indicator | Reports readiness of the finalized preprocess output. | Downstream stage freshness. | Read-only. |
-| `Apply` (Finish) | Writes the finalized preprocess result and adds zero-duration `EDGE` markers at its physical start and last sample. | Tensor, alignment, and feature inputs. | Requires the nearest green source in priority order Annotations, ECG, Filter, Raw, with no yellow predecessor. |
-| `Plot` (Finish) | Plots the finalized preprocess output. | QC only. | Requires successful finish output. |
-| `Step` (Visualization) | Chooses which preprocess output the PSD/TFR QC views should read. | QC plotting source. | Always available once at least one eligible step exists. |
-| `Advance` (PSD) | Opens PSD plot settings. | PSD QC session/default settings. | Always available. |
-| `Plot` (PSD) | Plots PSD for the selected preprocess step and channels. | QC only. | Requires selected channels and an eligible preprocess step. |
-| `Advance` (TFR) | Opens TFR plot settings. | TFR QC session/default settings. | Always available. |
-| `Plot` (TFR) | Plots TFR for the selected preprocess step and channels, with red shadows over MNE-rounded sample support from positive-duration `BAD*`/`EDGE*` annotations. Channel-specific shadows follow the selected channels; a multi-channel averaged TFR uses their sample-support union. | QC only; Exclude BAD/EDGE isolates computation and leaves missing support as NaN. With exclusion off, shadows only annotate continuous estimates. | Requires selected channels and an eligible preprocess step. |
-| `Channels` (Visualization) | Chooses channels used by PSD/TFR QC plots. | QC plotting channel subset. | Requires a current channel inventory. |
+| `Notches` | Defines comma-separated notch-center frequencies for filter execution. Use it to suppress narrow contamination bands without changing the broader passband set by `Low freq` and `High freq`. Leave it blank to disable FIR notch processing; enabled window models require at least one center. Active removePLI displays generated harmonics read-only and retains the manual list. | Filter output. | Every provided value must be finite, positive, and below the input Nyquist frequency. Unsupported values block Apply instead of being silently dropped. |
+| `Low freq` | Sets the high-pass cutoff frequency. Raising it removes more slow drift and movement-related low-frequency content, but it can also remove genuine low-frequency neural signal. Leave it blank to disable high-pass filtering. | Filter output. | A provided value must be finite and nonnegative. |
+| `High freq` | Sets the low-pass cutoff frequency. Lowering it removes more high-frequency noise, but it also narrows the usable signal band for later tensor analysis. Leave it blank to disable low-pass filtering. | Filter output. | A provided value must be finite, positive, and strictly below the input Nyquist frequency. A value at or above Nyquist shows a blocking warning; it is not automatically clipped. |
+| `Advance` (Filter) | Opens advanced filter parameters. | Filter session/default parameters. | Enabled when raw data is available. |
+| `Apply` (Filter) | Creates a detection-filtered review Preview and runs automatic BAD detection. It does not accept the Preview as the scientific Filter result. | Pending Filter review state only; an earlier accepted Filter generation and its downstream results are not invalidated until finalization succeeds. The complete currently visible record draft, including blank cutoffs, is retained after the action. | Requires successful Raw and valid filter parameters. A successful Apply turns Filter yellow and temporarily blocks later preprocess actions until the Preview is closed and finalized. Existing later Preprocess indicators project yellow while never-run gray indicators stay gray. |
+| `Plot` (Filter) | Opens a pending review Preview, or an existing accepted Filter result when no Preview is pending. Closing a Preview automatically refilters from the selected upstream Raw or Signal Repair and accepts it without a confirmation dialog. Closing an accepted result refilters only after annotations or bad-channel selections changed. | Reviewed annotations, accepted Filter output, and dependent-stage freshness after a real accepted change. Independent BAD-boundary filtering and optional `EDGE_filter` marking follow the two Filter Advance controls. | Unavailable before the first successful Apply when no accepted Filter result exists. Available for a valid yellow `review_required` Preview or a green finalized result; other yellow states remain blocked. |
 
-### 6.4 Filter Advance
+Low freq and High freq are independently optional: blank disables the
+corresponding high-pass or low-pass operation. With Model off, blank Notches
+disables FIR notches. Leave all three basic fields blank and keep Model off to
+disable all frequency filtering. Apply and review retain those blank values.
+Step actions retain the complete visible record draft, including unrelated
+parameter fields and Skip choices.
+
+#### 6.3.1 Advance: FIR, artifact detection, and boundaries
 
 ![Filter Advance dialog.](assets/app-control-reference/controlref-advance-filter-dialog.png)
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
-| `Notch widths` | Sets the bandwidth used for each configured notch. Wider values remove more contamination around the notch center, but they also suppress more nearby neural signal. | Filter output. | Must parse as valid numeric input. |
-| `Epoch duration` | Sets the complete-window length used by bad-span detection helpers. Filter evaluates every complete regular-grid window and, when needed, one additional complete window aligned to the final Raw sample so the recording tail is covered. Shorter windows react to brief artifacts, while longer windows emphasize more sustained contamination patterns. | Filter-related artifact detection behavior. | Must be finite and positive. No samples are padded and no incomplete tail window is evaluated. If the recording is shorter than one complete window, Apply is rejected and asks the user to reduce Epoch duration. |
-| `Peak-to-peak threshold` | Defines the amplitude range treated as acceptable during bad-span detection. Tighter thresholds flag more segments as artifacts, while wider thresholds are more permissive. Leave the whole field blank to disable only fixed peak-to-peak rejection; AutoReject remains active. | Filter-related artifact detection behavior. | Must be blank or two finite values satisfying `0 <= min < max`; a partially filled pair is invalid. |
-| `AutoReject correct factor` | Scales the automatically estimated rejection thresholds. Use it when the default AutoReject behavior is systematically too strict or too permissive for the current recording. | Filter-related artifact detection behavior. | Must parse as valid numeric input. |
+| `notch widths` | Sets the FIR bandwidth in Hz for each configured notch (factory default: 2 Hz). One value applies to all centers; a list supplies one per center. Inactive while Model is enabled. Wider values remove more contamination around the notch center, but they also suppress more nearby neural signal. | Filter output. | Requires positive finite values and a matching list length. |
+| `epoch duration` | Sets the complete-window length in seconds (factory default: 1 s) used by bad-span detection helpers. Filter evaluates every complete regular-grid window and, when needed, one additional complete window aligned to the final Raw sample so the recording tail is covered. Shorter windows react to brief artifacts, while longer windows emphasize more sustained contamination patterns. | Filter-related artifact detection behavior. | Must be finite and positive. No samples are padded and no incomplete tail window is evaluated. If the recording is shorter than one complete window, Apply is rejected and asks the user to reduce Epoch duration. |
+| `peak-to-peak threshold (min, max)` | Defines the amplitude range in volts (factory default: 1e-6, 1e-3 V, equivalent to 1–1000 µV) treated as acceptable during bad-span detection. Tighter thresholds flag more segments as artifacts, while wider thresholds are more permissive. Leave the whole field blank to disable only fixed peak-to-peak rejection; AutoReject remains active. | Filter-related artifact detection behavior. | Must be blank or two finite values satisfying `0 <= min < max`; a partially filled pair is invalid. |
+| `autoreject correct factor` | Scales the automatically estimated rejection thresholds (factory default: 1.5). Use it when the default AutoReject behavior is systematically too strict or too permissive for the current recording. | Filter-related artifact detection behavior. | Must be finite and positive. |
 | `isolate BAD boundaries` | Selects how the accepted Filter result is produced when the review Preview is finalized. Checked by default: every valid interval between global or channel-specific BAD/EDGE boundaries is filtered independently. Unchecked: the reviewed recording is filtered continuously, exactly like whole-Raw filtering. | Accepted Filter numeric values. | Must be checked or unchecked; changing it makes an existing Filter result stale. |
-| `mark filter edges` | When BAD-boundary isolation is enabled, optionally marks the exact combined band-pass and notch FIR support at every valid-segment edge as system-owned `EDGE_filter`. Unchecked by default accepts MNE padding results without adding these annotations. | Accepted Filter annotations only; it does not change the filtered numeric values. | Enabled only while `isolate BAD boundaries` is checked. An inconsistent persisted pair is invalid. |
+| `mark filter edges` | When BAD-boundary isolation is enabled, optionally marks the exact support of the active filter and notch model at every valid-segment edge as system-owned `EDGE_filter`. Unchecked by default accepts MNE padding results without adding these annotations. | Accepted Filter annotations only; it does not change the filtered numeric values. | Enabled only while `isolate BAD boundaries` is checked. An inconsistent persisted pair is invalid. |
 | `Save` | Saves current advanced values to the session. | Current filter session parameters. | May retain invalid values as a red record draft; Filter Apply and valid-only persistence remain blocked. |
 | `Set as Default` | Saves current advanced and basic filter values as defaults. | Future default filter settings. | Blocks on invalid values. |
 | `Restore Defaults` | Restores saved default values. | Current dialog fields. | Always available. |
@@ -598,9 +601,6 @@ configuration field, cache key, or schema version.
 AutoReject estimates its channel thresholds from eligible regular-grid windows
 only, then evaluates those thresholds on all eligible windows, including the
 end-aligned tail window. A rejected window is marked over its complete duration.
-Filter results created before this end-tail coverage contract are retained but
-shown yellow because their logs cannot prove that the final samples were
-checked; a successful Apply and review finalization updates the result.
 
 When `isolate BAD boundaries` is checked, BAD/EDGE endpoints are assigned to
 Raw-relative source samples with MNE rounding. Positive intervals use
@@ -614,121 +614,218 @@ enabled and leaves it unmarked when disabled. Changing either control requires
 Filter review finalization and makes later Preprocess steps and all downstream
 Tensor, Alignment, and Features stale, including mask-disabled Tensor results.
 
-ECG Advance exposes its own shared `mark filter edges` control, unchecked by
-default. ECG Apply records the policy but does not create edge annotations.
-When an ECG Plot closes after annotation edits, the application compares the
-reviewed channel-aware `BAD*` sample support with the direct accepted Filter
-input. It removes its prior system-owned `EDGE_filter_post_ecg` annotations and,
-when marking is enabled, rebuilds exact support only around BAD samples or true
-zero-duration BAD boundaries that were added or expanded after Filter. It uses
-the accepted Filter log's integer `filter_support_radius_samples`; it does not
-recompute the radius from seconds or current library defaults. Repeated review
-therefore does not accumulate duplicate edges. The operation fails atomically
-if the matching Filter generation cannot be verified. Filter-input BAD support
-may be added to or expanded during ECG review but may not be shortened or
-removed, because Filter and ECG may have intentionally skipped those samples.
+Channels already listed in `raw.info["bads"]` remain present in Filter output
+but do not participate in automatic peak-to-peak or AutoReject BAD-window
+detection. Both detectors use the same remaining channel set. Filter Apply is
+blocked when no usable detection channel remains; existing BAD time intervals
+continue to participate in AutoReject threshold training.
 
-BUG-142/D-354 is `REPRODUCED` / `FIXED-VERIFIED`, P2. The repair applies the
-same MNE-rounded Raw-relative source-sample contract to Filter/ECG bad-sample
-masks and historically to the now-retired Bad Segment Removal deletion mask.
-Positive annotations use clipped half-open rounded
-support, a positive interval whose endpoints round equal is empty, and a true
-zero-duration point masks no sample. BAD/EDGE matching, channel scope, removal
-scope, surviving-annotation remapping, reports, controls, and logging remain
-unchanged.
+#### 6.3.2 Advance: model-based notch removal
 
-The unchanged-source oracle produced exactly `4 failed, 4 passed`; repaired
-validation passed the dedicated `8`, focused `166`, complete `1529`, and exact
-`1529`-item collection gates. The complete run retained only the two
-established fully masked Connectivity warnings. Ruff, Black, scope/diff/index,
-and isolated-import gates also passed.
-Official capture, tracked/ignored replay, manifest verification, and evidence
-sealing are complete. Authoritative capture details are retained in the
-ignored iteration 033 log and evidence manifest rather than embedded in this
-tracked control reference.
+Enable `Model`, choose a method, and use `More model parameters` to expose its
+additional fields. Model is off by default, with CleanLine selected. All four
+methods retain independent drafts; only the enabled model's effective settings
+affect computation. Basic Low freq and High freq remain active.
 
-There is no automatic scan or freshness marker. A known affected current
-Filter or ECG result must be explicitly applied again at that step; the
-existing dependency flow alone invalidates its later consumers. Historical
-Bad Segment Removal artifacts remain inert and are not migrated or reapplied.
-Canonical zero-first-sample, on-grid, point, and unrelated results remain
-current. The separately reproduced surviving non-BAD annotation remap is not
-part of BUG-142 and is closed as `NO-FIX-RETIRED-PATH` under D-367. It remains
-historical low-level helper behavior; the active application no longer deletes
-or stitches BAD segments, so no production or test repair is required.
+The tables give factory defaults. Saved defaults and record-specific values may
+differ. Sinusoidal regression, MNE spectrum_fit, and CleanLine use the basic
+Notches centers and require at least one. Each valid processing segment must
+contain a complete model window. All target frequencies must be below Nyquist.
+removePLI generates its own centers and displays them read-only in Notches while
+retaining the manual list. Unsupported active settings block Apply.
 
-BUG-143/D-355 is `REPRODUCED` / `FIXED-VERIFIED`, P2 lifecycle and availability.
-On exFAT, macOS can place AppleDouble metadata such as `._raw.fif` beside the
-private FIF that Filter is saving. The shared atomic publisher formerly
-mistook that metadata for a formal FIF family member, which could make Filter
-fail with a `._raw.fif -> public/._raw.fif` missing-file error even though the
-scientific `raw.fif` was written successfully.
+##### Sinusoidal regression
 
-The backend-only repair ignores an entry whose basename starts with
-`._` only while enumerating a private staged FIF directory. Formal main and
-numbered split FIF files remain collectively promoted, and any other
-unexpected staged entry remains an error. Rollback, cleanup, transaction
-manifests, controls, parameters, logs, and scientific values do not change.
-The isolated source and public editable clone are both repaired. Dedicated
-`2`, shared atomic `29`, focused `41`, and complete `1531` tests pass; exact
-collection is `1531`, with only the two established fully masked Connectivity
-warnings. The public-clone gate also passes the exact `2`, Ruff, Black, and
-isolated import in `lfptp`.
+Fits the configured sinusoidal components in overlapping windows and subtracts
+the reconstructed waveforms. Each window uses least-squares sine/cosine
+regression at the requested frequencies; the fitted constant is retained.
+Mewett et al. (2001) provide related regression-subtraction background
+([references](#filter-model-references)). LFP-TensorPipe estimates the components
+within each processing window and blends overlapping estimates.
 
-Official isolated capture, tracked/ignored replay, manifest verification, and
-evidence sealing are complete. Authoritative capture details are retained in
-the ignored iteration 034 log and evidence manifest rather than embedded in
-this tracked control reference; the final refreshed recapture values own the
-post-seal documentation state.
+| Parameter | Factory default | Meaning / valid input |
+| --- | --- | --- |
+| `Window length (s)` | `4` | Positive estimation-window duration. |
+| `Window overlap (%)` | `50` | Overlap between adjacent windows; at least 0 and less than 100. |
 
-The failed transaction does not accept a new Filter generation. Restart the
-GUI, then Apply only the failed Filter step again. Existing downstream
-invalidation alone applies. No data scan, migration, automatic rerun, or
-global invalidation is required.
+![Sinusoidal regression settings.](assets/app-control-reference/controlref-advance-filter-sinusoidal.png)
 
-### 6.5 Configure Annotations
+##### MNE spectrum_fit
 
-![Configure Annotations dialog.](assets/app-control-reference/controlref-advance-annotations-dialog.png)
+Fits Fourier components around each notch center using MNE's multitaper
+estimation and overlap-add reconstruction. The method reference recommended by
+MNE is Mitra and Bokil (2008); Gramfort et al. (2013) describe the MNE-Python
+software ([references](#filter-model-references)). LFP-TensorPipe supplies
+explicit notch centers, so MNE's automatic F-test frequency detection is not
+used for this model.
+
+| Parameter | Factory default | Meaning / valid input |
+| --- | --- | --- |
+| `Window length (s)` | `4` | Positive fitting-window duration. MNE manages its overlap internally. |
+| `Fit width (Hz)` | `1` | Full frequency width around each center. Nonnegative; 0 selects the nearest Fourier bin. Fitting bands must remain strictly inside Nyquist. |
+| `Multitaper bandwidth (Hz)` | Blank (`Auto`) | Positive full bandwidth for line fitting, or blank for MNE's automatic choice. Exposed by More model parameters. |
+| `Limit over-subtraction` | Off | Enables background-scaled subtraction, described below. |
+| `Background radius (Hz)` | `10` | Positive radius on each side of a requested center used to find background candidates; active only with Limit over-subtraction. |
+| `Background bandwidth (Hz)` | `1` | Positive full multitaper bandwidth for the separate background PSD; active only with Limit over-subtraction. Window length × bandwidth must be at least 3. |
+
+![MNE spectrum_fit settings.](assets/app-control-reference/controlref-advance-filter-mne.png)
+
+##### CleanLine
+
+Detects significant line components in sliding multitaper windows. Frequency
+search and global or channel-specific significance thresholds determine which
+components are removed. LFP-TensorPipe uses a Python translation of SCCN's
+CleanLine implementation. Mullen's CleanLine documentation describes the method
+and cites Mitra and Bokil, Section 7.3.4, for its multitaper regression and line
+detection basis ([references](#filter-model-references)).
+
+| Parameter | Factory default | Meaning / valid input |
+| --- | --- | --- |
+| `Window length (s)` | `4` | Positive estimation-window duration. |
+| `Window overlap (%)` | `50` | Window overlap, at least 0 and less than 100. |
+| `Frequency search` | On | Searches around each center; when off, tests its nearest frequency bin. |
+| `Search radius (Hz)` | `0.5` | Positive radius around each center for search. Also defines exclusion around detected peaks during background-scaled subtraction, so it remains active when Limit over-subtraction is on. |
+| `Significance threshold` | `0.01` | Global F-test p-value threshold, strictly between 0 and 1. Smaller values remove fewer components. Exposed by More model parameters. |
+| `Per-channel thresholds` | Off | Enables channel-name overrides edited with Configure. |
+| `Configure...` | No overrides | Opens channel thresholds. Blank cells inherit the global threshold; explicit values must be strictly between 0 and 1. |
+| `Multitaper bandwidth (Hz)` | `2` | Positive full bandwidth for line fitting, independent of search radius. Exposed by More model parameters. |
+| `Limit over-subtraction` | Off | Enables background-scaled subtraction. |
+| `Background radius (Hz)` | `10` | Positive radius for background candidates on both sides; active only with Limit over-subtraction. |
+| `Background bandwidth (Hz)` | `1` | Positive full bandwidth of the background PSD, independent of fitting bandwidth. Active only with Limit over-subtraction; window length × bandwidth must be at least 3. |
+
+The screenshot uses a record-specific search radius of 1 Hz and enables
+Limit over-subtraction:
+
+![CleanLine with additional parameters expanded.](assets/app-control-reference/controlref-advance-filter-cleanline.png)
+
+An active override for an absent channel blocks Apply until it is cleared or
+overrides are disabled. Disabling overrides retains their drafts. Only effective
+threshold changes make Filter stale; inactive drafts and overrides equal to the
+global threshold do not. Run reports record each channel's effective threshold.
+
+##### removePLI
+
+Tracks a fundamental and its harmonics with adaptive frequency, amplitude, and
+phase estimates. Settling and transition times specify time to reach 95% of the
+corresponding asymptotic response. LFP-TensorPipe uses a Python translation of
+Keshtkaran's removePLI implementation of Keshtkaran and Yang (2014)
+([references](#filter-model-references)).
+
+| Parameter | Factory default | Meaning / valid input |
+| --- | --- | --- |
+| `Fundamental frequency (Hz)` | `50` | Positive base frequency. Its ±2 Hz estimator band must fit within the available frequency range. |
+| `Harmonic count` | `2` | Positive integer; generates fundamental × 1 through fundamental × count. All centers must remain below Nyquist. |
+| `Amplitude/phase settling time (s)` | `1` | Positive adaptation time for the reconstructed harmonic components. |
+
+![removePLI basic model settings.](assets/app-control-reference/controlref-advance-filter-removepli.png)
+
+Expand More model parameters for frequency tracking:
+
+| Parameter | Factory default | Meaning / valid input |
+| --- | --- | --- |
+| `Initial tracking bandwidth (Hz)` | `50` | Positive starting bandwidth of the frequency estimator. |
+| `Final tracking bandwidth (Hz)` | `0.2` | Positive settled bandwidth of the frequency estimator. |
+| `Bandwidth transition time (s)` | `1` | Positive transition duration from initial to final tracking bandwidth. |
+| `Initial frequency settling time (s)` | `0.1` | Positive initial response time of frequency tracking. |
+| `Final frequency settling time (s)` | `4` | Positive settled response time of frequency tracking. |
+| `Settling-time transition (s)` | `1` | Positive transition duration between initial and final frequency settling times. |
+
+![removePLI frequency-tracking parameters.](assets/app-control-reference/controlref-advance-filter-removepli-tracking.png)
+
+##### Background-scaled subtraction
+
+CleanLine and MNE spectrum_fit provide `Limit over-subtraction`, off by default.
+This background-scaling step is an LFP-TensorPipe extension to the cited line
+estimators. Each method has independent `Background radius (Hz)` and `Background bandwidth
+(Hz)` values, initially 10 and 1. Background bandwidth controls a separate
+multitaper PSD estimate; it does not set the line-fitting bandwidth.
+
+When enabled, each fitted target waveform receives one nonnegative coefficient
+per channel and processing segment. Coefficients may exceed one. The objective
+compares residual power with a background fitted from both sides of the excluded
+noise band; it does not enforce a hard frequency-by-frequency power floor.
+Background points must lie inside the configured passband and outside fitted or
+detected noise bands. Insufficient background support leaves the component
+unsubtracted and is reported. Overlapping target exclusions that cannot be
+assigned independently are rejected.
+
+Use Plot to inspect remaining peaks and depressions. A smoother PSD alone does
+not demonstrate recovery of the underlying signal or phase. Reports include the
+channel, segment bounds, target, background fit, coefficient, residual error,
+downward deviation, and convergence. Finalization recomputes them from the
+original source under the reviewed boundaries. Adaptive coefficients depend on
+the complete processing segment; `mark filter edges` can therefore mark that
+whole segment. Inactive background controls do not affect freshness.
+
+##### Filter model references
+
+- **Sinusoidal regression — methodological background:** Mewett DT, Nazeran H,
+  Reynolds KJ. (2001). *Removing power line noise from recorded EMG*.
+  Proceedings of the 23rd Annual International Conference of the IEEE
+  Engineering in Medicine and Biology Society, 3:2190–2193.
+  [Author-institution record and paper](https://fac.flinders.edu.au/items/60faac19-6daa-4af0-8605-b68b19403b72).
+  The paper estimates sine/cosine coefficients from a quiet interval; the model
+  here fits each overlapping window and does not require a separate quiet
+  interval.
+- **MNE spectrum_fit — method and software:** Mitra P, Bokil H. (2008).
+  *Observed Brain Dynamics*. Oxford University Press, Section 7.3.4.
+  DOI: [10.1093/acprof:oso/9780195178081.001.0001](https://doi.org/10.1093/acprof:oso/9780195178081.001.0001).
+  This is the method citation requested by the
+  [MNE notch_filter documentation](https://mne.tools/stable/generated/mne.filter.notch_filter.html).
+  For MNE-Python itself: Gramfort A, Luessi M, Larson E, et al. (2013).
+  *MEG and EEG data analysis with MNE-Python*. Frontiers in Neuroscience, 7:267.
+  DOI: [10.3389/fnins.2013.00267](https://doi.org/10.3389/fnins.2013.00267).
+- **CleanLine — software and method:** Mullen T. *CleanLine: EEGLAB plugin*.
+  SCCN, University of California San Diego.
+  [Official documentation](https://eeglab.org/plugins/cleanline/) and
+  [upstream implementation](https://github.com/sccn/cleanline).
+  The method background is Mitra and Bokil, *Observed Brain Dynamics*, Section
+  7.3.4, cited above. This is a software reference with a separate methodological
+  source.
+- **removePLI — algorithm and implementation:** Keshtkaran MR, Yang Z. (2014).
+  *A fast, robust algorithm for power line interference cancellation in neural
+  recording*. Journal of Neural Engineering, 11(2):026017.
+  DOI: [10.1088/1741-2560/11/2/026017](https://doi.org/10.1088/1741-2560/11/2/026017).
+  [Author manuscript](https://arxiv.org/abs/1402.6862) and
+  [upstream implementation](https://github.com/mrezak/removePLI).
+
+#### 6.3.3 Review and values inside BAD/EDGE intervals
+
+Preview and accepted Filter outputs store filtered values inside excluded
+intervals. With boundary isolation enabled, each affected channel obtains a
+continuous filtered reference from the original channel. Only excluded samples
+are copied from that reference; every valid interval is filtered independently
+from its original samples. The reference never supplies valid-segment estimator
+input. A point annotation splits intervals without excluding a sample; an
+all-BAD channel retains the continuous filtered reference.
+
+This policy applies to FIR and all four models. It preserves BAD/EDGE annotations
+and their downstream exclusion meaning. Short excluded intervals need no separate
+model fit, although the full recording must support the chosen model. CleanLine
+reference diagnostics are recorded separately from valid-segment diagnostics.
+An unchanged Plot closes without recomputation; reviewed edits regenerate Filter
+from the original source. Accepted changes affect Filter's dependent results only.
+
+In any editable MNE Raw plot, press `a` to enter annotation mode and drag across
+the signal to create an all-channel interval. To make the interval
+channel-specific, hold `Shift` and left-click its shaded region over each
+affected trace. A channel-specific interval uses a lighter fill and dashed
+outline. Clicking a channel name instead marks or unmarks the entire channel in
+`raw.info["bads"]`; it does not scope one annotation interval. Global BAD/EDGE
+intervals mask every local channel and connectivity pair. A channel-specific
+interval masks only that local channel and connectivity pairs containing it.
+
+### 6.4 Step 3: ECG Artifact Removal
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
-| `Search` | Filters configured annotation rows. | Table browsing only. | Always available. |
-| Annotation table | Lists the current annotation rows. | Saved annotation payload. | Read-only except for row selection and delete actions. |
-| `Description` | Draft label for a new annotation row. | Draft row. | Required for a valid draft. |
-| `Start` | Draft onset time in seconds. | Draft row. | Must be a finite number greater than or equal to zero. |
-| `Duration` | Draft duration in seconds. Zero represents a point annotation. | Draft row. | Must be a finite number greater than or equal to zero. |
-| `End` | Optional end time used to derive duration. | Draft row. | When supplied, it must be finite and greater than or equal to `Start`. |
-| `Apply` | Adds the draft row. | Annotation table rows. | Requires a valid draft. |
-| `Clear Draft` | Clears the current draft row. | Draft fields only. | Always available. |
-| `Clear All` | Removes all configured annotation rows. | Annotation table rows. | Always available. |
-| `Import Annotations` | Imports annotation rows from a CSV file. | Annotation table rows. | Requires non-empty descriptions and finite, non-negative onset/duration values. |
-| `Save` | Saves the current annotation list back to Preprocess. | Annotation payload. | Blocks on invalid rows. |
-| `Cancel` | Closes the dialog without saving. | No annotation update. | Always available. |
+| `Method` (ECG) | Chooses the ECG artifact-removal strategy. | ECG step parameters. | Available after Raw succeeds and the earlier optional steps are absent/gray, green, or bypassed by checked Skip. |
+| `Channels` (ECG) | Opens the ECG channel selector. | ECG channel subset. | Requires channels from the current valid ECG input source. |
+| `Advance` (ECG) | Opens method-specific ECG parameters and the shared `mark filter edges` review policy. | Current-record and global ECG defaults. The review policy is independent of template, perceive, and SVD algorithm parameters. | Available after Raw succeeds and the earlier route is resolved. |
+| `Apply` (ECG) | Runs ECG artifact removal. | ECG-cleaned signal. | Requires Raw, valid ECG settings, and a resolved earlier route: absent/gray, green, or bypassed by checked Skip. |
+| `Plot` (ECG) | Plots ECG-cleaned output and saves accepted annotation or bad-channel edits on close. With `mark filter edges` enabled, newly added or expanded `BAD*` support is surrounded by the exact accepted Filter support and recorded as `EDGE_filter_post_ecg`. | ECG annotations and downstream freshness; ECG-cleaned numeric samples are not recomputed. | Requires successful ECG output. Filter-edge marking requires that ECG consumed the current accepted Filter generation; when Filter is skipped the policy is disabled and false. Existing upstream BAD support cannot be shortened or removed here. |
 
-Annotation table and CSV onsets are always record-relative: zero is the first
-retained Raw sample. Apply preserves that meaning for both dated and undated
-recordings, including legal legacy or manually supplied Raw files whose
-`first_samp` is nonzero. Existing source annotations retain their exact
-descriptions, durations, channel scopes, and absolute-time reference while new
-rows retain the submitted record-relative values in `annotations.csv` and the
-run log. A known Annotations output created from a nonzero-first-sample source
-before this correction must be explicitly applied again; the normal
-record-scoped downstream invalidation then applies. Canonical imported records
-whose `first_samp` is zero and other unaffected results remain current; there
-is no automatic scan or migration.
-
-BUG-141/D-353 is `REPRODUCED` / `FIXED-VERIFIED`. The repaired eight-case
-contract, `84`-case focused set, and complete `1521`-case suite pass; the full
-run contains only the two established fully masked Connectivity warnings.
-This verification does not add a freshness marker or broaden the existing
-record-scoped invalidation behavior.
-Official BUG-141 evidence capture, replay, manifest verification, and sealing
-are complete. This tracked reference intentionally embeds no end-tree or patch
-hash; the authoritative refreshed capture details are owned by the ignored
-iteration 032 `ITERATION_LOG.md`, ignored-after snapshots, and evidence
-manifest.
-
-### 6.6 ECG Method and Advance Parameters
+#### 6.4.1 Method and Advance parameters
 
 The screenshot below shows the method dropdown used by the ECG block. The ECG
 action row also provides `Advance`, `Apply`, and `Plot`; the screenshot is kept
@@ -738,8 +835,6 @@ as the method-selector reference and does not illustrate the Advance dialog.
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
-| `Method` | Chooses the ECG artifact-removal algorithm. Each method retains independent parameters. | ECG method used by Apply. | Requires successful bad-segment removal. |
-| `Advance` | Opens parameters for the selected method. | Current-record ECG parameters. | Requires successful bad-segment removal. |
 | `Save` | Saves the displayed parameters for the current record and method without running ECG removal. | Current-record ECG parameters and freshness state. | May retain an invalid cross-field combination as a red record draft; ECG Apply and valid-only persistence remain blocked. |
 | `Set as Default` | Saves the displayed values as global defaults for the selected method. | Future records without saved ECG parameters. | Blocks on invalid values. |
 | `Restore Defaults` | Loads the selected method's global defaults into the dialog. | Dialog fields only until Save is selected. | Always available. |
@@ -817,7 +912,91 @@ Further reading:
   the best choice still depends on the artifact shape and how much neural signal
   preservation matters for the current recording.
 
-### 6.7 PSD Advance
+#### 6.4.2 Review and filter-edge marking
+
+ECG Advance exposes its own shared `mark filter edges` control, unchecked by
+default. ECG Apply records the policy but does not create edge annotations.
+When an ECG Plot closes after annotation edits, the application compares the
+reviewed channel-aware `BAD*` sample support with the direct accepted Filter
+input. It removes its prior system-owned `EDGE_filter_post_ecg` annotations and,
+when marking is enabled, rebuilds exact support only around BAD samples or true
+zero-duration BAD boundaries that were added or expanded after Filter. It uses
+the accepted Filter log's integer `filter_support_radius_samples`; it does not
+recompute the radius from seconds or current library defaults. Repeated review
+therefore does not accumulate duplicate edges. The operation fails atomically
+if the matching Filter generation cannot be verified. Filter-input BAD support
+may be added to or expanded during ECG review but may not be shortened or
+removed, because Filter and ECG may have intentionally skipped those samples.
+
+### 6.5 Step 4: Annotations
+
+| Control | What it does | What it affects | Availability / blocking rule |
+| --- | --- | --- | --- |
+| Annotation table | Shows the currently configured annotation rows. | Annotation payload. | Read-only except for row selection. |
+| `Configure...` (Annotations) | Opens the annotation editor. | Current annotation rows. | Available after Raw succeeds and the earlier Filter/ECG route is resolved, including any checked Skip. |
+| `Advance` (Annotations) | Opens the compact Annotations Advance dialog immediately from the right of `Configure...` in the first of two compact control rows. The second row contains `Apply`, `Plot`, and `Skip`, so no label is clipped at the default window width. | The current record's Annotations edge-marking policy. | Available whenever Annotations controls are available. |
+| `mark filter edges` (Annotations Advance) | When enabled, rebuilds system-owned `EDGE_filter_post_annotations` around BAD support added or expanded by Annotations Apply or Plot. | Annotations only; numeric samples and BAD support are unchanged. | Off by default. Enabled only when the selected source lineage contains a current accepted Filter generation with an exact integer support radius. |
+| `Apply` (Annotations) | Writes the configured annotations into the preprocess pipeline. Submitted onset values are seconds from the first retained sample; inherited source annotations keep their existing timing and channel scope when the rows are appended. A positive-duration row is clipped to its intersection with the Raw support, and a row with no temporal overlap is silently omitted. | Annotation output used by downstream steps. | Requires successful Raw and a structurally valid annotation set. Duration must remain finite and non-negative; onset may be negative when a positive-duration interval overlaps the Raw. Zero-duration points are retained only inside `[0,n_times/sampling_rate)`. The table, CSV, Raw, config, and log adopt the effective clipped/retained rows after a successful Apply. |
+| `Plot` (Annotations) | Plots the annotated signal. | QC only. | Requires successful annotation output. |
+
+#### 6.5.1 Configure annotations
+
+![Configure Annotations dialog.](assets/app-control-reference/controlref-advance-annotations-dialog.png)
+
+| Control | What it does | What it affects | Availability / blocking rule |
+| --- | --- | --- | --- |
+| `Search` | Filters configured annotation rows. | Table browsing only. | Always available. |
+| Annotation table | Lists the current annotation rows. | Saved annotation payload. | Read-only except for row selection and delete actions. |
+| `Description` | Draft label for a new annotation row. | Draft row. | Required for a valid draft. |
+| `Start` | Draft onset time in seconds. | Draft row. | Must be a finite number greater than or equal to zero. |
+| `Duration` | Draft duration in seconds. Zero represents a point annotation. | Draft row. | Must be a finite number greater than or equal to zero. |
+| `End` | Optional end time used to derive duration. | Draft row. | When supplied, it must be finite and greater than or equal to `Start`. |
+| `Apply` | Adds the draft row. | Annotation table rows. | Requires a valid draft. |
+| `Clear Draft` | Clears the current draft row. | Draft fields only. | Always available. |
+| `Clear All` | Removes all configured annotation rows. | Annotation table rows. | Always available. |
+| `Import Annotations` | Imports annotation rows from a CSV file. | Annotation table rows. | Requires non-empty descriptions and finite, non-negative onset/duration values. |
+| `Save` | Saves the current annotation list back to Preprocess. | Annotation payload. | Blocks on invalid rows. |
+| `Cancel` | Closes the dialog without saving. | No annotation update. | Always available. |
+
+Annotation table and CSV onsets are record-relative: zero is the first retained
+Raw sample. This applies to dated and undated recordings, including Raw files
+with nonzero `first_samp`. Source annotations preserve their descriptions,
+durations, channel scopes, and absolute-time reference. Apply clips intervals
+to the record and writes the effective rows to `annotations.csv` and the run log.
+
+### 6.6 Step 5: Finish
+
+| Control | What it does | What it affects | Availability / blocking rule |
+| --- | --- | --- | --- |
+| `Finish` indicator | Reports readiness of the finalized preprocess output. | Downstream stage freshness. | Read-only. |
+| `Apply` (Finish) | Writes the finalized preprocess result and adds zero-duration `EDGE` markers at its physical start and last sample. | Tensor, alignment, and feature inputs. | Requires the nearest green source in priority order Annotations, ECG, Filter, Signal Repair, Raw, excluding checked-Skip steps and with no unresolved yellow predecessor. |
+| `Plot` (Finish) | Plots the finalized preprocess output. | QC only. | Requires successful finish output. |
+
+Build Tensor applies a separate whole-channel eligibility rule to the accepted
+`Finish` Raw. A channel listed in `finish/raw.fif` under `raw.info["bads"]`
+remains available for preprocess QC, but it is not eligible for Tensor
+computation. Channel metrics omit that channel, and connectivity metrics omit
+every pair containing it. This exclusion is independent of `Mask Edge Effects`;
+that control continues to govern annotation-derived time support only. Removing
+the bad-channel mark and applying `Finish` again makes the channel eligible for
+future selection, but does not add it automatically to an existing explicit
+Tensor selection.
+
+Applying a changed Finish result makes this record's Tensor metrics and their
+Alignment/Features dependents stale. Other records remain unaffected.
+
+### 6.7 PSD and TFR QC
+
+| Control | What it does | What it affects | Availability / blocking rule |
+| --- | --- | --- | --- |
+| `Step` (Visualization) | Chooses which preprocess output the PSD/TFR QC views should read. | QC plotting source. | Always available once at least one eligible step exists. |
+| `Advance` (PSD) | Opens PSD plot settings. | PSD QC session/default settings. | Always available. |
+| `Plot` (PSD) | Plots PSD for the selected preprocess step and channels. | QC only. | Requires selected channels and an eligible preprocess step. |
+| `Advance` (TFR) | Opens TFR plot settings. | TFR QC session/default settings. | Always available. |
+| `Plot` (TFR) | Plots TFR for the selected preprocess step and channels, with red shadows over MNE-rounded sample support from positive-duration `BAD*`/`EDGE*` annotations. Channel-specific shadows follow the selected channels; a multi-channel averaged TFR uses their sample-support union. | QC only; Exclude BAD/EDGE isolates computation and leaves missing support as NaN. With exclusion off, shadows only annotate continuous estimates. | Requires selected channels and an eligible preprocess step. |
+| `Channels` (Visualization) | Chooses channels used by PSD/TFR QC plots. | QC plotting channel subset. | Requires a current channel inventory. |
+
+#### 6.7.1 PSD Advance
 
 ![PSD Advance dialog.](assets/app-control-reference/controlref-advance-psd-dialog.png)
 
@@ -837,7 +1016,7 @@ Further reading:
 - `Low freq` and `High freq` only crop the PSD figure. They do not retroactively change the preprocess output.
 - `n_fft` controls Welch window support and spectral sampling. It is inactive for Multitaper and Morlet.
 
-### 6.8 TFR Advance
+#### 6.7.2 TFR Advance
 
 ![TFR Advance dialog.](assets/app-control-reference/controlref-advance-tfr-dialog.png)
 
@@ -858,7 +1037,38 @@ Further reading:
 - A heavily decimated TFR is useful for quick QC, but it can hide brief events that are still present in the underlying preprocess output.
 - TFR shadows match `BAD` and `EDGE` as case-insensitive description prefixes and use MNE-rounded source-sample support. Global intervals always appear; channel-specific intervals appear only when at least one affected channel is selected. A merged-channel TFR displays the sample-support union across selected channels. Zero-duration points are not shaded, and the overlay does not alter TFR values.
 
-### 6.9 Visualization Channels
+#### 6.7.3 Spectral methods and missing support
+
+PSD offers Welch, whole-segment Multitaper, and Morlet mean power. TFR offers
+Morlet and Multitaper. Each method retains independent drafts; only its active
+fields are validated. Shared controls include frequency bounds, optional
+record-relative start/stop times (stop exclusive), channel averaging, and
+`Exclude BAD/EDGE`, enabled by default.
+
+Welch uses `n_fft` and its native frequency grid. Multitaper PSD uses each complete
+valid segment and the selected full bandwidth in Hz. Morlet uses a frequency
+grid and optional cycles; blank cycles use `max(2, frequency/4)`. Multitaper TFR
+uses window duration T and full bandwidth B, with `n_cycles = frequency * T`
+and `time_bandwidth = T * B`; T * B must be at least 2. Linear/log spacing and
+frequency count set the grid. TFR Decim controls output time sampling only.
+
+With exclusion on, each channel is split at its BAD/EDGE intervals and point
+boundaries; separated samples are never concatenated. Segments too short for the
+estimator are omitted and reported. Missing TFR kernel support remains NaN;
+Morlet mean power uses only supported samples. Whole-segment PSDs interpolate
+linear power within native frequency support onto a common display grid, without
+extrapolation, and weight by contributing duration at each frequency. Welch uses
+only complete windows. Missing outputs retain the requested shape with NaN.
+
+Channel averaging uses equal-weight finite linear power before dB conversion.
+There is no automatic notch exclusion or interpolation across missing frequency
+values. PSD density uses microvolt squared per Hz; Morlet mean power and TFR
+use estimator power in microvolt squared. All-NaN plots report that no data can
+be estimated. With exclusion off, estimation is continuous and annotations appear
+as shadows. These settings recompute only the requested QC plot, leaving saved
+Preprocess, Tensor, Alignment, and Features results unchanged.
+
+#### 6.7.4 Visualization channels
 
 ![Visualization Channels dialog.](assets/app-control-reference/controlref-advance-visualization-channels-dialog.png)
 
@@ -926,7 +1136,7 @@ If one or more metric results have already been accepted but the record-level
 Build Tensor summary cannot be saved, the run result preserves those metric
 outcomes and reports `Build Tensor stage summary warning:`. The application
 still marks only the Alignment trials and Features that consume each changed
-metric as stale. The older summary file may remain visible internally, but the
+metric as stale. A stale summary file may remain on disk, but the
 metric indicators and stage state continue to use accepted metric artifacts
 and lineage rather than treating the summary as a scientific result.
 
@@ -964,12 +1174,6 @@ log remains a recovery error and keeps the existing retry path.
   membership. NaN and infinite output times are never assigned to a sample and
   remain outside annotation support. Global and channel-specific annotation
   scope is unchanged.
-- BUG-129/D-341 rounded source-sample membership is `REPRODUCED` /
-  `FIXED-VERIFIED`: dedicated `16`, focused `198`, and complete `1501` tests
-  pass. This repair adds no control, configuration, metadata, automatic
-  freshness marker, or invalidation mechanism. The iteration `030-BUG-129`
-  evidence seal is complete; exact tree and patch hashes are recorded in its
-  ignored `ITERATION_LOG.md`.
 - An empty required control is an invalid draft. It may be retained by ordinary
   record-scoped Save, but blocks Set as Default, Export Configs, and
   computation. A documented optional control may be left empty and is stored
@@ -979,11 +1183,21 @@ log remains a recovery error and keeps the existing retry path.
   selection changes. Red invalid-draft highlighting is removed immediately when
   the active value or collection becomes valid; a previous error must not leave
   persistent red styling on a valid control.
-- Configuration compatibility applies only to keys that are absent from an
-  older payload. Explicit `NaN`, `Inf`, non-numeric, negative, out-of-range, or
+- Documented defaults apply to optional keys absent from an imported
+  configuration. Explicit `NaN`, `Inf`, non-numeric, negative, out-of-range, or
   fractional integer values are rejected rather than repaired or truncated.
   The documented exception is `max_n_peaks=inf`, which means no peak-count
   limit.
+
+#### Notch inheritance from Preprocess
+
+After Finish, accepted FIR Filter settings can supply Tensor notch defaults.
+An accepted model-based Filter result suppresses automatic notch inheritance.
+The decision uses the completed Filter log, not an unsaved model selection.
+Existing per-metric notch centers and radii remain unchanged, including explicit
+empty lists. Change Tensor settings deliberately when further frequency exclusion
+is needed. Only effective metric settings and accepted input changes affect the
+corresponding metric and its downstream results.
 
 ### 7.3 Periodic/Aperiodic Basic Panel Variant
 
@@ -1022,9 +1236,8 @@ This panel shows the Burst-specific basic controls. `Step (Hz)` is configured
 in Burst Advance instead of this panel. It is dormant for Hilbert, so changing
 it does not alter Hilbert computation or freshness. Morlet and Multitaper use
 it to build the retained frequency grid; changing it can alter their Burst
-results and freshness. A legacy Burst configuration or Python call therefore
-interprets a Step value according to the active estimator rather than ignoring
-it globally.
+results and freshness. The active estimator determines whether Step participates
+in computation.
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
@@ -1132,22 +1345,62 @@ it globally.
 - The reconstructed tensor follows the configured smoothing steps before
   SpecParam decomposition.
 
-### 7.9 PLV Advance
+### 7.9 Undirected Connectivity Common Parameters
 
-![PLV Advance dialog.](assets/app-control-reference/controlref-advance-tensor-plv-dialog.png)
+Coherence, absolute imaginary coherence (`|ImCoh|`), PLV, ciPLV, PLI, and wPLI
+share the same basic and Advance controls. PLV illustrates those controls in
+the screenshots below. Each metric keeps its own settings and pair selection;
+selecting a metric name opens its editor, while its checkbox selects it for
+computation.
+
+| Metric | What the output measures |
+| --- | --- |
+| Coherence | Magnitude of the cross-spectrum divided by the geometric mean of the two auto-spectra. The output is coherence magnitude, not magnitude-squared coherence. |
+| Absolute imaginary coherence (\|ImCoh\|) | Absolute value of the imaginary component of complex coherency. It summarizes the non-zero phase-lag component and discards its sign. |
+| PLV | Phase-locking value: concentration of the phase difference after normalizing individual cross-spectral values to unit magnitude. |
+| ciPLV | Corrected imaginary PLV: magnitude of imaginary phase locking, normalized using the real phase-locking component. |
+| PLI | Phase-lag index: magnitude of the mean sign of the imaginary cross-spectrum; measures whether one phase-lag sign predominates. |
+| wPLI | Weighted phase-lag index: weights that sign consistency by the magnitude of the imaginary cross-spectrum, giving small imaginary components less influence. |
+
+All six use undirected channel pairs. Their values do not establish lead-lag
+direction or causality. In particular, `|ImCoh|` is an absolute magnitude, not
+signed imaginary coherence. For comparisons across metrics, match the pairs,
+frequency grid, time settings, spectral method, notch exclusions, and masking.
+See the [tutorial's connectivity interpretation notes](APP_TUTORIAL.md#6-build-tensor)
+for the ciPLV and PLI/wPLI limitations with identical signals.
+
+#### 7.9.1 Shared basic panel
+
+![Shared undirected connectivity basic panel, illustrated with PLV and Select Pairs.](assets/app-control-reference/controlref-basic-tensor-undirected-panel.png)
+
+`Low freq`, `High freq`, `Step`, `Time resolution`, and `Hop` have the shared
+[tensor-grid meanings](#72-metric-parameter-panel-and-run-block) for all six
+metrics. `Select Pairs` opens the
+[undirected pair selector](#713-undirected-tensor-pairs). Pairs containing a bad
+Finish channel are excluded; at least one usable pair is required. `Advance`
+opens the spectral and notch settings below. These controls configure the
+active metric only; matching field names do not synchronize metric drafts.
+
+#### 7.9.2 Shared Advance controls
+
+The PLV dialog below also represents Coherence, `|ImCoh|`, ciPLV, PLI, and wPLI.
+Choose Morlet or Multitaper to enable that method's fields. Inactive method
+fields retain their drafts but do not affect computation.
+
+![Shared undirected connectivity Advance controls, illustrated with PLV.](assets/app-control-reference/controlref-advance-tensor-plv-dialog.png)
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
-| `Method` | Chooses the spectral backend used to estimate the phase representation before PLV is computed. | PLV runtime method. | Always available in this dialog. |
+| `Method` | Chooses Morlet or Multitaper to estimate the spectral representation used by the active connectivity metric. | Active metric's spectral method. | Always available in this dialog. |
 | `MT time-bandwidth product` | Sets the dimensionless DPSS time-bandwidth product. The default is `4.0`. | Multitaper smoothing and stability. | Enabled only for Multitaper; must be at least `2`. |
 | `MT min cycles` | Sets the minimum cycles in a Multitaper connectivity window. Low frequencies use a longer window when needed. | Multitaper low-frequency stability and temporal support. | Enabled only for Multitaper; must be greater than `0`. |
 | `MT max cycles` | Optionally caps cycles in a Multitaper connectivity window. High frequencies then use shorter windows and wider absolute bandwidth. Leave blank for no cap; set equal to `MT min cycles` for fixed cycles. | Multitaper high-frequency temporal support and bandwidth. | Enabled only for Multitaper; blank or finite, greater than `0`, and not below `MT min cycles`. |
-| `Morlet min cycles` | Sets the minimum Morlet cycle count used for PLV estimation. | Morlet PLV time/frequency trade-off. | Enabled only for Morlet. |
-| `Morlet max cycles` | Sets the optional maximum Morlet cycle count. | Morlet PLV time/frequency trade-off. | Enabled only for Morlet. |
-| `Notches` | Adds metric-local notch exclusions before PLV is computed. | Metric-local runtime filtering. | Supported tensor metrics only. |
-| `Notch radius (Hz)` | Sets the half-width on each side of a metric-local notch center. | Metric-local runtime filtering. | Use one positive value for every center or one value per center. |
-| `Save` | Saves the dialog values to the current session. | Current PLV advanced settings. | Preserves invalid values as a red draft; computation and valid-only persistence remain blocked. |
-| `Set as Default` | Saves the current advanced settings as defaults. | Future PLV defaults. | Blocks on invalid values. |
+| `Morlet min cycles` | Sets the minimum Morlet cycle count used for connectivity estimation. | Morlet time/frequency trade-off. | Enabled only for Morlet. |
+| `Morlet max cycles` | Sets the optional maximum Morlet cycle count. | Morlet time/frequency trade-off. | Enabled only for Morlet. |
+| `Notches` | Defines metric-local frequency exclusions for connectivity estimation. | Active metric's frequency support. | Available for all six metrics. |
+| `Notch radius (Hz)` | Sets the half-width on each side of a metric-local notch center. | Active metric's frequency support. | Use one positive value for every center or one value per center. |
+| `Save` | Saves the dialog values to the current session. | Active metric's advanced settings. | Preserves invalid values as a red draft; computation and valid-only persistence remain blocked. |
+| `Set as Default` | Saves the current advanced settings as defaults for the active metric. | That metric's future defaults. | Blocks on invalid values. |
 | `Restore Defaults` | Restores saved defaults. | Current dialog values. | Always available. |
 | `Cancel` | Closes the dialog without saving. | No advanced update. | Always available. |
 
@@ -1226,12 +1479,12 @@ it globally.
 | `MT time-bandwidth product` | Sets the dimensionless DPSS time-bandwidth product while `MT cycles` determines window duration. | Multitaper taper family, spectral concentration, and magnitude estimate. | Enabled only for Multitaper. Must be finite and at least `2`. |
 | `Hilbert edge tolerance (%)` | Sets the maximum representative-amplitude-normalized isolated-versus-continuous Hilbert magnitude error allowed outside the automatic per-band numerical guard. | Hilbert guard duration, retained valid support, and estimator identity. | Enabled only for Hilbert. Must be finite and strictly between `0` and `100`; default `10`. |
 | `Thresholds` label | Shows the loaded JSON filename and its band-by-channel coverage. Loading validates the file structure; compatibility with the final channel and effective-band selection is checked when Burst runs. | Burst threshold source context. | Burst dialog only. |
-| `Load thresholds.json` | Loads a non-executable structured Burst threshold snapshot. The JSON may cover a superset of channels and bands; the run extracts and reorders the requested subset by identity. Legacy threshold Pickle files are not opened or converted. | Burst threshold source context. | Burst dialog only; accepts `.json` files. |
+| `Load thresholds.json` | Loads a non-executable structured Burst threshold snapshot. The JSON may cover a superset of channels and bands; the run extracts and reorders the requested subset by identity. | Burst threshold source context. | Burst dialog only; accepts `.json` files. |
 | `Clear thresholds` | Clears the loaded threshold snapshot and source path, returns Burst to data-derived threshold estimation, and re-enables the saved Percentile/Baseline values. | Burst threshold source context. | Burst dialog only. |
 | `Baseline annotations` | Chooses which finished annotation label should define the baseline segments used for burst thresholding. Pick a label that represents the reference state you want burst thresholds to reflect. | Burst threshold derivation. | Burst dialog only. Disabled while a structured threshold snapshot is loaded. When deriving thresholds from data, the run fails if the exact selected label is absent or has no samples remaining after BAD/EDGE exclusion. |
 | `Burst min cycles` | Sets the minimum accepted event duration in cycles of the named band's union-center frequency. Shorter supra-threshold runs are excluded. | Burst event-duration eligibility. | Burst dialog only. Must be finite and positive. |
 | `Burst max cycles` | Sets an optional maximum accepted event duration in cycles of the named band's union-center frequency. Longer supra-threshold runs are excluded; leave blank for no maximum. | Burst event-duration eligibility. | Burst dialog only. When provided, it must be finite, positive, and greater than or equal to `Burst min cycles`. |
-| `Isolate BAD/EDGE boundaries` | Prevents samples inside global or channel-specific BAD/EDGE annotations from entering the selected Burst estimator for adjacent valid support. Each valid continuous segment is processed independently and loses only its own automatic transform guard. Build Tensor preserves the saved boolean unchanged through runtime-plan dispatch. | Burst magnitude, data-derived thresholds, event topology, and retained valid duration. | Burst dialog only; checked by default and disabled while global `Mask Edge Effects` is unchecked. Unchecking selects the legacy whole-record transform followed by post-computation masking. |
+| `Isolate BAD/EDGE boundaries` | Prevents samples inside global or channel-specific BAD/EDGE annotations from entering the selected Burst estimator for adjacent valid support. Each valid continuous segment is processed independently and loses only its own automatic transform guard. Build Tensor preserves the saved boolean unchanged through runtime-plan dispatch. | Burst magnitude, data-derived thresholds, event topology, and retained valid duration. | Burst dialog only; checked by default and disabled while global `Mask Edge Effects` is unchecked. Unchecking selects a whole-record transform followed by post-computation masking. |
 | `Notches` | Adds metric-local notch exclusions before burst detection is computed. | Metric-local runtime filtering. | Supported tensor metrics only. |
 | `Notch radius (Hz)` | Sets the half-width on each side of a metric-local notch center. | Metric-local runtime filtering. | Use one positive value for every center or one value per center. |
 | `Save` | Saves the dialog values to the current session. | Current burst advanced settings. | Preserves invalid values as a red draft; computation and valid-only persistence remain blocked. |
@@ -1254,8 +1507,8 @@ it globally.
 - Boundary isolation changes the transform input, not only the display mask.
   Short valid segments with no interior after both transform guards remain
   `NaN`; the application never substitutes unfiltered data or valid non-Burst
-  zeros. The disabled legacy mode is retained for explicit comparison and
-  diagnostic workflows.
+  zeros. With isolation off, the transform uses the whole record before the
+  output mask is applied.
 
 ### 7.13 Undirected Tensor Pairs
 
@@ -1597,11 +1850,6 @@ Each native timestamp begins one half-open Burst state cell ending at the next
 timestamp; the final cell uses the last observed sample interval. This makes
 `N` samples at sampling rate `f_s` contribute exactly `N/f_s` seconds without
 changing the Tensor timestamps or detected values.
-Burst tensors that lack the current value-semantics metadata and existing
-`occupation-*` results require Burst, Align Run, Finish, and Extract Features
-to be rerun. If only the downstream native-sample-support marker is missing,
-the Burst tensor remains current; rerun Align Run, Finish, and Extract Features
-for that trial. Legacy values are never reinterpreted heuristically.
 
 ### 9.2 Available Features, Subset Selection, and Plot Settings
 
@@ -1706,273 +1954,3 @@ for that trial. Legacy values are never reinterpreted heuristically.
 
 - Baseline ranges are percent windows on the plotted x-axis, not arbitrary absolute times unless the plotted axis itself is already percent-based.
 - A range such as `0-20` means “use the first 20% of the current timeline as baseline.” Multiple ranges can be combined when a single continuous baseline window is not appropriate.
-
-## 10. AppleDouble Metadata in Atlas Region Discovery
-
-Localize region discovery treats macOS AppleDouble files whose exact basename
-starts with `._` as filesystem metadata, not as selectable atlas regions. This
-applies to both `.nii` and `.nii.gz` entries on exFAT and similar volumes. The
-matching primary NIfTI files remain available with their original region names;
-other dot-prefixed files and ordinary unexpected entries retain their existing
-behavior. No existing file is deleted or renamed. If a previously displayed
-metadata-derived region was selected, reopen the record and re-Apply Localize
-using the remaining real region selection.
-
-### CleanLine per-channel significance thresholds
-
-Filter Advance retains Significance threshold as the global default. Enable
-Per-channel thresholds and use Configure... to edit a channel-name/threshold
-table. Blank cells inherit the global value; explicit values must lie strictly
-between zero and one. Channels come from the current Filter Raw input. Stored
-names absent from that input remain visible for removal and block execution
-when their overrides are active, rather than being silently ignored.
-
-The CleanLine entry of `advance.notch_model.params_by_method` adds
-`per_channel_thresholds_enabled` (default false) and
-`significance_thresholds_by_channel` (default {}). Switching models or disabling
-overrides retains drafts. Example: `{"0_1": 0.001, "2_3": 0.05}`.
-Effective model records omit disabled overrides and entries equal to the global
-threshold. Preview/final logs and configs additionally record
-`cleanline_thresholds_by_channel`, including inherited values for every channel.
-Channel names, never positional indexes, associate thresholds with signals.
-
-Effective threshold changes make Filter stale. Accepting replacement Filter
-output invalidates existing dependent lineage under the current stage contract;
-there is no channel-level artifact cache, so Filter is recomputed as one stage.
-Disabled overrides, other model drafts, dictionary ordering and equivalent
-serialization do not change the effective Filter signature. No new global
-invalidation, version field, migration or startup scan is introduced.
-
-### Tensor notch inheritance after model-based Filter processing
-
-On Preprocess Finish, an accepted Filter log with `params.notch_model.enabled`
-set to true suppresses automatic Tensor notch inheritance. Existing per-metric
-Notches and notch radii remain unchanged, including explicitly empty lists.
-This decision uses the completed Filter log, not the current unsaved UI model
-selection. FIR Filter results (including older logs without notch_model) retain
-the existing inheritance behavior. Filter-derived frequency bounds and runtime
-provenance remain unchanged. No Tensor settings are cleared automatically.
-
-The notch-default loader returns None when inheritance is suppressed, distinct
-from an empty notch payload. The GUI returns before initializing defaults,
-mutating metrics, refreshing controls, or marking Tensor settings dirty.
-The inheritance decision introduces no computation invalidation: effective
-user Tensor setting changes and accepted input generations retain their existing
-metric/downstream invalidation rules. No global rerun or schema change is added.
-
-### Filter model draft and validation behavior
-
-Model drafts persist independently of the active computation. Only the enabled
-model and its active controls are numerically validated. Disabled model drafts,
-unselected model fields, disabled CleanLine search radius/channel overrides and
-inactive FIR notch widths are retained without blocking Apply. Switching to a
-field's execution path validates it. Runtime records use null for inactive FIR
-widths; the original text/value remains in the UI snapshot. Tensor inheritance
-must not interpret a model's inactive FIR width as filter support.
-
-An enabled window model requires nonempty Notches; Apply reports an explicit
-error otherwise. removePLI resolves frequencies from its fundamental and harmonic
-count before basic validation and GUI Nyquist checks, ignoring the retained
-manual list. Snapshot/default saving retains the manual list independently.
-
-Method/Model changes refresh errors after controls are synchronized. Errors point
-to their actual fields; advanced rows expand when an active invalid field needs
-attention. Missing method selects CleanLine; an explicitly unknown method stays
-visible as Unsupported model and requires an explicit supported selection.
-More model parameters precedes its advanced rows and Restore Defaults collapses
-it. Display-only state is not serialized or included in freshness comparisons.
-
-Log restoration overlays only recorded active settings onto the complete model
-snapshot. Disabled effective logs change enabled only. Other models and inactive
-CleanLine subcontrols retain drafts; omitted effective override flags mean disabled,
-not deletion of their saved maps. FIR widths and manual Notches in the snapshot
-are preserved when model execution made them inactive. A log without an existing
-snapshot cannot recover drafts that were never recorded.
-
-These fixes keep invalidation scoped to effective Filter inputs and accepted
-Filter downstream lineage. Draft-only edits, view state and serialization ordering
-must not invalidate computation. No full-suite validation or global rerun is required.
-
-### CleanLine and MNE spectrum_fit adaptive subtraction
-
-`Limit over-subtraction` is off by default. CleanLine uses sliding-window
-detection, significance thresholds, iterative subtraction and overlap blending.
-When the control is enabled, each detected line's fitted waveform is accumulated
-separately, then scaled by one nonnegative amplitude multiplier per channel,
-target frequency and processing segment, without a fixed upper bound. Multipliers
-are applied after component fitting. All-zero multipliers reproduce the CleanLine
-input; all-one multipliers reproduce its unscaled output within floating-point
-tolerance.
-
-Both CleanLine and MNE spectrum_fit have `limit_over_subtraction` (default false),
-`background_radius_hz` (10 Hz) and `background_bandwidth_hz` (1 Hz) parameters.
-The controls are independent for each method. MNE defaults to a 4-second window,
-1-Hz full fit width and automatic fitting bandwidth. Its background controls
-appear together, with fitting bandwidth under More model parameters.
-The footer order is Save, Set as Default, Restore Defaults, then Cancel.
-The checkbox tooltip explains that coefficients may exceed one and that this
-is a background objective, not a hard power floor at each frequency.
-For CleanLine, background PSD inherits
-window length, hop and end-aligned tail coverage. Use fixed equal DPSS taper weights
-and average linear power across windows before taking logarithms. Require at least
-two concentrated tapers. The background bandwidth remains independent of the
-CleanLine detection bandwidth. Inactive background drafts do not affect validation
-or freshness. Search radius remains active when frequency scanning is disabled
-but adaptive subtraction is enabled.
-
-MNE estimates each target component from the same input, retaining MNE's own
-fitting windows, tapers, overlap and tail behavior. All-one coefficients reproduce
-the standard joint spectrum_fit output. Background PSD uses the configured window
-length, approximately 50% overlap and end-aligned tail coverage. Its exclusion
-intervals cover the configured full fit band and actually selected Fourier bins;
-zero fit width uses the selected bin's extent. Adaptive MNE rejects overlapping
-bands or Fourier bins assigned to more than one target, and requires a fitting
-window of at least two samples for its overlapping windows. Fitted frequencies are
-reported as fits, not significant detections. With the checkbox off, MNE uses
-standard spectrum_fit output and window support. With it on, coefficients depend
-on the complete processing segment, so Mark filter edges may mark the entire
-segment, as with adaptive CleanLine.
-
-Background candidates are within target +/- background radius. For CleanLine,
-exclude the union of actual significant peaks +/- search radius across all windows
-and iterations, including other detected targets. MNE uses the fitted exclusions
-described above. No background-bandwidth padding is added. When
-scanning is off, use the actual fixed Fourier bin. Reject overlapping target search
-intervals in adaptive mode. Fit a straight line to log power separately on each
-side of a target's exclusion envelope, then linearly connect the two boundary
-predictions in log power. Require at least three distinct valid Fourier bins on
-each side; otherwise retain that component with multiplier zero and report why.
-Only the passband between configured low/high cutoffs supplies background points;
-thus bandpass transition regions outside those edges cannot enter the fit.
-
-Minimize the mean squared dB error on each target's exclusion union, weighting
-targets equally. There is no hard notch-depth tolerance. Cache the input/component
-cross-spectral matrix (fixed weights) so candidate PSDs require no repeated FFT or
-CleanLine run. Start coefficients at zero; update in ascending frequency order.
-For each coordinate, quadratic residual power determines a data-dependent search
-bracket beyond which every objective bin is above its background and increasing.
-This is not a fixed coefficient cap. Nonuniform samples, power minima and background
-crossings bracket candidate minima; refine them with bounded Brent search
-(xatol 1e-3). Explicitly compare zero, one and the current coefficient, and choose smaller
-coefficients for numerically tied errors. Stop when coefficient changes are below
-1e-3 or after ten sweeps. Record non-convergence; do not claim global optimality.
-Use a machine-precision numerical floor for candidate power logarithms.
-Zero/nonfinite background power is unavailable, not fitted.
-
-CleanLine reports use `cleanline_adaptive`; MNE reports use
-`mne_spectrum_fit_adaptive`. Reports include method, channel, segment start/stop
-samples and seconds relative to Raw (stop exclusive),
-target, detected or fitted frequency range, merged exclusions, background line coefficients, coefficient,
-mean squared dB error, maximum downward deviation, residual peak and convergence.
-No detection and unavailable backgrounds retain their respective components.
-Unavailable backgrounds still record left/right donor counts and leave fit
-coefficients unset. Skipped targets record null convergence and zero sweeps.
-Preview reports describe preview segments; finalization recomputes from the original
-input and reviewed boundaries and replaces the report. Honor the existing boundary
-isolation switch; with isolation off the entire recording is the processing segment.
-BAD reference diagnostics remain separate from valid-segment diagnostics.
-
-Enabled adaptive run parameters record `coefficient_bounds` as
-`{"lower": 0.0, "upper": null}`. This field records the coefficient domain used
-by the calculation and is not user-editable. Execution metadata is excluded
-from Filter parameter signatures and does not block viewing or reviewing an
-accepted result. Reading a result does not rewrite its recorded metadata.
-
-Only enabled adaptive parameters affect Filter and its downstream lineage.
-Disabled adaptive fields are omitted from effective parameter signatures;
-reports and UI state do not affect fingerprints. Accepted results remain available
-while their user-controlled parameters and accepted input generations match.
-Downstream generations change only after a changed Filter result is accepted.
-Validate endpoint
-identity, component reconstruction, cached-versus-direct PSD, independent channels,
-frequency drift, search-off exclusions, multiple lines, background failures, GUI
-state and log restoration. Synthetic clean baselines assess PSD and wPLI/ciPLV
-errors; a smoother PSD alone is not proof of recovered neural phase or signal.
-
-The channel-threshold Configure button sits immediately below its own enable
-checkbox, before the adaptive controls, so its scope is unambiguous.
-
-### CleanLine channel parallelism
-
-With BAD-boundary isolation enabled, ordinary and adaptive CleanLine process
-independent channels in parallel. Each channel retains its own valid segments,
-threshold, noise estimates and joint frequency-coefficient optimization. Results
-and diagnostics are assembled in input channel order; BAD samples use the continuous
-filtered reference described below.
-The reviewed-filter Python API accepts runtime-only `n_jobs`: `None` selects up to
-four available CPU workers, `1` selects serial execution, and positive integers
-select a worker limit capped by channel count. Other models and continuous filtering
-without boundary isolation retain their existing serial path. Worker processes use
-one inner numerical thread to avoid nested parallelism. No GUI or JSON field is
-added: worker count does not change scientific parameters or stage fingerprints.
-Validate serial/parallel signal and report equivalence and benchmark the complete
-Dys022 valid interval with the first ten seconds excluded before claiming speedup.
-
-### Visualization spectral methods and missing support
-
-PSD Advance offers Welch (existing default), whole-segment Multitaper and Morlet
-mean power. TFR Advance offers Morlet (existing default) and Multitaper. Each
-retains independent method drafts in the existing visualization settings; only
-active fields are validated. Existing records missing method retain their original
-method. No configuration version or processing-stage fingerprint changes.
-
-Shared controls are frequency bounds, optional start/stop seconds relative to the
-Raw start (stop exclusive), channel averaging, and Exclude BAD/EDGE (default true).
-Welch retains n_fft. Multitaper PSD uses the entire valid segment and full bandwidth
-in Hz, without sliding windows or overlap. Morlet uses optional cycles (blank keeps
-max(2, frequency/4)). Multitaper TFR uses window seconds and full bandwidth Hz;
-n_cycles=f*T and time_bandwidth=T*B, requiring T*B>=2. Spectral grid controls are
-linear/log spacing and number of frequencies; Welch retains its native FFT grid.
-TFR decim controls output sampling only. Defaults: 4-s Multitaper TFR window,
-1-Hz Multitaper bandwidth; PSD uses 400 linearly spaced display frequencies,
-while TFR retains 40 logarithmically spaced frequencies and decim=4.
-
-Split each channel at BAD/EDGE intervals and point boundaries when exclusion is
-on. Never concatenate separated samples. Skip segments lacking estimator support;
-record the channel, segment bounds and reason. Preserve frequency-specific missing
-support: TFR kernel edges are NaN and Morlet mean power uses only supported samples.
-Whole-segment PSDs use a common display grid, interpolating linear power within
-native frequency support without extrapolation and weighting by contributing
-sample duration per frequency. Welch uses only full n_fft windows. All missing
-outputs retain the requested shape filled with NaN. Invalid parameters and actual
-estimator errors still surface. Across-channel averaging is equal-weight finite
-linear power before dB conversion. No automatic notch exclusion or interpolation
-across missing frequency values is performed.
-
-PSD density uses uV^2/Hz; Morlet mean power and TFR use estimator power in uV^2,
-not density. TFR uses actual frequency/time coordinates via pcolormesh. All-NaN
-plots show a no-estimable-data message without computing color limits. Exclusion
-off keeps continuous estimation and annotation shadows. Plot titles identify the
-method and status messages report dropped segments. Close Raw even on failures.
-These QC changes only recompute the requested plot; Filter, Tensor and downstream
-results remain current. Verify method dispatch, draft retention, independent BAD
-support, short/all-short segments, weighting, grids and all-NaN plotting.
-
-### Filtered samples inside BAD/EDGE intervals
-
-Preview and accepted Filter outputs store filtered values throughout BAD/EDGE
-intervals. With boundary isolation enabled, each affected channel first obtains
-a continuous filtered reference from the original full channel using the active
-bandpass/notch/model parameters. Only excluded samples are copied from this
-reference; every valid segment is still independently filtered from original
-samples. The reference never supplies input to a valid-segment estimator. Channels
-without excluded samples do not compute a reference. Point boundaries split valid
-segments without creating excluded samples. An all-BAD channel retains its full
-filtered reference. No second filtering of saved Filter data occurs on review.
-
-This applies to FIR and all four models, including BAD annotations already present
-before Preview. Short BAD intervals need no separate model fit. A whole recording
-that cannot support the chosen model still raises its existing parameter/support
-error; Visualization's short-segment NaN policy does not change Filter behavior.
-CleanLine adaptive coefficients for the continuous reference are recorded separately
-from valid-segment coefficients as `bad_reference` diagnostics. BAD/EDGE annotations
-and downstream exclusion semantics remain intact. Reopening an unchanged plot does
-not recompute, while edits regenerate deterministically from original Raw.
-
-Runtime logs record `bad_samples_policy=filtered_reference` for isolated filtering;
-continuous filtering records `continuous`. This semantic field affects only Filter
-freshness and existing downstream lineage. Older isolated results lack this output
-policy and must be recomputed to adopt it; no source files, unrelated components,
-configuration versions or global cache rules change. Tests verify pre-existing,
-newly marked, short, channel-scoped and all-BAD intervals, valid-sample isolation,
-serial/parallel equality, preview and accepted logs, and removal of a BAD interval.

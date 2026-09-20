@@ -1,13 +1,13 @@
 # LFP-TensorPipe Demo Tutorial
 
-This tutorial follows one validated single-record path from import to final
-feature visualization:
+This tutorial walks through record import, preprocessing, tensor building,
+epoch alignment, and feature visualization using one gait recording:
 
 - `Subject`: `sub-001`
 - `Record`: `gait`
-- `Trial`: `cycle_l`
+- `Trial`: `cycle-l`
 
-Use this page when you want to reproduce the published demo end to end. Use
+Use this page to follow the demo workflow. Use
 [APP_CONTROL_REFERENCE.md](APP_CONTROL_REFERENCE.md) when you want a control-
 level explanation of a specific panel or dialog.
 
@@ -26,8 +26,8 @@ The shipped demo inputs mean:
 
 - `audio_marker.mp3`: the click sound captured from the gait-video audio track
 - `annotations.csv`: manually labeled gait events
-- `dataset/configs/*`: the validated tutorial configs used to reproduce the
-  walkthrough quickly
+- [Tutorial configuration attachments](assets/tutorial-configs/): Tensor,
+  Alignment, and Features settings for this walkthrough
 
 Throughout this guide:
 
@@ -37,7 +37,7 @@ Throughout this guide:
 
 ## 2. First Launch and Project Context
 
-![Home page before importing the demo record.](assets/app-tutorial/figure-00-home-overview-pre-import.png)
+![Home page before selecting a record.](assets/app-tutorial/figure-00-home-overview-pre-import.png)
 
 The key status to notice is the `Localize` block. Once the machine-local
 dependencies are configured correctly, it should show `MATLAB: Ready`.
@@ -46,7 +46,7 @@ On first launch, open the configs dialog and set the local paths used by
 `Localize`:
 
 - Windows: app-window top-left `Settings -> Configs`
-- macOS: screen top-left menu bar `LFP-TensorPipe -> Preferences -> Configs`
+- macOS: screen top-left menu bar `LFP-TensorPipe -> Preferences...`
 
 
 ![Configs dialog.](assets/app-tutorial/figure-01-configs-dialog.png)
@@ -68,7 +68,7 @@ This walkthrough assumes one fixed local context for the whole run:
 | `Project` | `<demo-project-root>` |
 | `Subject` | `sub-001` |
 | `Record` | `gait` |
-| `Trial` | `cycle_l` |
+| `Trial` | `cycle-l` |
 
 ## 3. Import `sub-001 / gait`
 
@@ -126,14 +126,14 @@ Check `Sync`, then open `Configure...`.
 
 Control map:
 
-- `① Input Type`: choose `Audio` for the external source.
-- `② File Path`: use
+- `Input Type`: choose `Audio` for the external source.
+- `File Path`: use
   `<demo-project-root>/dataset/sub-001-gait/audio_marker.mp3`.
-- `③ Load / Detect`: detect the external peaks from the audio file.
-- `④ Auto Pair by Order`: pair the detected LFP markers and external markers.
-- `⑤ Sync`: run the lag estimate and create the QC preview.
+- `Load / Detect`: detect the external peaks from the audio file.
+- `Auto Pair by Order`: pair the detected LFP markers and external markers.
+- `Sync`: run the lag estimate and create the QC preview.
 
-Use the validated demo values:
+Use these demo values:
 
 | Control | Value |
 |---|---|
@@ -231,10 +231,10 @@ The below figure shows the `Localize` block.
 
 Control map:
 
-- `① Match status`: how many record channels are mapped
-- `② Atlas status`: how many regions are selected
-- `③ Apply`: generate representative-coordinate outputs
-- `④ Contact Viewer`: launch the MATLAB-based 3D viewer
+- `Match status`: how many record channels are mapped
+- `Atlas status`: how many regions are selected
+- `Apply`: generate representative-coordinate outputs
+- `Contact Viewer`: launch the MATLAB-based 3D viewer
 
 Use `Import Configs...` to load the tutorial config quickly:
 
@@ -254,10 +254,10 @@ Open `Match -> Configure...`.
 
 Control map:
 
-- `① Auto Match`: attempt automatic channel-to-contact mapping
-- `② Binding Editor / Bind-Update`: manual mapping area used when Auto Match is
+- `Auto Match`: attempt automatic channel-to-contact mapping
+- `Binding Editor / Bind-Update`: manual mapping area used when Auto Match is
   incomplete or not ideal
-- `③ Save`: write the current record-scoped match table
+- `Save`: write the current record-scoped match table
 
 The tutorial mapping uses `rep_coord = Mid` for all six bipolar channels.
 
@@ -273,7 +273,7 @@ Auto Match follows the current implementation contract:
   is a valid candidate
 - skip ambiguous or missing matches instead of writing a guess
 
-If Auto Match is not ideal, use the Binding Editor in `②` to select
+If Auto Match is not ideal, use the Binding Editor to select
 `Anode`, `Cathode`, `Rep. coord`, then click `Bind/Update`.
 
 ### 4.2 Configure the Atlas
@@ -314,12 +314,10 @@ The figure shows the rendered contact-viewer scene.
 
 ## 5. Preprocess Signal and QC
 
-Signal Repair is an optional step after Raw for gap and peak interpolation.
-Its results support annotation editing and preserve existing-result routing.
-The page-overview screenshot predates Signal Repair and the Raw Restore button.
-
 This stage cleans the imported record and prepares the final continuous signal
-used by tensor building, epoch alignment, and feature extraction.
+used by tensor building, epoch alignment, and feature extraction. Follow the
+page in order: **0 Raw → 1 Signal Repair → 2 Filter → 3 ECG Artifact Removal →
+4 Annotations → 5 Finish**. Optional steps may remain unused or be skipped.
 
 The below figure is the control overview of the `Preprocess Signal` page.
 
@@ -338,15 +336,18 @@ section:
 | `5. Finish` | Export the finalized result with physical start/end edge markers | run | tensor, align, features |
 | `Visualization` | Show PSD/TFR QC without rewriting the data | run as needed | manual QC only |
 
-The validated preprocess path for this demo is:
+Follow this preprocess path for the demo in the displayed step order:
 
-1. `Raw -> Plot`, review the imported data, then close the plot normally to accept Raw
-2. `Filter -> Apply`
-3. `Filter -> Plot` for manual QC
-4. leave `ECG Artifact Removal` gray/skipped for this clean demo
-5. `Annotations -> Configure... -> Apply`
-6. `Finish -> Apply`
-7. `Visualization` QC with PSD and TFR plots
+| Step | Action |
+| --- | --- |
+| `0. Raw` | Open Plot, review the imported signal, and close normally to accept Raw. |
+| `1. Signal Repair` | Leave unused for the main walkthrough; use the optional example below to review individual interpolations. |
+| `2. Filter` | Configure basic and Advance settings, click Apply, then open Plot and close after BAD-interval review to accept the result. |
+| `3. ECG Artifact Removal` | Leave gray/skipped for this demo; use Method, Channels, and Advance when ECG removal is needed. |
+| `4. Annotations` | Open Configure, load the annotation CSV, save the rows, and click Apply on the main page. |
+| `5. Finish` | Click Apply to provide the finalized signal to downstream stages. |
+
+Use PSD and TFR under Visualization to inspect the relevant output.
 
 ### 5.1 Step 0: Raw
 
@@ -358,7 +359,7 @@ The below figure is the plot for `Preprocess Signal step 0.Raw`.
 ![Preprocess plot for step 0 (Raw).](assets/app-tutorial/figure-14-preprocess-step-0-raw-browser.png)
 
 The Raw card has two controls, `Plot` followed by `Restore`. See the
-[Raw control reference](APP_CONTROL_REFERENCE.md#62-raw-filter-and-annotation-blocks)
+[Raw control reference](APP_CONTROL_REFERENCE.md#61-step-0-raw)
 for their availability and saved outputs.
 
 #### 5.1.1 Review and edit Raw
@@ -405,38 +406,103 @@ and log remain in place. Successful restoration moves the replaced files and
 log to Trash; if that is unavailable, the status message reports where they
 were retained.
 
-### 5.2 Step 1: Filter
+### 5.2 Step 1: Signal Repair
 
-In Filter Advance, CleanLine and MNE spectrum_fit offer optional
-`Limit over-subtraction`, `Background radius (Hz)` and `Background bandwidth (Hz)`.
-The checkbox is off by default; the background defaults are 10 Hz and 1 Hz.
-Settings are retained independently for each method. For MNE, start by evaluating
-the default 4-second window and 1-Hz full fit width (0.5 Hz on either side),
-leaving its fitting multitaper bandwidth on Auto. A wider fitting band can deepen
-spectral depressions and does not necessarily improve the background-scaled result.
+Use Signal Repair for short missing spans or isolated transient peaks that you
+intend to interpolate. It preserves time, channel order, and sample count.
+Leave this optional step unused or select Skip when repair is unnecessary.
 
-When enabled, each target's estimated waveform is scaled to match a background
-estimated from both sides of the excluded band. The coefficient is nonnegative
-and may exceed one; the resulting spectrum is not forced to be flat or kept above
-a hard floor. Background bandwidth controls a separate PSD estimate, not the
-line-fitting bandwidth. Background fields are inactive when the checkbox is off.
-Save changes for the current record, or use Set as Default / Restore Defaults
-to manage defaults; Cancel discards dialog changes.
+#### 5.2.1 Configure gap and peak interpolation
 
-Use Plot to inspect both remaining peaks and depressions. Run logs record the
-coefficient, background fit, residual elevation, downward deviation and convergence
-for each channel, processing segment and target. Final acceptance recomputes these
-from the source and reviewed BAD boundaries. With boundary isolation enabled,
-adaptive MNE depends on the whole valid segment: enabling Mark filter edges can
-therefore mark that entire segment. Existing BAD and bad-channel flags are retained.
+After accepting Raw, enable `Interpolate gaps`, `Interpolate peaks`, or both,
+then open `Advance`. Each enabled group has independent settings:
 
-Editing disabled background drafts does not invalidate computation. Effective
-parameter changes affect Filter; accepting a changed Filter result updates the
-state of its dependent results. The subtraction optimizer's coefficient domain
-does not invalidate accepted results whose controls and inputs still match.
-Recorded subtraction-coefficient bounds are run information, not a freshness
-condition.
-These controls do not change Tensor notch settings automatically.
+| Setting | How to use it |
+| --- | --- |
+| `Interpolation method` | Choose Linear to join the immediate anchors, or PCHIP for a shape-preserving cubic curve through surrounding context. Factory default: Linear. |
+| `Max gap samples` / `Max peak samples` | Maximum consecutive samples to replace. Factory default: 1. Duration converts this to milliseconds, excluding anchors. Longer candidates remain unchanged. |
+| `Context samples per side` | Visible for PCHIP; provide at least 2 usable samples on each side. Factory default: 2. |
+
+Gap interpolation uses intervals labeled BAD_gap. A globally bad channel, a
+recording-edge interval without anchors, or context crossing a BAD/EDGE boundary
+is not eligible for repair. Unrepaired support stays in place.
+
+#### 5.2.2 Choose a peak detector
+
+| Detection method | Advance settings and factory defaults | What it detects |
+| --- | --- | --- |
+| `Amplitude MAD` | Baseline window `0.2 s`; detection window `1 s`; MAD threshold `8`. | Large amplitudes after rolling-median baseline subtraction, measured against a local median and MAD-based scale. |
+| `Local z-score` | Baseline window `0.2 s`; detection window `1 s`; Z-score threshold `3`. | Large baseline-corrected deviations from the local mean in units of sample standard deviation. |
+| `Local discontinuity` | Background window `1 s`; guard interval `10 ms`; prediction residual threshold `6`; boundary slope threshold `6`. | Isolated one-sample discontinuities whose residual and both boundary slopes exceed the robust thresholds against both backgrounds. Max peak samples is fixed at 1. |
+
+The baseline window determines the local baseline; the detection window sets the
+comparison distribution. For Local discontinuity, the background window is split
+across both sides, outside the guard intervals. Larger thresholds are more
+selective. Detector-specific fields appear when selected. Saved defaults and
+record settings can differ from the factory values in the table.
+
+This example selects Local z-score with a record-specific threshold of 5,
+Linear interpolation, and a one-sample maximum:
+
+![Signal Repair Advance with the example Local z-score settings.](assets/app-control-reference/controlref-advance-signal-repair-dialog.png)
+
+See the [Signal Repair Advance reference](APP_CONTROL_REFERENCE.md#621-advance-interpolation-settings)
+for complete field descriptions and screenshots of PCHIP and Local discontinuity.
+Save keeps the draft; Apply computes the repairs. Set as Default stores defaults;
+Restore Default loads them; Cancel discards dialog edits.
+
+#### 5.2.3 Review individual repairs
+
+Open `Plot` after Apply. Repair review lists each reversible repair's channel,
+type, start, end, sample count, and Accept state. Selecting a row centers its
+time interval; use the browser's channel and time controls to inspect it.
+
+![Signal Repair interval review.](assets/app-tutorial/signal-repair-review.png)
+
+Toggle Accept to compare original and interpolated samples. Accepted repairs
+carry INTERPOLATED_gap or INTERPOLATED_peak; rejecting a gap repair restores
+its original gap label as well as its samples. Manage these labels through the
+review table. Other annotations remain editable. Close normally to save changed
+decisions and annotation edits. A real accepted change makes dependent results
+stale; closing with decisions and annotations unchanged is a no-op.
+
+#### 5.2.4 Compare interpolation with the original sample
+
+This example uses row 4 of the sceneray record's repair review: channel `8_15`,
+type `peak`, start `82.249045 s`, end `82.251435 s`, and one sample. It illustrates
+the optional repair workflow separately from the main gait walkthrough.
+
+Select that row, show channel 8_15, and zoom to approximately 82.231–82.269 s.
+Keep the time window and amplitude scale unchanged while toggling only its
+Accept checkbox. Both native captures use a 102.4 µV scale bar and display every
+sample.
+
+**Accept unchecked — original sample.** The single-sample peak remains visible:
+
+![Original peak in channel 8_15 with interpolation rejected.](assets/app-tutorial/signal-repair-no-interpolation.png)
+
+**Accept checked — Linear interpolation.** The sample lies on the line between
+its adjacent anchors, and the managed interpolation label appears:
+
+![The same channel 8_15 peak with Linear interpolation accepted.](assets/app-tutorial/signal-repair-linear-interpolation.png)
+
+| Quantity at sample 34413 (zero-based) | Value |
+| --- | ---: |
+| Original sample | `−1098.780 µV` |
+| Linear interpolation | `−1159.310 µV` |
+| Change (interpolated − original) | `−60.530 µV` |
+
+These are stored absolute voltages. The browser displays local DC-corrected
+traces, so their display baseline can shift slightly when Accept is toggled.
+The operation changes only this repair's one sample and its managed annotation;
+it does not shift neighboring stored samples. The table's end time is exclusive:
+it marks the end of one sample's support, not a second repaired sample.
+
+Detection alone does not establish that an event is an artifact. Keep Accept
+checked when interpolation is appropriate for the recording and analysis.
+Restore the intended decision before closing the browser.
+
+### 5.3 Step 2: Filter
 
 This step performs the base signal cleanup used by the rest of the pipeline. In
 this demo, it applies the tutorial band-pass and SceneRay-specific notch filtering, and annotates bad spans before any event-related processing.
@@ -472,9 +538,31 @@ series to be notched. That is why the tutorial notches `41.75`, `83.5`,
 `125.25`, and `167.0 Hz`. Do not treat this list as a universal default for
 other datasets.
 
-The below figure is the plot for `Preprocess Signal 1.Filter`.
+#### 5.3.1 Configure Filter Advance
 
-![Preprocess plot for step 1 (Filter).](assets/app-tutorial/figure-15-preprocess-step-1-filter-browser.png)
+Open `Filter -> Advance` before Apply. For this walkthrough, keep Model off to
+use FIR notches at the four configured centers, and inspect these fields:
+
+| Parameter | Factory default | Practical effect |
+| --- | --- | --- |
+| `notch widths` | `2` Hz | FIR width around each notch center. Enter one width for all centers or one per center; each must be positive. |
+| `epoch duration` | `1` s | Complete-window duration for automatic BAD detection. Smaller windows localize brief artifacts; the recording must contain at least one complete window. |
+| `peak-to-peak threshold (min, max)` | `1e-6, 1e-3` V | Acceptable fixed amplitude range (1–1000 µV). Blank disables only this detector; AutoReject still runs. |
+| `autoreject correct factor` | `1.5` | Multiplies learned AutoReject thresholds. Larger values reject fewer windows; smaller values are stricter. |
+| `isolate BAD boundaries` | On | Filters valid intervals independently so excluded samples do not enter adjacent valid filter inputs. |
+| `mark filter edges` | Off | With isolation on, optionally labels padding/model-dependent support as EDGE_filter. |
+
+![Filter Advance for FIR notches and automatic BAD detection.](assets/app-control-reference/controlref-advance-filter-dialog.png)
+
+Save keeps the current record draft. Set as Default saves valid basic and
+advanced Filter settings; Restore Defaults restores those saved values. Cancel
+discards dialog edits. The following review accepts the computed Filter result.
+
+#### 5.3.2 Apply and review Filter
+
+The figure below shows `Preprocess Signal 2.Filter`.
+
+![Preprocess plot for step 2 (Filter).](assets/app-tutorial/figure-15-preprocess-step-1-filter-browser.png)
 
 This is the main manual QC step of the preprocess section:
 
@@ -493,7 +581,7 @@ Two independent Filter Advance controls govern finalization:
 - `isolate BAD boundaries` is on by default. It filters every valid interval
   between global or channel-specific BAD/EDGE boundaries independently.
 - `mark filter edges` is off by default. When enabled, it marks the exact
-  combined band-pass and notch FIR support at every filtered interval edge as
+  support of the active filter and notch model at every filtered interval edge as
   `EDGE_filter`.
 
 Both settings share the same review lifecycle and rebuild the accepted result
@@ -502,7 +590,7 @@ does not change the independently filtered numeric values.
 
 Before Filter Apply, Plot is unavailable for a record with no existing Filter
 result. A valid yellow review Preview is plottable but later preprocess steps
-remain blocked until it is finalized. An existing green finalized or legacy
+remain blocked until it is finalized. An existing green finalized
 Filter result may still be opened without another Apply. Closing such a plot
 without changing annotations or bad-channel selections does not rewrite data or
 invalidate existing results; closing it after a real edit automatically
@@ -520,11 +608,13 @@ not make MNE treat their two sides as independent signals, so artifact energy
 inside a reviewed BAD interval can ring into the retained signal on both sides.
 
 With isolation on, each valid interval is filtered independently and reviewed
-BAD samples remain numerically unfiltered. The interval endpoints use MNE
-padding because real samples across a BAD boundary are unavailable. Leaving
+BAD samples are filled from a continuous filtered reference of the original
+channel. Only excluded samples use that reference; valid intervals are filtered
+independently from their original samples. Interval endpoints use MNE padding
+because samples across a BAD boundary cannot supply the valid-segment filter. Leaving
 `mark filter edges` off explicitly accepts those padding-dependent values and
 does not add `EDGE_filter`. Enabling edge marking adds the system-owned label to
-the complete FIR support at every interval endpoint, including the physical
+the active filter support at every interval endpoint, including the physical
 recording endpoints. Do not create or rename annotations to the reserved exact
 description `EDGE_filter`.
 
@@ -536,7 +626,62 @@ therefore make edge marking exclude a large share of a recording, while leaving
 marking off preserves those padding-derived samples. Changing either control
 makes the Filter result and its downstream consumers stale.
 
-#### Channel-specific BAD intervals in the MNE browser
+#### 5.3.3 Model-based notch removal
+
+Enable Model and select a line-noise removal method. This replaces FIR notch
+filtering; the basic band-pass cutoffs remain active. Each method retains its
+own draft. Open More model parameters where available.
+
+| Model | Main settings and factory defaults | Additional Advance settings |
+| --- | --- | --- |
+| `Sinusoidal regression` | Window length `4 s`, overlap `50%`; fits the configured Notches. | No additional model fields. |
+| `MNE spectrum_fit` | Window length `4 s`, full Fit width `1 Hz`; zero width selects the nearest Fourier bin. | Multitaper bandwidth blank for Auto. Limit over-subtraction off; background radius `10 Hz`, background bandwidth `1 Hz`. |
+| `CleanLine` | Window length `4 s`, overlap `50%`, Frequency search on, Search radius `0.5 Hz`. | Significance threshold `0.01`; Per-channel thresholds off (Configure assigns overrides); fitting Multitaper bandwidth `2 Hz`; Limit over-subtraction off with background radius `10 Hz` and bandwidth `1 Hz`. |
+| `removePLI` | Fundamental frequency `50 Hz`, harmonic count `2`, amplitude/phase settling time `1 s`. Generates its own Notches. | Initial/final tracking bandwidth `50/0.2 Hz`, bandwidth transition `1 s`; initial/final frequency settling time `0.1/4 s`, settling-time transition `1 s`. |
+
+Window methods require at least one notch center and a complete estimation
+window in each valid processing segment. removePLI requires every generated
+harmonic and its fundamental estimator band to fit within the available frequency
+range. Its settling and transition times describe 95% response times.
+
+CleanLine's Significance threshold is an F-test p-value threshold: smaller values
+remove fewer components. Configure accepts per-channel values, or blank cells
+that inherit the global threshold. An active override for an absent channel must
+be cleared. Search radius controls frequency search and noise-band exclusion
+when Limit over-subtraction is enabled.
+
+CleanLine and MNE spectrum_fit have independent Limit over-subtraction controls.
+Background bandwidth sets a separate PSD estimate, independently of fitting
+bandwidth. With this option on, window length × background bandwidth must be at
+least 3. The illustrated CleanLine draft uses a 1 Hz search radius and enables it:
+
+![CleanLine with background-scaled subtraction enabled.](assets/app-control-reference/controlref-advance-filter-cleanline.png)
+
+See the [Filter model reference](APP_CONTROL_REFERENCE.md#632-advance-model-based-notch-removal)
+for every parameter's units, active conditions, and model-specific screenshot,
+including expanded removePLI tracking controls.
+
+The [Filter model references](APP_CONTROL_REFERENCE.md#filter-model-references)
+identify the corresponding literature and software sources: Mewett et al. (2001)
+for sinusoidal regression background; Mitra and Bokil (2008) and Gramfort et al.
+(2013) for MNE spectrum_fit; Mullen's CleanLine documentation and Mitra and Bokil
+for CleanLine; and Keshtkaran and Yang (2014) for removePLI. The reference also
+distinguishes the sliding-window regression implementation and the
+LFP-TensorPipe-specific background-scaling step from their cited sources.
+
+When enabled, fitted line components are scaled against the spectral background
+on either side. Coefficients are nonnegative and may exceed one; the objective
+does not impose a hard power floor. Inspect both remaining peaks and depressions
+in Plot. Run reports record the fitted background, coefficients, residuals, and
+convergence. Acceptance recalculates them from the source and reviewed boundaries.
+Adaptive coefficients can depend on the whole valid segment, so `mark filter
+edges` can mark that entire segment when boundary isolation is enabled.
+
+Only effective parameter changes make Filter stale. Inactive drafts remain
+saved without affecting computation. Accepted model-based Filter output does
+not automatically replace Tensor notch settings.
+
+#### 5.3.4 Channel-specific BAD intervals in the MNE browser
 
 Dragging across the signal while annotation mode is active creates an annotation
 for all channels by default. To restrict the new interval to one or more channels:
@@ -565,7 +710,7 @@ For connectivity metrics, it masks only pairs containing that channel. An
 annotation with no channel assignment remains global.
 
 
-### 5.3 Step 2: ECG Artifact Removal
+### 5.4 Step 3: ECG Artifact Removal
 
 This step is an optional cleanup pass for residual cardiac contamination. It is skipped in the demo, as no such contamination is present.
 
@@ -590,8 +735,9 @@ support by the exact accepted Filter FIR radius and records the adjacent support
 as `EDGE_filter_post_ecg`. It does not mark every detected heartbeat or the
 template/SVD correction windows. Existing Filter-input BAD support cannot be
 shortened or removed in ECG Plot; return to Filter Plot and rerun Filter and ECG
-when that review decision changes. When Filter is skipped, ECG consumes Raw and
-its `mark filter edges` policy is disabled.
+when that review decision changes. When Filter is skipped, ECG consumes the
+nearest valid earlier source (Signal Repair or Raw), and its `mark filter edges`
+policy is disabled.
 
 If ECG was run previously but should no longer participate, press the compact
 `Skip` button at the end of its panel action row. Its checked state bypasses ECG
@@ -601,7 +747,7 @@ checked button again to reintroduce the unchanged ECG result; if that result is
 yellow, it resumes blocking later steps. A successful ECG Apply also clears
 Skip. Filter and Annotations use the same reversible in-panel toggle.
 
-### 5.4 Step 3: Import Annotations
+### 5.5 Step 4: Annotations
 
 This step writes manually labeled gait events and final BAD intervals onto the
 current continuous signal timeline. In this demo, event annotations later
@@ -633,12 +779,11 @@ generation in the current source lineage and writes
 `EDGE_filter_post_annotations`; it does not refilter data or change BAD
 support. The policy is disabled when Filter was skipped.
 
-The existing annotation screenshot predates the renumbering but shows the same
-MNE annotation-review interaction:
+Use Plot to inspect event timing and BAD intervals:
 
 ![Preprocess plot for Annotations.](assets/app-tutorial/figure-17-preprocess-step-2-annotations-browser.png)
 
-### 5.5 Step 4: Finish
+### 5.6 Step 5: Finish
 
 This step exports the finalized preprocess result that downstream modules read.
 In this demo, `Finish -> Apply` promotes the Annotations output, so Tensor,
@@ -646,10 +791,9 @@ Align, and Features all start from the same continuous record. Finish adds
 zero-duration `EDGE` markers at the physical recording start and last sample,
 regardless of which optional preprocess steps were run.
 
-After skipping ECG cleanup in this walkthrough, go directly to `Finish ->
-Apply`.
+After applying the gait annotations, click `Finish -> Apply`.
 
-### 5.6 PSD and TFR QC
+### 5.7 PSD and TFR QC
 
 These QC views let you inspect the cleaned signal in the frequency domain
 without changing any saved preprocess artifact. In this demo, they are the last
@@ -659,8 +803,7 @@ The below figure shows PSD QC on the `0. Raw`.
 
 ![PSD QC for the raw snapshot.](assets/app-tutorial/figure-19-preprocess-psd-raw.png)
 
-For cleaned-signal QC, select `5. Finish` after Finish Apply. The obsolete Bad
-Segment Removal snapshot is no longer an eligible Visualization source.
+For cleaned-signal QC, select `5. Finish` after Finish Apply.
 
 The figure shows the TFR visualization parameters dialog.
 
@@ -728,7 +871,7 @@ Switch to `Build Tensor`.
 
 Import the tutorial config:
 
-- `dataset/configs/tensor/lfptensorpipe_tensor_config.json`
+- [Tensor configuration](assets/tutorial-configs/tensor.json)
 
 Use `Export Configs...` if you want to save your own local tensor variant.
 
@@ -764,7 +907,7 @@ wider absolute frequency smoothing. `Hop` controls output-center spacing and
 does not change the estimator window. Burst keeps its separate fixed
 `MT cycles` estimator parameter.
 
-The validated demo config enables:
+The tutorial configuration enables:
 
 - `raw_power`
 - `periodic_aperiodic`
@@ -776,6 +919,12 @@ The validated demo config enables:
 - `trgc`
 - `psi`
 - `burst`
+
+Coherence, `|ImCoh|`, PLV, ciPLV, PLI, and wPLI use the same basic and Advance
+controls, with independent settings for each metric. See
+[Undirected Connectivity Common Parameters](APP_CONTROL_REFERENCE.md#79-undirected-connectivity-common-parameters)
+for their definitions, the shared `Select Pairs` panel, and the PLV Advance
+example that applies to all six.
 
 `Absolute imaginary coherence (|ImCoh|)` is also available and is unchecked by
 default. Enable it when you want to examine the non-zero phase-lag component of
@@ -941,22 +1090,22 @@ This stage aligns epochs. In this gait demo, it cuts the continuous tensor into 
 
 Switch to `Align Epochs`.
 
-![Align Epochs page.](assets/app-tutorial/figure-24-align-epochs-page.png)
+![Align Epochs trial and method controls.](assets/app-tutorial/figure-24-align-epochs-page.png)
 
 Control map:
 
-- `① +`: create or select the trial definition
-- `② Method`: choose the alignment method
-- `③ Params`: edit the method parameters
-- `④ Align Epochs`: generate the warped tensors for the selected trial
+- `+`: create or select the trial definition
+- `Method`: choose the alignment method
+- `Params`: edit the method parameters
+- `Align Epochs`: generate the warped tensors for the selected trial
 
 Import the tutorial config:
 
-- `dataset/configs/align/lfptensorpipe_alignment_cycle-l_config.json`
+- [Alignment configuration](assets/tutorial-configs/alignment.json)
 
 Use `Export Configs...` if you want to save your own alignment variant.
 
-The below figure shows the validated parameter set for `cycle_l`.
+The figure shows the parameter set for `cycle-l`.
 
 ![Align Epochs Params dialog.](assets/app-tutorial/figure-25-align-epochs-params-dialog.png)
 
@@ -1000,11 +1149,11 @@ After running `Align Epochs`, stay in `Epoch Inspector`.
 
 Control map:
 
-- `① Metric`: choose the tensor used for QC
-- `② Channel`: choose the representative channel
-- `③ Pick`: keep or exclude individual epochs
-- `④ Preview`: inspect the currently picked set
-- `⑤ Finish`: export the currently picked set
+- `Metric`: choose the tensor used for QC
+- `Channel`: choose the representative channel
+- `Pick`: keep or exclude individual epochs
+- `Preview`: inspect the currently picked set
+- `Finish`: export the currently picked set
 
 This is the key downstream rule:
 
@@ -1032,11 +1181,11 @@ defines which frequency bands and time windows the software will summarize.
 
 Switch to `Extract Features`.
 
-![Extract Features page.](assets/app-tutorial/figure-28-extract-features-page.png)
+![Extract Features trial and axis controls.](assets/app-tutorial/figure-28-extract-features-page.png)
 
 Import the tutorial config:
 
-- `dataset/configs/feature/lfptensorpipe_features_cycle-l_config.json`
+- [Features configuration](assets/tutorial-configs/features.json)
 
 Use `Export Configs...` if you want to save your own feature-axes variant.
 
@@ -1159,10 +1308,6 @@ instead remove frequency-grid points inside the closed notch intervals without
 interpolation, compute power at the retained frequencies, and take the square
 root of their mean power.
 
-If a record contains an older Burst tensor or `occupation-*` output, rerun
-Burst, Align Run, Finish, and Extract Features. The application does not guess
-or migrate the meaning of legacy Burst values.
-
 For metrics using `fisherz`, `fisherz_sqrt`, `logit`, or `asinh`, frequency
 interpolation, time-axis alignment, and feature reduction are performed in the
 native domain, and Feature values are stored in the native domain. The assigned
@@ -1277,7 +1422,7 @@ Use:
 
 | Control | Value |
 |---|---|
-| `Feature row` | `raw_power | raw | na` |
+| `Feature row` | `raw_power \| raw \| na` |
 | `Band` | `All` |
 | `Channel` | `10_11` |
 | `Region` | `STN` |

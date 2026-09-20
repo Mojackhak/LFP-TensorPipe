@@ -1,10 +1,9 @@
-# Command-line workflow
+# Command-line Workflow
 
-The Python package exposes `lfptp run` and `lfptensorpipe run` for running one
-page configuration without opening the GUI. Use the installed package in the
-`lfptp` Conda environment. Running either command without arguments opens the
-desktop application. Standalone console packaging of desktop installers is
-outside this interface.
+Use `lfptp run` or `lfptensorpipe run` to execute one exported page configuration
+without opening the GUI. These commands are available in a source installation
+in the `lfptp` Conda environment. Running either command without arguments opens
+the desktop application.
 
 ## Inputs
 
@@ -16,99 +15,81 @@ conda run -n lfptp lfptp run \
   --config /data/configs/alignment.json
 ```
 
-- `--subject-path` is required and must identify an existing
-  `<project>/derivatives/lfptensorpipe/<subject>` directory. Project and subject
-  are resolved from that layout. Relative paths are relative to the working
-  directory; `~` is expanded.
-- `--record` is required and names an existing imported record.
-- `--config` is required and identifies one JSON file exported by a page's
-  **Export Configs** action. Its `schema` selects the action. The existing
-  JSON structures and supported schema versions are unchanged.
-- `--trial` is required for Align Epochs and Extract Features, and is rejected
-  for Localize and Build Tensor. It is an exact canonical trial slug, not a
-  filesystem path.
-- `lfptp run --help` displays help without initializing the GUI, application
-  settings, MATLAB, or scientific computation.
+| Argument | Meaning |
+|---|---|
+| `--subject-path` | Required. An existing `<project>/derivatives/lfptensorpipe/<subject>` directory. The project and subject are resolved from this layout. |
+| `--record` | Required. The name of an imported record. |
+| `--config` | Required. A JSON file saved by a page's `Export Configs...` action. Its `schema` selects the action. |
+| `--trial` | Required for Align Epochs and Extract Features; rejected for Localize and Build Tensor. Use the canonical trial slug, such as `cycle-l`, rather than a directory path. |
 
-## Actions
+Relative paths are resolved from the working directory; `~` expands to the home
+directory. `lfptp run --help` displays help without opening the GUI or initializing
+MATLAB or scientific computation.
 
-| Exported schema | Action | Required existing input |
+## Supported Actions
+
+| Exported schema | Action | Required input |
 |---|---|---|
-| `lfptensorpipe.localize-config` | Apply Localize | Imported channels, matching reconstruction, configured runtime paths |
+| `lfptensorpipe.localize-config` | Apply Localize | Imported channels, matching reconstruction and transforms, configured runtime paths |
 | `lfptensorpipe.tensor-config` | Build selected Tensor metrics | Current Preprocess Finish |
 | `lfptensorpipe.alignment-config` | Align Run, then Finish with every generated epoch | Current Tensor metrics |
 | `lfptensorpipe.features-config` | Extract Features for the selected trial | Current Align Finish |
 
-Preprocess Signal, record import, batch traversal, and manual epoch selection
-are not CLI actions. Each invocation operates on one record and, where needed,
-one trial. It does not run missing upstream pages automatically.
+Each invocation processes one record and, when required, one trial. Record
+import, Preprocess Signal, batch traversal, and manual epoch selection are GUI
+workflows. A command requires its upstream results to be ready.
 
-For Tensor, `selected_metrics` selects computation. For Align, all current
-Tensor metrics are processed. Features processes all metrics in the current
-accepted Finish; every metric must have its required axis configuration in the
-JSON. UI fields such as `active_metric` do not select computation. Unused metric
-drafts do not cause unrelated resource checks or computation.
+For Tensor, `selected_metrics` selects computation. Align processes all current
+Tensor metrics. Features processes all metrics in the accepted Align Finish;
+the configuration must supply the required axes for each metric. UI fields such
+as `active_metric` select the displayed editor, not the computation scope.
 
-CLI configuration input is strict for fields used by the requested computation:
-missing required fields, invalid values, and incompatible selected channels,
-pairs, annotations, leads, or axes are errors. Existing equivalent normalization
-and supported schema reading are reused. CLI input does not silently remove
-requested inputs or replace invalid computation values with application defaults.
-Optional values retain the existing service defaults. Unsupported Tensor parameter
-names are rejected for selected metrics. The existing exported unlimited
-SpecParam peak count remains supported.
-The GUI retains its existing interactive import-and-review behavior.
+## Configuration and Validation
 
-Settings outside the exported page contract continue to use the existing app
-configuration, including Localize runtime paths and Features output/reducer
-settings. Supplying a page JSON does not install it as global defaults. Results
-are reproducible against the same relevant inputs and application settings;
-the page JSON alone is not a portable runtime environment.
+Export a configuration from the relevant GUI page and pass that JSON to
+`--config`. The command validates the fields consumed by the requested action,
+including selected channels, pairs, annotations, leads, axes, and numeric
+parameters. Unsupported Tensor parameter names, missing required fields, and
+invalid or incompatible values are errors. Optional values use their defined
+service defaults. SpecParam accepts its exported unlimited peak-count setting.
 
-## Python PSI execution
+The page JSON does not replace global application settings. Localize runtime
+paths and Features output/reducer settings are read from application
+configuration. Reproduction therefore requires the same relevant source data,
+page parameters, and application settings.
 
-Direct calls to the PSI grid can use `outer_n_jobs > 1` to process time blocks
-in separate workers. The PSI outer executor disables joblib's automatic array
-memmapping: MNE Raw cleanup can otherwise delete a shared temporary data file
-before another task loads it. In-memory Raw data is serialized to workers, so
-additional workers can increase memory use. Worker count does not change PSI
-values, masks, or result freshness. Standard GUI/CLI orchestration retains its
-existing single-worker policy; this adds no page or CLI configuration field.
+## Trials and Epochs
 
-## Trials and epochs
+Align updates the named trial or creates that exact canonical slug after
+validating the inputs. An occupied directory that is not a valid trial is an
+error. Features requires an existing trial.
 
-Align updates the named trial if it exists, or creates that exact trial slug
-after validating its inputs. An occupied directory that is not a valid trial
-is an error; it is not renamed or replaced. Features requires an existing trial.
+A successful Align Run selects every epoch produced by the method and passes
+that selection to Finish. Annotation, duration, and BAD/EDGE rules determine
+which epochs are generated. To inspect and choose individual epochs, use the
+GUI's Epoch Inspector. Both Run and Finish must succeed for the command to
+complete successfully.
 
-After a successful Align Run, all epoch indices returned by that run are saved
-as the current selection and passed to Finish. Existing annotation, duration,
-and BAD/EDGE method rules still determine which epochs the run produces. Previous
-manual epoch picks are replaced by the complete set from this run. Both Run and
-Finish must succeed for the command to succeed.
+Align Finish merges location information when the record's Localize result is
+current. Otherwise, it produces tables without location information. The
+completion message reports location-merge readiness and any service warnings.
 
-Localize is independent. Finish preserves the existing automatic location-merge
-rules: it merges location information when the Localize result is current, and
-otherwise produces tables without location information. The completion message
-reports location-merge readiness and any existing service warnings.
+## Outputs and Reruns
 
-## Persistence, reruns, and failures
+Results are saved below the selected record using the same artifact layout and
+processing services as the GUI. Only the relevant page or trial configuration
+is updated in record state. Reopen or reselect the record in the GUI to load the
+command's configuration and result state.
 
-CLI writes standard results below the selected record, using the same services,
-logs, output transactions, and generation checks as the GUI. It updates only
-the relevant page/trial in the existing record state. Reopening or reselecting
-the record in the GUI restores the CLI configuration and result state.
+Use one writer for a record at a time. Close active GUI editing workflows before
+running a CLI write against that record; open GUI drafts do not synchronize with
+another process.
 
-Use one writer for a record at a time; do not run GUI or CLI writes against that
-record concurrently. There is no live synchronization between open GUI drafts
-and another process.
+Every explicit `run` invocation executes the requested action. Whitespace and
+key order in JSON do not change effective parameters or expand the affected
+processing scope.
 
-Every explicit `run` invocation reruns the requested action, using the existing
-service behavior to update its standard outputs. There is no automatic skip,
-resume, global cache, or configuration-file watcher. JSON whitespace and key
-ordering do not affect effective parameters or widen invalidation.
-
-| Published result change | Existing downstream invalidation |
+| Accepted result change | Dependent results affected |
 |---|---|
 | Tensor metrics | Trials using those metrics and their Features |
 | Align Run | That trial's Finish and Features |
@@ -116,15 +97,11 @@ ordering do not affect effective parameters or widen invalidation.
 | Localize Apply | That record's Align Finish and Features |
 | Features | That trial's feature outputs |
 
-Trial-level invalidation remains because accepted Run/Finish results use shared
-trial generations. Localize affects all trial finishes in the record because
-they share the record's localization inputs. No project-wide invalidation is
-introduced.
+Run and Finish use shared trial generations, so their dependencies are scoped
+to the trial. Localization is shared by the record's trial finishes. Changes
+do not invalidate unrelated projects or records.
 
-A successful Align Run remains available if Finish fails; the command reports
-failure and Features cannot consume an incomplete Finish. Tensor metrics already
-successfully published remain available if another selected metric fails. There
-is no cross-page transaction or automatic retry.
+## Failures and Interruption
 
 | Exit code | Meaning |
 |---|---|
@@ -133,8 +110,23 @@ is no cross-page transaction or automatic retry.
 | `2` | Invalid arguments, target, or configuration |
 | `130` | User interruption after cleanup of owned resources |
 
-Completion messages report the page, target, processing scope, and result
-location. Warnings and known errors go to standard error. Unexpected failures
-remain visible. Tensor interruption reuses its worker/process-tree cancellation
-and transaction recovery; Localize closes its owned MATLAB runtime on exit.
-During Tensor shutdown, additional Ctrl+C signals do not interrupt cleanup.
+Completion messages identify the page, target, processing scope, and output
+location. Warnings and errors are written to standard error.
+
+If Align Run succeeds but Finish fails, the Run output remains available while
+Features stays blocked. If one Tensor metric fails, successfully published
+metrics remain available. The command reports partial failure and does not
+retry automatically.
+
+Ctrl+C requests interruption. Tensor cleans up its worker processes and pending
+writes; additional Ctrl+C signals do not interrupt that cleanup. Localize closes
+its application-owned MATLAB runtime on exit.
+
+## Python PSI Execution
+
+The Python PSI grid accepts `outer_n_jobs > 1` for processing time blocks in
+separate workers. Raw arrays are serialized to workers without joblib's automatic
+array memmapping, so additional workers can increase memory use. Worker count
+does not change PSI values, masks, or result freshness. The standard GUI/CLI
+orchestration uses one outer PSI worker; this Python argument is not a page or
+CLI configuration field.

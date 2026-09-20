@@ -1,109 +1,64 @@
 # Installation Guide
 
-LFP-TensorPipe supports two installation methods:
-
-- `PyInstaller desktop app`: use the PyInstaller-built desktop GUI
-- `Developer setup`: run the app from a source checkout in the `lfptp` Conda
-  environment
-
-Choose the installation path that matches your setup.
+LFP-TensorPipe runs as a desktop application or from a Python source checkout.
+The desktop application includes its Python runtime. A source installation also
+provides the `lfptp run` command-line workflow.
 
 ## 1. Choose an Installation Method
 
-| Method | Best For | What You Install |
+| Method | Use it for | Requirements |
 |---|---|---|
-| `PyInstaller desktop app` | Readers who want the packaged GUI | The desktop app together with its bundled Python runtime |
-| `Developer setup` | Readers who want a source checkout or local development environment | The repository, a Conda environment, and the package installed into that environment |
+| Desktop application | Running the GUI without a Python environment | An application package for your operating system and CPU architecture |
+| Source installation | Using the GUI, command-line workflow, or Python package | The source repository and the `lfptp` Conda environment |
 
-## 2. PyInstaller Desktop App
+MATLAB and Lead-DBS are external dependencies for **Localize** and **Contact
+Viewer**. Record import, preprocessing, Tensor computation, alignment, and
+feature extraction do not require localization. Results can be analyzed without
+location columns.
 
-Use this method when you want the GUI without setting up a source checkout.
-
-If you need to rebuild the packaged app from this private repository checkout,
-use the private-only packaging documentation in the `lfptensorpipe` source
-repository. The public repository provides release downloads and source
-installation materials, but it is not a desktop packaging source.
+## 2. Desktop Application
 
 ### 2.1 macOS
 
-1. Download the PyInstaller-built macOS package for your release.
-2. Open the `.dmg`.
-3. Drag `LFP-TensorPipe-<artifact-version>.app` into `/Applications`.
-4. Launch the app from Finder or Launchpad.
-5. If Gatekeeper blocks the first launch, right-click the app, choose `Open`,
-   and confirm.
+The Apple Silicon package runs on Macs with an M-series processor.
 
-Build tutorial, validation commands, and signing/notarization helpers are
-maintained only in the private source repository under
-`docs/PYINSTALLER_PACKAGING.md` and `docs/RELEASE_RUNBOOK.md`.
+1. Open the supplied `.dmg` file.
+2. Drag `LFP-TensorPipe.app` onto the `Applications` shortcut in the installation
+   window. Finder Copy/Paste into `Applications` also installs the application.
+3. Eject the disk image.
+4. Open `LFP-TensorPipe` from `Applications`.
 
-macOS runtime note:
-
-- `Raw / Filter / Annotations / Bad Segment / ECG / Finish Plot` open the MNE
-  raw browser in the main GUI process. On macOS, if you close the main app
-  while those windows are open, the app first closes the tracked raw-browser
-  windows and only then exits. `PSD/TFR` remains on the normal in-process
-  matplotlib path and is unaffected by this raw-browser shutdown coordination.
+The application contains its Python runtime, scientific dependencies, icons,
+and default settings. It does not require a Conda installation. The local
+macOS package is ad-hoc signed and is not notarized; installation remains subject
+to your macOS software-security policy.
 
 ### 2.2 Windows
 
-1. Download the PyInstaller-built Windows package for your release.
-2. Extract the package to a writable directory.
-3. Open the extracted app folder.
-4. Launch `LFP-TensorPipe.exe`.
+For a Windows desktop package:
 
-Windows packaging commands and release validation are maintained only in the
-private source repository under `docs/PYINSTALLER_PACKAGING.md` and
-`docs/RELEASE_RUNBOOK.md`.
+1. Extract the supplied archive to a writable directory.
+2. Keep the application folder and its bundled files together.
+3. Launch `LFP-TensorPipe.exe` from that folder.
 
-### 2.3 What the Package Includes
+### 2.3 External Resources
 
-The PyInstaller package includes:
+Install MATLAB and Lead-DBS separately when using Localize or Contact Viewer.
+Project data, subject reconstructions, normalization transforms, and atlases
+are supplied separately from the application.
 
-- the LFP-TensorPipe GUI
-- the Python runtime needed by the app
-- packaged icons and default app resources
+## 3. Source Installation
 
-The PyInstaller package does not include:
-
-- MATLAB
-- Lead-DBS
-
-## 3. Developer Setup
-
-Use this method when you want to run the app from the repository.
-
-This setup provides the `lfptp` and `lfptensorpipe` console commands. Use
-`lfptp run --help` for running exported page JSON without opening the GUI;
-see [Command-line workflow](CLI.md) for the complete interface. Standalone
-desktop installer console packaging is not required for this interface.
-
-### Maintainer Isolation Note
-
-The commands below remain the standard setup for an ordinary checkout. For
-the current local isolated-development arrangement, keep these two repository
-and environment pairs separate:
-
-| Role | Repository | Conda environment | Source baseline |
-|---|---|---|---|
-| Formal runtime | `LFP-TensorPipe` | `lfptp` | `develop@995f993` |
-| Isolated development and testing | `LFP-TensorPipe-isolated` | `lfptp-worktree-test` | `develop@995f993` before local edits |
-
-When working in `LFP-TensorPipe-isolated`, run development commands with
-`conda run -n lfptp-worktree-test ...`. Do not install that checkout into or
-update the formal `lfptp` environment. This keeps the formal runtime on the
-primary checkout while isolated code and dependency changes are validated.
+Run these commands from the repository root.
 
 ### 3.1 Create the Environment
-
-Run from the repository root:
 
 ```bash
 conda env create -f envs/lfptp_py311_base.yml
 conda activate lfptp
 ```
 
-To refresh an existing environment:
+To synchronize an installed environment with the environment file:
 
 ```bash
 conda env update -f envs/lfptp_py311_base.yml --prune
@@ -112,67 +67,62 @@ conda activate lfptp
 
 ### 3.2 Install the Package
 
-Install the current checkout:
-
 ```bash
 python -m pip install -e ".[dev]"
 ```
 
-### 3.3 Launch the App
+### 3.3 Launch the Application
 
-From the `lfptp` environment:
+From the `lfptp` environment, run either command:
 
 ```bash
 lfptensorpipe
 ```
 
-or:
-
 ```bash
 lfptp
 ```
 
-Developer runtime note:
-
-- User-facing preprocess raw-browser plots must stay on the main-process path.
-  The hidden raw-plot helper-process path is reserved for smoke/diagnostic use
-  only and must not replace the main GUI plot flow.
+To execute an exported page configuration without opening the GUI, use
+`lfptp run`. See [Command-line workflow](CLI.md) for the inputs, supported
+pages, outputs, and error handling.
 
 ## 4. First Launch
 
+1. Launch the application.
+2. Use `Project +` to select a writable project folder.
+3. Select or create a subject, then use `Record +` to import a recording.
+
+For localization, open the application configuration dialog:
+
+- macOS: `LFP-TensorPipe -> Preferences...` in the system menu bar.
+- Windows: `Settings -> Configs` in the application menu.
+
 ![Configs dialog](assets/app-control-reference/controlref-advance-configs-dialog.png)
 
-After either installation method:
-
-1. Launch the app.
-2. Open `Settings -> Configs`.
-3. Enter valid machine-local paths for:
-   - `Lead-DBS Directory`
-   - `MATLAB Installation Path`
-4. Save the dialog.
-
-Use the following values for the example workflow in
-[APP_TUTORIAL.md](APP_TUTORIAL.md):
-
-- `Lead-DBS Directory`: `<lead-dbs-root>`
-- `MATLAB Installation Path`: `<matlab-root>`
-
-Replace `<lead-dbs-root>` and `<matlab-root>` with the matching local paths on
-your machine.
+Set `Lead-DBS Directory` and `MATLAB Installation Path` to the corresponding
+installation folders, then click `Save`. The Localize panel reports the MATLAB
+connection state. `MATLAB: Ready` confirms the runtime connection; a localization
+run also requires the selected subject's anatomical inputs.
 
 ## 5. Localize Requirements
 
-`Localize` depends on:
+Localize uses:
 
-- a valid `Lead-DBS Directory`
-- a valid `MATLAB Installation Path`
-- existing Lead-DBS results for the selected subject inside the chosen project
+- the configured MATLAB and Lead-DBS installations;
+- a subject reconstruction whose contacts match the recording channels;
+- the subject's anatomical image and valid normalization transforms;
+- an atlas available in the subject's target space and a selection of regions.
 
-## 6. Next Step
+Use `Match -> Configure...` to map channels to contacts and `Atlas -> Configure...`
+to select the atlas and regions. All recording channels must be mapped before
+Apply. See the [Localize tutorial](APP_TUTORIAL.md#4-localize) for the data layout
+and workflow.
 
-Continue with:
+## 6. Continue
 
-- [APP_TUTORIAL.md](APP_TUTORIAL.md) for the validated single-record demo
-  walkthrough (`sub-001 / gait -> cycle_l`)
-- [APP_CONTROL_REFERENCE.md](APP_CONTROL_REFERENCE.md) for control-level help on
-  dialogs, panels, and page-specific options
+- [Demo tutorial](APP_TUTORIAL.md): import a recording, preprocess it, build
+  tensors, align epochs, and visualize extracted features.
+- [Control reference](APP_CONTROL_REFERENCE.md): parameters, controls,
+  availability rules, and saved results for each page.
+- [Command-line workflow](CLI.md): execute exported page configurations.
