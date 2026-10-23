@@ -35,6 +35,54 @@ def _require_specparam() -> tuple[Any, Any, Any]:
     return specparam, SpectralTimeModel, sim_spectrogram
 
 
+def _fixed_floor_function(
+    freqs: np.ndarray, offset: float, exponent: float, floor: float
+) -> np.ndarray:
+    """Power law plus a constant linear-power floor, expressed in log10 power."""
+    return np.log10(10.0**offset * freqs ** (-exponent) + floor)
+
+
+def _save_fixed_floor_report(model: Any, report_path: str) -> None:
+    """Report the linear floor, absent from SpecParam's built-in color palette."""
+    import matplotlib.pyplot as plt
+    from specparam.plts.templates import plot_params_over_time, plot_text
+    from specparam.reports.strings import gen_settings_str
+
+    results = model.results.time_results
+    fig, axes = plt.subplots(6, 1, figsize=(16, 20), layout="constrained")
+    try:
+        axes[0].axis("off")
+        axes[0].text(
+            0.5,
+            0.5,
+            "SpecParam: fixed_floor\n"
+            "log10 P(f) = log10(10**offset * f**(-exponent) + floor) + sum(G_k)\n"
+            f"Fit range: {model.data.freq_range[0]:g}-{model.data.freq_range[1]:g} Hz; "
+            f"{model.data.n_time_windows} fitted windows\n"
+            "floor: linear input-power units; exponent > 0; floor >= 0",
+            ha="center",
+            va="center",
+        )
+        for ax, label in zip(axes[1:4], ("offset", "exponent", "floor")):
+            ax.plot(results[label], marker=".")
+            ax.set_ylabel(label)
+            ax.set_xlabel("Fitted time-window index")
+            ax.set_title(
+                "floor (linear input-power units)" if label == "floor" else label
+            )
+        plot_params_over_time(
+            None,
+            [results["error_mae"], results["gof_rsquared"]],
+            labels=["error_mae", "gof_rsquared"],
+            title="Fit Quality",
+            ax=axes[-2],
+        )
+        plot_text(gen_settings_str(model.algorithm, False), 0.5, 0.5, ax=axes[-1])
+        fig.savefig(report_path)
+    finally:
+        plt.close(fig)
+
+
 def _fit_one_epoch_channel(
     e_idx: int,
     ch_idx: int,
@@ -50,13 +98,50 @@ def _fit_one_epoch_channel(
     """Fit SpecParam SpectralTimeModel for one (epoch, channel) and simulate components."""
     specparam, SpectralTimeModel, sim_spectrogram = _require_specparam()
 
+    aperiodic_mode = settings.get("aperiodic_mode", "fixed")
+    model_kwargs: Dict[str, Any] = {}
+    if aperiodic_mode == "fixed_floor":
+        from specparam.algorithms.spectral_fit import SpectralFitAlgorithm
+        from specparam.modes.mode import Mode
+
+        class FixedFloorFitAlgorithm(SpectralFitAlgorithm):
+            def _get_ap_guess(self, freqs, power_spectrum):
+                guess = super()._get_ap_guess(freqs, power_spectrum)
+                index = self.modes.aperiodic.params.indices["exponent"]
+                # Equal endpoint powers give a zero slope outside the positive bound.
+                guess[index] = max(guess[index], self._settings.ap_bounds[0][index])
+                return guess
+
+        model_kwargs["algorithm"] = FixedFloorFitAlgorithm
+        model_kwargs["aperiodic_mode"] = Mode(
+            name="fixed_floor",
+            component="aperiodic",
+            description="Power law plus a non-negative constant linear-power floor.",
+            func=_fixed_floor_function,
+            jacobian=None,
+            params={
+                "offset": "Log10 amplitude of the power-law component.",
+                "exponent": "Positive exponent of the power-law component.",
+                "floor": "Non-negative constant floor in linear input-power units.",
+            },
+            ndim=1,
+            freq_space="linear",
+            powers_space="log10",
+        )
+        model_kwargs["ap_bounds"] = (
+            (-np.inf, np.finfo(float).eps, 0.0),
+            (np.inf, np.inf, np.inf),
+        )
+    else:
+        model_kwargs["aperiodic_mode"] = aperiodic_mode
+
     model = SpectralTimeModel(
         peak_width_limits=settings.get("peak_width_limits", [2, 12]),
         max_n_peaks=settings.get("max_n_peaks", np.inf),
         min_peak_height=settings.get("min_peak_height", 0),
         peak_threshold=settings.get("peak_threshold", 2.0),
-        aperiodic_mode=settings.get("aperiodic_mode", "fixed"),
         verbose=settings.get("verbose", False),
+        **model_kwargs,
     )
 
     n_freqs, n_times = psd_ft.shape
@@ -67,7 +152,24 @@ def _fit_one_epoch_channel(
     freq_fit_range = [float(freqs[0]), float(freqs[-1])]
 
     freq_range = settings.get("freq_range", None)
-    model.fit(freqs, psd_ft, freq_range=freq_range)
+    if aperiodic_mode == "fixed_floor":
+        # Parse once through SpecParam, then scale each log spectrum so the
+        # bounded linear floor is not optimized at voltage-power magnitudes.
+        model.add_data(freqs, psd_ft, freq_range=freq_range)
+        log_scales = np.median(model.data.power_spectra, axis=1)
+        model.data.power_spectra -= log_scales[:, None]
+        model.fit(convert_results=False)
+        restored_results = []
+        for result, log_scale in zip(model.results.group_results, log_scales):
+            ap_params = np.asarray(result.aperiodic_fit, dtype=float).copy()
+            ap_params[0] += log_scale
+            ap_params[2] *= 10.0**log_scale
+            restored_results.append(result._replace(aperiodic_fit=ap_params))
+        model.results.add_results(restored_results)
+        model.data.power_spectra += log_scales[:, None]
+        model.results.convert_results()
+    else:
+        model.fit(freqs, psd_ft, freq_range=freq_range)
 
     if report_dir is not None:
         os.makedirs(report_dir, exist_ok=True)
@@ -75,7 +177,10 @@ def _fit_one_epoch_channel(
             report_dir, f"{save_prefix or 'fit'}_e{e_idx:03d}_ch{ch_idx:03d}.pdf"
         )
         try:
-            model.save_report(report_path)
+            if aperiodic_mode == "fixed_floor":
+                _save_fixed_floor_report(model, report_path)
+            else:
+                model.save_report(report_path)
         except Exception as exc:
             raise RuntimeError(
                 f"SpecParam report export failed for epoch {e_idx}, channel {ch_idx}: {report_path}"
@@ -167,7 +272,10 @@ def _fit_one_epoch_channel(
 
     for t, fit_result in enumerate(fit_results):
         ap_t = np.asarray(fit_result.aperiodic_fit, dtype=float)
-        ap_linear[:, t] = _simulate_component(ap_t, []).flatten()
+        if aperiodic_mode == "fixed_floor":
+            ap_linear[:, t] = 10.0 ** _fixed_floor_function(freqs, *ap_t)
+        else:
+            ap_linear[:, t] = _simulate_component(ap_t, []).flatten()
 
         # SpecParam ``peak_fit`` contains Gaussian center, height, and sigma;
         # ``peak_converted`` contains converted peak bandwidth instead.
@@ -179,7 +287,10 @@ def _fit_one_epoch_channel(
         per_linear[:, t] = _simulate_component(
             np.array([0, 0, 0], dtype=float), peaks_t
         ).flatten()
-        full_linear[:, t] = _simulate_component(ap_t, peaks_t).flatten()
+        if aperiodic_mode == "fixed_floor":
+            full_linear[:, t] = ap_linear[:, t] * per_linear[:, t]
+        else:
+            full_linear[:, t] = _simulate_component(ap_t, peaks_t).flatten()
 
     params = model.to_df().reset_index().rename(columns={"index": "time_idx"})
     params["epoch"] = int(e_idx)
@@ -223,6 +334,8 @@ def decompose(
         Optional (fmin, fmax) used to restrict SpecParam fitting.
     aperiodic_mode
         "fixed" -> [offset, exponent]; "knee" -> [offset, knee, exponent].
+        "fixed_floor" -> [offset, exponent, floor], with exponent > 0 and
+        floor >= 0 in linear input-power units, fitted separately per spectrum.
     peak_width_limits, max_n_peaks, min_peak_height, peak_threshold
         SpecParam peak detection settings.
     n_jobs

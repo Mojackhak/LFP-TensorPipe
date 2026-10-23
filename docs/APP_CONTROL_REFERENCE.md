@@ -1305,7 +1305,7 @@ in computation.
 | `Freq smooth sigma` | Sets the Gaussian sigma used when frequency smoothing is enabled. Larger values suppress fine ripples more aggressively, which can stabilize fits but also blur narrow peaks. | Pre-fit frequency smoothing strength. | Requires `Freq` smoothing to be enabled. |
 | `Time` | Enables pre-fit smoothing across time. This can stabilize frame-to-frame fits when the signal is noisy, but it also reduces sensitivity to brief spectral changes. | Pre-fit temporal smoothing. | Periodic/aperiodic dialog only. |
 | `Time smooth kernel size` | Sets the temporal kernel size used when time smoothing is enabled. Larger kernels produce steadier fits across time, but they can hide brief transitions. | Pre-fit temporal smoothing strength. | Requires `Time` smoothing to be enabled. |
-| `Aperiodic mode` | Chooses whether the aperiodic background is fit with a simple fixed slope or with a knee term. Use `knee` only when you expect meaningful low-frequency curvature rather than a simple 1/f-like slope. | Aperiodic model form. | Periodic/aperiodic dialog only. |
+| `Aperiodic mode` | Chooses `fixed` (power law), `knee` (power law with a knee), or `fixed_floor` (power law plus a non-negative constant power floor). | Aperiodic model form. | Periodic/aperiodic dialog only. |
 | `Peak width limits` | Sets the allowed fitted peak-width range in Hz. Keep this range compatible with the oscillation widths you expect, or the model may accept peaks that are too broad or reject peaks that are too narrow. | Peak-fitting constraints. | Periodic/aperiodic dialog only. |
 | `Max n peaks` | Sets the maximum number of oscillatory peaks the model is allowed to fit. Lower values force simpler fits; higher values allow more complexity but increase the chance of fitting noise. | Peak-fitting complexity. | Periodic/aperiodic dialog only. |
 | `Min peak height` | Sets the minimum peak height required for a component to be kept as a peak. Raising it makes peak detection more conservative. | Peak acceptance threshold. | Periodic/aperiodic dialog only. |
@@ -1344,6 +1344,51 @@ in computation.
   equal-width donor segment.
 - The reconstructed tensor follows the configured smoothing steps before
   SpecParam decomposition.
+
+#### Power law with a constant floor
+
+Select `fixed_floor` in `Aperiodic mode` to fit:
+
+\[
+P_{\mathrm{aperiodic}}(f)=10^{\mathrm{offset}}f^{-\mathrm{exponent}}+\mathrm{floor},
+\qquad
+\log_{10}P_{\mathrm{fit}}(f)=\log_{10}P_{\mathrm{aperiodic}}(f)+\sum_k G_k(f).
+\]
+
+Each fitted channel and time window has independent `offset`, `exponent`, and
+`floor` parameters. The exponent is strictly positive and the floor is
+non-negative. `floor` is the constant C in linear power units, using the same
+units as the input power spectrum; it is not a logarithmic offset. The saved
+aperiodic parameter axis is `offset`, `exponent`, `floor`, `error_mae`,
+`gof_rsquared`. Read parameters by their names in `meta.axes.freq`.
+
+The fit uses a custom aperiodic [SpecParam Mode](https://specparam-tools.github.io/generated/specparam.SpectralModel.html)
+with the existing Gaussian peak algorithm and log10-power residuals.
+Internally, each spectrum is centered on its median log10 power before
+fitting, then `offset` and `floor` are restored to the input units. This keeps
+the linear floor numerically scaled for both small voltage-power spectra and
+larger power units without changing the model or loss function. The automatic
+exponent initial guess is clipped to its existing positive lower bound when the
+first and last spectral powers are equal (or their estimated slope falls below
+that bound). This prevents an infeasible optimizer start without relaxing the
+model constraints or changing feasible initial guesses. Reports show the
+restored parameters, including a separate linear-power `floor` panel.
+
+Periodic output remains `10 ** sum(G_k)` with a no-peak baseline of `1`.
+Full modeled power is the product of the aperiodic and periodic components.
+The existing fit range, peak controls, masks, fit-quality threshold, and
+report time-index sidecars also apply to `fixed_floor`. A well-estimated floor
+requires a fitting range that contains evidence of high-frequency flattening;
+fit quality alone does not establish that all three parameters are identifiable.
+The default remains `fixed`.
+
+Changing `aperiodic_mode` changes the Periodic/APeriodic metric's semantic
+signature. Rebuilding that metric replaces its periodic and aperiodic outputs
+and invalidates the dependent alignment trials and their feature results.
+Other tensor metrics retain their results. No file hash or configuration
+formatting change is used as a global recomputation trigger. Invalidation
+remains at the existing trial-log level because alignment and feature acceptance
+are recorded per trial.
 
 ### 7.9 Undirected Connectivity Common Parameters
 

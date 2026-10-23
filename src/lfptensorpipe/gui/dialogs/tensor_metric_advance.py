@@ -262,9 +262,12 @@ class TensorMetricAdvanceDialog(QDialog):
                 "Median-filter kernel size in time bins. Defaults to an odd value derived from time_resolution_s / hop_s."
             )
             aperiodic_mode = QComboBox()
-            for item in ("fixed", "knee"):
+            for item in ("fixed", "knee", "fixed_floor"):
                 aperiodic_mode.addItem(item, item)
-            aperiodic_mode.setToolTip("Choose fixed or knee aperiodic fit.")
+            aperiodic_mode.setToolTip(
+                "Choose fixed, knee, or fixed_floor (power law plus a fitted "
+                "non-negative constant power floor)."
+            )
             peak_width_limits = QLineEdit()
             peak_width_limits.setToolTip("Peak width limits in Hz as low,high.")
             max_n_peaks = QLineEdit()

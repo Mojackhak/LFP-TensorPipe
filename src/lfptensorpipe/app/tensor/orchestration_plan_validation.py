@@ -423,8 +423,10 @@ def _normalize_metric_compute_params(
 
         mode_raw = _provided_value(metric_params, "aperiodic_mode", default="fixed")
         aperiodic_mode = str(mode_raw).strip().lower()
-        if aperiodic_mode not in {"fixed", "knee"}:
-            raise ValueError("aperiodic_mode must be 'fixed' or 'knee'.")
+        if aperiodic_mode not in {"fixed", "knee", "fixed_floor"}:
+            raise ValueError(
+                "aperiodic_mode must be 'fixed', 'knee', or 'fixed_floor'."
+            )
         normalized["aperiodic_mode"] = aperiodic_mode
         normalized["peak_width_limits_hz"] = list(
             _finite_pair(
