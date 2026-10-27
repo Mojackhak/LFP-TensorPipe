@@ -107,6 +107,7 @@ class AlignmentMethodParamsDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self._method_key = method_key
+        self._cue_response = session_params.get("cue_response")
         self._config_store = config_store
         self._annotation_labels = [
             str(item).strip() for item in annotation_labels if str(item).strip()
@@ -227,6 +228,9 @@ class AlignmentMethodParamsDialog(QDialog):
         self._apply_common(session_params)
         self._build_method_ui(session_params)
         self._refresh_active_validation()
+        if self._cue_response is not None:
+            self._set_default_button.setEnabled(False)
+            self._restore_default_button.setEnabled(False)
 
     @property
     def selected_params(self) -> dict[str, Any] | None:
@@ -239,11 +243,15 @@ class AlignmentMethodParamsDialog(QDialog):
         return QMessageBox.information(self, title, message)
 
     def _sample_rate_label_text(self) -> str:
+        if self._cue_response is not None:
+            return "sample rate (aligned Hz)"
         if self._method_key in {"pad_warper", "concat_warper"}:
             return "sample rate (Hz)"
         return "sample rate (n/%)"
 
     def _sample_rate_tooltip_text(self) -> str:
+        if self._cue_response is not None:
+            return "Sampling density on the half-open aligned-second timeline."
         if self._method_key in {"pad_warper", "concat_warper"}:
             return "Target sampling density in Hz. Warped n_samples = round(sample_rate * total time)."
         return "Target sampling density over 0-100% timeline. Warped n_samples = round(sample_rate * 100)."

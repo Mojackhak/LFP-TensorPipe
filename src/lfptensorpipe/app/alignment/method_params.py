@@ -84,6 +84,46 @@ def validate_alignment_method_params(
         candidate.get("drop_fields", defaults.get("drop_fields"))
     )
 
+    if key == "linear_warper" and "cue_response" in candidate:
+        from lfptensorpipe.lfp.warp.event_anchored_linear import (
+            normalize_cue_response,
+            cue_response_anchors,
+        )
+
+        try:
+            paired = normalize_cue_response(candidate["cue_response"])
+        except (ValueError, TypeError, KeyError) as exc:
+            return False, defaults, str(exc)
+        duration = sum(
+            paired[k] for k in ("pre_cue_s", "response_target_s", "post_response_s")
+        )
+        if int(round(sample_rate * duration)) < 4:
+            return (
+                False,
+                defaults,
+                "Cue-response sampling must provide at least four target centers.",
+            )
+        if labels and any(
+            p[key] not in labels
+            for p in paired["event_pairs"]
+            for key in ("cue_label", "response_label")
+        ):
+            return False, defaults, "A paired cue/response annotation is unavailable."
+        return (
+            True,
+            {
+                "cue_response": paired,
+                "anchors_percent": cue_response_anchors(paired),
+                "linear_warp": True,
+                "percent_tolerance": None,
+                "epoch_duration_range": [None, None],
+                "drop_bad": drop_bad,
+                "drop_fields": drop_fields,
+                "sample_rate": sample_rate,
+            },
+            "",
+        )
+
     if key == "linear_warper":
         anchor_value = candidate.get("anchors_percent", defaults["anchors_percent"])
         if isinstance(anchor_value, dict) and len(anchor_value) == 0:

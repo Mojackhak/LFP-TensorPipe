@@ -56,3 +56,10 @@ __all__ = [
     "ZERO_DURATION_ALIGNMENT_METHODS",
     "AlignmentMethodSpec",
 ]
+
+
+def linear_event_pairing_mode(method_params):
+    """Name the pairing rule actually consumed by a linear trial."""
+    if isinstance(method_params, dict) and "cue_response" in method_params:
+        return "explicit_annotation_pairs"
+    return LINEAR_EVENT_PAIRING

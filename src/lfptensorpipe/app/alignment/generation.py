@@ -455,11 +455,13 @@ def alignment_generation_rerun_message(
             and str(params.get("method", "")) == "linear_warper"
         ):
             from .method_specs import (
-                LINEAR_EVENT_PAIRING,
+                linear_event_pairing_mode,
                 LINEAR_EVENT_PAIRING_KEY,
             )
 
-            if params.get(LINEAR_EVENT_PAIRING_KEY) != LINEAR_EVENT_PAIRING:
+            if params.get(LINEAR_EVENT_PAIRING_KEY) != linear_event_pairing_mode(
+                params.get("method_params")
+            ):
                 return ALIGNMENT_LINEAR_EVENT_PAIRING_RERUN_MESSAGE
         if isinstance(params, dict) and str(params.get("method", "")) in {
             "pad_warper",

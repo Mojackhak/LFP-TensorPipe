@@ -34,7 +34,17 @@ def _clear_method_ui(dialog) -> None:
 
 def _build_method_ui(dialog, params: dict[str, Any]) -> None:
     _clear_method_ui(dialog)
-    if dialog._method_key == "linear_warper":
+    if getattr(dialog, "_cue_response", None) is not None:
+        config = dialog._cue_response
+        label = QLabel(
+            f"Paired cue-response alignment: {len(config['event_pairs'])} trials\n"
+            f"Pre-cue: {config['pre_cue_s']:g} s; reaction: {config['response_target_s']:g} s; "
+            f"post-response: {config['post_response_s']:g} s.\n"
+            "Only the reaction interval is normalized. Paired event identities are retained."
+        )
+        label.setWordWrap(True)
+        dialog._method_layout.addWidget(label)
+    elif dialog._method_key == "linear_warper":
         _build_linear_ui(dialog, params)
     elif dialog._method_key == "pad_warper":
         _build_pad_ui(dialog, params)

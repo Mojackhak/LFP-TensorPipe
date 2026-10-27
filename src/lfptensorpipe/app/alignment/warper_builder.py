@@ -41,6 +41,15 @@ def _build_warper(
     )
     anno_drop = tuple(drop_fields) if drop_bad else None
 
+    if method == "linear_warper" and "cue_response" in method_params:
+        from lfptensorpipe.lfp.warp.event_anchored_linear import cue_response_warper
+
+        return cue_response_warper(
+            raw,
+            config=method_params["cue_response"],
+            anno_drop=anno_drop,
+            drop_mode=drop_mode,
+        )
     if method == "linear_warper":
         anchors = method_params.get("anchors_percent", {})
         if not isinstance(anchors, dict) or len(anchors) < 2:
@@ -154,7 +163,18 @@ def _resolve_target_n_samples(
             svc.default_alignment_method_params(method).get("sample_rate", 5.0),
         )
     )
-    if method in {"linear_warper", "stack_warper"}:
+    if method == "linear_warper" and "cue_response" in method_params:
+        config = method_params["cue_response"]
+        n_samples = int(
+            round(
+                sample_rate
+                * sum(
+                    config[k]
+                    for k in ("pre_cue_s", "response_target_s", "post_response_s")
+                )
+            )
+        )
+    elif method in {"linear_warper", "stack_warper"}:
         n_samples = int(round(sample_rate * 100.0))
     elif method in {"pad_warper", "concat_warper"}:
         total_window_s = _resolve_target_duration_s(

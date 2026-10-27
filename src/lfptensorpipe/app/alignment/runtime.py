@@ -37,7 +37,7 @@ from .generation import (
 from .method_specs import (
     CLIP_STITCH_GEOMETRY,
     CLIP_STITCH_GEOMETRY_KEY,
-    LINEAR_EVENT_PAIRING,
+    linear_event_pairing_mode,
     LINEAR_EVENT_PAIRING_DIAGNOSTICS_KEY,
     LINEAR_EVENT_PAIRING_KEY,
     LINEAR_WARP_GEOMETRY,
@@ -174,6 +174,9 @@ def run_align_epochs(
             )
         )
 
+        cue_response_config = (
+            method_params.get("cue_response") if method == "linear_warper" else None
+        )
         epochs_by_label, warp_fn = _build_warper(
             raw,
             method=method,
@@ -257,6 +260,11 @@ def run_align_epochs(
             if uses_current_clip_stitch_geometry
             else None
         )
+        if cue_response_config is not None:
+            target_duration_s = sum(
+                cue_response_config[k]
+                for k in ("pre_cue_s", "response_target_s", "post_response_s")
+            )
         log_path = alignment_paradigm_log_path(resolver, slug)
         with AtomicOutputSet(
             [warp_fn_path, warp_labels_path, *metric_output_paths.values(), log_path],
@@ -307,7 +315,7 @@ def run_align_epochs(
                         0.0,
                         100.0,
                         n_samples,
-                        endpoint=True,
+                        endpoint=cue_response_config is None,
                     )
                     meta_epochs = list(epochs_by_label.get("ALL", []))
                     warped_arr = warp_burst_for_display(
@@ -331,6 +339,11 @@ def run_align_epochs(
                         interpolation_input,
                         sr=float(sr),
                         n_samples=n_samples,
+                        **(
+                            {"source_times": np.asarray(axes["time"], dtype=float)}
+                            if cue_response_config is not None
+                            else {}
+                        ),
                     )
                     warped_arr = convert_transform_domain_array(
                         np.asarray(warped, dtype=float),
@@ -353,6 +366,26 @@ def run_align_epochs(
                         sample_rate if uses_current_clip_stitch_geometry else None
                     ),
                 )
+                if cue_response_config is not None:
+                    aligned_axes = meta_warped["axes"]
+                    pre = cue_response_config["pre_cue_s"]
+                    aligned_axes["time"] = (
+                        np.arange(n_samples) * target_duration_s / n_samples - pre
+                    )
+                    aligned_axes["time_support_s"] = np.array(
+                        [-pre, target_duration_s - pre]
+                    )
+                    aligned_axes["time_coordinate"] = "cue_response_aligned_seconds"
+                    aligned_axes["kind"] = "linear"
+                    aligned_axes["duration_s_per_epoch"] = np.array(
+                        [ep.end_t - ep.start_t for ep in meta_epochs]
+                    )
+                    aligned_axes["event_anchors_s"] = {
+                        "cue": 0.0,
+                        "response": cue_response_config["response_target_s"],
+                    }
+                    aligned_axes["requested_sample_rate_hz"] = sample_rate
+                    meta_warped["cue_response"] = cue_response_config
                 if metric_key == "burst":
                     meta_warped["burst_display_aggregation"] = {
                         "invalid_overlap": "nan",
@@ -363,7 +396,9 @@ def run_align_epochs(
                 elif uses_current_linear_warp_geometry:
                     meta_warped[LINEAR_WARP_GEOMETRY_KEY] = LINEAR_WARP_GEOMETRY
                 if uses_current_linear_event_pairing:
-                    meta_warped[LINEAR_EVENT_PAIRING_KEY] = LINEAR_EVENT_PAIRING
+                    meta_warped[LINEAR_EVENT_PAIRING_KEY] = linear_event_pairing_mode(
+                        method_params
+                    )
                 if uses_current_clip_stitch_geometry:
                     meta_warped[CLIP_STITCH_GEOMETRY_KEY] = CLIP_STITCH_GEOMETRY
                 if uses_current_zero_duration_alignment:
@@ -392,7 +427,9 @@ def run_align_epochs(
             if uses_current_linear_warp_geometry:
                 run_params[LINEAR_WARP_GEOMETRY_KEY] = LINEAR_WARP_GEOMETRY
             if uses_current_linear_event_pairing:
-                run_params[LINEAR_EVENT_PAIRING_KEY] = LINEAR_EVENT_PAIRING
+                run_params[LINEAR_EVENT_PAIRING_KEY] = linear_event_pairing_mode(
+                    method_params
+                )
                 run_params[LINEAR_EVENT_PAIRING_DIAGNOSTICS_KEY] = dict(
                     linear_pairing_diagnostics
                 )

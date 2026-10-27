@@ -40,6 +40,9 @@ def _collect_candidate_params(
         "drop_fields": ["bad", "edge"],
         "sample_rate": parse_float(dialog._sample_rate_edit.text().strip()),
     }
+    if getattr(dialog, "_cue_response", None) is not None:
+        candidate["cue_response"] = dialog._cue_response
+        return candidate
     if dialog._method_key == "linear_warper":
         anchors: dict[float, str] = {}
         for row in range(dialog._anchors_table.rowCount()):

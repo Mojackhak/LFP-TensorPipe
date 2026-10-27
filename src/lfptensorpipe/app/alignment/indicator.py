@@ -18,7 +18,7 @@ from .method_params import validate_alignment_method_params
 from .method_specs import (
     CLIP_STITCH_GEOMETRY,
     CLIP_STITCH_GEOMETRY_KEY,
-    LINEAR_EVENT_PAIRING,
+    linear_event_pairing_mode,
     LINEAR_EVENT_PAIRING_KEY,
     LINEAR_WARP_GEOMETRY,
     LINEAR_WARP_GEOMETRY_KEY,
@@ -149,10 +149,9 @@ def _has_current_linear_event_pairing(
     if method != "linear_warper":
         return True
     params = entry.get("params")
-    return (
-        isinstance(params, dict)
-        and params.get(LINEAR_EVENT_PAIRING_KEY) == LINEAR_EVENT_PAIRING
-    )
+    return isinstance(params, dict) and params.get(
+        LINEAR_EVENT_PAIRING_KEY
+    ) == linear_event_pairing_mode(params.get("method_params"))
 
 
 def _has_current_clip_stitch_geometry(

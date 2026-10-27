@@ -126,7 +126,7 @@ class MainWindowAlignmentConfigMixin:
                         f"Ignored {dropped} unavailable annotation label(s)."
                     )
 
-        if method_key == "linear_warper":
+        if method_key == "linear_warper" and "cue_response" not in params_node:
             raw_anchors = params_node.get("anchors_percent")
             if isinstance(raw_anchors, dict):
                 kept_anchors: dict[str, str] = {}

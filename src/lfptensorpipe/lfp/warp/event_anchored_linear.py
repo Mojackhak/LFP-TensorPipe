@@ -384,11 +384,26 @@ def linear_warper(
     epochs_all: List[LinearEpoch] = list(selected_epochs)
     epochs_by_label: Dict[str, List[LinearEpoch]] = {"ALL": epochs_all}
 
+    warp_fn = _linear_epoch_warp_fn(epochs_all, target_perc, anchor_keys, linear_warp)
+
+    warp_fn.alignment_diagnostics = {  # type: ignore[attr-defined]
+        "linear_event_pairing_diagnostics": dict(pairing_diagnostics)
+    }
+
+    return epochs_by_label, warp_fn
+
+
+def _linear_epoch_warp_fn(
+    epochs_all, target_perc, anchor_keys, linear_warp, *, half_open=False
+):
+    """Share source interpolation while keeping legacy percent geometry intact."""
+
     def warp_fn(
         data: np.ndarray,
         *,
         sr: float,
         n_samples: int | None = None,
+        source_times: np.ndarray | None = None,
     ) -> Tuple[np.ndarray, np.ndarray, List[LinearEpoch]]:
         if len(epochs_all) == 0:
             raise RuntimeError(
@@ -414,7 +429,19 @@ def linear_warper(
             (len(epochs_all),) + lead_shape + (n_samples_use,),
             dtype=np.result_type(x, np.float64),
         )
-        percent_axis = np.linspace(0.0, 100.0, n_samples_use, endpoint=True)
+        percent_axis = np.linspace(0.0, 100.0, n_samples_use, endpoint=not half_open)
+
+        if half_open:
+            source_times = np.asarray(source_times, dtype=float)
+            if (
+                source_times.ndim != 1
+                or len(source_times) != x.shape[-1]
+                or not np.all(np.isfinite(source_times))
+                or np.any(np.diff(source_times) <= 0)
+            ):
+                raise ValueError(
+                    "Cue-response alignment requires the actual native time axis."
+                )
 
         for ei, ep in enumerate(epochs_all):
             idx_events = np.asarray(
@@ -444,12 +471,122 @@ def linear_warper(
                     start_idx, end_idx, num=n_samples_use, endpoint=True, dtype=float
                 )
 
-            out[ei, ...] = interp_along_last_axis(x, idx_grid)
+            if half_open:
+                query = np.interp(
+                    percent_axis,
+                    target_perc,
+                    [ep.events_t[name] for name in anchor_keys],
+                )
+                indices = np.interp(
+                    query,
+                    source_times,
+                    np.arange(x.shape[-1]),
+                    left=np.nan,
+                    right=np.nan,
+                )
+                supported = np.isfinite(indices)
+                out[ei, ...] = np.nan
+                out[ei][..., supported] = interp_along_last_axis(x, indices[supported])
+            else:
+                out[ei, ...] = interp_along_last_axis(x, idx_grid)
 
         return out, percent_axis, list(epochs_all)
 
-    warp_fn.alignment_diagnostics = {  # type: ignore[attr-defined]
-        "linear_event_pairing_diagnostics": dict(pairing_diagnostics)
-    }
+    return warp_fn
 
-    return epochs_by_label, warp_fn
+
+def normalize_cue_response(value):
+    """Parse the optional paired-event configuration at the configuration boundary."""
+    if not isinstance(value, dict):
+        raise ValueError("cue_response must be a mapping.")
+    result = {}
+    for key in ("pre_cue_s", "response_target_s", "post_response_s"):
+        number = float(value[key])
+        if not np.isfinite(number) or number <= 0:
+            raise ValueError(f"{key} must be finite and positive.")
+        result[key] = number
+    pairs = value.get("event_pairs")
+    if not isinstance(pairs, list) or not pairs:
+        raise ValueError("cue_response.event_pairs must be a nonempty list.")
+    result["event_pairs"] = []
+    cues, responses = set(), set()
+    for pair in pairs:
+        cue, response = (
+            str(pair["cue_label"]).strip(),
+            str(pair["response_label"]).strip(),
+        )
+        if (
+            not cue
+            or not response
+            or cue == response
+            or cue in cues
+            or response in responses
+        ):
+            raise ValueError("Cue-response labels must define unique, nonempty pairs.")
+        cues.add(cue)
+        responses.add(response)
+        result["event_pairs"].append({"cue_label": cue, "response_label": response})
+    return result
+
+
+def cue_response_anchors(config):
+    """Return the four target anchors in the existing percent mapping format."""
+    pre, reaction, post = (
+        config[k] for k in ("pre_cue_s", "response_target_s", "post_response_s")
+    )
+    targets = np.array([0.0, pre, pre + reaction, pre + reaction + post])
+    return dict(
+        zip(
+            targets / targets[-1] * 100.0,
+            ("window_start", "cue", "response", "window_end"),
+        )
+    )
+
+
+def cue_response_warper(raw, *, config, anno_drop=None, drop_mode="substring"):
+    """Construct explicitly paired cue/response epochs on a half-open target grid."""
+    anchors = cue_response_anchors(config)
+    target, _tokens, keys = _resolve_linear_anchor_config(anchors)
+    events = {}
+    for onset, label in zip(raw.annotations.onset, raw.annotations.description):
+        events.setdefault(str(label), []).append(float(onset))
+    epochs = []
+    for pair in config["event_pairs"]:
+        cue_values, response_values = (
+            events.get(pair["cue_label"], []),
+            events.get(pair["response_label"], []),
+        )
+        if len(cue_values) != 1 or len(response_values) != 1:
+            raise ValueError(f"Expected one cue and one response annotation: {pair}")
+        cue, response = cue_values[0], response_values[0]
+        if response <= cue:
+            raise ValueError(f"Response must follow its paired cue: {pair}")
+        source = np.array(
+            [
+                cue - config["pre_cue_s"],
+                cue,
+                response,
+                response + config["post_response_s"],
+            ]
+        )
+        if anno_drop and has_drop_annotations_between(
+            raw, source[0], source[-1], drop_substrings=anno_drop, drop_mode=drop_mode
+        ):
+            continue
+        actual = (source - source[0]) / (source[-1] - source[0]) * 100.0
+        epochs.append(
+            LinearEpoch(
+                pair["response_label"],
+                float(source[0]),
+                float(source[-1]),
+                {
+                    **dict(zip(keys, source)),
+                    "start": float(source[0]),
+                    "end": float(source[-1]),
+                },
+                dict(zip(keys, actual)),
+            )
+        )
+    return {"ALL": epochs}, _linear_epoch_warp_fn(
+        epochs, target, keys, True, half_open=True
+    )

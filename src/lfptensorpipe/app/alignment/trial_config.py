@@ -169,7 +169,9 @@ def _finish_time_axis_values(
     method_key: str,
     n_time: int,
 ) -> list[Any]:
-    if method_key in {"linear_warper", "stack_warper"}:
+    if axes.get("time_coordinate") == "cue_response_aligned_seconds":
+        candidate = axes.get("time")
+    elif method_key in {"linear_warper", "stack_warper"}:
         candidate = axes.get("percent")
     elif method_key in {"pad_warper", "concat_warper"}:
         candidate = axes.get("time")

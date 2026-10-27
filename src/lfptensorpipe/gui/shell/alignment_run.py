@@ -413,7 +413,14 @@ class MainWindowAlignmentRunMixin:
             meta = payload.get("meta", {}) if isinstance(payload, dict) else {}
             axes = meta.get("axes", {}) if isinstance(meta, dict) else {}
             freq_axis = np.asarray(axes.get("freq"))
-            time_axis = np.asarray(axes.get("percent", axes.get("time")))
+            aligned_seconds = (
+                axes.get("time_coordinate") == "cue_response_aligned_seconds"
+            )
+            time_axis = np.asarray(
+                axes.get("time")
+                if aligned_seconds
+                else axes.get("percent", axes.get("time"))
+            )
             if freq_axis.ndim != 1 or time_axis.ndim != 1:
                 raise ValueError("Warped metadata is missing freq/time axes.")
             if freq_axis.size != tensor.shape[2] or time_axis.size != tensor.shape[3]:
@@ -447,7 +454,7 @@ class MainWindowAlignmentRunMixin:
             fig = self._plot_single_effect_df(
                 preview_df,
                 value_col="Value",
-                x_label="Percent (%)",
+                x_label="Aligned time (s)" if aligned_seconds else "Percent (%)",
                 y_label="Frequency",
                 y_log=y_log,
                 title=None,
@@ -462,6 +469,13 @@ class MainWindowAlignmentRunMixin:
                 cbar_label_offset_mm=preview_params["cbar_label_offset_mm"],
                 colorbar_label=preview_params["colorbar_label"],
             )
+            if aligned_seconds:
+                for ax in fig.axes:
+                    if ax.get_xlabel() == "Aligned time (s)":
+                        for anchor in axes["event_anchors_s"].values():
+                            ax.axvline(
+                                anchor, color="0.3", linestyle="--", linewidth=0.75
+                            )
             self._tighten_alignment_preview_figure(fig)
             self._track_plot_figure(fig)
             fig.show()
