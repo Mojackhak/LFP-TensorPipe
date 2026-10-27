@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
+
+from lfptensorpipe.app.alignment.annotation_source import cue_response_annotation_error
+from lfptensorpipe.app.alignment.method_params import default_alignment_method_params
 
 from .common import (
     AppConfigStore,
@@ -17,6 +21,7 @@ from .common import (
     QHeaderView,
     QHBoxLayout,
     QLineEdit,
+    QLabel,
     QListWidget,
     QMessageBox,
     QPushButton,
@@ -103,11 +108,21 @@ class AlignmentMethodParamsDialog(QDialog):
         session_params: dict[str, Any],
         annotation_labels: list[str],
         config_store: AppConfigStore,
+        annotation_events: dict[str, tuple[float, ...]] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._method_key = method_key
         self._cue_response = session_params.get("cue_response")
+        self._annotation_events = annotation_events
+        self._mode_drafts: dict[str, dict[str, Any]] = {}
+        self._cue_duration_edits: dict[str, QLineEdit] = {}
+        self._cue_pairs_table: QTableWidget | None = None
+        self._cue_label_combo: QComboBox | None = None
+        self._response_label_combo: QComboBox | None = None
+        self._cue_summary_label: QLabel | None = None
+        self._cue_update_button: QPushButton | None = None
+        self._cue_remove_button: QPushButton | None = None
         self._config_store = config_store
         self._annotation_labels = [
             str(item).strip() for item in annotation_labels if str(item).strip()
@@ -124,6 +139,8 @@ class AlignmentMethodParamsDialog(QDialog):
         self._method_ui_ready = False
         self.setWindowTitle("Align Epochs Params")
         self.resize(620, 460)
+        if method_key == "linear_warper":
+            self.resize(900, 680)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
@@ -137,7 +154,17 @@ class AlignmentMethodParamsDialog(QDialog):
         self._sample_rate_edit.setToolTip(self._sample_rate_tooltip_text())
 
         common_form = QFormLayout()
-        common_form.addRow(self._sample_rate_label_text(), self._sample_rate_edit)
+        self._alignment_mode_combo: QComboBox | None = None
+        if method_key == "linear_warper":
+            self._alignment_mode_combo = QComboBox()
+            self._alignment_mode_combo.addItem("Percent anchors", "percent")
+            self._alignment_mode_combo.addItem("Cue-response", "cue_response")
+            self._alignment_mode_combo.setCurrentIndex(
+                1 if self._cue_response is not None else 0
+            )
+            common_form.addRow("Alignment mode", self._alignment_mode_combo)
+        self._sample_rate_label = QLabel(self._sample_rate_label_text())
+        common_form.addRow(self._sample_rate_label, self._sample_rate_edit)
         common_form.addRow("", self._drop_bad_check)
         root.addLayout(common_form)
 
@@ -231,6 +258,10 @@ class AlignmentMethodParamsDialog(QDialog):
         if self._cue_response is not None:
             self._set_default_button.setEnabled(False)
             self._restore_default_button.setEnabled(False)
+        if self._alignment_mode_combo is not None:
+            self._alignment_mode_combo.currentIndexChanged.connect(
+                self._on_alignment_mode_changed
+            )
 
     @property
     def selected_params(self) -> dict[str, Any] | None:
@@ -256,6 +287,109 @@ class AlignmentMethodParamsDialog(QDialog):
             return "Target sampling density in Hz. Warped n_samples = round(sample_rate * total time)."
         return "Target sampling density over 0-100% timeline. Warped n_samples = round(sample_rate * 100)."
 
+    def _on_alignment_mode_changed(self, _index: int) -> None:
+        previous = "cue_response" if self._cue_response is not None else "percent"
+        self._mode_drafts[previous] = self._collect_candidate_params(strict=False)
+        mode = self._alignment_mode_combo.currentData()
+        if mode in self._mode_drafts:
+            params = deepcopy(self._mode_drafts[mode])
+        else:
+            params = default_alignment_method_params("linear_warper")
+            params["drop_bad"] = self._drop_bad_check.isChecked()
+            if mode == "cue_response":
+                params = {
+                    "drop_bad": params["drop_bad"],
+                    "sample_rate": None,
+                    "cue_response": {
+                        "pre_cue_s": None,
+                        "response_target_s": None,
+                        "post_response_s": None,
+                        "event_pairs": [],
+                    },
+                }
+        self._method_ui_ready = False
+        self._cue_response = params.get("cue_response")
+        self._sample_rate_label.setText(self._sample_rate_label_text())
+        self._sample_rate_edit.setToolTip(self._sample_rate_tooltip_text())
+        self._apply_common(params)
+        self._build_method_ui(params)
+        self._set_default_button.setEnabled(mode == "percent")
+        self._restore_default_button.setEnabled(mode == "percent")
+
+    def _cue_pairs(self) -> list[dict[str, str]]:
+        return [
+            {
+                "cue_label": self._cue_pairs_table.item(row, 0).text(),
+                "response_label": self._cue_pairs_table.item(row, 1).text(),
+            }
+            for row in range(self._cue_pairs_table.rowCount())
+        ]
+
+    def _set_cue_pairs(self, pairs: list[dict[str, str]]) -> None:
+        table = self._cue_pairs_table
+        table.setRowCount(0)
+        for pair in pairs:
+            row = table.rowCount()
+            table.insertRow(row)
+            cue = (self._annotation_events or {}).get(pair["cue_label"], ())
+            response = (self._annotation_events or {}).get(pair["response_label"], ())
+            values = [pair["cue_label"], pair["response_label"]]
+            values += [
+                f"{items[0]:.3f}" if len(items) == 1 else ""
+                for items in (cue, response)
+            ]
+            values.append(
+                f"{response[0] - cue[0]:.3f}" if len(cue) == len(response) == 1 else ""
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setToolTip(value)
+                table.setItem(row, column, item)
+        self._refresh_active_validation()
+
+    def _on_cue_pair_selected(self) -> None:
+        row = self._cue_pairs_table.currentRow()
+        self._cue_update_button.setEnabled(row >= 0)
+        self._cue_remove_button.setEnabled(row >= 0)
+        if row < 0:
+            return
+        for column, combo in enumerate(
+            (self._cue_label_combo, self._response_label_combo)
+        ):
+            combo.setCurrentIndex(
+                combo.findData(self._cue_pairs_table.item(row, column).text())
+            )
+
+    def _on_cue_pair_apply(self, *, update: bool = False) -> None:
+        cue = self._cue_label_combo.currentData()
+        response = self._response_label_combo.currentData()
+        if (
+            not cue
+            or not response
+            or self._cue_label_combo.currentText() != cue
+            or self._response_label_combo.currentText() != response
+        ):
+            self._show_warning(
+                "Align Epochs Params", "Select a unique cue and response label."
+            )
+            return
+        pairs = self._cue_pairs()
+        pair = {"cue_label": cue, "response_label": response}
+        if update:
+            row = self._cue_pairs_table.currentRow()
+            if row < 0:
+                return
+            pairs[row] = pair
+        else:
+            pairs.append(pair)
+        self._set_cue_pairs(pairs)
+
+    def _on_cue_pair_remove(self) -> None:
+        row = self._cue_pairs_table.currentRow()
+        if row >= 0:
+            self._cue_pairs_table.removeRow(row)
+            self._refresh_active_validation()
+
     def _apply_common(self, params: dict[str, Any]) -> None:
         self._drop_bad_check.setChecked(bool(params.get("drop_bad", True)))
         default_rate = (
@@ -280,10 +414,17 @@ class AlignmentMethodParamsDialog(QDialog):
             self._anno_left_edit,
             self._anno_right_edit,
             self._pad_right_edit,
+            *self._cue_duration_edits.values(),
         ):
             if edit is None or edit.property("lfptpValidationConnected"):
                 continue
-            edit.editingFinished.connect(self._refresh_active_validation)
+            if (
+                edit is self._sample_rate_edit
+                or edit in self._cue_duration_edits.values()
+            ):
+                edit.textChanged.connect(self._refresh_active_validation)
+            else:
+                edit.editingFinished.connect(self._refresh_active_validation)
             edit.setProperty("lfptpValidationConnected", True)
         self._refresh_active_validation()
 
@@ -347,15 +488,41 @@ class AlignmentMethodParamsDialog(QDialog):
             self._anno_left_edit,
             self._anno_right_edit,
             self._pad_right_edit,
+            *self._cue_duration_edits.values(),
+            self._cue_pairs_table,
         ]
         for control in controls:
             set_control_validation_error(control, None)
         candidate = self._collect_candidate_params(strict=False)
-        ok, _, message = validate_alignment_method_params(
+        ok, normalized, message = validate_alignment_method_params(
             self._method_key,
             candidate,
             annotation_labels=self._annotation_labels,
         )
+        if (
+            ok
+            and self._cue_response is not None
+            and self._annotation_events is not None
+        ):
+            message = (
+                cue_response_annotation_error(
+                    normalized["cue_response"], self._annotation_events
+                )
+                or ""
+            )
+            ok = not message
+        if self._cue_response is not None and self._cue_summary_label is not None:
+            if ok:
+                cue = normalized["cue_response"]
+                total = sum(cue[key] for key in self._cue_duration_edits)
+                count = int(round(total * normalized["sample_rate"]))
+                self._cue_summary_label.setText(
+                    f"{len(cue['event_pairs'])} pairs; aligned support "
+                    f"[-{cue['pre_cue_s']:g}, {cue['response_target_s'] + cue['post_response_s']:g}) s; "
+                    f"{count} samples. Only the reaction interval is normalized."
+                )
+            else:
+                self._cue_summary_label.setText(message)
         if (
             ok
             and self._method_key != "linear_warper"
@@ -368,8 +535,19 @@ class AlignmentMethodParamsDialog(QDialog):
 
         lowered = message.lower()
         targets: list[QWidget] = []
-        if "sample_rate" in lowered or "sample rate" in lowered:
+        cue_field = next(
+            (key for key in self._cue_duration_edits if key in lowered), None
+        )
+        if self._cue_response is not None and cue_field is not None:
+            targets.append(self._cue_duration_edits[cue_field])
+        elif (
+            "sample_rate" in lowered
+            or "sample rate" in lowered
+            or "sampling" in lowered
+        ):
             targets.append(self._sample_rate_edit)
+        elif self._cue_response is not None:
+            targets.append(self._cue_pairs_table)
         elif "anchor" in lowered:
             targets.append(self._anchors_table)
         elif "annotation" in lowered:

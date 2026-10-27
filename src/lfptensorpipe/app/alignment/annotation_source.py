@@ -40,6 +40,45 @@ def load_alignment_annotation_labels(context: RecordContext) -> list[str]:
     return _load_unique_annotation_labels(finish_raw)
 
 
+def load_alignment_annotation_events(
+    context: RecordContext,
+) -> dict[str, tuple[float, ...]]:
+    """Read Finish annotation identities and onsets without loading samples."""
+    import mne
+
+    path = preproc_step_raw_path(PathResolver(context), "finish")
+    if not path.exists():
+        return {}
+    raw = mne.io.read_raw_fif(str(path), preload=False, verbose="ERROR")
+    try:
+        events: dict[str, list[float]] = {}
+        for label, onset in zip(raw.annotations.description, raw.annotations.onset):
+            events.setdefault(str(label), []).append(float(onset))
+        return {label: tuple(onsets) for label, onsets in events.items()}
+    finally:
+        raw.close()
+
+
+def cue_response_annotation_error(
+    config: dict[str, Any], events: dict[str, tuple[float, ...]]
+) -> str | None:
+    """Check normalized pairs against the current record's annotation identities."""
+    for pair in config["event_pairs"]:
+        cue = events.get(pair["cue_label"], ())
+        response = events.get(pair["response_label"], ())
+        if len(cue) != 1 or len(response) != 1:
+            return (
+                "cue_response.event_pairs requires exactly one annotation for each "
+                f"label: {pair['cue_label']} / {pair['response_label']}."
+            )
+        if response[0] <= cue[0]:
+            return (
+                "cue_response.event_pairs requires the response after its cue: "
+                f"{pair['cue_label']} / {pair['response_label']}."
+            )
+    return None
+
+
 def _load_raw_for_warp(raw_path: Path):
     import mne
 

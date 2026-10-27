@@ -25,31 +25,103 @@ from .alignment_method_params_table import (
 
 
 def _clear_method_ui(dialog) -> None:
-    while dialog._method_layout.count() > 0:
-        item = dialog._method_layout.takeAt(0)
-        widget = item.widget()
-        if widget is not None:
-            widget.setParent(None)
+    def clear(layout):
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget() is not None:
+                item.widget().setParent(None)
+            elif item.layout() is not None:
+                clear(item.layout())
+
+    clear(dialog._method_layout)
+    dialog._cue_duration_edits = {}
 
 
 def _build_method_ui(dialog, params: dict[str, Any]) -> None:
     _clear_method_ui(dialog)
     if getattr(dialog, "_cue_response", None) is not None:
-        config = dialog._cue_response
-        label = QLabel(
-            f"Paired cue-response alignment: {len(config['event_pairs'])} trials\n"
-            f"Pre-cue: {config['pre_cue_s']:g} s; reaction: {config['response_target_s']:g} s; "
-            f"post-response: {config['post_response_s']:g} s.\n"
-            "Only the reaction interval is normalized. Paired event identities are retained."
-        )
-        label.setWordWrap(True)
-        dialog._method_layout.addWidget(label)
+        _build_cue_response_ui(dialog, params["cue_response"])
     elif dialog._method_key == "linear_warper":
         _build_linear_ui(dialog, params)
     elif dialog._method_key == "pad_warper":
         _build_pad_ui(dialog, params)
     else:
         _build_stack_concat_ui(dialog, params)
+
+
+def _build_cue_response_ui(dialog, config: dict[str, Any]) -> None:
+    from .common import QAbstractItemView, QHeaderView, QTableWidget
+
+    form = QFormLayout()
+    for key, label in (
+        ("pre_cue_s", "Pre-cue duration (s)"),
+        ("response_target_s", "Target response time (s)"),
+        ("post_response_s", "Post-response duration (s)"),
+    ):
+        edit = QLineEdit(dialog._draft_text(config.get(key)))
+        edit.setToolTip("Enter a finite duration greater than zero, in seconds.")
+        dialog._cue_duration_edits[key] = edit
+        form.addRow(label, edit)
+    dialog._method_layout.addLayout(form)
+
+    dialog._cue_summary_label = QLabel()
+    dialog._cue_summary_label.setWordWrap(True)
+    dialog._method_layout.addWidget(dialog._cue_summary_label)
+    table = QTableWidget(0, 5)
+    dialog._cue_pairs_table = table
+    table.setHorizontalHeaderLabels(
+        ["Cue label", "Response label", "Cue (s)", "Response (s)", "RT (s)"]
+    )
+    table.setSelectionBehavior(QAbstractItemView.SelectRows)
+    table.setSelectionMode(QAbstractItemView.SingleSelection)
+    table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+    table.setMinimumHeight(170)
+    for column in range(5):
+        table.horizontalHeader().setSectionResizeMode(
+            column, QHeaderView.Stretch if column < 2 else QHeaderView.ResizeToContents
+        )
+    dialog._method_layout.addWidget(table)
+
+    pair_form = QFormLayout()
+    for attribute, label in (
+        ("_cue_label_combo", "Cue label"),
+        ("_response_label_combo", "Response label"),
+    ):
+        combo = QComboBox()
+        combo.setMinimumContentsLength(20)
+        combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.NoInsert)
+        for name in dialog._visible_annotation_labels:
+            if (
+                dialog._annotation_events is None
+                or len(dialog._annotation_events.get(name, ())) == 1
+            ):
+                combo.addItem(name, name)
+        combo.setCurrentIndex(-1)
+        combo.setToolTip(
+            "Select a label that identifies exactly one annotation in this record."
+        )
+        setattr(dialog, attribute, combo)
+        pair_form.addRow(label, combo)
+    dialog._method_layout.addLayout(pair_form)
+
+    buttons = QHBoxLayout()
+    add = QPushButton("Add pair")
+    add.clicked.connect(lambda: dialog._on_cue_pair_apply())
+    dialog._cue_update_button = QPushButton("Update selected")
+    dialog._cue_update_button.clicked.connect(
+        lambda: dialog._on_cue_pair_apply(update=True)
+    )
+    dialog._cue_remove_button = QPushButton("Remove selected")
+    dialog._cue_remove_button.clicked.connect(dialog._on_cue_pair_remove)
+    for button in (add, dialog._cue_update_button, dialog._cue_remove_button):
+        buttons.addWidget(button)
+    dialog._cue_update_button.setEnabled(False)
+    dialog._cue_remove_button.setEnabled(False)
+    dialog._method_layout.addLayout(buttons)
+    table.itemSelectionChanged.connect(dialog._on_cue_pair_selected)
+    dialog._set_cue_pairs(config.get("event_pairs", []))
 
 
 def _build_linear_ui(dialog, params: dict[str, Any]) -> None:

@@ -41,7 +41,11 @@ def _collect_candidate_params(
         "sample_rate": parse_float(dialog._sample_rate_edit.text().strip()),
     }
     if getattr(dialog, "_cue_response", None) is not None:
-        candidate["cue_response"] = dialog._cue_response
+        candidate["cue_response"] = {
+            key: parse_float(edit.text().strip())
+            for key, edit in dialog._cue_duration_edits.items()
+        }
+        candidate["cue_response"]["event_pairs"] = dialog._cue_pairs()
         return candidate
     if dialog._method_key == "linear_warper":
         anchors: dict[float, str] = {}

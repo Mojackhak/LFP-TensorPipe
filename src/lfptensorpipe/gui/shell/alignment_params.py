@@ -66,6 +66,16 @@ class MainWindowAlignmentParamsMixin:
             self._alignment_method_description_label.setText("")
             return
         description = self._alignment_method_description_text(method_key)
+        paradigm = self._current_alignment_paradigm()
+        if (
+            method_key == "linear_warper"
+            and isinstance(paradigm, dict)
+            and "cue_response" in paradigm.get("method_params", {})
+        ):
+            description = (
+                "Cue-response: explicitly paired events; only the reaction interval "
+                "is normalized. The time axis uses aligned seconds."
+            )
         self._alignment_method_description_label.setText(description)
         self._alignment_method_combo.setToolTip(description)
 
@@ -104,10 +114,19 @@ class MainWindowAlignmentParamsMixin:
         if not isinstance(method_key, str):
             return
         context = self._record_context()
+        events = (
+            self._load_alignment_annotation_events_runtime(context)
+            if context is not None and method_key == "linear_warper"
+            else None
+        )
         labels = (
-            self._load_alignment_annotation_labels_runtime(context)
-            if context is not None
-            else []
+            sorted(events)
+            if events is not None
+            else (
+                self._load_alignment_annotation_labels_runtime(context)
+                if context is not None
+                else []
+            )
         )
         params = self._trial_method_params_candidate(
             paradigm,
@@ -119,6 +138,7 @@ class MainWindowAlignmentParamsMixin:
             method_key=method_key,
             session_params=params,
             annotation_labels=labels,
+            annotation_events=events,
             config_store=self._config_store,
             parent=self,
         )

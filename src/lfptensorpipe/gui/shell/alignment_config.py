@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from lfptensorpipe.app.shared.page_config import json_value, page_config_node
+from lfptensorpipe.app.alignment.annotation_source import cue_response_annotation_error
 from lfptensorpipe.gui.shell.common import (
     Any,
     Path,
@@ -148,6 +149,7 @@ class MainWindowAlignmentConfigMixin:
         payload: dict[str, Any],
         *,
         annotation_labels: list[str] | tuple[str, ...],
+        annotation_events: dict[str, tuple[float, ...]] | None = None,
     ) -> tuple[dict[str, Any], list[str]]:
         alignment_node = page_config_node(payload, "alignment")
 
@@ -170,12 +172,28 @@ class MainWindowAlignmentConfigMixin:
         if not isinstance(defaults, dict):
             raise ValueError(f"Unknown alignment method: {method_key}")
         allowed_keys = set(defaults)
+        if method_key == "linear_warper":
+            allowed_keys.add("cue_response")
         unknown_keys = sorted(set(filtered_params) - allowed_keys)
         if unknown_keys:
             warnings.append("Removed unknown field(s): " + ", ".join(unknown_keys))
         candidate = {
             key: filtered_params[key] for key in allowed_keys if key in filtered_params
         }
+        if method_key == "linear_warper" and "cue_response" in candidate:
+            candidate.setdefault("sample_rate", None)
+            ok, normalized, message = self._validate_alignment_method_params_runtime(
+                method_key, candidate, annotation_labels=list(annotation_labels)
+            )
+            if not ok:
+                raise ValueError(message)
+            if annotation_events is not None:
+                message = cue_response_annotation_error(
+                    normalized["cue_response"], annotation_events
+                )
+                if message:
+                    raise ValueError(message)
+            return {"method": method_key, "method_params": normalized}, warnings
         for key, value in defaults.items():
             if key in candidate:
                 continue
@@ -318,14 +336,15 @@ class MainWindowAlignmentConfigMixin:
             return
 
         import_path = Path(file_path_text)
-        annotation_labels = self._load_alignment_annotation_labels_runtime(context)
         try:
             with import_path.open("r", encoding="utf-8") as handle:
                 payload = json.load(handle)
+            annotation_events = self._load_alignment_annotation_events_runtime(context)
             alignment_snapshot, warnings = (
                 self._normalize_alignment_config_import_payload(
                     payload,
-                    annotation_labels=annotation_labels,
+                    annotation_labels=list(annotation_events),
+                    annotation_events=annotation_events,
                 )
             )
         except Exception as exc:  # noqa: BLE001

@@ -103,7 +103,7 @@ def _validate_anchor_cell(dialog, row: int, col: int) -> None:
 
 def _validate_all_table_cells(dialog) -> None:
     dialog._table_validation_error = False
-    if dialog._method_key == "linear_warper":
+    if dialog._method_key == "linear_warper" and dialog._cue_response is None:
         for row in range(dialog._anchors_table.rowCount()):
             for col in (0, 1):
                 _validate_anchor_cell(dialog, row, col)

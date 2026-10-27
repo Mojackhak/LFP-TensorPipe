@@ -5,6 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from lfptensorpipe.app.alignment.annotation_source import (
+    load_alignment_annotation_events,
+)
 from lfptensorpipe.app import (
     alignment_epoch_inspector_state,
     alignment_metric_tensor_warped_path,
@@ -372,6 +375,11 @@ class MainWindowRuntimeDependenciesMixin:
 
     def _load_alignment_annotation_labels_runtime(self, context: Any) -> list[str]:
         return load_alignment_annotation_labels(context)
+
+    def _load_alignment_annotation_events_runtime(
+        self, context: Any
+    ) -> dict[str, tuple[float, ...]]:
+        return load_alignment_annotation_events(context)
 
     def _validate_alignment_method_params_runtime(
         self,

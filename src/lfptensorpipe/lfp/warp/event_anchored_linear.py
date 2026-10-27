@@ -501,7 +501,10 @@ def normalize_cue_response(value):
         raise ValueError("cue_response must be a mapping.")
     result = {}
     for key in ("pre_cue_s", "response_target_s", "post_response_s"):
-        number = float(value[key])
+        try:
+            number = float(value[key])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"{key} must be finite and positive.") from exc
         if not np.isfinite(number) or number <= 0:
             raise ValueError(f"{key} must be finite and positive.")
         result[key] = number
