@@ -29,7 +29,7 @@ from .logging import TENSOR_BENCHMARK_TRACE_PATH_ENV, TENSOR_RUN_ID_ENV
 RuntimeResult = tuple[bool, str, str]
 UNDIRECTED_RUNNER_KEY = "undirected_connectivity"
 TRGC_RUNNER_KEYS = frozenset({"trgc_backend", "trgc_finalize"})
-CONNECTIVITY_RUNNER_KEYS = frozenset({UNDIRECTED_RUNNER_KEY, *TRGC_RUNNER_KEYS})
+CONNECTIVITY_RUNNER_KEYS = frozenset({UNDIRECTED_RUNNER_KEY, *TRGC_RUNNER_KEYS, "psi"})
 
 _UNDIRECTED_ESTIMATOR_BY_METRIC = {
     "coherence": "cohy",
@@ -315,6 +315,97 @@ def _prepare_undirected_cohort(
     }
 
 
+def _prepare_psi(svc: Any, context: RecordContext, plan: Any) -> dict[str, Any]:
+    from .runners.connectivity_psi import _build_runtime_bands
+    from lfptensorpipe.lfp.psi.grid import _prepare_grid
+
+    resolver = svc.PathResolver(context)
+    if svc.indicator_from_log(svc.preproc_step_log_path(resolver, "finish")) != "green":
+        raise ValueError("Missing green preproc finish log.")
+    import mne
+
+    kwargs = plan.runner_kwargs
+    raw = mne.io.read_raw_fif(
+        str(svc.preproc_step_raw_path(resolver, "finish")),
+        preload=False,
+        verbose="ERROR",
+    )
+    try:
+        picks, pairs = _normalize_pairs(
+            svc,
+            raw,
+            selected_channels=kwargs.get("selected_channels"),
+            selected_pairs=kwargs.get("selected_pairs"),
+            directed=True,
+        )
+        notch_payload = svc.build_tensor_metric_notch_payload(
+            kwargs.get("notches"),
+            kwargs.get("notch_radii", svc.DEFAULT_TENSOR_NOTCH_RADIUS),
+        )
+        notch_intervals = svc._compute_notch_intervals(
+            low_freq=float(kwargs["low_freq"]),
+            high_freq=float(kwargs["high_freq"]),
+            notches=tuple(notch_payload["notches"]),
+            notch_radii=svc._expand_notch_radii(
+                notch_payload["notch_radii"], len(notch_payload["notches"])
+            ),
+        )
+        bands = _build_runtime_bands(
+            bands=kwargs["bands"],
+            low_freq=float(kwargs["low_freq"]),
+            high_freq=float(kwargs["high_freq"]),
+            notch_intervals=notch_intervals,
+        )
+        prepared = _prepare_grid(
+            raw,
+            bands=bands,
+            method=kwargs["method"],
+            time_resolution_s=float(kwargs["time_resolution_s"]),
+            hop_s=float(kwargs["hop_s"]),
+            pairs=pairs,
+            ordered_pairs=True,
+            picks=picks,
+            freqs=svc._build_frequency_grid(
+                float(kwargs["low_freq"]),
+                min(float(kwargs["high_freq"]), float(raw.info["sfreq"]) / 2.0),
+                float(kwargs["step_hz"]),
+            ),
+            mt_time_bandwidth_product=float(kwargs["mt_time_bandwidth_product"]),
+            mt_min_cycles=float(kwargs["mt_min_cycles"]),
+            mt_max_cycles=kwargs.get("mt_max_cycles"),
+            min_cycles=kwargs.get("min_cycles"),
+            max_cycles=kwargs.get("max_cycles"),
+            mask_annotations=bool(kwargs["mask_edge_effects"]),
+            n_jobs=1,
+            outer_n_jobs=1,
+        )
+    finally:
+        raw.close()
+    descriptors = []
+    tasks_by_band = {}
+    pair_count = prepared["metadata"]["axes"]["shape"][1]
+    for task in prepared["tasks"]:
+        band_index = int(task["band_index"])
+        tasks_by_band[band_index] = task
+        descriptors.append(
+            {
+                "family": "psi",
+                "owner_id": "psi",
+                "group_id": band_index,
+                "valid_time_indices": task["time_indices"],
+                "weight_per_time": len(task["grid_kwargs"]["freqs"]) * pair_count,
+            }
+        )
+    return {
+        "plan": plan,
+        "prepared": prepared,
+        "tasks_by_band": tasks_by_band,
+        "group_descriptors": descriptors,
+        "task_results": [],
+        "failures": [],
+    }
+
+
 def _prepare_trgc(
     context: RecordContext,
     backend_plans: dict[str, Any],
@@ -544,6 +635,17 @@ def _task_payload(
     *,
     sequence: int,
 ) -> dict[str, Any]:
+    if chunk.family == "psi":
+        task = owner["tasks_by_band"][chunk.group_id]
+        return {
+            "task_id": f"psi:{chunk.group_id}:{chunk.start_index}:{sequence}",
+            "family": "psi",
+            "owner_id": chunk.owner_id,
+            "group_id": int(chunk.group_id),
+            "time_indices": list(chunk.time_indices),
+            "grid_kwargs": task["grid_kwargs"],
+            "segment_indices": task["segment_indices"],
+        }
     methods = (
         owner["estimators"]
         if chunk.family == "undirected"
@@ -586,6 +688,10 @@ def run_connectivity_coordinator(
         (plan for plan in runtime_plans.values() if plan.runner_key == "trgc_finalize"),
         None,
     )
+    psi_plan = next(
+        (plan for plan in runtime_plans.values() if plan.runner_key == "psi"),
+        None,
+    )
 
     cohorts_by_signature: dict[tuple[Any, ...], list[Any]] = {}
     for plan in undirected_plans:
@@ -626,11 +732,26 @@ def run_connectivity_coordinator(
         else:
             group_descriptors.extend(trgc_state["group_descriptors"])
 
+    psi_state: dict[str, Any] | None = None
+    if psi_plan is not None:
+        try:
+            psi_state = _prepare_psi(svc, context, psi_plan)
+        except BuildTensorCancellationRequested:
+            raise
+        except Exception as exc:
+            results[psi_plan.plan_key] = _write_plan_failure(
+                svc, resolver, psi_plan, message=str(exc)
+            )
+        else:
+            group_descriptors.extend(psi_state["group_descriptors"])
+
     chunks = build_connectivity_chunks(
         group_descriptors,
         global_compute_slots=int(global_compute_slots),
     )
     owner_by_id = {cohort["cohort_id"]: cohort for cohort in cohorts}
+    if psi_state is not None:
+        owner_by_id["psi"] = psi_state
     if trgc_state is not None:
         owner_by_id["trgc:gc"] = {
             "grid_kwargs": trgc_state["grid_kwargs"],
@@ -688,6 +809,8 @@ def run_connectivity_coordinator(
                 except Exception as exc:  # noqa: BLE001
                     if chunk.family == "undirected":
                         owner_by_id[chunk.owner_id]["failures"].append(str(exc))
+                    elif chunk.family == "psi":
+                        psi_state["failures"].append(str(exc))
                     elif trgc_state is not None:
                         backend = chunk.owner_id.split(":", 1)[1]
                         trgc_state["failures"][backend].append(str(exc))
@@ -707,11 +830,67 @@ def run_connectivity_coordinator(
                 task_cpu_s += float(task_result["worker_cpu_s"])
                 if chunk.family == "undirected":
                     owner_by_id[chunk.owner_id]["task_results"].append(task_result)
+                elif chunk.family == "psi":
+                    psi_state["task_results"].append(task_result)
                 elif trgc_state is not None:
                     backend = chunk.owner_id.split(":", 1)[1]
                     trgc_state["task_results"][backend].append(task_result)
 
         raise_if_tensor_cancellation_requested()
+
+    if psi_state is not None:
+        plan = psi_state["plan"]
+        if psi_state["failures"]:
+            results[plan.plan_key] = _write_plan_failure(
+                svc,
+                resolver,
+                plan,
+                message="PSI task failed: " + psi_state["failures"][0],
+            )
+        else:
+            from lfptensorpipe.lfp.psi.grid import _finalize_grid
+
+            def pooled_psi_grid(raw, **_kwargs):
+                return _finalize_grid(
+                    raw,
+                    psi_state["prepared"],
+                    (
+                        (item["band_index"], item["time_indices"], item["values"])
+                        for item in psi_state["task_results"]
+                    ),
+                )
+
+            raise_if_tensor_cancellation_requested()
+            ok, message = svc._run_psi_metric(
+                context,
+                **plan.runner_kwargs,
+                n_jobs=1,
+                outer_n_jobs=1,
+                psi_grid_fn=pooled_psi_grid,
+            )
+            results[plan.plan_key] = (bool(ok), str(message), str(plan.metric_label))
+            psi_results = psi_state["task_results"]
+            start_ns = (
+                min(int(item["start_perf_ns"]) for item in psi_results)
+                if psi_results
+                else time.perf_counter_ns()
+            )
+            end_ns = time.perf_counter_ns()
+            _append_trace(
+                {
+                    "run_id": os.environ.get(TENSOR_RUN_ID_ENV, ""),
+                    "plan_key": str(plan.plan_key),
+                    "log_metric_key": str(plan.plan_key),
+                    "pid": os.getpid(),
+                    "ok": bool(ok),
+                    "start_perf_ns": start_ns,
+                    "end_perf_ns": end_ns,
+                    "elapsed_s": (end_ns - start_ns) / 1e9,
+                    "worker_cpu_s": sum(
+                        float(item["worker_cpu_s"]) for item in psi_results
+                    ),
+                }
+            )
 
     for cohort in cohorts:
         raise_if_tensor_cancellation_requested()
@@ -894,7 +1073,7 @@ def run_connectivity_coordinator(
                 "elapsed_s": (task_wall_end_ns - task_wall_start_ns) / 1e9,
                 "worker_cpu_s": task_cpu_s,
                 "task_count": len(chunks),
-                "slot_costs": {"undirected": 1, "trgc": 1},
+                "slot_costs": {"undirected": 1, "trgc": 1, "psi": 1},
             }
         )
     return results

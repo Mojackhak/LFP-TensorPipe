@@ -9,6 +9,8 @@ with shape (1, n_pairs, n_bands, n_times).
 
 from __future__ import annotations
 
+from contextlib import contextmanager, nullcontext
+from functools import lru_cache
 from typing import Any, Dict, Mapping, Sequence, Tuple
 import warnings
 
@@ -246,6 +248,38 @@ def _normalize_method(method: str) -> str:
     raise ValueError("`method` must be 'morlet' or 'multitaper'.")
 
 
+@lru_cache(maxsize=128)
+def _cached_dpss_windows(
+    n_samples, half_nbw, n_tapers, *, sym=True, norm=None, low_bias=True
+):
+    """Reuse deterministic DPSS arrays within one PSI worker process."""
+    from mne.time_frequency.multitaper import dpss_windows
+
+    tapers, concentrations = dpss_windows(
+        n_samples, half_nbw, n_tapers, sym=sym, norm=norm, low_bias=low_bias
+    )
+    tapers.setflags(write=False)
+    concentrations.setflags(write=False)
+    return tapers, concentrations
+
+
+@contextmanager
+def _reuse_dpss_windows():
+    """Temporarily reuse DPSS in a serial PSI numerical task."""
+    from mne.time_frequency import tfr
+    from mne_connectivity.spectral import time as connectivity_time
+
+    prior_tfr = tfr.dpss_windows
+    prior_connectivity = connectivity_time.dpss_windows
+    tfr.dpss_windows = _cached_dpss_windows
+    connectivity_time.dpss_windows = _cached_dpss_windows
+    try:
+        yield
+    finally:
+        tfr.dpss_windows = prior_tfr
+        connectivity_time.dpss_windows = prior_connectivity
+
+
 def _run_coherency_block(
     raw: mne.io.BaseRaw,
     *,
@@ -255,13 +289,19 @@ def _run_coherency_block(
     segment_indices: list[np.ndarray],
 ) -> tuple[int, np.ndarray, np.ndarray]:
     """Reduce a bounded complex-coherency block to signed PSI immediately."""
-    blocks, _ = connectivity_grid(
-        raw,
-        **grid_kwargs,
-        task_group_id=0,
-        task_time_indices=time_indices,
-        return_task_blocks=True,
+    reuse = (
+        _reuse_dpss_windows()
+        if grid_kwargs["spectral_mode"] == "multitaper"
+        else nullcontext()
     )
+    with reuse:
+        blocks, _ = connectivity_grid(
+            raw,
+            **grid_kwargs,
+            task_group_id=0,
+            task_time_indices=time_indices,
+            return_task_blocks=True,
+        )
     block = blocks[0]
     cohy = np.asarray(block["data"]["cohy"])
     finite = np.all(np.isfinite(cohy), axis=-1)
@@ -274,7 +314,7 @@ def _run_coherency_block(
     return band_index, np.asarray(block["time_indices"], dtype=int), values.T
 
 
-def grid(
+def _prepare_grid(
     raw: mne.io.BaseRaw,
     *,
     bands: BandSpec,
@@ -296,8 +336,8 @@ def grid(
     n_jobs: int = 1,
     outer_n_jobs: int | None = None,
     mask_annotations: bool = False,
-) -> tuple[np.ndarray, Dict[str, Any]]:
-    """Compute PSI using the same local spectral estimates as Coherence.
+) -> dict[str, Any]:
+    """Plan PSI using the same local spectral estimates as Coherence.
 
     ``freqs`` supplies the computation grid for both methods; omission uses a
     1-Hz grid covering the bands. Each original band's retained frequencies use
@@ -444,21 +484,14 @@ def grid(
                     )
                 )
 
-    out = np.full((1, len(pair_names), len(band_names), times.size), np.nan)
-    # Raw cleanup can unlink shared memmaps before later tasks deserialize them.
-    results = Parallel(
-        n_jobs=resolved_outer_n_jobs, return_as="generator", max_nbytes=None
-    )(delayed(_run_coherency_block)(raw, **task) for task in tasks)
-    for band_index, time_indices, values in results:
-        out[0, :, band_index, :][:, time_indices] = values
-
+    shape = (1, len(pair_names), len(band_names), times.size)
     metadata: Dict[str, Any] = dict(
         axes=dict(
             epoch=np.arange(1, dtype=int),
             channel=list(pair_names),
             freq=list(band_names),
             time=times,
-            shape=out.shape,
+            shape=shape,
         ),
         params=dict(
             bands_segments_hz={
@@ -509,14 +542,28 @@ def grid(
             sfreq_used_hz=sfreq,
         ),
     )
-    if mask_annotations:
+    return {
+        "tasks": tasks,
+        "metadata": metadata,
+        "partial_message": partial_message,
+    }
+
+
+def _finalize_grid(raw, prepared, results):
+    """Assemble reduced blocks and apply the existing PSI output masks."""
+    metadata = prepared["metadata"]
+    params = metadata["params"]
+    out = np.full(metadata["axes"]["shape"], np.nan)
+    for band_index, time_indices, values in results:
+        out[0, :, band_index, :][:, time_indices] = values
+    if params["annotation_skip_enabled"]:
         out, metadata = apply_dynamic_edge_mask_strict(
             raw=raw,
             tensor=out,
             metadata=metadata,
             metric_label="PSI",
-            freqs_lookup=band_names,
-            radii_s=support_radii,
+            freqs_lookup=metadata["axes"]["freq"],
+            radii_s=params["band_support_radii_s"],
             warn_fully_masked=False,
         )
     unusable = int(np.sum(~np.any(np.isfinite(out), axis=(0, 1, 3))))
@@ -527,6 +574,67 @@ def grid(
             UserWarning,
             stacklevel=2,
         )
-    if partial_message is not None:
-        warnings.warn(partial_message, UserWarning, stacklevel=2)
+    if prepared["partial_message"] is not None:
+        warnings.warn(prepared["partial_message"], UserWarning, stacklevel=2)
     return out, metadata
+
+
+def grid(
+    raw: mne.io.BaseRaw,
+    *,
+    bands: BandSpec,
+    method: str = "morlet",
+    time_resolution_s: float,
+    pairs: Sequence[Tuple[str, str]] | None = None,
+    groups: Dict[str, Sequence[str]] | None = None,
+    ordered_pairs: bool = True,
+    hop_s: float | None = 0.025,
+    decim: int | None = None,
+    target_n_times: int | None = None,
+    picks: list[str] | None = None,
+    freqs: np.ndarray | None = None,
+    min_cycles: float | None = 1.0,
+    max_cycles: float | None = None,
+    mt_time_bandwidth_product: float = 4.0,
+    mt_min_cycles: float = 3.0,
+    mt_max_cycles: float | None = None,
+    n_jobs: int = 1,
+    outer_n_jobs: int | None = None,
+    mask_annotations: bool = False,
+) -> tuple[np.ndarray, Dict[str, Any]]:
+    """Compute signed local PSI with process-local DPSS reuse.
+
+    Each band's frequencies share a central averaging interval and padding;
+    cycle limits still apply to each frequency's kernel. Hop selects output
+    centers without downsampling input. Masks cover complete estimator support.
+    Outer jobs parallelize bounded blocks; each block uses one numerical job.
+    """
+    prepared = _prepare_grid(
+        raw,
+        bands=bands,
+        method=method,
+        time_resolution_s=time_resolution_s,
+        pairs=pairs,
+        groups=groups,
+        ordered_pairs=ordered_pairs,
+        hop_s=hop_s,
+        decim=decim,
+        target_n_times=target_n_times,
+        picks=picks,
+        freqs=freqs,
+        min_cycles=min_cycles,
+        max_cycles=max_cycles,
+        mt_time_bandwidth_product=mt_time_bandwidth_product,
+        mt_min_cycles=mt_min_cycles,
+        mt_max_cycles=mt_max_cycles,
+        n_jobs=n_jobs,
+        outer_n_jobs=outer_n_jobs,
+        mask_annotations=mask_annotations,
+    )
+    # Raw cleanup can unlink shared memmaps before later tasks deserialize them.
+    results = Parallel(
+        n_jobs=prepared["metadata"]["params"]["outer_n_jobs"],
+        return_as="generator",
+        max_nbytes=None,
+    )(delayed(_run_coherency_block)(raw, **task) for task in prepared["tasks"])
+    return _finalize_grid(raw, prepared, results)

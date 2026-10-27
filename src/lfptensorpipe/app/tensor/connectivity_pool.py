@@ -79,22 +79,38 @@ def run_connectivity_pool_task(payload: dict[str, Any]) -> dict[str, Any]:
             category=RuntimeWarning,
             module=r"numpy\.linalg\._linalg",
         )
-        blocks, _ = grid(
-            _WORKER_RAW,
-            **grid_kwargs,
-            method=payload["methods"],
-            task_group_id=int(payload["group_id"]),
-            task_time_indices=list(payload["time_indices"]),
-            return_task_blocks=True,
-            outer_n_jobs=1,
-        )
-    if len(blocks) != 1:
-        raise RuntimeError(
-            "Connectivity task must return exactly one non-empty indexed block."
-        )
+        if payload["family"] == "psi":
+            from lfptensorpipe.lfp.psi.grid import _run_coherency_block
+
+            band_index, time_indices, values = _run_coherency_block(
+                _WORKER_RAW,
+                band_index=int(payload["group_id"]),
+                grid_kwargs=grid_kwargs,
+                time_indices=np.asarray(payload["time_indices"], dtype=int),
+                segment_indices=payload["segment_indices"],
+            )
+            block = {
+                "band_index": band_index,
+                "time_indices": time_indices,
+                "values": values,
+            }
+        else:
+            blocks, _ = grid(
+                _WORKER_RAW,
+                **grid_kwargs,
+                method=payload["methods"],
+                task_group_id=int(payload["group_id"]),
+                task_time_indices=list(payload["time_indices"]),
+                return_task_blocks=True,
+                outer_n_jobs=1,
+            )
+            if len(blocks) != 1:
+                raise RuntimeError(
+                    "Connectivity task must return exactly one non-empty indexed block."
+                )
+            block = dict(blocks[0])
     end_perf_ns = time.perf_counter_ns()
     end_cpu_ns = time.process_time_ns()
-    block = dict(blocks[0])
     block.update(
         {
             "task_id": str(payload["task_id"]),
