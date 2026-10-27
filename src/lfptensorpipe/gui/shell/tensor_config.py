@@ -121,8 +121,13 @@ class MainWindowTensorConfigMixin:
         context = self._record_context()
         if context is None:
             raise ValueError("Select a record before exporting Tensor configs.")
+        selected_metrics = [
+            metric_key
+            for metric_key in self._selected_tensor_metrics_snapshot()
+            if metric_key in supported_metric_keys
+        ]
         validation_errors: list[str] = []
-        for metric_key in supported_metric_keys:
+        for metric_key in selected_metrics:
             params = dict(self._tensor_metric_params.get(metric_key, {}))
             try:
                 prepare_metric_plan_inputs(
@@ -151,11 +156,7 @@ class MainWindowTensorConfigMixin:
             "schema": TENSOR_CONFIG_SCHEMA,
             "version": TENSOR_CONFIG_VERSION,
             "tensor": {
-                "selected_metrics": [
-                    metric_key
-                    for metric_key in self._selected_tensor_metrics_snapshot()
-                    if metric_key in supported_metric_keys
-                ],
+                "selected_metrics": selected_metrics,
                 "active_metric": active_metric,
                 "mask_edge_effects": bool(
                     self._tensor_mask_edge_checkbox.isChecked()
@@ -240,6 +241,7 @@ class MainWindowTensorConfigMixin:
         context: RecordContext | None,
         available_channels: tuple[str, ...],
         legacy_notch_fields: bool,
+        is_selected: bool,
     ) -> tuple[dict[str, Any], list[str]]:
         defaults = self._tensor_import_metric_defaults(
             metric_key,
@@ -287,32 +289,37 @@ class MainWindowTensorConfigMixin:
                         legacy_notch_fields=legacy_notch_fields,
                     )
                 )
-                allow_empty_filtered_selectors = (
-                    not normalized.get("selected_channels")
-                    and any(
-                        "unavailable channel(s)" in warning
-                        for warning in metric_warnings
+                allow_empty_selectors = (
+                    not is_selected
+                    or (
+                        not normalized.get("selected_channels")
+                        and any(
+                            "unavailable channel(s)" in warning
+                            for warning in metric_warnings
+                        )
                     )
-                ) or (
-                    not normalized.get("selected_pairs")
-                    and any(
-                        "unavailable pair(s)" in warning for warning in metric_warnings
+                    or (
+                        not normalized.get("selected_pairs")
+                        and any(
+                            "unavailable pair(s)" in warning
+                            for warning in metric_warnings
+                        )
                     )
                 )
                 validate_metric_storage_params(
                     metric_key=metric_key,
                     metric_label=self._tensor_metric_display_name(metric_key),
                     metric_params=normalized,
-                    allow_empty_selectors=allow_empty_filtered_selectors,
+                    allow_empty_selectors=allow_empty_selectors,
                 )
-                if context is not None:
+                if is_selected and context is not None:
                     prepare_metric_plan_inputs(
                         tensor_service,
                         context,
                         metric_key=metric_key,
                         metric_label=self._tensor_metric_display_name(metric_key),
                         metric_params=normalized,
-                        allow_empty_selectors=allow_empty_filtered_selectors,
+                        allow_empty_selectors=allow_empty_selectors,
                     )
             except Exception as exc:  # noqa: BLE001
                 fields = self._tensor_import_error_fields(str(exc), whitelist)
@@ -513,6 +520,7 @@ class MainWindowTensorConfigMixin:
                     context=context,
                     available_channels=available_channels,
                     legacy_notch_fields=(version == TENSOR_CONFIG_LEGACY_VERSION),
+                    is_selected=metric_key in selected_metrics,
                 )
             )
             normalized_metric_params[metric_key] = normalized_params
