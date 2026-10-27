@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.shared.runlog_store import run_log_read_snapshot
+
 from lfptensorpipe.app.alignment.generation import accepted_alignment_artifact_paths
 from lfptensorpipe.app.features.generation import feature_generation_rerun_message
 from lfptensorpipe.gui.shell.common import (
@@ -537,48 +539,49 @@ class MainWindowFeaturesTrialsMixin:
         self._on_features_paradigm_selected(self._features_paradigm_list.currentRow())
 
     def _on_features_paradigm_selected(self, row: int) -> None:
-        previous_slug = self._shared_stage_trial_slug()
-        restore_slug: str | None = None
-        if not self._syncing_shared_trial_selection:
-            slug = None
-            if self._features_paradigm_list is not None and row >= 0:
-                item = self._features_paradigm_list.item(row)
-                if item is not None:
-                    value = item.data(Qt.UserRole)
-                    if isinstance(value, str) and self._features_trial_is_selectable(
-                        value
+        with run_log_read_snapshot():
+            previous_slug = self._shared_stage_trial_slug()
+            restore_slug: str | None = None
+            if not self._syncing_shared_trial_selection:
+                slug = None
+                if self._features_paradigm_list is not None and row >= 0:
+                    item = self._features_paradigm_list.item(row)
+                    if item is not None:
+                        value = item.data(Qt.UserRole)
+                        if isinstance(
+                            value, str
+                        ) and self._features_trial_is_selectable(value):
+                            slug = value.strip()
+                if slug is not None:
+                    if (
+                        not self._record_param_syncing
+                        and previous_slug is not None
+                        and previous_slug != slug
                     ):
-                        slug = value.strip()
-            if slug is not None:
-                if (
-                    not self._record_param_syncing
-                    and previous_slug is not None
-                    and previous_slug != slug
-                ):
-                    self._capture_features_trial_params(previous_slug)
-                self._set_shared_stage_trial_slug(slug)
-                self._syncing_shared_trial_selection = True
-                try:
-                    self._sync_alignment_paradigm_selection(slug)
-                finally:
-                    self._syncing_shared_trial_selection = False
-                self._refresh_alignment_selected_paradigm()
-                if not self._record_param_syncing and previous_slug != slug:
-                    restore_slug = slug
-        self._features_last_plot_figure = None
-        self._features_last_plot_data = None
-        self._features_last_plot_name = ""
-        if restore_slug is not None:
-            self._restore_features_trial_params(
-                restore_slug,
-                respect_dirty_keys=False,
-            )
-        else:
-            self._refresh_features_axis_metric_combo()
-            if not self._record_param_syncing:
-                self._refresh_features_available_files()
-        self._refresh_stage_states_from_context()
-        self._refresh_features_controls()
+                        self._capture_features_trial_params(previous_slug)
+                    self._set_shared_stage_trial_slug(slug)
+                    self._syncing_shared_trial_selection = True
+                    try:
+                        self._sync_alignment_paradigm_selection(slug)
+                    finally:
+                        self._syncing_shared_trial_selection = False
+                    self._refresh_alignment_selected_paradigm()
+                    if not self._record_param_syncing and previous_slug != slug:
+                        restore_slug = slug
+            self._features_last_plot_figure = None
+            self._features_last_plot_data = None
+            self._features_last_plot_name = ""
+            if restore_slug is not None:
+                self._restore_features_trial_params(
+                    restore_slug,
+                    respect_dirty_keys=False,
+                )
+            else:
+                self._refresh_features_axis_metric_combo()
+                if not self._record_param_syncing:
+                    self._refresh_features_available_files()
+            self._refresh_stage_states_from_context()
+            self._refresh_features_controls()
 
     def _refresh_features_indicators(self) -> None:
         context = self._record_context()

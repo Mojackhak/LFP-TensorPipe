@@ -7,6 +7,8 @@ from typing import Any
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QListWidgetItem, QMessageBox
 
+from lfptensorpipe.app.shared.runlog_store import run_log_read_snapshot
+
 
 class MainWindowAlignmentParadigmsMixin:
     def _shared_stage_trial_slug(self) -> str | None:
@@ -198,31 +200,32 @@ class MainWindowAlignmentParadigmsMixin:
     def _on_alignment_paradigm_selected(self, row: int) -> None:
         if self._syncing_shared_trial_selection:
             return
-        previous_slug = self._shared_stage_trial_slug()
-        slug = None
-        if self._alignment_paradigm_list is not None and row >= 0:
-            item = self._alignment_paradigm_list.item(row)
-            if item is not None:
-                value = item.data(Qt.UserRole)
-                if isinstance(value, str) and value.strip():
-                    slug = value.strip()
-        if (
-            not self._record_param_syncing
-            and previous_slug is not None
-            and previous_slug != slug
-        ):
-            self._capture_features_trial_params(previous_slug)
-        self._set_shared_stage_trial_slug(slug)
-        self._syncing_shared_trial_selection = True
-        try:
-            self._sync_features_paradigm_selection(self._shared_stage_trial_slug())
-        finally:
-            self._syncing_shared_trial_selection = False
-        self._refresh_alignment_selected_paradigm()
-        if not self._record_param_syncing and previous_slug != slug:
-            self._restore_features_trial_params(
-                slug,
-                respect_dirty_keys=False,
-            )
-        self._refresh_stage_states_from_context()
-        self._refresh_features_controls()
+        with run_log_read_snapshot():
+            previous_slug = self._shared_stage_trial_slug()
+            slug = None
+            if self._alignment_paradigm_list is not None and row >= 0:
+                item = self._alignment_paradigm_list.item(row)
+                if item is not None:
+                    value = item.data(Qt.UserRole)
+                    if isinstance(value, str) and value.strip():
+                        slug = value.strip()
+            if (
+                not self._record_param_syncing
+                and previous_slug is not None
+                and previous_slug != slug
+            ):
+                self._capture_features_trial_params(previous_slug)
+            self._set_shared_stage_trial_slug(slug)
+            self._syncing_shared_trial_selection = True
+            try:
+                self._sync_features_paradigm_selection(self._shared_stage_trial_slug())
+            finally:
+                self._syncing_shared_trial_selection = False
+            self._refresh_alignment_selected_paradigm()
+            if not self._record_param_syncing and previous_slug != slug:
+                self._restore_features_trial_params(
+                    slug,
+                    respect_dirty_keys=False,
+                )
+            self._refresh_stage_states_from_context()
+            self._refresh_features_controls()
