@@ -55,7 +55,16 @@ from .indicator import (
     preproc_filter_review_required as _preproc_filter_review_required_impl,
     preproc_step_indicator_state as _preproc_step_indicator_state_impl,
 )
-from .lineage import capture_preproc_input_generation, preproc_step_is_skipped
+from .finish_fingerprint import (
+    LEGACY_FINISH_BRIDGE_KEY,
+    carried_legacy_finish_bridge,
+    finish_legacy_bridge,
+)
+from .lineage import (
+    capture_preproc_input_generation,
+    preproc_step_is_skipped,
+    preproc_step_lineage_is_current,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +279,13 @@ def invalidate_downstream_preproc_steps(
     if changed_step not in PREPROC_STEPS:
         raise ValueError(f"Unknown preprocess step: {changed_step}")
     changed_index = PREPROC_STEPS.index(changed_step)
+    # Only an annotation rewrite leaves the samples behind Finish unchanged, so
+    # only then may results built on the previous Finish stay comparable.
+    finish_params: dict[str, Any] = {}
+    if changed_step == "annotations":
+        legacy_bridge = carried_legacy_finish_bridge(resolver)
+        if legacy_bridge is not None:
+            finish_params = {LEGACY_FINISH_BRIDGE_KEY: legacy_bridge}
     rewritten: list[Path] = []
     for step in PREPROC_STEPS[changed_index + 1 :]:
         log_path = (
@@ -280,13 +296,21 @@ def invalidate_downstream_preproc_steps(
         except Exception as exc:  # noqa: BLE001
             logger.warning("Could not inspect downstream log %s: %s", log_path, exc)
             continue
-        if existing is None or not bool(existing.get("completed")):
+        if existing is None:
+            continue
+        drops_stale_bridge = (
+            step == "finish"
+            and changed_step != "annotations"
+            and finish_legacy_bridge(existing) is not None
+        )
+        if not bool(existing.get("completed")) and not drops_stale_bridge:
             continue
         try:
             rewritten_path = mark_preproc_step(
                 resolver=resolver,
                 step=step,
                 completed=False,
+                params=dict(finish_params) if step == "finish" else None,
                 input_path=str(
                     resolver.preproc_step_dir(changed_step, create=False) / "raw.fif"
                 ),
@@ -407,6 +431,22 @@ def apply_finish_step(
     if ok:
         invalidate_after_preproc_result_change(context, changed_step="finish")
     return ok, message
+
+
+def annotations_update_available(resolver: PathResolver) -> bool:
+    """Return whether Annotations Update can re-apply Finish in the same action.
+
+    Update is the shortcut for revising annotations after Finish was accepted
+    from them; any other state needs an explicit Finish Apply.
+    """
+    if not preproc_step_lineage_is_current(resolver, "finish"):
+        return False
+    try:
+        payload = read_run_log(preproc_step_log_path(resolver, "finish"))
+    except Exception:  # noqa: BLE001
+        return False
+    params = payload.get("params") if isinstance(payload, dict) else None
+    return isinstance(params, dict) and params.get("source_step") == "annotations"
 
 
 def apply_filter_step(

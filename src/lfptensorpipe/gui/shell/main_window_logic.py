@@ -194,6 +194,7 @@ class MainWindow(
         self._preproc_annotations_edit_button: QPushButton | None = None
         self._preproc_annotations_advance_button: QPushButton | None = None
         self._preproc_annotations_save_button: QPushButton | None = None
+        self._preproc_annotations_update_button: QPushButton | None = None
         self._preproc_annotations_import_button: QPushButton | None = None
         self._preproc_annotations_plot_button: QPushButton | None = None
         self._preproc_annotations_skip_button: QPushButton | None = None

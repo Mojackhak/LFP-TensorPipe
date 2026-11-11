@@ -107,13 +107,31 @@ def invalidate_after_preproc_result_change(
     *,
     changed_step: str,
 ) -> list[Path]:
-    """Invalidate tensor/alignment/features results after a preproc rewrite."""
+    """Invalidate tensor/alignment/features results after a preproc rewrite.
+
+    A failed event is permanent, so it is written only where the result is
+    known to be stale. An annotation rewrite leaves Finish stale, which already
+    reads as not current downstream; whether a Tensor result survives is known
+    only once Finish is re-applied and its content can be compared.
+    """
+    from ..tensor.lineage import tensor_metric_lineage_is_current
+
     resolver = PathResolver(context)
     message = f"Invalidated by upstream result change: preproc/{changed_step}."
     rewritten: list[Path] = []
+    annotation_only = changed_step == "annotations"
+    after_finish = changed_step == "finish"
 
+    tensor_result_kept = False
     for path in _tensor_metric_log_paths(resolver):
-        step = path.parent.name.strip() or "build_tensor_metric"
+        if annotation_only:
+            tensor_result_kept = True
+            continue
+        metric_key = path.parent.name.strip()
+        if after_finish and tensor_metric_lineage_is_current(resolver, metric_key):
+            tensor_result_kept = True
+            continue
+        step = metric_key or "build_tensor_metric"
         updated = _append_invalidation_event(
             path,
             step=step,
@@ -124,16 +142,17 @@ def invalidate_after_preproc_result_change(
         if updated is not None:
             rewritten.append(updated)
 
-    stage_log = resolver.tensor_root / "lfptensorpipe_log.json"
-    updated = _append_invalidation_event(
-        stage_log,
-        step="build_tensor",
-        input_path=str(resolver.preproc_root),
-        output_path=str(resolver.tensor_root),
-        message=message,
-    )
-    if updated is not None:
-        rewritten.append(updated)
+    if not tensor_result_kept:
+        stage_log = resolver.tensor_root / "lfptensorpipe_log.json"
+        updated = _append_invalidation_event(
+            stage_log,
+            step="build_tensor",
+            input_path=str(resolver.preproc_root),
+            output_path=str(resolver.tensor_root),
+            message=message,
+        )
+        if updated is not None:
+            rewritten.append(updated)
 
     for path in _alignment_log_paths(resolver):
         updated = _append_invalidation_event(

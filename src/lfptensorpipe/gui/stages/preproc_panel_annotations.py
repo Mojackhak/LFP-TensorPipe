@@ -96,6 +96,7 @@ def build_preproc_annotations_block(self, *, grid_spacing: int) -> QGroupBox:
     self._preproc_annotations_edit_button = QPushButton("Configure...")
     self._preproc_annotations_advance_button = QPushButton("Advance")
     self._preproc_annotations_save_button = QPushButton("Apply")
+    self._preproc_annotations_update_button = QPushButton("Update")
     self._preproc_annotations_import_button = None
     self._preproc_annotations_plot_button = QPushButton("Plot")
     self._preproc_annotations_edit_button.clicked.connect(
@@ -107,10 +108,14 @@ def build_preproc_annotations_block(self, *, grid_spacing: int) -> QGroupBox:
     self._preproc_annotations_save_button.clicked.connect(
         self._on_preproc_annotations_save
     )
+    self._preproc_annotations_update_button.clicked.connect(
+        self._on_preproc_annotations_update
+    )
     self._preproc_annotations_plot_button.clicked.connect(
         self._on_preproc_annotations_plot
     )
     self._preproc_annotations_save_button.setEnabled(False)
+    self._preproc_annotations_update_button.setEnabled(False)
     self._preproc_annotations_plot_button.setEnabled(False)
     self._preproc_annotations_edit_button.setToolTip("Open the annotation editor.")
     self._preproc_annotations_advance_button.setToolTip(
@@ -118,6 +123,11 @@ def build_preproc_annotations_block(self, *, grid_spacing: int) -> QGroupBox:
     )
     self._preproc_annotations_save_button.setToolTip(
         "Write current annotations to the pipeline."
+    )
+    self._preproc_annotations_update_button.setToolTip(
+        "Write current annotations and re-apply Finish in one step. "
+        "Available when Finish is current and was built from Annotations. "
+        "Results that do not read the changed annotations stay current."
     )
     self._preproc_annotations_plot_button.setToolTip(
         "Plot annotations over the signal."
@@ -132,6 +142,7 @@ def build_preproc_annotations_block(self, *, grid_spacing: int) -> QGroupBox:
     config_layout.addWidget(self._preproc_annotations_advance_button)
     config_layout.addStretch(1)
     action_layout.addWidget(self._preproc_annotations_save_button)
+    action_layout.addWidget(self._preproc_annotations_update_button)
     action_layout.addWidget(self._preproc_annotations_plot_button)
     action_layout.addWidget(self._preproc_annotations_skip_button)
     action_layout.addStretch(1)

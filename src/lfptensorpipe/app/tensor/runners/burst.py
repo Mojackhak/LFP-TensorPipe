@@ -7,6 +7,9 @@ from typing import Any
 import numpy as np
 
 from lfptensorpipe.app.path_resolver import RecordContext
+from lfptensorpipe.app.preproc.finish_fingerprint import (
+    burst_baseline_annotation_digest,
+)
 from lfptensorpipe.io.burst_thresholds import (
     build_burst_threshold_payload,
     select_burst_threshold_subset,
@@ -218,6 +221,12 @@ def run_burst_metric(
         notch_radii=runtime_notch_radii,
     )
     hop_s_use, decim_use = _resolve_burst_time_grid(hop_s=hop_s, decim=decim)
+    # Read before the Raw: if Finish changes in between, the recorded digest
+    # is then the older one and this result reads as stale, never as current.
+    baseline_annotation_digest = burst_baseline_annotation_digest(
+        resolver,
+        effective_baseline_keep,
+    )
 
     if indicator_from_log(preproc_step_log_path(resolver, "finish")) != "green":
         message = "Missing green preproc finish log."
@@ -422,6 +431,7 @@ def run_burst_metric(
             "baseline_keep": effective_baseline_keep,
             "baseline_match": effective_baseline_match,
             "baseline_fallback": effective_baseline_fallback,
+            "baseline_annotation_digest": baseline_annotation_digest,
             "min_cycles": float(min_cycles),
             "max_cycles": (float(max_cycles) if max_cycles is not None else None),
             "hop_s": hop_s_use,

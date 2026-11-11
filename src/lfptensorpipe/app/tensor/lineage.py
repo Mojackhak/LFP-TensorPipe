@@ -12,6 +12,12 @@ from typing import Any, Concatenate, Mapping, ParamSpec, TypeVar, cast
 from uuid import uuid4
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
+from lfptensorpipe.app.preproc.finish_fingerprint import (
+    annotation_dependency_digest,
+    finish_current_annotation_view,
+    finish_legacy_bridge,
+    finish_tensor_input_receipts,
+)
 from lfptensorpipe.app.preproc.lineage import preproc_step_lineage_is_current
 from lfptensorpipe.app.runlog_store import read_run_log
 from lfptensorpipe.app.shared.atomic_outputs import OUTPUT_TRANSACTION_RUN_ID_ENV
@@ -48,13 +54,15 @@ def _finish_log_path(resolver: PathResolver) -> Path:
 def capture_tensor_input_generation(
     resolver: PathResolver,
 ) -> dict[str, str | None] | None:
-    """Capture the current Preprocess Finish generation for one Build run."""
+    """Capture the current Finish receipt for one Build run.
+
+    The receipt names the signal, record structure, and BAD/EDGE mask rather
+    than the Finish event, so an annotation-only Finish rewrite keeps it.
+    """
     if not preproc_step_lineage_is_current(resolver, "finish"):
         return None
-    finish_payload = _read_payload(_finish_log_path(resolver))
-    return {
-        preproc_generation_ref("finish"): accepted_result_generation_id(finish_payload)
-    }
+    receipts = finish_tensor_input_receipts(_read_payload(_finish_log_path(resolver)))
+    return {preproc_generation_ref("finish"): receipts[0] if receipts else None}
 
 
 def tensor_input_generation_matches(
@@ -254,13 +262,59 @@ def tensor_metric_lineage_is_current(
     ):
         return False
     finish_payload = _read_payload(_finish_log_path(resolver))
-    return input_generation_receipts_match(
-        payload,
-        expected={
-            preproc_generation_ref("finish"): accepted_result_generation_id(
-                finish_payload
+    receipt = next(
+        (
+            candidate
+            for candidate in finish_tensor_input_receipts(finish_payload)
+            if input_generation_receipts_match(
+                payload,
+                expected={preproc_generation_ref("finish"): candidate},
             )
-        },
+        ),
+        None,
+    )
+    if receipt is None:
+        return False
+    return metric_key != "burst" or _burst_baseline_is_current(
+        payload,
+        finish_payload,
+        receipt=receipt,
+    )
+
+
+def _burst_baseline_is_current(
+    payload: Mapping[str, Any],
+    finish_payload: Mapping[str, Any] | None,
+    *,
+    receipt: str,
+) -> bool:
+    """Return whether Burst's baseline annotations still match Finish.
+
+    The Finish receipt covers the signal and the BAD/EDGE mask only; a Burst
+    threshold computed from baseline labels also depends on those labels.
+    """
+    params = payload.get("params")
+    baseline_keep = params.get("baseline_keep") if isinstance(params, Mapping) else None
+    if not isinstance(baseline_keep, list) or not baseline_keep:
+        return True
+    current_view = finish_current_annotation_view(finish_payload)
+    if current_view is None:
+        # A Finish without a fingerprint is matched by its exact generation,
+        # which already covers every annotation.
+        return True
+    expected = annotation_dependency_digest(current_view[1], exact=baseline_keep)
+    recorded = params.get("baseline_annotation_digest")
+    if isinstance(recorded, str):
+        return recorded == expected
+    bridge = finish_legacy_bridge(finish_payload)
+    if bridge is None or bridge["finish_generation_id"] != receipt:
+        return False
+    return (
+        annotation_dependency_digest(
+            bridge["annotation_label_digests"],
+            exact=baseline_keep,
+        )
+        == expected
     )
 
 

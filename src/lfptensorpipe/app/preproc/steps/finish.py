@@ -12,6 +12,12 @@ from lfptensorpipe.app.shared.generation_lineage import (
     params_with_generation_lineage,
 )
 
+from ..finish_fingerprint import (
+    FINISH_FINGERPRINT_KEY,
+    LEGACY_FINISH_BRIDGE_KEY,
+    build_finish_fingerprint,
+    carried_legacy_finish_bridge,
+)
 from ..lineage import (
     PreprocInputGenerationChanged,
     capture_preproc_input_generation,
@@ -84,6 +90,17 @@ def apply_finish_step(
         return False, "Finish source changed before input read."
     _, input_generations = captured
     result_generation_id = new_result_generation_id()
+    # Results built before fingerprints existed are only comparable through the
+    # Finish they were built on, so describe it before this run replaces it.
+    legacy_bridge = carried_legacy_finish_bridge(
+        resolver,
+        read_raw_fif_fn=read_raw_fif_fn,
+    )
+    if legacy_bridge is not None and legacy_bridge["source_step"] != source_step:
+        legacy_bridge = None
+    bridge_params = (
+        {LEGACY_FINISH_BRIDGE_KEY: legacy_bridge} if legacy_bridge is not None else {}
+    )
     raw = None
     raw_out = None
     try:
@@ -117,10 +134,23 @@ def apply_finish_step(
             [finish_raw_path, log_path],
             cleanup_stale_residues=True,
         ) as output_set:
+            staged_raw_path = output_set.staged_path(finish_raw_path)
             raw_out.save(
-                str(output_set.staged_path(finish_raw_path)),
+                str(staged_raw_path),
                 fmt=save_format,
                 overwrite=True,
+            )
+            fingerprint = build_finish_fingerprint(
+                resolver,
+                source_step=source_step,
+                input_generations=input_generations,
+                raw_path=staged_raw_path,
+                read_raw_fif_fn=read_raw_fif_fn,
+            )
+            fingerprint_params = (
+                {FINISH_FINGERPRINT_KEY: fingerprint, **bridge_params}
+                if fingerprint is not None
+                else {}
             )
             mark_preproc_step_fn(
                 resolver=resolver,
@@ -141,6 +171,7 @@ def apply_finish_step(
                             edge_report.get("first_time_sec", 0.0)
                         ),
                         "dropped_annotations": dropped,
+                        **fingerprint_params,
                     },
                     result_generation_id=result_generation_id,
                     input_generations=input_generations,
@@ -167,6 +198,7 @@ def apply_finish_step(
             resolver=resolver,
             step="finish",
             completed=False,
+            **({"params": dict(bridge_params)} if bridge_params else {}),
             input_path=str(source_path),
             output_path=str(finish_raw_path),
             message=f"Finish step failed: {exc}",

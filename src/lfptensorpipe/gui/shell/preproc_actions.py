@@ -8,6 +8,7 @@ from lfptensorpipe.gui.shell.busy_state import global_ui_lock_owner
 from lfptensorpipe.app.preproc.paths import rawdata_input_fif_path
 
 from lfptensorpipe.app.preproc.lineage import preproc_step_lineage_is_current
+from lfptensorpipe.app.preproc.service import annotations_update_available
 from lfptensorpipe.gui.shell.common import (
     Any,
     Path,
@@ -244,10 +245,18 @@ class MainWindowPreprocActionsMixin:
         self.statusBar().showMessage("Annotations Advance parameters updated.")
 
     def _on_preproc_annotations_save(self) -> None:
+        self._run_preproc_annotations_apply(update_finish=False)
+
+    def _on_preproc_annotations_update(self) -> None:
+        self._run_preproc_annotations_apply(update_finish=True)
+
+    def _run_preproc_annotations_apply(self, *, update_finish: bool) -> None:
+        """Apply Annotations; Update also re-applies Finish from them."""
+        action = "Update" if update_finish else "Apply"
         context = self._record_context()
         if context is None:
             self.statusBar().showMessage(
-                "Annotations Apply unavailable: select project/subject/record."
+                f"Annotations {action} unavailable: select project/subject/record."
             )
             return
 
@@ -255,16 +264,16 @@ class MainWindowPreprocActionsMixin:
         self._highlight_annotation_rows(invalid_rows)
         if invalid_rows:
             self._mark_annotations_validation_failure(
-                action="Apply",
+                action=action,
                 invalid_rows=invalid_rows,
             )
             self._show_warning(
-                "Annotations Apply",
+                f"Annotations {action}",
                 "Invalid rows highlighted. Ensure description is non-empty, "
                 "onset is finite, and duration is finite and >= 0.",
             )
             self.statusBar().showMessage(
-                "Annotations Apply failed: invalid rows highlighted."
+                f"Annotations {action} failed: invalid rows highlighted."
             )
             self._refresh_preproc_controls()
             return
@@ -277,15 +286,37 @@ class MainWindowPreprocActionsMixin:
             }
             for row in rows
         ]
-        ok, message = self._run_with_busy(
-            "Annotations Apply",
-            lambda: self._apply_annotations_step_runtime(
+        if update_finish and not annotations_update_available(PathResolver(context)):
+            self._refresh_preproc_controls()
+            self.statusBar().showMessage(
+                "Annotations Update unavailable: Finish must be current and built "
+                "from Annotations. Use Apply, then Finish Apply."
+            )
+            return
+
+        def _apply() -> tuple[bool, bool, str]:
+            applied, apply_message = self._apply_annotations_step_runtime(
                 context,
                 rows=clean_rows,
                 mark_filter_edges=self._preproc_annotations_mark_filter_edges,
-            ),
+            )
+            if not applied or not update_finish:
+                return applied, applied, apply_message
+            finished, finish_message = self._apply_finish_step_runtime(context)
+            if not finished:
+                return (
+                    True,
+                    False,
+                    f"Annotations applied, but Finish was not updated: "
+                    f"{finish_message}",
+                )
+            return True, True, "Annotations and Finish updated."
+
+        annotations_applied, ok, message = self._run_with_busy(
+            f"Annotations {action}",
+            _apply,
         )
-        if ok and self._preproc_annotations_table is not None:
+        if annotations_applied and self._preproc_annotations_table is not None:
             resolver = PathResolver(context)
             csv_path = resolver.preproc_root / "annotations" / "annotations.csv"
             rows_ok, effective_rows, _ = self._load_annotations_csv_rows_runtime(
@@ -299,7 +330,8 @@ class MainWindowPreprocActionsMixin:
                 self._highlight_annotation_rows([])
         self._refresh_stage_states_from_context()
         self._refresh_preproc_controls()
-        prefix = "Annotations OK" if ok else "Annotations failed"
+        label = "Annotations Update" if update_finish else "Annotations"
+        prefix = f"{label} OK" if ok else f"{label} failed"
         self.statusBar().showMessage(f"{prefix}: {message}")
         self._post_step_action_sync(reason="preproc_annotations_apply")
 

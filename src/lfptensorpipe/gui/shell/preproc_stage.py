@@ -6,6 +6,7 @@ from lfptensorpipe.app.preproc.lineage import (
     preproc_step_is_skipped,
     preproc_step_lineage_is_current,
 )
+from lfptensorpipe.app.preproc.service import annotations_update_available
 from lfptensorpipe.gui.shell.common import (
     Any,
     PathResolver,
@@ -136,6 +137,8 @@ class MainWindowPreprocStageMixin:
                 self._preproc_annotations_advance_button.setEnabled(False)
             if self._preproc_annotations_save_button is not None:
                 self._preproc_annotations_save_button.setEnabled(False)
+            if self._preproc_annotations_update_button is not None:
+                self._preproc_annotations_update_button.setEnabled(False)
             if self._preproc_annotations_import_button is not None:
                 self._preproc_annotations_import_button.setEnabled(False)
             if self._preproc_annotations_plot_button is not None:
@@ -361,6 +364,10 @@ class MainWindowPreprocStageMixin:
             self._preproc_annotations_advance_button.setEnabled(ecg_route_ready)
         if self._preproc_annotations_save_button is not None:
             self._preproc_annotations_save_button.setEnabled(ecg_route_ready)
+        if self._preproc_annotations_update_button is not None:
+            self._preproc_annotations_update_button.setEnabled(
+                ecg_route_ready and annotations_update_available(resolver)
+            )
         if self._preproc_annotations_import_button is not None:
             self._preproc_annotations_import_button.setEnabled(ecg_route_ready)
         if self._preproc_annotations_plot_button is not None:
