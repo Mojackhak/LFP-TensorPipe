@@ -144,6 +144,7 @@ def apply_finish_step(
                 resolver,
                 source_step=source_step,
                 input_generations=input_generations,
+                result_generation_id=result_generation_id,
                 raw_path=staged_raw_path,
                 read_raw_fif_fn=read_raw_fif_fn,
             )

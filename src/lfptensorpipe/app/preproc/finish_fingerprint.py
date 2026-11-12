@@ -67,7 +67,7 @@ def _annotation_rows(raw: Any) -> list[AnnotationRow]:
     ):
         rows.append(
             (
-                str(description).lower(),
+                str(description),
                 _quantize_seconds(onset),
                 _quantize_seconds(duration),
                 tuple(sorted(str(name) for name in ch_names)),
@@ -77,11 +77,12 @@ def _annotation_rows(raw: Any) -> list[AnnotationRow]:
 
 
 def _label_matches(label: str, pattern: str, *, substring: bool) -> bool:
-    # Consumers disagree on stripping the description before an exact match;
-    # accepting both keeps every label any of them could read.
+    # Consumers disagree on case and on stripping the description before an
+    # exact match; accepting every variant keeps each label any of them reads.
+    folded = label.lower()
     if substring:
-        return pattern in label
-    return label == pattern or label.strip() == pattern
+        return pattern in folded
+    return folded == pattern or folded.strip() == pattern
 
 
 def _normalized_patterns(patterns: Iterable[Any]) -> list[str]:
@@ -89,7 +90,11 @@ def _normalized_patterns(patterns: Iterable[Any]) -> list[str]:
 
 
 def annotation_label_digests(raw: Any) -> dict[str, str]:
-    """Return one digest of onsets, durations, and channel scopes per label."""
+    """Return one digest of onsets, durations, and channel scopes per label.
+
+    Labels keep their case: a consumer that matches case-sensitively must see
+    a row move between `Cue` and `cue` as a change.
+    """
     grouped: dict[str, list[tuple[int, int, tuple[str, ...]]]] = {}
     for label, onset, duration, channels in _annotation_rows(raw):
         grouped.setdefault(label, []).append((onset, duration, channels))
@@ -108,7 +113,7 @@ def tensor_mask_digest(raw: Any) -> str:
     rows = {
         (onset, duration, channels)
         for label, onset, duration, channels in _annotation_rows(raw)
-        if any(pattern in label for pattern in TENSOR_MASK_PATTERNS)
+        if any(pattern in label.lower() for pattern in TENSOR_MASK_PATTERNS)
     }
     return _digest(sorted(rows), size=_GENERATION_ID_BYTES)
 
@@ -134,14 +139,22 @@ def annotation_dependency_digest(
     *,
     exact: Iterable[Any] = (),
     substring: Iterable[Any] = (),
+    everything: bool = False,
+    structure_digest: str | None = None,
 ) -> str:
-    """Digest every annotation a consumer selects by exact or substring label."""
+    """Digest every annotation a consumer selects by label.
+
+    `everything` selects all labels, for a consumer whose selection depends on
+    the label set itself. `structure_digest` adds the record layout for a
+    consumer that also reads sample times.
+    """
     exact_patterns = _normalized_patterns(exact)
     substring_patterns = _normalized_patterns(substring)
     selected = {
         label: digest
         for label, digest in label_digests.items()
-        if any(
+        if everything
+        or any(
             _label_matches(label, pattern, substring=False)
             for pattern in exact_patterns
         )
@@ -152,9 +165,11 @@ def annotation_dependency_digest(
     }
     return _digest(
         {
+            "everything": bool(everything),
             "exact": exact_patterns,
             "substring": substring_patterns,
             "labels": sorted(selected.items()),
+            "structure": structure_digest,
         },
         size=_GENERATION_ID_BYTES,
     )
@@ -203,9 +218,15 @@ def _label_digest_mapping(value: Any) -> dict[str, str] | None:
 
 
 def finish_fingerprint(payload: Mapping[str, Any] | None) -> dict[str, Any] | None:
-    """Return the fingerprint of one completed Finish event, when it has one."""
+    """Return the fingerprint of one completed Finish event, when it has one.
+
+    A fingerprint names the Finish generation it describes. One copied into a
+    later event is ignored, so that event falls back to exact generation
+    matching instead of vouching for a Raw it never described.
+    """
     if not isinstance(payload, Mapping) or payload.get("completed") is not True:
         return None
+    generation_id = accepted_result_generation_id(payload)
     params = payload.get("params")
     fingerprint = (
         params.get(FINISH_FINGERPRINT_KEY) if isinstance(params, Mapping) else None
@@ -214,6 +235,8 @@ def finish_fingerprint(payload: Mapping[str, Any] | None) -> dict[str, Any] | No
         not isinstance(fingerprint, Mapping)
         or fingerprint.get(FINISH_FINGERPRINT_SEMANTICS_KEY)
         != FINISH_FINGERPRINT_SEMANTICS
+        or generation_id is None
+        or fingerprint.get("finish_generation_id") != generation_id
         or not isinstance(fingerprint.get("tensor_input_generation_id"), str)
         or not isinstance(fingerprint.get("record_structure_digest"), str)
         or not isinstance(fingerprint.get("tensor_mask_digest"), str)
@@ -345,6 +368,7 @@ def build_finish_fingerprint(
     *,
     source_step: str,
     input_generations: Mapping[str, str | None],
+    result_generation_id: str,
     raw_path: Path,
     read_raw_fif_fn: Callable[..., Any] | None = None,
 ) -> dict[str, Any] | None:
@@ -369,6 +393,7 @@ def build_finish_fingerprint(
         return None
     return {
         FINISH_FINGERPRINT_SEMANTICS_KEY: FINISH_FINGERPRINT_SEMANTICS,
+        "finish_generation_id": result_generation_id,
         "signal_source": signal_source,
         **digests,
         "tensor_input_generation_id": _tensor_input_generation_id(

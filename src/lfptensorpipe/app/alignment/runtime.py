@@ -33,6 +33,7 @@ from .generation import (
     AlignmentInputGenerationChangedError,
     alignment_run_input_generations_match,
     capture_alignment_run_input_generations,
+    read_alignment_finish_payload,
 )
 from .method_specs import (
     CLIP_STITCH_GEOMETRY,
@@ -125,11 +126,17 @@ def run_align_epochs(
     if not metrics:
         return False, "No completed tensor metrics available.", []
 
-    input_generations = capture_alignment_run_input_generations(
-        resolver,
-        metrics=metrics,
-    )
-    if input_generations is None:
+    # Read before the Raw: the trial's receipt is derived from this snapshot,
+    # so a Finish that changes in between is caught by the promotion recheck.
+    finish_payload = read_alignment_finish_payload(resolver)
+    if (
+        capture_alignment_run_input_generations(
+            resolver,
+            metrics=metrics,
+            finish_payload=finish_payload,
+        )
+        is None
+    ):
         return False, "Align Epochs inputs are not current; rerun their producers.", []
 
     finish_raw = preproc_step_raw_path(resolver, "finish")
@@ -156,6 +163,18 @@ def run_align_epochs(
         if not valid_params:
             raise ValueError(f"Invalid method params: {message}")
         method_params = normalized_params
+        input_generations = capture_alignment_run_input_generations(
+            resolver,
+            metrics=metrics,
+            method=method,
+            method_params=method_params,
+            finish_payload=finish_payload,
+        )
+        if input_generations is None:
+            raise AlignmentInputGenerationChangedError(
+                "Alignment inputs changed while Align Epochs was starting; "
+                "rerun Align Epochs."
+            )
         selected_annotations = method_params.get("annotations", [])
         if not isinstance(selected_annotations, list):
             selected_annotations = []
@@ -470,6 +489,8 @@ def run_align_epochs(
                 resolver,
                 metrics=metrics,
                 input_generations=input_generations,
+                method=method,
+                method_params=method_params,
             ):
                 raise AlignmentInputGenerationChangedError(
                     "Alignment inputs changed while Align Epochs was running; "

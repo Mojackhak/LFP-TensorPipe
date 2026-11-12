@@ -10,6 +10,11 @@ from lfptensorpipe.app.localize.paths import (
     localize_result_generation_id,
 )
 from lfptensorpipe.app.path_resolver import PathResolver
+from lfptensorpipe.app.preproc.finish_fingerprint import (
+    annotation_dependency_digest,
+    finish_fingerprint,
+    finish_legacy_bridge,
+)
 from lfptensorpipe.app.preproc.lineage import preproc_step_lineage_is_current
 from lfptensorpipe.app.runlog_store import read_run_log
 from lfptensorpipe.app.shared.generation_lineage import (
@@ -29,6 +34,9 @@ from lfptensorpipe.lfp.burst.semantics import (
     BURST_SAMPLE_SUPPORT,
     BURST_SAMPLE_SUPPORT_KEY,
 )
+
+from .method_specs import DEFAULT_DROP_FIELDS, DEFAULT_DROP_MODE
+from .param_normalizers import _normalize_drop_fields
 
 AlignmentGenerationStage = Literal["run", "finish"]
 
@@ -135,9 +143,8 @@ def latest_alignment_step_entry(
     return _latest_step(_history_entries(payload), target_step)
 
 
-def _preproc_finish_result_generation_id(
-    resolver: PathResolver,
-) -> str | None:
+def read_alignment_finish_payload(resolver: PathResolver) -> dict[str, Any] | None:
+    """Read the Preprocess Finish event Align Epochs is about to depend on."""
     log_path = (
         resolver.preproc_step_dir("finish", create=False) / "lfptensorpipe_log.json"
     )
@@ -145,7 +152,99 @@ def _preproc_finish_result_generation_id(
         payload = read_run_log(log_path)
     except Exception:
         return None
-    return accepted_result_generation_id(payload)
+    return payload if isinstance(payload, dict) else None
+
+
+def alignment_annotation_selection(
+    method: str,
+    method_params: Any,
+) -> dict[str, Any]:
+    """Return which Finish annotations one trial's warper reads.
+
+    This mirrors `_build_warper`: a warper reads the labels its method selects
+    plus every annotation its drop rule matches. A warper that reads any other
+    annotation must be reflected here, or a stale trial would read as current.
+    """
+    params = method_params if isinstance(method_params, dict) else {}
+    drop_mode = str(params.get("drop_mode", DEFAULT_DROP_MODE)).strip().lower()
+    if drop_mode not in {"exact", "substring"}:
+        drop_mode = DEFAULT_DROP_MODE
+    drop_fields = (
+        _normalize_drop_fields(params.get("drop_fields", list(DEFAULT_DROP_FIELDS)))
+        if bool(params.get("drop_bad", True))
+        else []
+    )
+
+    labels: list[Any] | None = None
+    if method == "linear_warper" and "cue_response" in params:
+        config = params["cue_response"]
+        pairs = config.get("event_pairs") if isinstance(config, dict) else None
+        if isinstance(pairs, list) and all(isinstance(pair, dict) for pair in pairs):
+            labels = [
+                pair.get(key)
+                for pair in pairs
+                for key in ("cue_label", "response_label")
+            ]
+    elif method == "linear_warper" and "event_groups" in params:
+        labels = [label for group in params["event_groups"] for label in group]
+    elif method == "linear_warper" and "event_groups" in params:
+        groups = params["event_groups"]
+        if isinstance(groups, list) and all(
+            isinstance(group, (list, tuple)) for group in groups
+        ):
+            labels = [label for group in groups for label in group]
+    elif method == "linear_warper":
+        anchors = params.get("anchors_percent")
+        if isinstance(anchors, dict) and len(anchors) >= 2:
+            labels = list(anchors.values())
+    elif method in {"pad_warper", "concat_warper", "stack_warper"}:
+        keep = params.get("annotations")
+        if keep is None:
+            labels = []
+        elif isinstance(keep, list):
+            labels = list(keep)
+
+    exact = [str(label) for label in labels or [] if label is not None]
+    return {
+        "exact": exact + (drop_fields if drop_mode == "exact" else []),
+        "substring": drop_fields if drop_mode == "substring" else [],
+        # Without an explicit selection the warper falls back to the label set.
+        "everything": labels is None,
+    }
+
+
+def _trial_finish_receipts(
+    finish_payload: dict[str, Any] | None,
+    *,
+    method: str | None,
+    method_params: Any,
+) -> tuple[str, ...]:
+    """Return the Finish receipts a current run of one trial may hold.
+
+    The first one is canonical and is what a new Align Epochs run records.
+    With a Finish fingerprint it names the record structure and the
+    annotations this trial reads, so other annotation edits keep the trial.
+    """
+    generation_id = accepted_result_generation_id(finish_payload)
+    fingerprint = finish_fingerprint(finish_payload)
+    if fingerprint is None or not method:
+        return () if generation_id is None else (generation_id,)
+    selection = alignment_annotation_selection(method, method_params)
+
+    def _receipt(view: dict[str, Any]) -> str:
+        return annotation_dependency_digest(
+            view["annotation_label_digests"],
+            structure_digest=view["record_structure_digest"],
+            **selection,
+        )
+
+    receipts = [_receipt(fingerprint)]
+    if generation_id is not None:
+        receipts.append(generation_id)
+    bridge = finish_legacy_bridge(finish_payload)
+    if bridge is not None and _receipt(bridge) == receipts[0]:
+        receipts.append(str(bridge["finish_generation_id"]))
+    return tuple(receipts)
 
 
 def _run_artifacts_exist(
@@ -174,8 +273,16 @@ def capture_alignment_run_input_generations(
     resolver: PathResolver,
     *,
     metrics: list[str] | tuple[str, ...],
+    method: str | None = None,
+    method_params: Any = None,
+    finish_payload: dict[str, Any] | None = None,
 ) -> dict[str, str | None] | None:
-    """Capture Finish and manifest Tensor generations before Align input reads."""
+    """Capture Finish and manifest Tensor generations before Align input reads.
+
+    Pass the trial's method to capture the annotations it reads rather than
+    the whole Finish event. Pass a `finish_payload` read before the Raw when
+    the method is only known after reading it.
+    """
     normalized_metrics = [str(metric).strip() for metric in metrics]
     if (
         not normalized_metrics
@@ -185,8 +292,17 @@ def capture_alignment_run_input_generations(
     ):
         return None
 
+    if finish_payload is None:
+        finish_payload = read_alignment_finish_payload(resolver)
+    finish_receipts = _trial_finish_receipts(
+        finish_payload,
+        method=method,
+        method_params=method_params,
+    )
     input_generations: dict[str, str | None] = {
-        preproc_generation_ref("finish"): _preproc_finish_result_generation_id(resolver)
+        preproc_generation_ref("finish"): (
+            finish_receipts[0] if finish_receipts else None
+        )
     }
     for metric in normalized_metrics:
         if not tensor_metric_lineage_is_current(resolver, metric):
@@ -202,12 +318,16 @@ def alignment_run_input_generations_match(
     *,
     metrics: list[str] | tuple[str, ...],
     input_generations: dict[str, str | None],
+    method: str | None = None,
+    method_params: Any = None,
 ) -> bool:
     """Recheck the exact original Align Run capture before promotion."""
     return (
         capture_alignment_run_input_generations(
             resolver,
             metrics=metrics,
+            method=method,
+            method_params=method_params,
         )
         == input_generations
     )
@@ -303,18 +423,40 @@ def alignment_stage_lineage_is_current(
         return False
 
     if stage == "run":
+        run_params = latest[1].get("params")
+        method = (
+            str(run_params.get("method", "")).strip() or None
+            if isinstance(run_params, dict)
+            else None
+        )
+        method_params = (
+            run_params.get("method_params") if isinstance(run_params, dict) else None
+        )
+        finish_payload = read_alignment_finish_payload(resolver)
         captured = capture_alignment_run_input_generations(
             resolver,
             metrics=metrics,
+            method=method,
+            method_params=method_params,
+            finish_payload=finish_payload,
         )
-        return (
-            captured is not None
-            and _run_artifacts_exist(
-                resolver,
-                trial_slug=slug,
-                metrics=metrics,
+        if captured is None or not _run_artifacts_exist(
+            resolver,
+            trial_slug=slug,
+            metrics=metrics,
+        ):
+            return False
+        finish_ref = preproc_generation_ref("finish")
+        return any(
+            input_generation_receipts_match(
+                latest[1],
+                expected={**captured, finish_ref: receipt},
             )
-            and input_generation_receipts_match(latest[1], expected=captured)
+            for receipt in _trial_finish_receipts(
+                finish_payload,
+                method=method,
+                method_params=method_params,
+            )
         )
 
     latest_run = latest_alignment_step_entry(
@@ -539,6 +681,7 @@ __all__ = [
     "AlignmentInputGenerationChangedError",
     "accepted_alignment_artifact_paths",
     "accepted_alignment_metrics",
+    "alignment_annotation_selection",
     "alignment_finish_input_generations_match",
     "alignment_generation_requires_burst_sample_support_rerun",
     "alignment_generation_rerun_message",
@@ -549,4 +692,5 @@ __all__ = [
     "capture_alignment_run_input_generations",
     "latest_alignment_step_entry",
     "metrics_from_alignment_entry",
+    "read_alignment_finish_payload",
 ]

@@ -111,9 +111,10 @@ def invalidate_after_preproc_result_change(
 
     A failed event is permanent, so it is written only where the result is
     known to be stale. An annotation rewrite leaves Finish stale, which already
-    reads as not current downstream; whether a Tensor result survives is known
-    only once Finish is re-applied and its content can be compared.
+    reads as not current downstream; whether a result survives is known only
+    once Finish is re-applied and its content can be compared.
     """
+    from ..alignment.generation import alignment_stage_lineage_is_current
     from ..tensor.lineage import tensor_metric_lineage_is_current
 
     resolver = PathResolver(context)
@@ -154,7 +155,21 @@ def invalidate_after_preproc_result_change(
         if updated is not None:
             rewritten.append(updated)
 
+    def _trial_result_kept(slug: str) -> bool:
+        # A trial reads only its own annotation labels, so a Finish rewrite
+        # that leaves them unchanged keeps its Align and Features results.
+        return annotation_only or (
+            after_finish
+            and alignment_stage_lineage_is_current(
+                resolver,
+                trial_slug=slug,
+                stage="run",
+            )
+        )
+
     for path in _alignment_log_paths(resolver):
+        if _trial_result_kept(path.parent.name):
+            continue
         updated = _append_invalidation_event(
             path,
             step="run_align_epochs",
@@ -166,6 +181,8 @@ def invalidate_after_preproc_result_change(
             rewritten.append(updated)
 
     for path in _features_log_paths(resolver):
+        if _trial_result_kept(path.parent.name):
+            continue
         updated = _append_invalidation_event(
             path,
             step="run_extract_features",
