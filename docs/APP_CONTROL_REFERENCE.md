@@ -934,7 +934,7 @@ removed, because Filter and ECG may have intentionally skipped those samples.
 | --- | --- | --- | --- |
 | Annotation table | Shows the currently configured annotation rows. | Annotation payload. | Read-only except for row selection. |
 | `Configure...` (Annotations) | Opens the annotation editor. | Current annotation rows. | Available after Raw succeeds and the earlier Filter/ECG route is resolved, including any checked Skip. |
-| `Advance` (Annotations) | Opens the compact Annotations Advance dialog immediately from the right of `Configure...` in the first of two compact control rows. The second row contains `Apply`, `Update`, `Plot`, and `Skip`, so no label is clipped at the default window width. | The current record's Annotations edge-marking policy. | Available whenever Annotations controls are available. |
+| `Advance` (Annotations) | Opens the compact Annotations Advance dialog immediately from the right of `Configure...` in the first of two compact control rows, followed by `Update`. The second row contains `Apply`, `Plot`, and `Skip`, so each row holds three buttons and no label is clipped at the default window width. | The current record's Annotations edge-marking policy. | Available whenever Annotations controls are available. |
 | `mark filter edges` (Annotations Advance) | When enabled, rebuilds system-owned `EDGE_filter_post_annotations` around BAD support added or expanded by Annotations Apply or Plot. | Annotations only; numeric samples and BAD support are unchanged. | Off by default. Enabled only when the selected source lineage contains a current accepted Filter generation with an exact integer support radius. |
 | `Apply` (Annotations) | Writes the configured annotations into the preprocess pipeline. Submitted onset values are seconds from the first retained sample; inherited source annotations keep their existing timing and channel scope when the rows are appended. A positive-duration row is clipped to its intersection with the Raw support, and a row with no temporal overlap is silently omitted. | Annotation output used by downstream steps. | Requires successful Raw and a structurally valid annotation set. Duration must remain finite and non-negative; onset may be negative when a positive-duration interval overlaps the Raw. Zero-duration points are retained only inside `[0,n_times/sampling_rate)`. The table, CSV, Raw, config, and log adopt the effective clipped/retained rows after a successful Apply. |
 | `Update` (Annotations) | Runs Annotations Apply and then Finish Apply as one action, for revising annotations after downstream results exist. A Build Tensor metric stays green when the signal, the record structure, and every annotation whose label contains `bad` or `edge` are unchanged; Burst additionally requires its baseline labels to be unchanged. An Align Epochs trial, and the Features extracted from it, stay green when its Tensor metrics stay green and the annotations that trial reads are unchanged: the labels selected by its method, plus every annotation matched by its drop rule. The same comparison is made when `Apply` is followed by a separate Finish `Apply`; until Finish is re-applied, Finish and every later stage read yellow. | Annotation output, Finish output, and downstream freshness. | Requires the same inputs as `Apply`, plus a green Finish that was built from Annotations. Otherwise use `Apply`, then Finish `Apply`. If Finish fails, the annotations stay applied and Finish reads yellow. |
@@ -1710,7 +1710,13 @@ dialog draft and does not modify the saved app default.
 - `target percent` describes where an event should end up after warping, while `percent tolerance` describes how strictly that target should be enforced.
 - Blank `percent tolerance` is stored as `None` and applies no target-deviation
   rejection. It does not remove or alter the target anchors.
-- Starts are processed chronologically. Each start is paired with the earliest
+- Imported percent configs may provide explicit `event_groups`, one ordered
+  list of full annotation labels per epoch. These groups preserve the assigned
+  boundaries without rematching another action. The dialog shows the first
+  group as a read-only anchor template and preserves every group on Save;
+  record-specific groups cannot be global defaults. See
+  [the explicit-group contract](EXPLICIT_EVENT_GROUPS.md).
+- Without explicit groups, starts are processed chronologically. Each start is paired with the earliest
   duration-eligible end that has not already been consumed by an accepted
   event group. This pairing is not bounded by the next start, so valid aligned
   epochs may overlap.

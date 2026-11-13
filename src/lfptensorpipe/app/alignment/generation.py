@@ -186,8 +186,6 @@ def alignment_annotation_selection(
                 for key in ("cue_label", "response_label")
             ]
     elif method == "linear_warper" and "event_groups" in params:
-        labels = [label for group in params["event_groups"] for label in group]
-    elif method == "linear_warper" and "event_groups" in params:
         groups = params["event_groups"]
         if isinstance(groups, list) and all(
             isinstance(group, (list, tuple)) for group in groups
