@@ -166,6 +166,16 @@ def _build_linear_ui(dialog, params: dict[str, Any]) -> None:
     dialog._anchor_percent_edit.setText("50")
     anchor_draft_layout.addWidget(add_anchor_button, 0, 4)
     dialog._method_layout.addWidget(anchor_draft)
+    grouped = dialog._event_groups is not None
+    dialog._anchors_table.setEnabled(not grouped)
+    anchor_draft.setEnabled(not grouped)
+    if grouped:
+        note = QLabel(
+            f"{len(dialog._event_groups)} explicit event groups loaded. "
+            "The table shows the first group. Edit groups in the exported configuration."
+        )
+        note.setWordWrap(True)
+        dialog._method_layout.addWidget(note)
 
     duration_range = params.get("epoch_duration_range", [None, None])
     if not isinstance(duration_range, (list, tuple)) or len(duration_range) != 2:

@@ -1714,8 +1714,8 @@ dialog draft and does not modify the saved app default.
   list of full annotation labels per epoch. These groups preserve the assigned
   boundaries without rematching another action. The dialog shows the first
   group as a read-only anchor template and preserves every group on Save;
-  record-specific groups cannot be global defaults. See
-  [the explicit-group contract](EXPLICIT_EVENT_GROUPS.md).
+  config export and import preserve every group and its order. Record-specific
+  groups cannot be global defaults.
 - Without explicit groups, starts are processed chronologically. Each start is paired with the earliest
   duration-eligible end that has not already been consumed by an accepted
   event group. This pairing is not bounded by the next start, so valid aligned

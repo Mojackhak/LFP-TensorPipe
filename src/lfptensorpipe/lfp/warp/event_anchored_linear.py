@@ -495,6 +495,78 @@ def _linear_epoch_warp_fn(
     return warp_fn
 
 
+def grouped_linear_warper(
+    raw,
+    *,
+    anchors_percent,
+    event_groups,
+    epoch_duration_range=(None, None),
+    linear_warp=True,
+    percent_tolerance=None,
+    anno_drop=None,
+    drop_mode="substring",
+):
+    """Warp configuration-normalized explicit groups without temporal rematching."""
+    target, _tokens, keys = _resolve_linear_anchor_config(anchors_percent)
+    events = _extract_named_events_from_annotations(
+        raw, [label for group in event_groups for label in group], mode="exact"
+    )
+    epochs = []
+    diagnostics = {
+        "n_starts": len(event_groups),
+        "n_accepted": 0,
+        "excluded_no_end": 0,
+        "excluded_duration": 0,
+        "excluded_no_anchor_sequence": 0,
+        "excluded_ambiguous_anchor_sequence": 0,
+        "excluded_bad_edge": 0,
+    }
+    minimum, maximum = epoch_duration_range
+    for group in event_groups:
+        arrays = [events[label.lower()] for label in group]
+        if any(len(values) != 1 for values in arrays):
+            raise ValueError(f"Expected one annotation per event-group label: {group}")
+        start, end = float(arrays[0][0]), float(arrays[-1][0])
+        duration = end - start
+        if (
+            duration <= 0
+            or (minimum is not None and duration < minimum)
+            or (maximum is not None and duration > maximum)
+        ):
+            diagnostics["excluded_duration"] += 1
+            continue
+        count, middle = _resolve_unique_intermediate_sequence(
+            arrays,
+            target,
+            start_t=start,
+            end_t=end,
+            percent_tolerance=percent_tolerance,
+        )
+        if count == 0:
+            diagnostics["excluded_no_anchor_sequence"] += 1
+            continue
+        if anno_drop and has_drop_annotations_between(
+            raw, start, end, drop_substrings=anno_drop, drop_mode=drop_mode
+        ):
+            diagnostics["excluded_bad_edge"] += 1
+            continue
+        sequence = (start, *middle, end)
+        positions = (np.asarray(sequence) - start) / duration * 100.0
+        epochs.append(
+            LinearEpoch(
+                group[0],
+                start,
+                end,
+                {**dict(zip(keys, sequence)), "start": start, "end": end},
+                dict(zip(keys, map(float, positions))),
+            )
+        )
+        diagnostics["n_accepted"] += 1
+    fn = _linear_epoch_warp_fn(epochs, target, keys, linear_warp)
+    fn.alignment_diagnostics = {"linear_event_pairing_diagnostics": diagnostics}
+    return {"ALL": epochs}, fn
+
+
 def normalize_cue_response(value):
     """Parse the optional paired-event configuration at the configuration boundary."""
     if not isinstance(value, dict):

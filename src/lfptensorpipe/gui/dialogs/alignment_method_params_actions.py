@@ -62,6 +62,8 @@ def _collect_candidate_params(
                 raise ValueError("target percent values must be unique.")
             anchors[percent] = label
         candidate["anchors_percent"] = anchors
+        if dialog._event_groups is not None:
+            candidate["event_groups"] = [list(group) for group in dialog._event_groups]
         if strict:
             candidate["epoch_duration_range"] = [
                 _parse_optional_float(dialog._duration_min_edit.text()),

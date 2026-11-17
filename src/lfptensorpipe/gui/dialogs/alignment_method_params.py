@@ -114,6 +114,7 @@ class AlignmentMethodParamsDialog(QDialog):
         super().__init__(parent)
         self._method_key = method_key
         self._cue_response = session_params.get("cue_response")
+        self._event_groups = session_params.get("event_groups")
         self._annotation_events = annotation_events
         self._mode_drafts: dict[str, dict[str, Any]] = {}
         self._cue_duration_edits: dict[str, QLineEdit] = {}
@@ -255,7 +256,7 @@ class AlignmentMethodParamsDialog(QDialog):
         self._apply_common(session_params)
         self._build_method_ui(session_params)
         self._refresh_active_validation()
-        if self._cue_response is not None:
+        if self._cue_response is not None or self._event_groups is not None:
             self._set_default_button.setEnabled(False)
             self._restore_default_button.setEnabled(False)
         if self._alignment_mode_combo is not None:
@@ -309,12 +310,14 @@ class AlignmentMethodParamsDialog(QDialog):
                 }
         self._method_ui_ready = False
         self._cue_response = params.get("cue_response")
+        self._event_groups = params.get("event_groups")
         self._sample_rate_label.setText(self._sample_rate_label_text())
         self._sample_rate_edit.setToolTip(self._sample_rate_tooltip_text())
         self._apply_common(params)
         self._build_method_ui(params)
-        self._set_default_button.setEnabled(mode == "percent")
-        self._restore_default_button.setEnabled(mode == "percent")
+        defaults_enabled = mode == "percent" and self._event_groups is None
+        self._set_default_button.setEnabled(defaults_enabled)
+        self._restore_default_button.setEnabled(defaults_enabled)
 
     def _cue_pairs(self) -> list[dict[str, str]]:
         return [

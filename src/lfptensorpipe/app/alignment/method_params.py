@@ -90,6 +90,8 @@ def validate_alignment_method_params(
             cue_response_anchors,
         )
 
+        if "event_groups" in candidate:
+            return False, defaults, "event_groups cannot be combined with cue_response."
         try:
             paired = normalize_cue_response(candidate["cue_response"])
         except (ValueError, TypeError, KeyError) as exc:
@@ -132,6 +134,40 @@ def validate_alignment_method_params(
             ok_anchors, anchors, msg_anchors = _normalize_anchors(anchor_value)
             if not ok_anchors:
                 return False, defaults, msg_anchors
+        event_groups = None
+        if "event_groups" in candidate:
+            groups = candidate["event_groups"]
+            if not anchors or not isinstance(groups, list) or not groups:
+                return (
+                    False,
+                    defaults,
+                    "event_groups requires anchors and a nonempty list.",
+                )
+            event_groups = []
+            seen_groups = set()
+            for group in groups:
+                if not isinstance(group, list) or len(group) != len(anchors):
+                    return (
+                        False,
+                        defaults,
+                        "Each event group must contain one label per anchor.",
+                    )
+                if any(
+                    not isinstance(label, str) or not label.strip() for label in group
+                ):
+                    return (
+                        False,
+                        defaults,
+                        "Event group labels must be nonempty strings.",
+                    )
+                normalized_group = [label.strip() for label in group]
+                identity = tuple(label.lower() for label in normalized_group)
+                if identity in seen_groups:
+                    return False, defaults, "Duplicate event groups are not allowed."
+                if labels and any(label not in labels for label in normalized_group):
+                    return False, defaults, "An event group annotation is unavailable."
+                seen_groups.add(identity)
+                event_groups.append(normalized_group)
         ok_range, epoch_duration_range, msg_range = _normalize_duration_range(
             candidate.get("epoch_duration_range", defaults["epoch_duration_range"]),
             allow_none=True,
@@ -168,6 +204,7 @@ def validate_alignment_method_params(
             True,
             {
                 "anchors_percent": anchors,
+                **({"event_groups": event_groups} if event_groups is not None else {}),
                 "epoch_duration_range": epoch_duration_range,
                 "linear_warp": linear_warp,
                 "percent_tolerance": percent_tolerance,

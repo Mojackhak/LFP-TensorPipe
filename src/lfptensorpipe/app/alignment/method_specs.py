@@ -62,4 +62,6 @@ def linear_event_pairing_mode(method_params):
     """Name the pairing rule actually consumed by a linear trial."""
     if isinstance(method_params, dict) and "cue_response" in method_params:
         return "explicit_annotation_pairs"
+    if isinstance(method_params, dict) and "event_groups" in method_params:
+        return "explicit_annotation_groups"
     return LINEAR_EVENT_PAIRING

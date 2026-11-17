@@ -173,7 +173,7 @@ class MainWindowAlignmentConfigMixin:
             raise ValueError(f"Unknown alignment method: {method_key}")
         allowed_keys = set(defaults)
         if method_key == "linear_warper":
-            allowed_keys.add("cue_response")
+            allowed_keys.update({"cue_response", "event_groups"})
         unknown_keys = sorted(set(filtered_params) - allowed_keys)
         if unknown_keys:
             warnings.append("Removed unknown field(s): " + ", ".join(unknown_keys))

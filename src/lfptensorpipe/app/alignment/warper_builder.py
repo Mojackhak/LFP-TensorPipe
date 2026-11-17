@@ -50,6 +50,19 @@ def _build_warper(
             anno_drop=anno_drop,
             drop_mode=drop_mode,
         )
+    if method == "linear_warper" and "event_groups" in method_params:
+        from lfptensorpipe.lfp.warp.event_anchored_linear import grouped_linear_warper
+
+        return grouped_linear_warper(
+            raw,
+            anchors_percent=method_params["anchors_percent"],
+            event_groups=method_params["event_groups"],
+            epoch_duration_range=method_params["epoch_duration_range"],
+            linear_warp=method_params["linear_warp"],
+            percent_tolerance=method_params["percent_tolerance"],
+            anno_drop=anno_drop,
+            drop_mode=drop_mode,
+        )
     if method == "linear_warper":
         anchors = method_params.get("anchors_percent", {})
         if not isinstance(anchors, dict) or len(anchors) < 2:
