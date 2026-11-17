@@ -60,11 +60,6 @@ def _save_table_xlsx(df: pd.DataFrame, out_path: Path) -> tuple[bool, str]:
                 tmp_path.unlink()
         except Exception:
             pass
-        try:
-            if out_path.exists():
-                out_path.unlink()
-        except Exception:
-            pass
         return False, str(exc)
 
 
