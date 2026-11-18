@@ -11,6 +11,8 @@ from typing import Any, Callable
 from PySide6.QtCore import QEvent, QObject, QTimer
 from PySide6.QtWidgets import QApplication
 
+from lfptensorpipe.gui.shell.preproc_plotting_backend import plot_preproc_raw
+
 _PARENT_POLL_INTERVAL_MS = 250
 _SHUTDOWN_FALLBACK_MS = 250
 
@@ -243,7 +245,7 @@ def run_preproc_plot_worker(
 
     app = _ensure_app(app_factory=app_factory)
     raw = read_raw_fif_fn(raw_path, preload=True, verbose="ERROR")
-    browser = raw.plot(block=False, title=title)
+    browser = plot_preproc_raw(raw, title=title)
     controller = controller_cls(
         app=app,
         raw=raw,

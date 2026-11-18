@@ -444,6 +444,24 @@ and writes the annotated recording, which can have a different number of
 parts. If a referenced source part is missing, the step reports a failure and
 keeps any previously published output FIF files.
 
+On Windows, Preprocess `Plot` prepares waveform data for the visible time window
+at the recording's original sampling rate. The Qt browser's default Downsampling
+value of `1` displays every sample. The horizontal scrollbar and waveform
+controls convert window times directly to sample indices using that rate. Clicking
+the Qt overview maps its horizontal position to a sample on the same timeline.
+The overview offers channel colors or an empty background in this mode. Use the
+horizontal scrollbar for continuous dragging and the overview to jump.
+The time-window buttons and their Home and End shortcuts use the same three-sample
+minimum. Each zoom updates the waveform once and synchronizes the scrollbar to
+the resulting range. A native Windows Qt preview uses OpenGL to draw the full
+waveform when PyOpenGL is installed and Qt can create an OpenGL context. An
+explicit `MNE_BROWSER_USE_OPENGL` setting takes precedence.
+On high-DPI Windows displays, the Qt plot uses a one-device-pixel default line
+width for waveforms. Antialiasing follows the browser setting, and annotation
+outlines and hover handles keep their explicit widths as the display scales.
+Annotation edits and bad-channel selections follow the close and save rules of
+the selected step. Navigating a plot affects only its display.
+
 ### 6.1 Step 0: Raw
 
 | Control | What it does | What it affects | Availability / blocking rule |

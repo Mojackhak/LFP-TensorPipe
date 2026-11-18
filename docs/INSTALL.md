@@ -71,6 +71,11 @@ conda activate lfptp
 python -m pip install -e ".[dev]"
 ```
 
+Run `python -I -c "import lfptensorpipe; print(lfptensorpipe.__file__)"` in the
+`lfptp` environment to check which source the launcher will use. For a developer
+checkout, the path should end in that checkout's `src/lfptensorpipe/__init__.py`.
+Start a new application process after changing the editable installation.
+
 ### 3.3 Launch the Application
 
 From the `lfptp` environment, run either command:

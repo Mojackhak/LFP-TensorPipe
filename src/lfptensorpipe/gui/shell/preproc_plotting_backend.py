@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from functools import partial
 import hashlib
 import logging
+import math
 import os
+import sys
+import weakref
 
 import numpy as np
+from PySide6.QtCore import QSignalBlocker
+from PySide6.QtGui import QAction, QOpenGLContext
 
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.preproc.indicator import preproc_filter_review_required
@@ -508,6 +514,115 @@ def _resize_preproc_plot_window(browser: Any) -> None:
         resize(*PREPROC_PLOT_WINDOW_SIZE)
     except Exception:
         pass
+
+
+def _raw_window_sample_bounds(state: Any) -> tuple[int, int]:
+    """Match MNE's exclusive stop and truncation on a regularly sampled Raw."""
+    sfreq = state.info["sfreq"]
+    start = state.t_start - state.first_time
+    stop = start + math.ceil(state.duration * sfreq) / sfreq
+    return int(start * sfreq), int(stop * sfreq)
+
+
+def _raw_overview_coordinates(
+    overview: Any, point: Any
+) -> tuple[float | str, float | str]:
+    """Map a Qt overview position to sample time and the current channel order."""
+    state = overview.mne
+    x = point.x() / overview.width()
+    y = point.y() / overview.height()
+    time: float | str
+    if x < 0:
+        time = "-offbounds"
+    elif x > 1:
+        time = "+offbounds"
+    else:
+        sample = int((state.inst.n_times - 1) * x)
+        time = sample / state.info["sfreq"]
+    if y < 0:
+        return time, "-offbounds"
+    if y > 1:
+        return time, "+offbounds"
+    return time, len(state.ch_order) * y
+
+
+def _change_raw_duration(state: Any, checked: bool = False, *, step: float) -> None:
+    """Zoom a Qt Raw view and synchronize its scrollbar without a second pan."""
+    left, right = state.viewbox.viewRange()[0]
+    right = max(right + state.duration * step, left + 3 / state.info["sfreq"])
+    if right > state.xmax:
+        left -= right - state.xmax
+        right = state.xmax
+    state.plt.setXRange(max(0.0, left), right, padding=0)
+    # A new scrollbar maximum can clamp its value and emit another range change.
+    with QSignalBlocker(state.ax_hscroll):
+        state.ax_hscroll.update_duration()
+        state.ax_hscroll.update_value(state.t_start)
+
+
+def _bind_raw_duration_controls(browser: Any) -> None:
+    state = browser.mne
+    change_duration = partial(_change_raw_duration, weakref.proxy(state))
+    browser.change_duration = change_duration
+    keys = {"Show fewer time points": "home", "Show more time points": "end"}
+    for action in state.toolbar.actions():
+        key = keys.get(action.text())
+        if key is None:
+            continue
+        binding = state.keyboard_shortcuts[key]
+        binding["slot"][0] = change_duration
+        # The native actions captured the original bound method at construction.
+        replacement = QAction(action.icon(), action.text(), state.toolbar)
+        replacement.setToolTip(action.toolTip())
+        replacement.triggered.connect(
+            partial(change_duration, step=binding["parameter"][0])
+        )
+        state.toolbar.insertAction(action, replacement)
+        state.toolbar.removeAction(action)
+        action.deleteLater()
+
+
+def _windows_plot_opengl() -> bool | None:
+    """Prefer accelerated traces on a native Qt display with an OpenGL context."""
+    if QApplication.instance() is None or QApplication.platformName() != "windows":
+        return None
+    from mne import get_config
+    from mne.viz import get_browser_backend
+
+    if get_browser_backend() == "qt" and get_config("MNE_BROWSER_USE_OPENGL") is None:
+        return QOpenGLContext().create()
+    return None
+
+
+def plot_preproc_raw(raw: Any, *, title: str, precompute: bool | None = None) -> Any:
+    """Open a preprocess browser with window-local navigation on Windows."""
+    if sys.platform != "win32":
+        return raw.plot(block=False, title=title, precompute=precompute)
+
+    browser = raw.plot(
+        block=False,
+        title=title,
+        precompute=False,
+        decim=1,
+        use_opengl=_windows_plot_opengl(),
+    )
+    state = getattr(browser, "mne", None)
+    if state is not None:
+        # Both MNE backends otherwise build raw.times to read its first element.
+        browser._get_start_stop = partial(_raw_window_sample_bounds, state)
+        overview = getattr(state, "overview_bar", None)
+        if overview is not None:
+            _bind_raw_duration_controls(browser)
+            overview._mapToData = partial(
+                _raw_overview_coordinates, weakref.proxy(overview)
+            )
+            if browser._pixel_ratio > 1:
+                # MNE multiplies pen widths by the display ratio. A one-pixel
+                # cosmetic pen keeps Qt's fast raster path for full-rate traces.
+                state.mkPen = partial(state.mkPen, width=1.0 / browser._pixel_ratio)
+                for trace in state.traces:
+                    trace.update_color()
+    return browser
 
 
 def _browser_tracking_targets(
@@ -1166,18 +1281,16 @@ def _open_mne_raw_plot(
                 )
 
                 with mne.viz.use_browser_backend("qt"):
-                    browser = raw.plot(
-                        block=False,
-                        title=f"{title_prefix}: {raw_path.name}",
-                        precompute=False,
+                    browser = plot_preproc_raw(
+                        raw, title=f"{title_prefix}: {raw_path.name}", precompute=False
                     )
                 payload = read_run_log(raw_path.parent / "lfptensorpipe_log.json")
                 attach_signal_repair_review(
                     browser, raw, payload["params"].get("intervals", [])
                 )
             else:
-                browser = raw.plot(
-                    block=False, title=f"{title_prefix}: {raw_path.name}"
+                browser = plot_preproc_raw(
+                    raw, title=f"{title_prefix}: {raw_path.name}"
                 )
         finally:
             if previous_plot_size is None:
