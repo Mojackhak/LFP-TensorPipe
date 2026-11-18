@@ -18,11 +18,24 @@ from ..paths import preproc_step_log_path, preproc_step_raw_path, rawdata_input_
 MarkStepFn = Callable[..., Any]
 
 
+def _copy_raw_fif_set(
+    source: Path, staged: Path, *, copy2_fn: Callable[..., Any] | None = None
+) -> None:
+    """Stage the primary FIF and every continuation referenced by its Raw."""
+    import mne
+
+    copy_file = copy2_fn or shutil.copy2
+    copy_file(source, staged)
+    with mne.io.read_raw_fif(source, preload=False, verbose="ERROR") as raw:
+        for filename in raw.filenames[1:]:
+            part = Path(filename)
+            copy_file(part, staged.with_name(part.name))
+
+
 def restore_raw_step_from_rawdata(
     context: RecordContext, *, mark_preproc_step_fn: MarkStepFn
 ) -> tuple[bool, str]:
     """Restore the canonical FIF set without losing a previously accepted Raw."""
-    import mne
     from send2trash import send2trash
 
     resolver = PathResolver(context)
@@ -41,15 +54,10 @@ def restore_raw_step_from_rawdata(
             retained.append(f"{path} ({exc})")
 
     try:
-        original = mne.io.read_raw_fif(source, preload=False, verbose="ERROR")
-        try:
-            source_files = tuple(Path(path) for path in original.filenames)
-        finally:
-            original.close()
-        with AtomicOutputSet([target, log_path], retire_existing_fn=retire) as output_set:
-            staged = output_set.staged_path(target)
-            for index, path in enumerate(source_files):
-                shutil.copy2(path, staged if index == 0 else staged.parent / path.name)
+        with AtomicOutputSet(
+            [target, log_path], retire_existing_fn=retire
+        ) as output_set:
+            _copy_raw_fif_set(source, output_set.staged_path(target))
             mark_preproc_step_fn(
                 resolver=resolver,
                 step="raw",
@@ -112,7 +120,7 @@ def bootstrap_raw_step_from_rawdata(
             cleanup_stale_residues=True,
         ) as output_set:
             if reviewed_raw is None:
-                shutil.copy2(src, output_set.staged_path(dst))
+                _copy_raw_fif_set(src, output_set.staged_path(dst))
             else:
                 reviewed_raw.save(
                     str(output_set.staged_path(dst)), fmt="double", overwrite=True

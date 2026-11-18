@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import asdict
 import math
 from pathlib import Path
-import shutil
 from typing import Any, Callable
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
@@ -27,6 +26,7 @@ from ..lineage import (
     capture_preproc_input_generation,
     preproc_input_generation_matches,
 )
+from .raw import _copy_raw_fif_set
 
 MarkStepFn = Callable[..., Any]
 InvalidateFn = Callable[[RecordContext, str], list[Any]]
@@ -460,7 +460,6 @@ def apply_ecg_step(
     result_generation_id = new_result_generation_id()
 
     try:
-        runtime_copy2 = copy2_fn or shutil.copy2
         if read_raw_fif_fn is None:
             import mne
 
@@ -493,7 +492,7 @@ def apply_ecg_step(
                 [dst, config_path, log_path],
                 cleanup_stale_residues=True,
             ) as output_set:
-                runtime_copy2(src, output_set.staged_path(dst))
+                _copy_raw_fif_set(src, output_set.staged_path(dst), copy2_fn=copy2_fn)
                 write_preproc_step_config(
                     resolver=resolver,
                     step="ecg_artifact_removal",

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import csv
 import math
-import shutil
+from tempfile import TemporaryDirectory
 from typing import Any, Callable
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
@@ -28,6 +28,7 @@ from ..lineage import (
     preproc_accepted_ancestor_payload,
     preproc_input_generation_matches,
 )
+from .raw import _copy_raw_fif_set
 
 MarkStepFn = Callable[..., Any]
 InvalidateFn = Callable[[RecordContext, str], list[Any]]
@@ -288,7 +289,6 @@ def apply_annotations_step(
 
         if read_raw_fif_fn is None:
             read_raw_fif_fn = mne.io.read_raw_fif
-        runtime_copy2 = copy2_fn or shutil.copy2
         if not isinstance(mark_filter_edges, bool):
             raise ValueError("mark_filter_edges must be a boolean.")
         edge_params: dict[str, Any] = {"mark_filter_edges": mark_filter_edges}
@@ -311,9 +311,16 @@ def apply_annotations_step(
             cleanup_stale_residues=True,
         ) as output_set:
             staged_raw = output_set.staged_path(dst)
-            # Preserve the exact source file before applying annotations.
-            runtime_copy2(src, staged_raw)
-            raw = read_raw_fif_fn(str(staged_raw), preload=True, verbose="ERROR")
+            if copy2_fn is None:
+                raw = read_raw_fif_fn(str(src), preload=True, verbose="ERROR")
+            else:
+                # Keep an explicitly requested input copy outside the output FIF set.
+                with TemporaryDirectory(dir=staged_raw.parent) as directory:
+                    input_copy = Path(directory) / src.name
+                    _copy_raw_fif_set(src, input_copy, copy2_fn=copy2_fn)
+                    raw = read_raw_fif_fn(
+                        str(input_copy), preload=True, verbose="ERROR"
+                    )
             source_raw = raw.copy()
             effective_rows, clipped_count, omitted_count = (
                 _clip_annotation_rows_to_raw_support(normalized_rows, raw)

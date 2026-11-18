@@ -437,6 +437,13 @@ can be skipped without invalidating existing results or changing its gray state.
 | `Apply` buttons | Execute the corresponding preprocess step. | Step outputs and downstream freshness. | Optional-step controls become available after Raw succeeds; Finish requires at least one valid source. |
 | `Plot` buttons | Open a plot for the current step output. | Human QC only. | Require a successful corresponding step output. |
 
+Preprocess reads a split FIF recording as one continuous signal. Accepting
+an unedited Raw and applying ECG with an empty channel selection copy every
+part referenced by the source FIF. Annotations Apply reads the complete source
+and writes the annotated recording, which can have a different number of
+parts. If a referenced source part is missing, the step reports a failure and
+keeps any previously published output FIF files.
+
 ### 6.1 Step 0: Raw
 
 | Control | What it does | What it affects | Availability / blocking rule |
