@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from typing import Any
-import warnings
 
 import mne
 import numpy as np
 from scipy.interpolate import PchipInterpolator
 
-from lfptensorpipe.lfp.mask.annotations import annotation_sample_support_by_channel
+from lfptensorpipe.lfp.mask.annotations import (
+    annotation_sample_support_by_channel,
+    valid_segments_from_annotation_support,
+)
 from lfptensorpipe.preproc.filter import _set_annotations_from_attached_frame
 
 
@@ -125,61 +127,46 @@ def _peak_candidates(data, unavailable, sfreq, params, boundaries):
     width = max(3, int(round(params["detection_window_s"] * sfreq)))
     width += 1 - width % 2
     half = width // 2
+    baseline_width = max(3, int(round(params["baseline_window_s"] * sfreq)))
+    baseline_width += 1 - baseline_width % 2
     candidates = np.zeros(data.size, dtype=bool)
     zscore = params.get("detection_method") == "local_zscore"
     threshold = params["zscore_threshold" if zscore else "mad_threshold"]
-    cuts = {0, data.size, *boundaries}
-    if zscore:
-        for start, stop in _runs(unavailable):
-            cuts.update((int(start), int(stop)))
-    cuts = sorted(cuts)
-    for left, right in zip(cuts[:-1], cuts[1:]):
-        if zscore and np.all(unavailable[left:right]):
+    for left, right in valid_segments_from_annotation_support(unavailable, boundaries):
+        if right - left < 3:
             continue
-        values = data[left:right].copy()
-        values[unavailable[left:right]] = np.nan
-        baseline_width = max(3, int(round(params["baseline_window_s"] * sfreq)))
-        baseline_width += 1 - baseline_width % 2
-        for a, b in _runs(np.isfinite(values)):
-            windows_baseline = np.lib.stride_tricks.sliding_window_view(
-                np.pad(values[a:b], baseline_width // 2, constant_values=np.nan),
-                baseline_width,
+        values = data[left:right]
+        windows_baseline = np.lib.stride_tricks.sliding_window_view(
+            np.pad(values, baseline_width // 2, constant_values=np.nan), baseline_width
+        )
+        residual = np.empty(values.size)
+        for offset in range(0, values.size, 4096):
+            block = slice(offset, offset + 4096)
+            residual[block] = values[block] - np.nanmedian(
+                windows_baseline[block], axis=1
             )
-            baseline = np.empty(b - a)
-            for offset in range(0, b - a, 4096):
-                baseline[offset : offset + 4096] = np.nanmedian(
-                    windows_baseline[offset : offset + 4096], axis=1
-                )
-            values[a:b] -= baseline
-        padded = np.pad(values, (half, half), constant_values=np.nan)
+        padded = np.pad(residual, (half, half), constant_values=np.nan)
         windows = np.lib.stride_tricks.sliding_window_view(padded, width)
         for start in range(0, values.size, 4096):
             stop = min(start + 4096, values.size)
             chunk = windows[start:stop]
-            with warnings.catch_warnings():
-                warnings.filterwarnings(
-                    "ignore",
-                    message="All-NaN slice encountered",
-                    category=RuntimeWarning,
+            if zscore:
+                center = np.nanmean(chunk, axis=1)
+                scale = np.nanstd(chunk, axis=1, ddof=1)
+            else:
+                # Only windows at the ends of a valid run contain NaN padding.
+                median = (
+                    np.median
+                    if half <= start and stop <= values.size - half
+                    else np.nanmedian
                 )
-                if zscore:
-                    warnings.filterwarnings(
-                        "ignore",
-                        message="Degrees of freedom <= 0 for slice",
-                        category=RuntimeWarning,
-                    )
-                    center = np.nanmean(chunk, axis=1)
-                    scale = np.nanstd(chunk, axis=1, ddof=1)
-                else:
-                    center = np.nanmedian(chunk, axis=1)
-                    scale = 1.4826 * np.nanmedian(
-                        np.abs(chunk - center[:, None]), axis=1
-                    )
+                center = median(chunk, axis=1)
+                scale = 1.4826 * median(np.abs(chunk - center[:, None]), axis=1)
             supported = (np.sum(np.isfinite(chunk), axis=1) >= 3) & (scale > 0)
             candidates[left + start : left + stop] = supported & (
-                np.abs(values[start:stop] - center) > threshold * scale
+                np.abs(residual[start:stop] - center) > threshold * scale
             )
-    return candidates & ~unavailable
+    return candidates
 
 
 def _discontinuity_candidates(data, unavailable, sfreq, params, boundaries):
@@ -242,16 +229,30 @@ def repair_signal(raw: mne.io.BaseRaw, params: dict[str, Any]):
     if not any(group["enabled"] for group in effective.values()):
         raise ValueError("Enable gap or peak interpolation before Apply.")
     output = raw.copy().load_data()
-    data = raw.get_data()
     sfreq = float(raw.info["sfreq"])
     channels = tuple(raw.ch_names)
-    gaps, _, _ = annotation_sample_support_by_channel(
+    gaps, gap_points, _ = annotation_sample_support_by_channel(
         raw, channels=channels, keep=("BAD_gap",), mode="exact"
     )
-    unavailable, boundaries, _ = annotation_sample_support_by_channel(
-        raw, channels=channels, keep=("bad", "edge", "interpolated_"), mode="prefix"
+    labels = [label.strip().lower() for label in raw.annotations.description]
+    protected_labels = tuple(
+        label
+        for label in set(labels)
+        if label != "bad_gap" and label.startswith(("bad", "edge", "interpolated_"))
     )
-    unavailable |= ~np.isfinite(data)
+    if protected_labels:
+        protected, protected_points, _ = annotation_sample_support_by_channel(
+            raw, channels=channels, keep=protected_labels, mode="exact"
+        )
+    else:
+        protected = np.zeros_like(gaps)
+        protected_points = ((),) * len(channels)
+    gap_bounds = {}
+    if effective["gaps"]["enabled"] and "bad_gap" in labels:
+        indices = [index for index, label in enumerate(labels) if label == "bad_gap"]
+        onsets = raw.annotations.onset[indices] - raw.first_time
+        times = np.column_stack((onsets, onsets + raw.annotations.duration[indices]))
+        gap_bounds = dict(zip(indices, raw.time_as_index(times, use_rounding=True)))
     repaired_gaps = np.zeros_like(gaps)
     annotations = []
     intervals = []
@@ -261,36 +262,29 @@ def repair_signal(raw: mne.io.BaseRaw, params: dict[str, Any]):
     ):
         if channel in raw.info["bads"] or channel_type not in signal_types:
             continue
-        x = data[channel_index]
-        if effective["gaps"]["enabled"]:
-            for annotation_index, ann in enumerate(raw.annotations):
-                if str(ann["description"]).lower() != "bad_gap":
-                    continue
-                scope = raw.annotations.ch_names[annotation_index]
-                if scope and channel not in scope:
-                    continue
-                start, stop = raw.time_as_index(
-                    [
-                        ann["onset"] - raw.first_time,
-                        ann["onset"] + ann["duration"] - raw.first_time,
-                    ],
-                    use_rounding=True,
+        x = output._data[channel_index].copy()
+        protected_target = protected[channel_index]
+        for annotation_index, (start, stop) in gap_bounds.items():
+            scope = raw.annotations.ch_names[annotation_index]
+            if start == stop and (not scope or channel in scope):
+                intervals.append(
+                    {
+                        "channel": channel,
+                        "kind": "gaps",
+                        "start_sample": int(start),
+                        "stop_sample": int(stop),
+                        "method": effective["gaps"]["method"],
+                        "source": "raw:BAD_gap",
+                        "status": "skipped",
+                        "reason": "empty_sample_support",
+                    }
                 )
-                if start == stop:
-                    intervals.append(
-                        {
-                            "channel": channel,
-                            "kind": "gaps",
-                            "start_sample": int(start),
-                            "stop_sample": int(stop),
-                            "method": effective["gaps"]["method"],
-                            "source": "raw:BAD_gap",
-                            "status": "skipped",
-                            "reason": "empty_sample_support",
-                        }
-                    )
-        invalid = unavailable[channel_index]
-        points = boundaries[channel_index]
+        valid = ~(protected_target | gaps[channel_index])
+        np.isfinite(x, out=valid, where=valid)
+        invalid = ~valid
+        points = sorted(
+            set(gap_points[channel_index]).union(protected_points[channel_index])
+        )
         peaks = np.zeros(raw.n_times, dtype=bool)
         if effective["peaks"]["enabled"]:
             detector = (
@@ -335,6 +329,8 @@ def repair_signal(raw: mne.io.BaseRaw, params: dict[str, Any]):
                 reason = None
                 if stop - start > settings["max_samples"]:
                     reason = "too_long"
+                elif kind == "gaps" and protected_target[start:stop].any():
+                    reason = "protected_target"
                 elif left < 0 or right > raw.n_times:
                     reason = "missing_endpoint"
                 elif np.any(support_invalid[left:start]) or np.any(
@@ -373,12 +369,11 @@ def repair_signal(raw: mne.io.BaseRaw, params: dict[str, Any]):
                 )
                 gap_annotations = []
                 if kind == "gaps":
-                    for ai, ann in enumerate(raw.annotations):
+                    for ai in gap_bounds:
                         scope = raw.annotations.ch_names[ai]
-                        if ann["description"].lower() != "bad_gap" or (
-                            scope and channel not in scope
-                        ):
+                        if scope and channel not in scope:
                             continue
+                        ann = raw.annotations[ai]
                         a = max(raw.first_time + start / sfreq, ann["onset"])
                         b = min(
                             raw.first_time + stop / sfreq,
@@ -404,17 +399,12 @@ def repair_signal(raw: mne.io.BaseRaw, params: dict[str, Any]):
     for ann_index, ann in enumerate(raw.annotations):
         onset, duration, description = ann["onset"], ann["duration"], ann["description"]
         scope = tuple(raw.annotations.ch_names[ann_index])
-        start, stop = raw.time_as_index(
-            [onset - raw.first_time, onset + duration - raw.first_time],
-            use_rounding=True,
-        )
-        start, stop = int(np.clip(start, 0, raw.n_times)), int(
-            np.clip(stop, 0, raw.n_times)
-        )
+        if ann_index not in gap_bounds:
+            annotations.append((onset, duration, description, scope))
+            continue
+        start, stop = np.clip(gap_bounds[ann_index], 0, raw.n_times)
         affected = [channels.index(ch) for ch in (scope or channels)]
-        if description.lower() != "bad_gap" or not np.any(
-            repaired_gaps[affected, start:stop]
-        ):
+        if not np.any(repaired_gaps[affected, start:stop]):
             annotations.append((onset, duration, description, scope))
             continue
         for index in affected:
