@@ -1157,7 +1157,7 @@ or invalidate artifacts.
 | `Advance` | Opens the advanced dialog for the active metric. This is where method-specific controls such as cycles, multitaper settings, smoothing, or connectivity-specific options are configured. | Active metric advanced settings. | Disabled for unsupported metrics. |
 | `Status` | Reports the active metric state within the current slice. | User feedback only. | Read-only. |
 | `Import Configs...` | Loads a tensor configuration payload. | Current page configuration. | Requires a selected record. |
-| `Export Configs...` | Saves the current tensor configuration payload. | External tensor config file. | Requires a selected record. |
+| `Export Configs...` | Saves the current tensor configuration payload. An existing file is replaced only after the complete JSON has been written successfully. | External tensor config file. | Requires a selected record. |
 | `Mask Edge Effects` | Treats samples within annotations whose labels contain `bad` or `edge` as edge-affected. Non-Burst metrics apply their method-specific output mask. Burst applies the toggle before threshold estimation and event detection: checked makes the effective band-specific support invalid, while unchecked leaves annotated support eligible. | Runtime build behavior for every selected metric. | Always available. |
 | `Build Tensor` | Runs tensor generation for all checked metrics after excluding channels listed in the accepted Finish Raw's `raw.info["bads"]`. | Tensor outputs for the current record. | Requires preprocess finish outputs and non-empty effective channel or pair selections for every checked metric. |
 

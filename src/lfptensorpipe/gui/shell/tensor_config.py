@@ -7,6 +7,7 @@ import re
 from copy import deepcopy
 
 from lfptensorpipe.app.shared.page_config import json_value, page_config_node
+from lfptensorpipe.app.shared.atomic_outputs import write_outputs_atomically
 from lfptensorpipe.app.tensor import service as tensor_service
 from lfptensorpipe.app.tensor.config import (
     TENSOR_CONFIG_FIELDS_BY_METRIC,
@@ -597,16 +598,18 @@ class MainWindowTensorConfigMixin:
 
         try:
             payload = self._build_tensor_config_export_payload()
-            export_path.parent.mkdir(parents=True, exist_ok=True)
-            with export_path.open("w", encoding="utf-8") as handle:
-                json.dump(
-                    payload,
-                    handle,
-                    ensure_ascii=False,
-                    indent=2,
-                    allow_nan=False,
-                )
-                handle.write("\n")
+            serialized = (
+                json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False)
+                + "\n"
+            )
+            write_outputs_atomically(
+                [
+                    (
+                        export_path,
+                        lambda path: path.write_text(serialized, encoding="utf-8"),
+                    )
+                ]
+            )
         except Exception as exc:  # noqa: BLE001
             self._show_warning("Export Configs", f"Export failed:\n{exc}")
             return
