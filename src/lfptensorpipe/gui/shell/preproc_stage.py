@@ -284,15 +284,19 @@ class MainWindowPreprocStageMixin:
             )
             if base_state == "yellow" and not skipped_steps.get(step, False):
                 blocked = True
-        filter_raw_exists = preproc_step_raw_path(resolver, "filter").exists()
-        annotations_raw_exists = preproc_step_raw_path(resolver, "annotations").exists()
+        filter_raw_exists = preproc_step_raw_path(
+            resolver, "filter", create=False
+        ).exists()
+        annotations_raw_exists = preproc_step_raw_path(
+            resolver, "annotations", create=False
+        ).exists()
         ecg_raw_exists = preproc_step_raw_path(
-            resolver, "ecg_artifact_removal"
+            resolver, "ecg_artifact_removal", create=False
         ).exists()
         finish_source_exists = resolve_finish_source(context) is not None
-        finish_raw_path = resolver.preproc_root / "finish" / "raw.fif"
+        finish_raw_path = preproc_step_raw_path(resolver, "finish", create=False)
         finish_raw_exists = finish_raw_path.exists()
-        raw_step_exists = preproc_step_raw_path(resolver, "raw").exists()
+        raw_step_exists = preproc_step_raw_path(resolver, "raw", create=False).exists()
         raw_ready = raw_log_state == "green" and raw_step_exists
         repair_route_ready = raw_ready and (repair_skipped or repair_state != "yellow")
         filter_route_ready = repair_route_ready and (

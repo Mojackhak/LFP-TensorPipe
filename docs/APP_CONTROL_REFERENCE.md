@@ -63,6 +63,10 @@ Raw Plot action can bootstrap its preprocessing input from the canonical
 `raw.fif`. A Sourcedata-only record can be renamed or deleted but is not runnable
 because it has no canonical Rawdata input.
 
+Browsing a record, switching away, or closing an unchanged record leaves its
+existing storage scopes intact. Running a processing action or saving an
+edited record draft can create its Derivatives output.
+
 When Sourcedata is the record's only existing standard root, the Record list
 shows the record name in red. Selecting that record from another selection opens
 a warning that describes the existing manual replacement path:

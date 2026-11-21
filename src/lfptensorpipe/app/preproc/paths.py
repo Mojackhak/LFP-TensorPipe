@@ -26,9 +26,11 @@ def rawdata_input_fif_path(context: RecordContext) -> Path:
     )
 
 
-def preproc_step_raw_path(resolver: PathResolver, step: str) -> Path:
+def preproc_step_raw_path(
+    resolver: PathResolver, step: str, *, create: bool = True
+) -> Path:
     """Return `{step}/raw.fif` path inside preproc root."""
-    return resolver.preproc_step_dir(step, create=True) / "raw.fif"
+    return resolver.preproc_step_dir(step, create=create) / "raw.fif"
 
 
 def preproc_filter_preview_raw_path(resolver: PathResolver) -> Path:
@@ -46,9 +48,11 @@ def preproc_filter_preview_log_path(resolver: PathResolver) -> Path:
     return resolver.preproc_step_dir("filter") / "qc" / "preview_log.json"
 
 
-def preproc_step_log_path(resolver: PathResolver, step: str) -> Path:
+def preproc_step_log_path(
+    resolver: PathResolver, step: str, *, create: bool = True
+) -> Path:
     """Return `{step}/lfptensorpipe_log.json` path inside preproc root."""
-    return resolver.preproc_step_dir(step, create=True) / "lfptensorpipe_log.json"
+    return resolver.preproc_step_dir(step, create=create) / "lfptensorpipe_log.json"
 
 
 def preproc_step_config_path(resolver: PathResolver, step: str) -> Path:

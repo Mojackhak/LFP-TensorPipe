@@ -34,8 +34,14 @@ class MainWindowRecordParamsStoreMixin:
         params: dict[str, Any],
         reason: str,
     ) -> bool:
-        _ = reason
-        path = PathResolver(context).record_ui_state_path(create=True)
+        resolver = PathResolver(context)
+        if (
+            reason in {"app_close", "record_context_switch", "record_rename"}
+            and not self._record_param_dirty_keys
+            and not resolver.lfp_root.exists()
+        ):
+            return True
+        path = resolver.record_ui_state_path(create=True)
         try:
             write_ui_state(path, params)
             return True

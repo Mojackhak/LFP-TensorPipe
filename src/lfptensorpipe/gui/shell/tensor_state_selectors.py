@@ -99,7 +99,7 @@ class MainWindowTensorStateSelectorsMixin:
             return
 
         resolver = PathResolver(context)
-        raw_path = preproc_step_raw_path(resolver, "finish")
+        raw_path = preproc_step_raw_path(resolver, "finish", create=False)
         try:
             inventory = (
                 load_tensor_channel_inventory(raw_path) if raw_path.exists() else None

@@ -586,7 +586,7 @@ def _load_finish_nyquist_hz(
     read_raw_fif_fn=None,
 ) -> float | None:
     resolver = PathResolver(context)
-    finish_path = preproc_step_raw_path(resolver, "finish")
+    finish_path = preproc_step_raw_path(resolver, "finish", create=False)
     if not finish_path.exists():
         return None
     try:
@@ -610,7 +610,7 @@ def _load_finish_nyquist_hz(
 def load_tensor_filter_inheritance(context: RecordContext) -> TensorFilterInheritance:
     """Load frequency/notch defaults inherited from preprocess filter log."""
     resolver = PathResolver(context)
-    payload = read_run_log(preproc_step_log_path(resolver, "filter"))
+    payload = read_run_log(preproc_step_log_path(resolver, "filter", create=False))
     low_freq = 1.0
     high_freq = 200.0
     notches: tuple[float, ...] = ()

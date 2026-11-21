@@ -20,9 +20,7 @@ from lfptensorpipe.gui.shell.common import (
 class MainWindowPreprocChannelsMixin:
     @staticmethod
     def _preproc_step_path_for_viz(resolver: PathResolver, step: str) -> Path:
-        if step == "finish":
-            return resolver.preproc_root / "finish" / "raw.fif"
-        return preproc_step_raw_path(resolver, step)
+        return preproc_step_raw_path(resolver, step, create=False)
 
     @staticmethod
     def _read_channel_names_from_raw(raw_path: Path) -> list[str]:

@@ -188,12 +188,16 @@ def rawdata_input_fif_path(context: RecordContext) -> Path:
     return _rawdata_input_fif_path_impl(context)
 
 
-def preproc_step_raw_path(resolver: PathResolver, step: str) -> Path:
-    return _preproc_step_raw_path_impl(resolver, step)
+def preproc_step_raw_path(
+    resolver: PathResolver, step: str, *, create: bool = True
+) -> Path:
+    return _preproc_step_raw_path_impl(resolver, step, create=create)
 
 
-def preproc_step_log_path(resolver: PathResolver, step: str) -> Path:
-    return _preproc_step_log_path_impl(resolver, step)
+def preproc_step_log_path(
+    resolver: PathResolver, step: str, *, create: bool = True
+) -> Path:
+    return _preproc_step_log_path_impl(resolver, step, create=create)
 
 
 def preproc_step_config_path(resolver: PathResolver, step: str) -> Path:
