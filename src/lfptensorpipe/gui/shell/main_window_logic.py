@@ -307,6 +307,7 @@ class MainWindow(
         self._features_files: list[dict[str, Any]] = []
         self._features_filtered_files: list[dict[str, Any]] = []
         self._features_axes_by_metric: dict[str, dict[str, list[dict[str, Any]]]] = {}
+        self._alignment_method_drafts: dict[str, dict[str, Any]] = {}
         self._features_trial_params_by_slug: dict[str, dict[str, Any]] = {}
         self._features_plot_advance_params: dict[str, Any] = (
             self._load_features_plot_advance_defaults()

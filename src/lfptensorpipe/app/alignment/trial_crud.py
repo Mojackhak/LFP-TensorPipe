@@ -365,6 +365,10 @@ def _prepare_deleted_trial_ui_state(
     changed = False
     alignment_node = payload.get("alignment")
     if isinstance(alignment_node, dict):
+        drafts = alignment_node.get("trial_params_by_slug")
+        if isinstance(drafts, dict) and slug in drafts:
+            del drafts[slug]
+            changed = True
         if str(alignment_node.get("trial_slug", "")).strip() == slug:
             alignment_node["trial_slug"] = None
             alignment_node["method"] = None

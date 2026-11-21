@@ -194,8 +194,25 @@ class MainWindowRecordParamsSnapshotCollectMixin:
             if isinstance(raw_cache, dict)
             else {}
         )
+        slug = self._current_alignment_paradigm_slug()
+        inactive = {
+            other_slug: {
+                "method": draft["method"],
+                "method_params": deepcopy(draft["method_params"]),
+                "method_params_by_method": {
+                    k: deepcopy(v)
+                    for k, v in draft["method_params_by_method"].items()
+                    if k != draft["method"]
+                },
+            }
+            for other_slug, draft in getattr(
+                self, "_alignment_method_drafts", {}
+            ).items()
+            if other_slug != slug
+        }
         return {
-            "trial_slug": self._current_alignment_paradigm_slug(),
+            "trial_slug": slug,
+            "trial_params_by_slug": inactive,
             "method": active_method,
             "method_params": method_params,
             "method_params_by_method": method_params_by_method,

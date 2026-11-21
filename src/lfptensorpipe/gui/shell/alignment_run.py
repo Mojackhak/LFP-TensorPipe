@@ -315,7 +315,7 @@ class MainWindowAlignmentRunMixin:
         if not ok_update:
             self._show_warning("Run Align Epochs", message_update)
             return
-        self._reload_alignment_paradigms(preferred_slug=slug)
+        self._reload_alignment_paradigms(preferred_slug=slug, submitted=True)
 
         ok, message, rows = self._run_with_busy(
             "Run Align Epochs",

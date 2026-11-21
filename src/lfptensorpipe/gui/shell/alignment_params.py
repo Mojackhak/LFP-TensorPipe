@@ -27,6 +27,11 @@ class MainWindowAlignmentParamsMixin:
         paradigm["method"] = method_key
         paradigm["method_params"] = dict(method_params)
         paradigm["method_params_by_method"] = cache
+        self._alignment_method_drafts[str(paradigm["slug"])] = {
+            "method": method_key,
+            "method_params": dict(method_params),
+            "method_params_by_method": cache,
+        }
         self._mark_record_param_dirty("alignment.method")
 
     @staticmethod

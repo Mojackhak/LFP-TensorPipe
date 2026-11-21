@@ -198,16 +198,56 @@ def _trial_config(
 
 
 def _select_trial_state(
-    context: RecordContext, trial_config: dict[str, Any], picks: list[int] | None = None
+    context: RecordContext,
+    trial_config: dict[str, Any],
+    picks: list[int] | None = None,
+    *,
+    submitted: bool = False,
 ) -> None:
-    patch = {
-        key: deepcopy(trial_config.get(key))
-        for key in ("method", "method_params", "method_params_by_method")
-    }
-    patch["trial_slug"] = trial_config["trial_slug"]
+    path = PathResolver(context).record_ui_state_path()
+    state = read_ui_state(path) or {}
+    alignment = state.setdefault("alignment", {})
+    if not isinstance(alignment, dict):
+        raise ConfigError("Existing record state alignment must be an object.")
+    slug = trial_config["trial_slug"]
+    fields = ("method", "method_params", "method_params_by_method")
+    drafts = alignment.setdefault("trial_params_by_slug", {})
+    if not isinstance(drafts, dict):
+        raise ConfigError("Existing alignment trial drafts must be an object.")
+    previous = alignment.get("trial_slug")
+    if previous == slug:
+        saved = alignment
+    else:
+        if isinstance(previous, str) and isinstance(
+            alignment.get("method_params"), dict
+        ):
+            drafts[previous] = {key: alignment.get(key) for key in fields}
+        saved = drafts.pop(slug, {})
+    patch = {key: deepcopy(trial_config.get(key)) for key in fields}
+    if isinstance(saved, dict) and saved.get("method"):
+        if submitted:
+            cached = saved.get("method_params_by_method")
+            if isinstance(cached, dict):
+                patch["method_params_by_method"].update(cached)
+            if saved["method"] != patch["method"] and isinstance(
+                saved.get("method_params"), dict
+            ):
+                patch["method_params_by_method"][saved["method"]] = saved[
+                    "method_params"
+                ]
+        else:
+            patch.update({key: saved[key] for key in fields if key in saved})
+    if isinstance(patch["method_params_by_method"], dict):
+        patch["method_params_by_method"] = {
+            k: v
+            for k, v in patch["method_params_by_method"].items()
+            if k != patch["method"]
+        }
+    patch["trial_slug"] = slug
     if picks is not None:
         patch["picked_epoch_indices"] = list(picks)
-    _patch_state(context, ("alignment",), patch)
+    alignment.update(patch)
+    write_ui_state(path, state)
 
 
 def _run_alignment(
@@ -277,7 +317,7 @@ def _run_alignment(
         )
     )
     config = _trial_config(context, trial, allow_missing=False)
-    _select_trial_state(context, config)
+    _select_trial_state(context, config, submitted=True)
     ok, message, rows = svc.run_align_epochs(
         context, config_store=config_store, paradigm_slug=trial
     )

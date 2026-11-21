@@ -9,6 +9,26 @@ from lfptensorpipe.gui.shell.common import (
 )
 
 
+def _restore_method_draft(paradigm, saved, method):
+    cache = dict(paradigm.get("method_params_by_method", {}))
+    saved_cache = saved.get("method_params_by_method")
+    if isinstance(saved_cache, dict):
+        cache.update({k: v for k, v in saved_cache.items() if isinstance(v, dict)})
+    params = saved.get("method_params", cache.get(method))
+    if params is None and paradigm.get("method") == method:
+        params = paradigm.get("method_params")
+    if not isinstance(params, dict):
+        return None
+    cache[method] = params
+    draft = {
+        "method": method,
+        "method_params": params,
+        "method_params_by_method": cache,
+    }
+    paradigm.update(draft)
+    return draft
+
+
 class MainWindowRecordParamsApplyAlignmentMixin:
     def _apply_record_params_alignment_snapshot(self, snapshot: dict[str, Any]) -> int:
         skipped = 0
@@ -31,58 +51,37 @@ class MainWindowRecordParamsApplyAlignmentMixin:
             skipped += 1
 
         if "alignment.method" not in self._record_param_dirty_keys:
-            method = _nested_get(snapshot, ("alignment", "method"))
-            if isinstance(method, str) and self._alignment_method_combo is not None:
-                idx = self._alignment_method_combo.findData(method)
-                if idx < 0:
-                    idx = 0
-                self._alignment_method_combo.blockSignals(True)
-                try:
-                    self._alignment_method_combo.setCurrentIndex(idx)
-                finally:
-                    self._alignment_method_combo.blockSignals(False)
-                selected_method = self._alignment_method_combo.currentData()
-                paradigm = self._current_alignment_paradigm()
-                if isinstance(selected_method, str) and isinstance(paradigm, dict):
-                    existing_cache = paradigm.get("method_params_by_method")
-                    cache = (
-                        {
-                            str(key): dict(value)
-                            for key, value in existing_cache.items()
-                            if isinstance(key, str) and isinstance(value, dict)
-                        }
-                        if isinstance(existing_cache, dict)
-                        else {}
-                    )
-                    raw_cache = _nested_get(
-                        snapshot,
-                        ("alignment", "method_params_by_method"),
-                    )
-                    if isinstance(raw_cache, dict):
-                        cache.update(
-                            {
-                                str(key): dict(value)
-                                for key, value in raw_cache.items()
-                                if isinstance(key, str) and isinstance(value, dict)
-                            }
-                        )
-                    raw_params = _nested_get(
-                        snapshot,
-                        ("alignment", "method_params"),
-                    )
-                    if isinstance(raw_params, dict):
-                        cache[selected_method] = dict(raw_params)
-                    active_params = cache.get(selected_method)
-                    if not isinstance(active_params, dict) and (
-                        paradigm.get("method") == selected_method
-                        and isinstance(paradigm.get("method_params"), dict)
+            alignment = snapshot.get("alignment", {})
+            self._alignment_method_drafts = {}
+            inactive = alignment.get("trial_params_by_slug")
+            combo = self._alignment_method_combo
+            if isinstance(inactive, dict) and inactive and combo is not None:
+                for paradigm in self._alignment_paradigms:
+                    slug = paradigm["slug"]
+                    saved = inactive.get(slug)
+                    if (
+                        isinstance(saved, dict)
+                        and combo.findData(saved.get("method")) >= 0
                     ):
-                        active_params = dict(paradigm["method_params"])
-                        cache[selected_method] = dict(active_params)
-                    if isinstance(active_params, dict):
-                        paradigm["method"] = selected_method
-                        paradigm["method_params"] = dict(active_params)
-                        paradigm["method_params_by_method"] = cache
+                        draft = _restore_method_draft(paradigm, saved, saved["method"])
+                        if draft is not None:
+                            self._alignment_method_drafts[slug] = draft
+            method = alignment.get("method")
+            if isinstance(method, str) and combo is not None:
+                index = combo.findData(method)
+                combo.blockSignals(True)
+                try:
+                    combo.setCurrentIndex(max(index, 0))
+                finally:
+                    combo.blockSignals(False)
+                current = self._current_alignment_paradigm()
+                if isinstance(current, dict):
+                    draft = _restore_method_draft(
+                        current, alignment, combo.currentData()
+                    )
+                    slug = current.get("slug", alignment.get("trial_slug"))
+                    if draft is not None and isinstance(slug, str):
+                        self._alignment_method_drafts[slug] = draft
         else:
             skipped += 1
 

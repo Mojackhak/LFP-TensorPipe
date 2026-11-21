@@ -103,7 +103,30 @@ class MainWindowAlignmentParadigmsMixin:
             None,
         )
 
-    def _reload_alignment_paradigms(self, preferred_slug: str | None = None) -> None:
+    def _restore_alignment_method_drafts(
+        self, submitted_slug: str | None = None
+    ) -> None:
+        for paradigm in self._alignment_paradigms:
+            slug = paradigm["slug"]
+            draft = self._alignment_method_drafts.get(slug)
+            if not isinstance(draft, dict):
+                continue
+            if slug == submitted_slug:
+                method = paradigm["method"]
+                cache = {
+                    **draft["method_params_by_method"],
+                    method: paradigm["method_params"],
+                }
+                draft.update(
+                    method=method,
+                    method_params=paradigm["method_params"],
+                    method_params_by_method=cache,
+                )
+            paradigm.update(draft)
+
+    def _reload_alignment_paradigms(
+        self, preferred_slug: str | None = None, *, submitted: bool = False
+    ) -> None:
         recovery_warnings: list[str] = []
         self._alignment_paradigms = self._load_alignment_paradigms_runtime(
             self._config_store,
@@ -114,6 +137,7 @@ class MainWindowAlignmentParadigmsMixin:
             self.statusBar().showMessage(" | ".join(recovery_warnings))
         if self._alignment_paradigm_list is None:
             return
+        self._restore_alignment_method_drafts(preferred_slug if submitted else None)
         current_slug = preferred_slug or self._shared_stage_trial_slug()
         self._alignment_paradigm_list.blockSignals(True)
         self._alignment_paradigm_list.clear()
@@ -123,9 +147,8 @@ class MainWindowAlignmentParadigmsMixin:
             list_item = QListWidgetItem(title)
             list_item.setData(Qt.UserRole, slug)
             self._alignment_paradigm_list.addItem(list_item)
-        self._alignment_paradigm_list.blockSignals(False)
-
         if self._alignment_paradigm_list.count() == 0:
+            self._alignment_paradigm_list.blockSignals(False)
             self._set_shared_stage_trial_slug(None)
             self._set_alignment_epoch_rows([])
             self._refresh_alignment_metric_combo()
@@ -138,6 +161,7 @@ class MainWindowAlignmentParadigmsMixin:
             if current_idx >= 0:
                 target_idx = current_idx
         self._alignment_paradigm_list.setCurrentRow(target_idx)
+        self._alignment_paradigm_list.blockSignals(False)
         self._on_alignment_paradigm_selected(target_idx)
 
     def _on_alignment_paradigm_add(self) -> None:
@@ -192,6 +216,7 @@ class MainWindowAlignmentParadigmsMixin:
             )
             self._show_warning("Trial -", message)
             return
+        self._alignment_method_drafts.pop(slug, None)
         self._set_shared_stage_trial_slug(None)
         self._reload_alignment_paradigms()
         self._reload_features_paradigms(preferred_slug=self._shared_stage_trial_slug())

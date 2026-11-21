@@ -294,6 +294,7 @@ class MainWindowDatasetContextSelectionMixin:
         self._current_record = str(record)
         self._show_sourcedata_only_record_warning()
         self._shared_stage_trial_slug_value = None
+        self._alignment_method_drafts = {}
         self._features_trial_params_by_slug = {}
         self._preproc_viz_last_step = None
         self._reset_annotations_table()
@@ -328,6 +329,7 @@ class MainWindowDatasetContextSelectionMixin:
     def _set_empty_record_context(self) -> None:
         self._current_record = None
         self._shared_stage_trial_slug_value = None
+        self._alignment_method_drafts = {}
         self._features_trial_params_by_slug = {}
         self._preproc_viz_last_step = None
         self._record_param_dirty_keys.clear()

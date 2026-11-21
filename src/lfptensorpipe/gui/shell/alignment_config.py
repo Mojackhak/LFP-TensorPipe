@@ -381,7 +381,7 @@ class MainWindowAlignmentConfigMixin:
             self._show_warning("Import Configs", message)
             return
 
-        self._reload_alignment_paradigms(preferred_slug=slug)
+        self._reload_alignment_paradigms(preferred_slug=slug, submitted=True)
         persisted = self._persist_record_params_snapshot(
             reason="alignment_import_config"
         )

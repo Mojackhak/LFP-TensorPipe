@@ -1661,6 +1661,9 @@ inspection, and the final finished epoch selection.
 | `Import Configs...` | Loads an alignment configuration for the current trial. | Trial configuration payload. | Requires a selected trial. |
 | `Export Configs...` | Saves the current trial configuration. | External alignment config file. | Requires a selected trial. |
 
+Method drafts are saved per trial, including incomplete values. Selecting another trial
+or record restores its own draft.
+
 **Method default behavior**
 
 The four method-parameter dialogs store app defaults independently for
