@@ -392,7 +392,7 @@ def _rewrite_csv_dataframe(
     old_record: str,
     new_record: str,
 ) -> bool:
-    frame = pd.read_csv(path)
+    frame = pd.read_csv(path, dtype=str, na_filter=False)
     updated, changed = _rewrite_dataframe_record_columns(
         frame,
         old_record=old_record,

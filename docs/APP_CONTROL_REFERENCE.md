@@ -67,6 +67,10 @@ Browsing a record, switching away, or closing an unchanged record leaves its
 existing storage scopes intact. Running a processing action or saving an
 edited record draft can create its Derivatives output.
 
+Record Rename updates the record column in Localize CSV tables and preserves
+the original text of the other identifiers, including leading zeros and the
+literal channel name `NA`.
+
 When Sourcedata is the record's only existing standard root, the Record list
 shows the record name in red. Selecting that record from another selection opens
 a warning that describes the existing manual replacement path:
