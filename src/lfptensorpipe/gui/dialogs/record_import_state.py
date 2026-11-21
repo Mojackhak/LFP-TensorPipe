@@ -77,7 +77,6 @@ def _update_confirm_button_state(dialog) -> None:
 def _invalidate_parse_state(dialog) -> None:
     dialog._parsed = None
     dialog._sync_state = None
-    dialog._parsed_channel_signature = ()
     _set_result_placeholder(dialog)
     dialog._set_sync_summary()
     _update_sync_configure_button_state(dialog)

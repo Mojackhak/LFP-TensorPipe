@@ -313,7 +313,9 @@ pair or coincident times.
 ### 3.3 Reset Reference
 
 This dialog defines bipolar or unary remapping pairs that are applied before the
-record is imported.
+record is imported. A successful reparse with different channel names or order
+clears the old pairs and requires a new reference selection. Re-parsing the
+same ordered channel list preserves the draft.
 
 ![Reset Reference dialog.](assets/app-control-reference/controlref-advance-reset-reference-dialog.png)
 
