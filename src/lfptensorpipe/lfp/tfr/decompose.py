@@ -83,21 +83,7 @@ def _save_fixed_floor_report(model: Any, report_path: str) -> None:
         plt.close(fig)
 
 
-def _fit_one_epoch_channel(
-    e_idx: int,
-    ch_idx: int,
-    psd_ft: np.ndarray,  # (n_freqs, n_times)
-    freqs: np.ndarray,
-    settings: Dict[str, Any],
-    *,
-    report_dir: Optional[str | Path] = None,
-    save_prefix: Optional[str] = None,
-    original_time_indices: np.ndarray | None = None,
-    original_times_s: np.ndarray | None = None,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, pd.DataFrame]:
-    """Fit SpecParam SpectralTimeModel for one (epoch, channel) and simulate components."""
-    specparam, SpectralTimeModel, sim_spectrogram = _require_specparam()
-
+def _make_time_model(model_type, settings):
     aperiodic_mode = settings.get("aperiodic_mode", "fixed")
     model_kwargs: Dict[str, Any] = {}
     if aperiodic_mode == "fixed_floor":
@@ -135,7 +121,7 @@ def _fit_one_epoch_channel(
     else:
         model_kwargs["aperiodic_mode"] = aperiodic_mode
 
-    model = SpectralTimeModel(
+    return model_type(
         peak_width_limits=settings.get("peak_width_limits", [2, 12]),
         max_n_peaks=settings.get("max_n_peaks", np.inf),
         min_peak_height=settings.get("min_peak_height", 0),
@@ -143,6 +129,25 @@ def _fit_one_epoch_channel(
         verbose=settings.get("verbose", False),
         **model_kwargs,
     )
+
+
+def _fit_one_epoch_channel(
+    e_idx: int,
+    ch_idx: int,
+    psd_ft: np.ndarray,  # (n_freqs, n_times)
+    freqs: np.ndarray,
+    settings: Dict[str, Any],
+    *,
+    report_dir: Optional[str | Path] = None,
+    save_prefix: Optional[str] = None,
+    original_time_indices: np.ndarray | None = None,
+    original_times_s: np.ndarray | None = None,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, pd.DataFrame]:
+    """Fit SpecParam SpectralTimeModel for one (epoch, channel) and simulate components."""
+    specparam, SpectralTimeModel, sim_spectrogram = _require_specparam()
+
+    aperiodic_mode = settings.get("aperiodic_mode", "fixed")
+    model = _make_time_model(SpectralTimeModel, settings)
 
     n_freqs, n_times = psd_ft.shape
     if freqs.shape[0] != n_freqs:
@@ -501,19 +506,35 @@ def decompose(
             raise RuntimeError(
                 "SpecParam schema-reference fit requires a non-empty input tensor."
             )
-        _, _, _, reference_df = _fit_one_epoch_channel(
-            0,
-            0,
-            np.ascontiguousarray(tfr[0, 0, :, 0:1], dtype=float),
-            freqs,
-            settings,
-            report_dir=None,
-            save_prefix=save_prefix,
-        )
-        param_names = _infer_param_names(reference_df)
+        reference = np.ascontiguousarray(tfr[0, 0, :, 0:1], dtype=float)
         results = []
-        schema_reference_fit = True
-        schema_reference_time_index = 0
+        if np.all(np.isfinite(reference) & (reference > 0)):
+            from specparam.modutils.errors import FitError, NoModelError
+
+            try:
+                _, _, _, reference_df = _fit_one_epoch_channel(
+                    0,
+                    0,
+                    reference,
+                    freqs,
+                    settings,
+                    report_dir=None,
+                    save_prefix=save_prefix,
+                )
+            except (FitError, NoModelError):
+                pass
+            else:
+                param_names = _infer_param_names(reference_df)
+                schema_reference_fit = True
+                schema_reference_time_index = 0
+        if not schema_reference_fit:
+            _, model_type, _ = _require_specparam()
+            model = _make_time_model(model_type, settings)
+            # These are the fields exported by model.to_df() without peak bands.
+            param_names = [
+                *model.modes.aperiodic.params.indices,
+                *model.results.metrics.labels,
+            ]
 
     n_params = len(param_names)
     params_tensor = np.full(
