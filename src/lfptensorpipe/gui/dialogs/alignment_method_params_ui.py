@@ -343,7 +343,7 @@ def _set_anchor_rows(dialog, rows: list[tuple[str, float]]) -> None:
         row = dialog._anchors_table.rowCount()
         dialog._anchors_table.insertRow(row)
         dialog._anchors_table.setItem(row, 0, QTableWidgetItem(str(label)))
-        dialog._anchors_table.setItem(row, 1, QTableWidgetItem(f"{float(percent):g}"))
+        dialog._anchors_table.setItem(row, 1, QTableWidgetItem(str(float(percent))))
         dialog._anchors_table.setItem(
             row,
             2,

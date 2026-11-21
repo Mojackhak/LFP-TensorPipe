@@ -292,6 +292,16 @@ class AlignmentMethodParamsDialog(QDialog):
 
     def _on_alignment_mode_changed(self, _index: int) -> None:
         previous = "cue_response" if self._cue_response is not None else "percent"
+        if self._table_validation_error and previous == "percent":
+            combo = self._alignment_mode_combo
+            combo.blockSignals(True)
+            combo.setCurrentIndex(combo.findData(previous))
+            combo.blockSignals(False)
+            self._show_warning(
+                "Align Epochs Params",
+                "Fix highlighted anchor cells before switching modes.",
+            )
+            return
         self._mode_drafts[previous] = self._collect_candidate_params(strict=False)
         mode = self._alignment_mode_combo.currentData()
         if mode in self._mode_drafts:
@@ -447,6 +457,7 @@ class AlignmentMethodParamsDialog(QDialog):
 
     def _set_anchor_rows(self, rows: list[tuple[str, float]]) -> None:
         _set_anchor_rows_impl(self, rows)
+        self._validate_all_table_cells()
 
     def _anchor_rows_from_table(self) -> list[tuple[str, float]]:
         return _anchor_rows_from_table_impl(self)
@@ -498,6 +509,11 @@ class AlignmentMethodParamsDialog(QDialog):
         ]
         for control in controls:
             set_control_validation_error(control, None)
+        if self._cue_response is None and self._table_validation_error:
+            set_control_validation_error(
+                self._anchors_table, "Fix highlighted anchor cells."
+            )
+            return
         candidate = self._collect_candidate_params(strict=False)
         ok, normalized, message = validate_alignment_method_params(
             self._method_key,

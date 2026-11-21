@@ -30,9 +30,13 @@ def _on_add_anchor_row(dialog) -> None:
         )
         return
     rows = dialog._anchor_rows_from_table()
+    if any(value == percent for _, value in rows):
+        dialog._show_warning(
+            "Align Epochs Params", "Target percent values must be unique."
+        )
+        return
     rows.append((label, percent))
     dialog._set_anchor_rows(rows)
-    _validate_all_table_cells(dialog)
 
 
 def _on_remove_anchor_row(dialog, row: int | None = None) -> None:
@@ -45,7 +49,6 @@ def _on_remove_anchor_row(dialog, row: int | None = None) -> None:
         return
     rows.pop(row)
     dialog._set_anchor_rows(rows)
-    _validate_all_table_cells(dialog)
 
 
 def _on_select_all_annotations(dialog) -> None:
@@ -103,19 +106,35 @@ def _validate_anchor_cell(dialog, row: int, col: int) -> None:
 
 def _validate_all_table_cells(dialog) -> None:
     dialog._table_validation_error = False
-    if dialog._method_key == "linear_warper" and dialog._cue_response is None:
-        for row in range(dialog._anchors_table.rowCount()):
+    if dialog._method_key != "linear_warper" or dialog._cue_response is not None:
+        return
+    table = dialog._anchors_table
+    was_blocked = table.blockSignals(True)
+    try:
+        percents = {}
+        for row in range(table.rowCount()):
             for col in (0, 1):
                 _validate_anchor_cell(dialog, row, col)
-                item = dialog._anchors_table.item(row, col)
-                if item is not None and item.data(dialog._CELL_ERROR_ROLE):
+                item = table.item(row, col)
+                if item is None:
+                    continue
+                if item.data(dialog._CELL_ERROR_ROLE):
                     dialog._table_validation_error = True
+                elif col == 1:
+                    value = float(item.text())
+                    if value in percents:
+                        message = "Target percent values must be unique."
+                        _set_cell_error(dialog, percents[value], error=message)
+                        _set_cell_error(dialog, item, error=message)
+                        dialog._table_validation_error = True
+                    percents[value] = item
+    finally:
+        table.blockSignals(was_blocked)
 
 
 def _on_anchors_item_changed(dialog, item: QTableWidgetItem) -> None:
     if dialog._method_key != "linear_warper":
         return
-    _validate_anchor_cell(dialog, item.row(), item.column())
     _validate_all_table_cells(dialog)
 
 
