@@ -253,6 +253,11 @@ def _drop_dups_and_fill_packet_index(
     dup_mask = df.duplicated(subset=packet_col, keep=False)
     if dup_mask.any():
         df = df.loc[~dup_mask].copy()
+    if df.empty:
+        raise ParseError(
+            code="PARSE_SCHEMA_INVALID",
+            message="No unique Packet Index rows remain.",
+        )
 
     min_idx = int(df[packet_col].min())
     max_idx = int(df[packet_col].max())
