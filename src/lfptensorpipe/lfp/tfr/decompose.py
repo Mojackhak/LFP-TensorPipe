@@ -330,7 +330,8 @@ def decompose(
         Power tensor with shape (n_epochs, n_channels, n_freqs, n_times).
         Values should be non-negative power (linear domain is fine; SpecParam works in log10 internally).
     freqs
-        Frequency axis in Hz, shape (n_freqs,).
+        Complete, evenly spaced and increasing frequency axis in Hz, shape
+        (n_freqs,). The reconstruction also uses bins outside the fitting range.
     times
         Optional time axis in seconds for metadata. If provided, must have length n_times.
     ch_names
@@ -385,6 +386,16 @@ def decompose(
     freqs = np.asarray(freqs, dtype=float)
     if freqs.ndim != 1 or freqs.shape[0] != n_freqs:
         raise ValueError("`freqs` must be 1D and match the TFR frequency axis length.")
+    steps = np.diff(freqs)
+    if (
+        steps.size == 0
+        or not np.all(np.isfinite(freqs))
+        or not np.all(steps > 0)
+        or not np.allclose(steps, steps[0])
+    ):
+        raise ValueError(
+            "The full frequency axis must be finite, increasing and evenly spaced."
+        )
 
     if times is not None:
         times = np.asarray(times, dtype=float)
