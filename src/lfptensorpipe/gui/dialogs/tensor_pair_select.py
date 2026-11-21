@@ -277,7 +277,11 @@ class TensorPairSelectDialog(QDialog):
         source = self._draft_source_edit.text().strip()
         target = self._draft_target_edit.text().strip()
         preview = ""
-        if source and target and source != target:
+        if (
+            source in self._channel_names
+            and target in self._channel_names
+            and source != target
+        ):
             pair = (
                 (source, target) if self._directed else tuple(sorted((source, target)))
             )
@@ -286,7 +290,7 @@ class TensorPairSelectDialog(QDialog):
         self._draft_pair_preview.setToolTip(
             "Current normalized draft pair preview. " f"Preview: {preview or 'None'}."
         )
-        self._draft_apply_button.setEnabled(bool(source and target))
+        self._draft_apply_button.setEnabled(bool(preview))
 
     def _on_apply_draft(self) -> None:
         self._refresh_draft_validation()
@@ -294,6 +298,12 @@ class TensorPairSelectDialog(QDialog):
         target = self._draft_target_edit.text().strip()
         if not source or not target:
             self._show_warning(self.windowTitle(), "Source/Target are required.")
+            return
+        if source not in self._channel_names or target not in self._channel_names:
+            self._show_warning(
+                self.windowTitle(),
+                "Select source and target from the available channels.",
+            )
             return
         try:
             pair = self._normalize_pair(source, target)
