@@ -246,6 +246,7 @@ def run_align_epochs(
                 "slug": slug,
                 "method": method,
                 "method_params": method_params,
+                "method_params_by_method": paradigm.get("method_params_by_method"),
                 "annotation_filter": paradigm.get("annotation_filter", {}),
             }
         )

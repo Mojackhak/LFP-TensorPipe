@@ -7,6 +7,7 @@ from typing import Any
 
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import append_run_log_event, read_run_log
+from lfptensorpipe.app.shared.runlog_store import _merge_dict
 
 from .paths import alignment_paradigm_log_path
 from .validation import ALIGNMENT_METHODS_BY_KEY
@@ -81,6 +82,57 @@ def _normalize_paradigm(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _recover_merged_method_params(
+    config: dict[str, Any], history: Any
+) -> dict[str, Any]:
+    """Recover an explicit save when earlier patches account for every extra field."""
+    if not isinstance(history, list):
+        return config
+    writes = (
+        event
+        for event in reversed(history)
+        if isinstance(event, dict)
+        and (
+            event.get("step") == "trial_config"
+            or (
+                event.get("step") == "run_align_epochs"
+                and event.get("completed") is True
+            )
+        )
+    )
+    latest = next(writes, {})
+    saved = latest.get("params")
+    method = config.get("method")
+    if (
+        latest.get("step") != "trial_config"
+        or not isinstance(saved, dict)
+        or not isinstance(method, str)
+        or saved.get("method") != method
+    ):
+        return config
+    exact = saved.get("method_params")
+    stored = config.get("method_params")
+    if not isinstance(exact, dict) or exact == stored:
+        return config
+    cached = saved.get("method_params_by_method")
+    if not isinstance(cached, dict) or cached.get(method) != exact:
+        return config
+
+    # Replay only a suspected older merge. An independent state edit or an
+    # incomplete history leaves the stored configuration authoritative.
+    merged: dict[str, Any] = {}
+    for event in reversed([latest, *writes]):
+        params = event.get("params")
+        if not isinstance(params, dict) or not isinstance(
+            params.get("method_params"), dict
+        ):
+            return config
+        merged = _merge_dict(merged, params["method_params"])
+    if merged == stored:
+        return {**config, "method_params": exact}
+    return config
+
+
 def _trial_config_from_payload(
     payload: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
@@ -92,7 +144,9 @@ def _trial_config_from_payload(
         raw_cfg = payload.get("trial_config")
     if not isinstance(raw_cfg, dict):
         return None
-    return _normalize_paradigm(raw_cfg)
+    return _normalize_paradigm(
+        _recover_merged_method_params(raw_cfg, payload.get("history"))
+    )
 
 
 def _extract_trial_config_from_history(
@@ -191,13 +245,12 @@ def _append_alignment_history(
     source_path: Path | None = None,
 ) -> None:
     _ = keep_top_level
-    state_patch = (
-        {"trial_config": dict(trial_config)} if isinstance(trial_config, dict) else None
-    )
     append_run_log_event(
         path,
         entry,
-        state_patch=state_patch,
+        state_replacements=(
+            {"trial_config": trial_config} if trial_config is not None else None
+        ),
         source_path=source_path,
     )
 

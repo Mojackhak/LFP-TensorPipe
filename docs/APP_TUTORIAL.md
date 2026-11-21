@@ -1105,6 +1105,14 @@ Import the tutorial config:
 
 Use `Export Configs...` if you want to save your own alignment variant.
 
+Importing a configuration replaces the active method's saved parameters for
+this trial. Removing an anchor or switching alignment modes takes effect on
+the next Run. The trial also keeps the saved parameters of its other methods.
+If an older log retained a deleted anchor or mode, reopening uses the last
+explicit parameter save when its recorded history accounts for the extra
+fields. Reimport the original configuration if the intended settings are
+uncertain.
+
 The figure shows the parameter set for `cycle-l`.
 
 ![Align Epochs Params dialog.](assets/app-tutorial/figure-25-align-epochs-params-dialog.png)

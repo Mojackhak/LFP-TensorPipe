@@ -265,12 +265,14 @@ def append_run_log_event(
     record: RunLogRecord | dict[str, Any],
     *,
     state_patch: dict[str, Any] | None = None,
+    state_replacements: dict[str, Any] | None = None,
     source_path: str | Path | None = None,
 ) -> Path:
     """Append one event into `history` and mirror it into top-level summary.
 
     Top-level required fields always reflect the latest appended event.
-    Optional state is stored under `state` and updated via deep-merge.
+    A state patch merges nested fields. Each top-level state field supplied
+    in `state_replacements` receives its complete value in the same write.
     """
     out_path = Path(path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -316,6 +318,8 @@ def append_run_log_event(
         if not isinstance(state_patch, dict):
             raise ValueError("state_patch must be a dict when provided.")
         state = _merge_dict(state, state_patch)
+    if state_replacements:
+        state.update(state_replacements)
 
     payload = dict(entry)
     payload[RUNLOG_HISTORY_KEY] = history
