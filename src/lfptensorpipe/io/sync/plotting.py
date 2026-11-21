@@ -204,21 +204,25 @@ def build_sync_summary_figure(
 ) -> plt.Figure:
     """Build the shared two-panel sync preview/export figure."""
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
-    _marker_overlay_axis(
-        axes[0],
-        lfp_markers=lfp_markers,
-        external_markers=external_markers,
-        lfp_figure_data=lfp_figure_data,
-        external_figure_data=external_figure_data,
-    )
-    _fit_scatter_axis(
-        axes[1],
-        lfp_markers=lfp_markers,
-        external_markers=external_markers,
-        pairs=pairs,
-        estimate=estimate,
-    )
-    fig.tight_layout()
+    try:
+        _marker_overlay_axis(
+            axes[0],
+            lfp_markers=lfp_markers,
+            external_markers=external_markers,
+            lfp_figure_data=lfp_figure_data,
+            external_figure_data=external_figure_data,
+        )
+        _fit_scatter_axis(
+            axes[1],
+            lfp_markers=lfp_markers,
+            external_markers=external_markers,
+            pairs=pairs,
+            estimate=estimate,
+        )
+        fig.tight_layout()
+    except Exception:
+        plt.close(fig)
+        raise
     return fig
 
 
@@ -227,8 +231,10 @@ def save_sync_summary_figure(path: str | Path, **kwargs) -> Path:
     out_path = Path(path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig = build_sync_summary_figure(**kwargs)
-    fig.savefig(out_path, dpi=200, bbox_inches="tight")
-    plt.close(fig)
+    try:
+        fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    finally:
+        plt.close(fig)
     return out_path
 
 
@@ -240,7 +246,8 @@ def save_sync_detection_figure(
     """Save one detection detail figure from waveform figure data."""
     out_path = Path(path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(10, 3.5))
+    fig = plt.Figure(figsize=(10, 3.5))
+    ax = fig.subplots()
     x = np.asarray(figure_data.signal_times_s, dtype=float)
     y = np.asarray(figure_data.signal_values, dtype=float)
     if x.size > 0:
@@ -266,5 +273,4 @@ def save_sync_detection_figure(
     ax.set_xlabel("Time (s)")
     fig.tight_layout()
     fig.savefig(out_path, dpi=200, bbox_inches="tight")
-    plt.close(fig)
     return out_path

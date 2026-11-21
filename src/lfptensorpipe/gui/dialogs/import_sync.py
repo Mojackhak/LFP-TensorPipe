@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+from matplotlib import pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 
 from lfptensorpipe.io.sync import (
@@ -851,8 +852,11 @@ class ImportSyncDialog(QDialog):
                 self._pair_table.setItem(row, col, item)
 
     def _show_preview_dialog(self, figure) -> None:
-        preview_dialog = SyncFigurePreviewDialog(figure=figure, parent=self)
-        preview_dialog.exec()
+        try:
+            preview_dialog = SyncFigurePreviewDialog(figure=figure, parent=self)
+            preview_dialog.exec()
+        finally:
+            plt.close(figure)
 
     def _refresh_summary(self) -> None:
         if self._estimate is None:
