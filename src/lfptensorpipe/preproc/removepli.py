@@ -97,12 +97,15 @@ def remove_pli(data, sfreq, params):
                 tmp2 = up[harmonic]
                 up[harmonic] = tmp - u[harmonic]
                 u[harmonic] = tmp + tmp2
-                # At cosine=-1, upstream obtains -inf and resets the gain to one.
-                gain = 1.5 - (
-                    up[harmonic] ** 2 - (cosine - 1) / (cosine + 1) * u[harmonic] ** 2
-                )
-                if gain <= 0:
+                if cosine == -1.0:
                     gain = 1.0
+                else:
+                    gain = 1.5 - (
+                        up[harmonic] ** 2
+                        - (cosine - 1) / (cosine + 1) * u[harmonic] ** 2
+                    )
+                    if gain <= 0:
+                        gain = 1.0
                 up[harmonic] *= gain
                 u[harmonic] *= gain
                 error -= a[harmonic] * u[harmonic] + b[harmonic] * up[harmonic]

@@ -816,6 +816,9 @@ corresponding asymptotic response. LFP-TensorPipe uses a Python translation of
 Keshtkaran's removePLI implementation of Keshtkaran and Yang (2014)
 ([references](#filter-model-references)).
 
+When an adaptive harmonic reaches a cosine of −1, its gain is set to one.
+The configured harmonic frequencies must still be below Nyquist.
+
 | Parameter | Factory default | Meaning / valid input |
 | --- | --- | --- |
 | `Fundamental frequency (Hz)` | `50` | Positive base frequency. Its ±2 Hz estimator band must fit within the available frequency range. |
