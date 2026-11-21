@@ -8,7 +8,7 @@ number of samples and stacks them on an epoch axis.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -35,6 +35,7 @@ class StackEpoch:
     end_t: float
     intervals_s: List[Tuple[float, float]]
     total_duration_s: float
+    sample_span_s: float | None = None
 
 
 def _match_label(desc: str, keep: Sequence[str], *, mode: MatchMode) -> str | None:
@@ -267,7 +268,11 @@ def stack_warper(
                 out[ei, ...] = interp_along_last_axis(seg, idx)
 
         percent = np.linspace(0.0, 100.0, n_out, endpoint=True, dtype=float)
-        return out, percent, selected
+        sampled_epochs = [
+            replace(epoch, sample_span_s=(length - 1) / float(sr))
+            for epoch, length in zip(selected, native_lengths)
+        ]
+        return out, percent, sampled_epochs
 
     warp_fn.alignment_diagnostics = {  # type: ignore[attr-defined]
         "excluded_zero_duration_annotations": {

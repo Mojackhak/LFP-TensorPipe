@@ -396,10 +396,6 @@ def run_align_epochs(
                         [-pre, target_duration_s - pre]
                     )
                     aligned_axes["time_coordinate"] = "cue_response_aligned_seconds"
-                    aligned_axes["kind"] = "linear"
-                    aligned_axes["duration_s_per_epoch"] = np.array(
-                        [ep.end_t - ep.start_t for ep in meta_epochs]
-                    )
                     aligned_axes["event_anchors_s"] = {
                         "cue": 0.0,
                         "response": cue_response_config["response_target_s"],

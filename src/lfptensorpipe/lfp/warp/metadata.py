@@ -25,7 +25,8 @@ from typing import Any, Dict, Optional, Sequence
 import numpy as np
 
 from lfptensorpipe.utils.transforms import VALUE_TRANSFORM_POLICY_KEY
-
+from .event_anchored_linear import LinearEpoch
+from .stack import StackEpoch
 
 def _epoch_label(ep: Any, fallback: str) -> str:
     """Extract a label for an epoch from warp metadata."""
@@ -40,9 +41,14 @@ def _infer_epoch_duration_s(ep: Any) -> tuple[str, float]:
     """Infer the *warped* epoch duration in seconds from an epoch meta object.
 
     Returns:
-        kind: One of {'gait', 'pad', 'concat', 'unknown'}.
+        kind: The normalized, stacked, padded or concatenated epoch type.
         duration_s: Best-effort duration in seconds (may be NaN).
     """
+    if isinstance(ep, LinearEpoch):
+        return "linear", float(ep.end_t - ep.start_t)
+    if isinstance(ep, StackEpoch):
+        return "stack", float(ep.total_duration_s)
+
     # Concat epoch: explicitly stores total concatenated duration.
     if hasattr(ep, "total_duration_s"):
         try:
@@ -187,8 +193,17 @@ def build_warped_tensor_metadata(
             )
         else:
             # Normalized warpers retain their endpoint-inclusive display axis.
+            span_s = duration_s
+            if kind_major == "stack":
+                spans = [
+                    ep.sample_span_s
+                    for ep in meta_epochs
+                    if getattr(ep, "sample_span_s", None) is not None
+                ]
+                if spans:
+                    span_s = float(np.median(spans))
             time_axis = np.linspace(
-                0.0, duration_s, int(n_times), endpoint=True, dtype=float
+                0.0, span_s, int(n_times), endpoint=True, dtype=float
             )
     else:
         # Fallback: preserve a unit interval so downstream code always has a `time` axis.
@@ -218,6 +233,8 @@ def build_warped_tensor_metadata(
         }
         if hasattr(ep, "side"):
             item["side"] = str(getattr(ep, "side"))
+        if getattr(ep, "sample_span_s", None) is not None:
+            item["sample_span_s"] = ep.sample_span_s
         if hasattr(ep, "intervals_s"):
             item["intervals_s"] = list(getattr(ep, "intervals_s"))
         warp_events.append(item)
