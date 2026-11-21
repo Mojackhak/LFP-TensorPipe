@@ -682,7 +682,11 @@ class ECGAdvanceDialog(QDialog):
         if action == "set_default":
             try:
                 params = self._collect_params()
-                review_params = self._collect_review_params()
+                review_params = (
+                    self._collect_review_params()
+                    if self._mark_filter_edges_available
+                    else dict(self._default_review_params)
+                )
             except Exception as exc:  # noqa: BLE001
                 self._refresh_validation()
                 self._show_warning(self.windowTitle(), f"Invalid parameters:\n{exc}")

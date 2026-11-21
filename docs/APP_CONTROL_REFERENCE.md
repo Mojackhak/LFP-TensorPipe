@@ -944,7 +944,7 @@ as the method-selector reference and does not illustrate the Advance dialog.
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | `Save` | Saves the displayed parameters for the current record and method without running ECG removal. | Current-record ECG parameters and freshness state. | May retain an invalid cross-field combination as a red record draft; ECG Apply and valid-only persistence remain blocked. |
-| `Set as Default` | Saves the displayed values as global defaults for the selected method. | Future records without saved ECG parameters. | Blocks on invalid values. |
+| `Set as Default` | Saves the displayed values as global defaults for the selected method. When Filter edge marking is unavailable, its previous global value is retained. | Future records without saved ECG parameters. | Blocks on invalid values. |
 | `Restore Defaults` | Loads the selected method's global defaults into the dialog. | Dialog fields only until Save is selected. | Always available. |
 | `Cancel` | Closes the dialog without changing record parameters. | No record update. | Always available. |
 

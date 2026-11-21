@@ -7,7 +7,10 @@ from PySide6.QtWidgets import QMessageBox
 from lfptensorpipe.gui.shell.busy_state import global_ui_lock_owner
 from lfptensorpipe.app.preproc.paths import rawdata_input_fif_path
 
-from lfptensorpipe.app.preproc.lineage import preproc_step_lineage_is_current
+from lfptensorpipe.app.preproc.lineage import (
+    preproc_step_is_skipped,
+    preproc_step_lineage_is_current,
+)
 from lfptensorpipe.app.preproc.service import annotations_update_available
 from lfptensorpipe.gui.shell.common import (
     Any,
@@ -22,6 +25,12 @@ from lfptensorpipe.gui.shell.common import (
     read_run_log,
     resolve_preproc_step_source,
 )
+
+
+def _filter_edges_available(resolver: PathResolver) -> bool:
+    return not preproc_step_is_skipped(
+        resolver, "filter"
+    ) and preproc_step_lineage_is_current(resolver, "filter")
 
 
 class MainWindowPreprocActionsMixin:
@@ -233,10 +242,7 @@ class MainWindowPreprocActionsMixin:
             session_params={
                 "mark_filter_edges": self._preproc_annotations_mark_filter_edges,
             },
-            mark_filter_edges_available=preproc_step_lineage_is_current(
-                PathResolver(context),
-                "filter",
-            ),
+            mark_filter_edges_available=_filter_edges_available(PathResolver(context)),
             parent=self,
         )
         if dialog.exec() != QDialog.Accepted:
@@ -397,13 +403,15 @@ class MainWindowPreprocActionsMixin:
             method = str(self._preproc_ecg_method_combo.currentData() or "svd")
         defaults_by_method = self._load_ecg_advance_defaults()
         default_review_params = self._load_ecg_review_defaults()
+        mark_filter_edges_available = _filter_edges_available(PathResolver(context))
 
         def _save_ecg_defaults(
             params: dict[str, Any],
             review_params: dict[str, bool],
         ) -> None:
             self._save_ecg_method_defaults(method, params)
-            self._save_ecg_review_defaults(review_params)
+            if mark_filter_edges_available:
+                self._save_ecg_review_defaults(review_params)
             self.statusBar().showMessage(f"ECG Advance defaults saved for {method}.")
 
         dialog = self._create_ecg_advance_dialog(
@@ -412,10 +420,7 @@ class MainWindowPreprocActionsMixin:
             default_params=defaults_by_method[method],
             session_review_params=self._preproc_ecg_review_params,
             default_review_params=default_review_params,
-            mark_filter_edges_available=preproc_step_lineage_is_current(
-                PathResolver(context),
-                "filter",
-            ),
+            mark_filter_edges_available=mark_filter_edges_available,
             set_default_callback=_save_ecg_defaults,
             parent=self,
         )
