@@ -1413,7 +1413,8 @@ def _plot_interaction_scalar_grid(
         else {}
     )
 
-    x_to_num = {str(lv): i for i, lv in enumerate(x_levels)}
+    x_offset = int(x_log)
+    x_to_num = {str(lv): i + x_offset for i, lv in enumerate(x_levels)}
 
     y_limits_use = _auto_y_limits_scalar(
         dfw, emw, value_col=value_col, y_limits=y_limits
@@ -1690,13 +1691,16 @@ def _plot_interaction_scalar_grid(
                 ax.set_ylim(*y_limits_use)
             if y_log:
                 ax.set_yscale("log")
-            if x_limits is not None:
-                ax.set_xlim(*x_limits)
             if x_log:
                 ax.set_xscale("log")
-
-            ax.set_xlim(-0.5, len(x_levels) - 0.5)
-            ax.set_xticks(range(len(x_levels)))
+            ax.set_xticks(list(x_to_num.values()))
+            ax.set_xlim(
+                *(
+                    x_limits
+                    if x_limits is not None
+                    else (x_offset - 0.5, x_offset + len(x_levels) - 0.5)
+                )
+            )
             ax.set_xticklabels(
                 [str(x) for x in x_levels],
                 fontsize=tick_label_fontsize,
