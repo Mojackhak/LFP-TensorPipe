@@ -1904,6 +1904,13 @@ and the next extraction run, while their stored axes remain available if the
 metric returns. Reordering metrics does not change any axes, and a rename is
 handled as one removal plus one addition unless an explicit mapping exists.
 
+Percent phase boundaries for cue-response, Clip and Stitch use the complete
+half-open epoch duration. For example, four centers at 0, 0.25, 0.5 and 0.75 s
+span a 1 s target window, so 50% falls at 0.5 s. Sample reductions use the
+available centers. Continuous means integrate over supported data. Earlier
+Finish tables retain enough information to extract these phases again.
+Previously exported feature values keep the geometry used at extraction.
+
 Automatic-band metrics store no manual band rows. Their band names are resolved
 from the accepted Alignment `na-raw.pkl` `Value` index at run time. A new
 accepted Alignment generation may therefore change their resolved bands and

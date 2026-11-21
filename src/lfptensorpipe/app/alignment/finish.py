@@ -225,6 +225,11 @@ def finish_alignment_epochs(
             transform_policy = meta.get(VALUE_TRANSFORM_POLICY_KEY)
             if isinstance(transform_policy, dict):
                 frame.attrs[VALUE_TRANSFORM_POLICY_KEY] = dict(transform_policy)
+            if "time_support_s" in axes and (
+                finish_method in {"pad_warper", "concat_warper"}
+                or axes.get("time_coordinate") == "cue_response_aligned_seconds"
+            ):
+                frame.attrs["time_support_s"] = list(map(float, axes["time_support_s"]))
             frames[metric_key] = frame
 
         with AtomicOutputSet(

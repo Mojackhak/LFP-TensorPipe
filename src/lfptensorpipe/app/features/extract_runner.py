@@ -241,6 +241,28 @@ def _feature_storage_policy(metadata: Any) -> TransformPolicy:
     )
 
 
+def _aligned_phase_support(
+    payload: pd.DataFrame, method: str
+) -> tuple[float, float] | None:
+    """Read the physical interval used to place percent phase boundaries."""
+    support = payload.attrs.get("time_support_s")
+    if support is not None:
+        start, stop = support
+        return float(start), float(stop)
+    if method not in {"pad_warper", "concat_warper", "linear_warper"}:
+        return None
+    # Older Finish tables retain all N evenly spaced centers. Clip and Stitch
+    # start at zero; cue-response starts at -pre_cue_s. Other Linear tables
+    # use the endpoint-inclusive 0..100 percent axis.
+    for value in payload.get("Value", ()):
+        if isinstance(value, pd.DataFrame) and len(value.columns) >= 2:
+            start, last = float(value.columns[0]), float(value.columns[-1])
+            if method == "linear_warper" and start >= 0:
+                return None
+            return start, last + (last - start) / (len(value.columns) - 1)
+    return None
+
+
 def _extract_burst_outputs(
     *,
     payload: pd.DataFrame,
@@ -529,6 +551,25 @@ def _extract_metric_outputs(
             )
         except Exception as exc:  # noqa: BLE001
             piecewise_mean_error = exc
+
+    if (
+        (outputs.get("spectral") or outputs.get("scalar"))
+        and collapse_base_cfg.get("time_interval_mode") == "percent"
+        and any(
+            reducer != "mean" or not uses_piecewise_native_mean for reducer in reducers
+        )
+    ):
+        support = _aligned_phase_support(payload, alignment_method)
+        if support is not None:
+            start, stop = support
+            time_axis = {
+                name: [
+                    [start + (stop - start) * p / 100.0 for p in interval]
+                    for interval in intervals
+                ]
+                for name, intervals in time_axis.items()
+            }
+            collapse_base_cfg = {**collapse_base_cfg, "time_interval_mode": "absolute"}
 
     if outputs.get("raw", False):
         total_targets += 1
