@@ -9,8 +9,7 @@ from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import indicator_from_log, read_run_log
 
 from .derive_axes import _normalize_axis_rows
-
-_AUTO_BAND_METRICS = {"psi", "burst"}
+from .derive_defaults import _metric_uses_auto_bands
 
 
 def _normalize_slug(value: str) -> str:
@@ -50,7 +49,7 @@ def _normalize_axes_node(
         return None
     bands = (
         []
-        if metric_key in _AUTO_BAND_METRICS
+        if _metric_uses_auto_bands(metric_key)
         else _normalize_axis_rows(
             value.get("bands"),
             allow_duplicate_names=False,
