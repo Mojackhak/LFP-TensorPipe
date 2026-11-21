@@ -5240,6 +5240,7 @@ def plot_prism_boxplot(
 
     data_for_boxes: List[np.ndarray] = []
     pos_for_boxes: List[float] = []
+    box_groups = []
     all_vals = []
 
     for g in groups:
@@ -5249,6 +5250,7 @@ def plot_prism_boxplot(
         if vals.size:
             data_for_boxes.append(vals)
             pos_for_boxes.append(float(x_to_num[str(g)]))
+            box_groups.append(g)
 
     if show_box and data_for_boxes:
         whis = _parse_whiskers(whiskers)
@@ -5272,7 +5274,7 @@ def plot_prism_boxplot(
         )
 
         for k, b in enumerate(bp["boxes"]):
-            g = groups[k] if k < len(groups) else None
+            g = box_groups[k]
             face = fill_cmap.get(g, "gray")
             outline_c = (
                 outline_cmap.get(g, box_edge_color)
