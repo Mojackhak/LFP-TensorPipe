@@ -279,17 +279,10 @@ def apply_reset_reference(
     out.set_meas_date(raw.info.get("meas_date"))
     # `out` restarts at first_samp == 0, so onsets must be pulled back into the
     # record-relative frame or set_annotations() would crop them away.
-    annotations = raw.annotations
-    mapped_onsets: list[float] = []
-    mapped_durations: list[float] = []
-    mapped_descriptions: list[str] = []
-    mapped_ch_names: list[tuple[str, ...]] = []
-    for onset, duration, description, ch_names in zip(
-        raw_relative_onsets(raw),
-        annotations.duration,
-        annotations.description,
-        annotations.ch_names,
-    ):
+    mapped = raw.annotations.copy()
+    mapped.onset = raw_relative_onsets(raw)
+    kept: list[int] = []
+    for index, ch_names in enumerate(mapped.ch_names):
         source_scope = frozenset(str(channel) for channel in ch_names)
         if source_scope:
             output_scope = tuple(
@@ -301,19 +294,9 @@ def apply_reset_reference(
                 continue
         else:
             output_scope = ()
-        mapped_onsets.append(float(onset))
-        mapped_durations.append(float(duration))
-        mapped_descriptions.append(str(description))
-        mapped_ch_names.append(output_scope)
-    out.set_annotations(
-        mne.Annotations(
-            onset=mapped_onsets,
-            duration=mapped_durations,
-            description=mapped_descriptions,
-            orig_time=out.info.get("meas_date"),
-            ch_names=mapped_ch_names,
-        )
-    )
+        kept.append(index)
+        mapped.ch_names[index] = output_scope
+    out.set_annotations(mapped[kept])
     return out
 
 

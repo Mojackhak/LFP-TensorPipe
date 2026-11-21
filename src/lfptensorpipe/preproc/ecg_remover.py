@@ -1996,13 +1996,7 @@ def finalize_reviewed_bad_annotations(
         )
         combined = combined + edge_annotations
         order = np.argsort(np.asarray(combined.onset, dtype=float), kind="stable")
-        combined = mne.Annotations(
-            onset=np.asarray(combined.onset, dtype=float)[order].tolist(),
-            duration=np.asarray(combined.duration, dtype=float)[order].tolist(),
-            description=np.asarray(combined.description, dtype=object)[order].tolist(),
-            orig_time=combined.orig_time,
-            ch_names=[combined.ch_names[index] for index in order],
-        )
+        combined = combined[order]
     _set_annotations_from_attached_frame(out, combined)
     return out
 

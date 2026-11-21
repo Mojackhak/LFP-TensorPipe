@@ -1,8 +1,8 @@
 """Reversible Signal Repair decisions attached to the existing Qt browser."""
 
+from collections import Counter, defaultdict, deque
 from copy import deepcopy
 
-import mne
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDockWidget,
@@ -28,23 +28,28 @@ class SignalRepairReview:
         )
         self.opened_selection = self.selection
         self._opened_managed = {}
-        annotations = [
-            [
-                ann["onset"],
-                ann["duration"],
-                ann["description"],
-                list(raw.annotations.ch_names[i]),
-            ]
-            for i, ann in enumerate(raw.annotations)
-        ]
-        by_support = {self.annotation_key(a): a for a in annotations}
+        by_support = defaultdict(deque)
+        for ann in raw.annotations:
+            record = self._annotation_record(ann)
+            by_support[self.annotation_key(record)].append(record)
         for item in self.rows:
-            managed = self.annotations_for(item)
-            exact = [
-                by_support.get(self.annotation_key(target), target)
-                for target in managed
-            ]
+            exact = []
+            for target in self.annotations_for(item):
+                matches = by_support.get(self.annotation_key(target))
+                exact.append(matches.popleft() if matches else target)
             self._opened_managed[id(item)] = item["accepted"], exact
+
+    @staticmethod
+    def _annotation_record(annotation):
+        record = [
+            annotation["onset"],
+            annotation["duration"],
+            annotation["description"],
+            list(annotation.get("ch_names", ())),
+        ]
+        if annotation.get("extras"):
+            record.append(dict(annotation["extras"]))
+        return record
 
     @property
     def selection(self):
@@ -91,33 +96,36 @@ class SignalRepairReview:
         if item["accepted"] == accepted:
             return
         annotations = self.raw.annotations
-        records = [
-            [
-                ann["onset"],
-                ann["duration"],
-                ann["description"],
-                list(annotations.ch_names[i]),
-            ]
-            for i, ann in enumerate(annotations)
-        ]
-        for managed in self.annotations_for(item):
-            for i, annotation in enumerate(records):
-                if self.annotation_key(annotation) == self.annotation_key(managed):
-                    records.pop(i)
-                    break
+        managed = Counter(
+            self.annotation_key(row) for row in self.annotations_for(item)
+        )
+        removed = []
+        for index, ann in enumerate(annotations):
+            key = self.annotation_key(self._annotation_record(ann))
+            if managed[key]:
+                removed.append(index)
+                managed[key] -= 1
         item["accepted"] = accepted
         index = self.raw.ch_names.index(item["channel"])
         self.raw._data[index, item["start_sample"] : item["stop_sample"]] = item[
             "interpolated_samples" if accepted else "original_samples"
         ]
-        records.extend(self.annotations_for(item))
-        updated = mne.Annotations(
-            onset=[a[0] for a in records],
-            duration=[a[1] for a in records],
-            description=[a[2] for a in records],
-            ch_names=[a[3] for a in records],
-            orig_time=annotations.orig_time,
-        )
+        updated = annotations.copy()
+        updated.delete(removed)
+        records = self.annotations_for(item)
+        if records:
+            extras = (
+                {"extras": [row[4] if len(row) > 4 else None for row in records]}
+                if hasattr(annotations, "extras")
+                else {}
+            )
+            updated.append(
+                onset=[row[0] for row in records],
+                duration=[row[1] for row in records],
+                description=[row[2] for row in records],
+                ch_names=[row[3] for row in records],
+                **extras,
+            )
         _set_annotations_from_attached_frame(self.raw, updated)
 
 

@@ -260,6 +260,7 @@ def repair_signal(raw: mne.io.BaseRaw, params: dict[str, Any]):
     gaps_enabled = effective["gaps"]["enabled"]
     peaks_enabled = effective["peaks"]["enabled"]
     raw_annotations = raw.annotations
+    source_extras = getattr(raw_annotations, "extras", None)
     labels = [label.strip().lower() for label in raw_annotations.description]
     gaps_by_channel: dict[str, list[tuple[int, int, int]]] = {
         channel: [] for channel in eligible
@@ -427,19 +428,21 @@ def repair_signal(raw: mne.io.BaseRaw, params: dict[str, Any]):
                         (stop - start) / sfreq,
                         label,
                         (channel,),
+                        None,
                     )
                 )
                 gap_annotations = []
                 for index in gap_indices:
                     repaired_gap_channels.setdefault(index, set()).add(channel)
-                    gap_annotations.append(
-                        [
-                            float(raw_annotations.onset[index]),
-                            float(raw_annotations.duration[index]),
-                            str(raw_annotations.description[index]),
-                            [channel],
-                        ]
-                    )
+                    original = [
+                        float(raw_annotations.onset[index]),
+                        float(raw_annotations.duration[index]),
+                        str(raw_annotations.description[index]),
+                        [channel],
+                    ]
+                    if source_extras is not None and source_extras[index]:
+                        original.append(dict(source_extras[index]))
+                    gap_annotations.append(original)
                 intervals.append(
                     {
                         **record,
@@ -463,19 +466,25 @@ def repair_signal(raw: mne.io.BaseRaw, params: dict[str, Any]):
         ):
             repaired = repaired_gap_channels.get(index)
             if repaired:
-                annotations.extend(
-                    (onset, duration, description, (channel,))
-                    for channel in (scope or channels)
-                    if channel not in repaired
-                )
+                scopes = [(ch,) for ch in (scope or channels) if ch not in repaired]
             else:
-                annotations.append((onset, duration, description, scope))
+                scopes = [scope]
+            extra = source_extras[index] if source_extras is not None else None
+            annotations.extend(
+                (onset, duration, description, kept_scope, extra)
+                for kept_scope in scopes
+            )
         combined = mne.Annotations(
             onset=[a[0] for a in annotations],
             duration=[a[1] for a in annotations],
             description=[a[2] for a in annotations],
             ch_names=[a[3] for a in annotations],
             orig_time=raw_annotations.orig_time,
+            **(
+                {"extras": [a[4] for a in annotations]}
+                if source_extras is not None
+                else {}
+            ),
         )
         _set_annotations_from_attached_frame(output, combined)
     return output, {

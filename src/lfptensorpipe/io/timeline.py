@@ -57,21 +57,16 @@ def normalize_raw_timeline(raw: Any) -> tuple[Any, dict[str, Any]]:
         np.asarray(raw.get_data(), dtype=float), info, verbose="ERROR"
     )
 
+    if n_before > 0:
+        rebased = annotations.copy()
+        rebased.onset = raw_relative_onsets(raw)
+        out.set_annotations(rebased)
+
+    # Move the Raw and its attached annotations to the new origin together.
     meas_date_after = meas_date_before
     if meas_date_before is not None:
         meas_date_after = meas_date_before + timedelta(seconds=first_time)
         out.set_meas_date(meas_date_after)
-
-    if n_before > 0:
-        out.set_annotations(
-            mne.Annotations(
-                onset=raw_relative_onsets(raw),
-                duration=np.asarray(annotations.duration, dtype=float),
-                description=np.asarray(annotations.description, dtype=object),
-                orig_time=meas_date_after,
-                ch_names=list(annotations.ch_names),
-            )
-        )
 
     report = {
         "normalized": True,

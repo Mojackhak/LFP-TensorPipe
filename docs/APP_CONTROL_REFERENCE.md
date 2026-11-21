@@ -461,6 +461,14 @@ and writes the annotated recording, which can have a different number of
 parts. If a referenced source part is missing, the step reports a failure and
 keeps any previously published output FIF files.
 
+When the source FIF contains per-annotation MNE `extras`, retained rows carry
+their own fields through import timeline normalization, Sync, Reset Reference,
+Signal Repair, reviewed Filter and ECG, Annotations, and Finish. For example,
+two events at the same time can keep different trial identifiers. New padding,
+interpolation, and edge annotations start with empty fields. Rejecting a gap
+repair restores the source gap's fields on the reviewed channel. Earlier FIFs
+that lost these fields require the original annotations to recover them.
+
 On Windows, Preprocess `Plot` prepares waveform data for the visible time window
 at the recording's original sampling rate. The Qt browser's default Downsampling
 value of `1` displays every sample. The horizontal scrollbar and waveform

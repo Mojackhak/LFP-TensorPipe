@@ -254,13 +254,8 @@ def _set_annotations_from_attached_frame(
     """Attach annotations whose onsets are already in Raw's exposed frame."""
     prepared = annotations
     if annotations.orig_time is None:
-        prepared = mne.Annotations(
-            onset=np.asarray(annotations.onset, dtype=float) - float(raw.first_time),
-            duration=np.asarray(annotations.duration, dtype=float),
-            description=np.asarray(annotations.description, dtype=object).tolist(),
-            orig_time=None,
-            ch_names=list(annotations.ch_names),
-        )
+        prepared = annotations.copy()
+        prepared.onset -= raw.first_time
     raw.set_annotations(prepared)
 
 
@@ -687,13 +682,7 @@ def finalize_reviewed_lfp_filter(
         )
         combined = combined + edge_annotations
         order = np.argsort(np.asarray(combined.onset, dtype=float))
-        combined = mne.Annotations(
-            onset=np.asarray(combined.onset, dtype=float)[order].tolist(),
-            duration=np.asarray(combined.duration, dtype=float)[order].tolist(),
-            description=np.asarray(combined.description, dtype=object)[order].tolist(),
-            orig_time=combined.orig_time,
-            ch_names=[combined.ch_names[index] for index in order],
-        )
+        combined = combined[order]
     _set_annotations_from_attached_frame(out, combined)
 
     _append_info_description(
@@ -863,15 +852,8 @@ def merge_contiguous_bad_annotations(
     if sort_by_onset:
         combined = merged_ann + other_ann
         order = np.argsort(np.asarray(combined.onset, dtype=float))
-        combined_sorted = mne.Annotations(
-            onset=np.asarray(combined.onset, dtype=float)[order],
-            duration=np.asarray(combined.duration, dtype=float)[order],
-            description=np.asarray(combined.description, dtype=object)[order].tolist(),
-            orig_time=combined.orig_time,
-            ch_names=[combined.ch_names[index] for index in order],
-        )
         out = raw.copy()
-        _set_annotations_from_attached_frame(out, combined_sorted)
+        _set_annotations_from_attached_frame(out, combined[order])
         return out
 
     combined = (merged_ann + other_ann) if merged_first else (other_ann + merged_ann)
@@ -1747,6 +1729,7 @@ def add_head_tail_annotations(
     orig_time = ann.orig_time
     first_time_sec = float(raw_out.first_samp) / sfreq
     n_annotations_in = int(len(ann))
+    existing = ann.copy()
 
     # Determine recording bounds in the annotation reference frame.
     # `report_offset` converts that frame into the frame of the annotations that
@@ -1758,13 +1741,7 @@ def add_head_tail_annotations(
         rec_end_sec = total_len_sec
         last_sample_sec = max(rec_start_sec, rec_end_sec - 1.0 / sfreq)
         report_offset = first_time_sec
-        ann = mne.Annotations(
-            onset=np.asarray(ann.onset, dtype=float) - first_time_sec,
-            duration=np.asarray(ann.duration, dtype=float),
-            description=np.asarray(ann.description, dtype=object),
-            orig_time=None,
-            ch_names=list(ann.ch_names),
-        )
+        existing.onset -= first_time_sec
     else:
         rec_start_sec = first_time_sec
         rec_end_sec = float(raw_out.first_samp + n_times) / sfreq  # exclusive end
@@ -1806,7 +1783,6 @@ def add_head_tail_annotations(
         new_durs.append(float(tail_end - tail_start))
         new_descs.append(tail_desc)
 
-    existing = ann.copy()
     if replace_existing_same_desc and len(existing) > 0:
         remove_set = {str(description), head_desc, tail_desc}
         keep_mask = np.array(
@@ -1828,13 +1804,7 @@ def add_head_tail_annotations(
 
     if sort_by_onset and len(combined) > 1:
         order = np.argsort(np.asarray(combined.onset, dtype=float))
-        combined = mne.Annotations(
-            onset=np.asarray(combined.onset, dtype=float)[order].tolist(),
-            duration=np.asarray(combined.duration, dtype=float)[order].tolist(),
-            description=np.asarray(combined.description, dtype=object)[order].tolist(),
-            orig_time=combined.orig_time,
-            ch_names=[combined.ch_names[index] for index in order],
-        )
+        combined = combined[order]
 
     raw_out.set_annotations(combined)
 
