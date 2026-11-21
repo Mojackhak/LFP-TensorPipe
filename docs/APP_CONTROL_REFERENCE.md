@@ -469,8 +469,9 @@ interpolation, and edge annotations start with empty fields. Rejecting a gap
 repair restores the source gap's fields on the reviewed channel. Earlier FIFs
 that lost these fields require the original annotations to recover them.
 
-On Windows, Preprocess `Plot` prepares waveform data for the visible time window
-at the recording's original sampling rate. The Qt browser's default Downsampling
+On macOS with the Qt browser and on Windows, Preprocess `Plot` prepares waveform
+data for the visible time window at the recording's original sampling rate by
+default. The Qt browser's default Downsampling
 value of `1` displays every sample. The horizontal scrollbar and waveform
 controls convert window times directly to sample indices using that rate. Clicking
 the Qt overview maps its horizontal position to a sample on the same timeline.
@@ -481,11 +482,20 @@ minimum. Each zoom updates the waveform once and synchronizes the scrollbar to
 the resulting range. A native Windows Qt preview uses OpenGL to draw the full
 waveform when PyOpenGL is installed and Qt can create an OpenGL context. An
 explicit `MNE_BROWSER_USE_OPENGL` setting takes precedence.
-On high-DPI Windows displays, the Qt plot uses a one-device-pixel default line
+On high-DPI macOS and Windows displays, the Qt plot uses a one-device-pixel default line
 width for waveforms. Antialiasing follows the browser setting, and annotation
 outlines and hover handles keep their explicit widths as the display scales.
 Annotation edits and bad-channel selections follow the close and save rules of
 the selected step. Navigating a plot affects only its display.
+
+On macOS the Qt browser honors the configured OpenGL setting. The normal
+channel overview uses window-local reads. An explicit MNE precompute setting
+or a saved Z-Score overview can still request full-record preprocessing.
+Raw and Finish Plot open FIFs on demand. Ordinary Raw edits track annotations
+and bad channels. Closing an unchanged accepted Raw reads no complete waveform
+and leaves its FIF and processing receipt intact. Saving an edit streams the
+complete recording to the staged FIF and checks the source, including any split
+parts, before promotion. Signal Repair keeps its editable samples in memory.
 
 ### 6.1 Step 0: Raw
 

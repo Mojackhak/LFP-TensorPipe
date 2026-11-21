@@ -12,7 +12,7 @@ import sys
 import weakref
 
 import numpy as np
-from PySide6.QtCore import QSignalBlocker
+from PySide6.QtCore import QSettings, QSignalBlocker
 from PySide6.QtGui import QAction, QOpenGLContext
 
 from lfptensorpipe.app.path_resolver import PathResolver
@@ -117,16 +117,20 @@ def _normalize_preproc_plot_bads(raw: Any) -> tuple[str, ...]:
 
 
 def _preproc_plot_raw_signature(raw: Any) -> dict[str, Any]:
-    data_getter = getattr(raw, "get_data", None)
-    data_obj = (
-        data_getter() if callable(data_getter) else np.empty((0, 0), dtype=np.float64)
-    )
-    data = np.ascontiguousarray(data_obj, dtype=np.float64)
-    digest = hashlib.sha256(data.tobytes()).hexdigest()
+    digest = None
+    if getattr(raw, "preload", True):
+        data_getter = getattr(raw, "get_data", None)
+        data_obj = data_getter() if callable(data_getter) else np.empty((0, 0))
+        data = np.ascontiguousarray(data_obj, dtype=np.float64)
+        digest = hashlib.sha256(data).hexdigest()
+        n_times = getattr(raw, "n_times", data.shape[-1] if data.ndim else 0)
+    else:
+        # A disk-backed Raw Plot edits annotations and bads. Its samples stay in FIF.
+        n_times = raw.n_times
     return {
         "ch_names": tuple(str(name) for name in getattr(raw, "ch_names", ())),
         "sfreq": float(getattr(raw, "info", {}).get("sfreq", 0.0)),
-        "n_times": int(getattr(raw, "n_times", data.shape[-1] if data.ndim else 0)),
+        "n_times": int(n_times),
         "data_digest": digest,
         "annotations": _normalize_preproc_plot_annotations(raw),
         "bads": _normalize_preproc_plot_bads(raw),
@@ -145,6 +149,13 @@ def _preproc_plot_disk_state(raw_path: Any) -> tuple[int, int] | None:
     except OSError:
         return None
     return (int(stat_result.st_size), int(stat_result.st_mtime_ns))
+
+
+def _split_fif_stale_reason(snapshot: dict[str, Any]) -> str | None:
+    for part, opened in snapshot.get("fif_part_states", {}).items():
+        if opened is None or _preproc_plot_disk_state(part) != opened:
+            return f"split FIF part {part.name} changed after this plot was opened"
+    return None
 
 
 def _preproc_plot_generation_snapshot(
@@ -197,6 +208,8 @@ def _preproc_plot_generation_stale_reason(
 ) -> str | None:
     if not isinstance(snapshot, dict):
         return "accepted generation could not be captured when the plot opened"
+    if (reason := _split_fif_stale_reason(snapshot)) is not None:
+        return reason
     log_path = snapshot.get("log_path")
     if not isinstance(log_path, Path):
         return "accepted log could not be resolved"
@@ -327,6 +340,8 @@ def _stale_raw_review_source_reason(
     """Explain why a reviewed canonical Raw can no longer be accepted."""
     if open_state.get("kind") != "raw_canonical_review":
         return None
+    if (reason := _split_fif_stale_reason(open_state)) is not None:
+        return reason
     context = open_state.get("context")
     if owner._record_context() != context:
         return "belongs to a record selection changed after this plot was opened"
@@ -594,15 +609,35 @@ def _windows_plot_opengl() -> bool | None:
     return None
 
 
+def _macos_qt_raw_browser() -> bool:
+    if sys.platform != "darwin":
+        return False
+    from mne.viz import get_browser_backend
+
+    return get_browser_backend() == "qt"
+
+
 def plot_preproc_raw(raw: Any, *, title: str, precompute: bool | None = None) -> Any:
-    """Open a preprocess browser with window-local navigation on Windows."""
-    if sys.platform != "win32":
+    """Open a preprocess browser with window-local navigation where supported."""
+    if sys.platform == "win32":
+        precompute = False
+    elif _macos_qt_raw_browser():
+        from mne import get_config
+
+        if (
+            precompute is None
+            and get_config("MNE_BROWSER_PRECOMPUTE", "auto").lower() == "auto"
+            and QSettings("mne-tools", "mne-qt-browser").value("overview_mode")
+            != "zscore"
+        ):
+            precompute = False
+    else:
         return raw.plot(block=False, title=title, precompute=precompute)
 
     browser = raw.plot(
         block=False,
         title=title,
-        precompute=False,
+        precompute=precompute,
         decim=1,
         use_opengl=_windows_plot_opengl(),
     )
@@ -1245,7 +1280,19 @@ def _open_mne_raw_plot(
     raw = None
     browser = None
     try:
-        raw = self._read_raw_fif(raw_path, preload=True, verbose="ERROR")
+        read_on_demand = autosave_step in {None, "raw"} and _macos_qt_raw_browser()
+        raw = self._read_raw_fif(raw_path, preload=not read_on_demand, verbose="ERROR")
+        if (
+            read_on_demand
+            and tracked_open_state
+            and len(getattr(raw, "filenames", ())) > 1
+        ):
+            # A lazy save still reads continuation samples while staging the edited FIF.
+            snapshot = tracked_open_state.get("generation_snapshot", tracked_open_state)
+            snapshot["fif_part_states"] = {
+                Path(part): _preproc_plot_disk_state(Path(part))
+                for part in raw.filenames[1:]
+            }
         if stale_raw_review:
             assert isinstance(tracked_open_state, dict)
             stale_reason = _stale_raw_review_source_reason(
