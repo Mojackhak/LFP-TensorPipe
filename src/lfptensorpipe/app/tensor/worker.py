@@ -9,6 +9,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -178,7 +179,9 @@ def run_tensor_subprocess(
     mask_edge_effects: bool,
     cpu_percent: float,
 ) -> tuple[bool, str]:
-    """Run the existing worker synchronously and own its descendants until exit."""
+    """Run the CLI worker on the main thread and own its descendants until exit."""
+    if threading.current_thread() is not threading.main_thread():
+        raise ValueError("The synchronous Tensor worker must run on the main thread.")
     run_id = uuid4().hex
     request_path, result_path, cancel_path = write_tensor_worker_request(
         {
