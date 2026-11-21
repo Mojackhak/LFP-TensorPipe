@@ -107,6 +107,7 @@ class MainWindowAlignmentParamsMixin:
         )
         self._refresh_alignment_selected_paradigm()
         self._persist_record_params_snapshot(reason="alignment_method_change")
+        self._refresh_trial_stage_controls()
 
     def _on_alignment_method_params(self) -> None:
         slug = self._current_alignment_paradigm_slug()
@@ -156,3 +157,4 @@ class MainWindowAlignmentParamsMixin:
         )
         self._refresh_alignment_selected_paradigm()
         self._persist_record_params_snapshot(reason="alignment_method_params_save")
+        self._refresh_trial_stage_controls()

@@ -98,6 +98,8 @@ class MainWindowAlignmentEpochsMixin:
         self._refresh_alignment_select_all_button_label()
         self._refresh_alignment_controls()
         self._persist_alignment_epoch_picks_state()
+        if not self._record_param_syncing:
+            self._refresh_trial_stage_controls()
 
     def _selected_alignment_epoch_indices(self) -> list[int]:
         if self._alignment_epoch_table is None:

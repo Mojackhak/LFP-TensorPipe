@@ -404,12 +404,8 @@ class MainWindowFeaturesTrialsMixin:
         context = self._record_context()
         if context is None or not isinstance(slug, str) or not slug.strip():
             return False
-        resolver = PathResolver(context)
         return (
-            self._alignment_trial_stage_state_runtime(
-                resolver,
-                paradigm_slug=slug.strip(),
-            )
+            self._alignment_display_state(PathResolver(context), slug.strip())
             == "green"
         )
 
@@ -437,7 +433,9 @@ class MainWindowFeaturesTrialsMixin:
             self._features_paradigm_list.blockSignals(False)
         return row
 
-    def _refresh_features_trial_list_states(self) -> None:
+    def _refresh_features_trial_list_states(
+        self, *, only_slug: str | None = None
+    ) -> None:
         context = self._record_context()
         resolver = PathResolver(context) if context is not None else None
         if self._features_paradigm_list is None:
@@ -447,14 +445,12 @@ class MainWindowFeaturesTrialsMixin:
             if item is None:
                 continue
             slug = item.data(Qt.UserRole)
+            if only_slug is not None and slug != only_slug:
+                continue
             selectable = False
             if resolver is not None and isinstance(slug, str) and slug.strip():
                 selectable = (
-                    self._alignment_trial_stage_state_runtime(
-                        resolver,
-                        paradigm_slug=slug.strip(),
-                    )
-                    == "green"
+                    self._alignment_display_state(resolver, slug.strip()) == "green"
                 )
             flags = item.flags() | Qt.ItemIsEnabled | Qt.ItemIsSelectable
             if not selectable:

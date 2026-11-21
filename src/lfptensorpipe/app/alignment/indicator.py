@@ -238,10 +238,11 @@ def alignment_method_panel_state(
     paradigm: dict[str, Any] | None,
 ) -> str:
     """Return `gray|yellow|green` for the Align `Method + Params` panel."""
-    current = _normalize_current_signature(paradigm or {})
-    if current is None:
+    slug = str(
+        (paradigm or {}).get("trial_slug", (paradigm or {}).get("slug", ""))
+    ).strip()
+    if not slug:
         return "gray"
-    slug, current_method, current_params = current
 
     try:
         payload = read_run_log(_alignment_log_path(resolver, slug))
@@ -256,6 +257,10 @@ def alignment_method_panel_state(
     if not bool(latest_run[1].get("completed", False)):
         return "yellow"
 
+    current = _normalize_current_signature(paradigm or {})
+    if current is None:
+        return "yellow"
+    _, current_method, current_params = current
     run_signature = _normalize_run_signature(slug, latest_run[1])
     if run_signature is None:
         return "yellow"
@@ -301,10 +306,11 @@ def alignment_epoch_inspector_state(
     picked_epoch_indices: list[int] | None,
 ) -> str:
     """Return `gray|yellow|green` for the Align `Epoch Inspector` panel."""
-    current = _normalize_current_signature(paradigm or {})
-    if current is None:
+    slug = str(
+        (paradigm or {}).get("trial_slug", (paradigm or {}).get("slug", ""))
+    ).strip()
+    if not slug:
         return "gray"
-    slug, _method, _params = current
 
     try:
         payload = read_run_log(_alignment_log_path(resolver, slug))

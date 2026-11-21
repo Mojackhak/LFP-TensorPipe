@@ -365,6 +365,7 @@ class MainWindowAlignmentRunMixin:
         self._refresh_alignment_controls()
         self._persist_alignment_epoch_picks_state()
         self._mark_record_param_dirty("alignment.picks")
+        self._refresh_trial_stage_controls()
 
     def _on_alignment_preview(self) -> None:
         if not self._enable_plots:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.alignment.epoch_view import load_alignment_epoch_picks
+from lfptensorpipe.app.runlog_store import run_log_read_snapshot
 from lfptensorpipe.gui.shell.common import (
     PathResolver,
     STAGE_SPECS,
@@ -61,35 +63,7 @@ class MainWindowStageStateMixin:
             return {"alignment": "gray", "features": "gray"}
 
         resolver = PathResolver(context)
-        current_alignment_slug = getattr(
-            self,
-            "_current_alignment_paradigm_slug",
-            lambda: None,
-        )()
-        paradigm = getattr(self, "_current_alignment_paradigm", lambda: None)()
-        epoch_rows = getattr(self, "_alignment_epoch_rows", [])
-        has_current_epoch_rows = bool(epoch_rows)
-        picked_epoch_indices = (
-            getattr(self, "_selected_alignment_epoch_indices", lambda: [])()
-            if current_alignment_slug == slug and has_current_epoch_rows
-            else None
-        )
-        alignment_state = (
-            self._alignment_epoch_inspector_state_runtime(
-                resolver,
-                paradigm=paradigm,
-                picked_epoch_indices=picked_epoch_indices,
-            )
-            if (
-                current_alignment_slug == slug
-                and isinstance(paradigm, dict)
-                and has_current_epoch_rows
-            )
-            else self._alignment_trial_stage_state_runtime(
-                resolver,
-                paradigm_slug=slug,
-            )
-        )
+        alignment_state = self._alignment_display_state(resolver, slug)
         features_state = self._extract_features_indicator_state_runtime(
             resolver,
             paradigm_slug=slug,
@@ -100,6 +74,37 @@ class MainWindowStageStateMixin:
             "alignment": alignment_state,
             "features": features_state,
         }
+
+    def _alignment_display_state(self, resolver: PathResolver, slug: str) -> str:
+        paradigm = next(
+            (p for p in self._alignment_paradigms if p["slug"] == slug), None
+        )
+        if paradigm is None:
+            return self._alignment_trial_stage_state_runtime(
+                resolver, paradigm_slug=slug
+            )
+        if (
+            self._current_alignment_paradigm_slug() == slug
+            and self._alignment_epoch_rows
+        ):
+            picks = self._selected_alignment_epoch_indices()
+        else:
+            picks = load_alignment_epoch_picks(resolver.context, paradigm_slug=slug)
+        return self._alignment_epoch_inspector_state_runtime(
+            resolver, paradigm=paradigm, picked_epoch_indices=picks
+        )
+
+    def _refresh_trial_stage_controls(self) -> None:
+        """Project the edited trial onto navigation and Features without rescanning the record."""
+        with run_log_read_snapshot():
+            self._set_stage_state_maps(
+                {**self._stage_raw_states, **self._current_trial_stage_states()}
+            )
+            self._refresh_stage_controls()
+            self._refresh_features_trial_list_states(
+                only_slug=self._shared_stage_trial_slug()
+            )
+            self._refresh_features_controls()
 
     def _refresh_stage_states_from_context(self) -> None:
         if (

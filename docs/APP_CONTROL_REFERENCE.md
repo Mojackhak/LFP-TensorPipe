@@ -1707,6 +1707,9 @@ dialog draft and does not modify the saved app default.
 
 ### 8.2 Epoch Inspector
 
+Editing the current method or epoch selection updates the navigation lights
+and Features controls immediately.
+
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | `Epoch Inspector` indicator | Reports whether the current run and finish state are fresh for the selected trial. | User feedback only. | Read-only. |

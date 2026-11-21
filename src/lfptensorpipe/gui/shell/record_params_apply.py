@@ -49,7 +49,7 @@ class MainWindowRecordParamsApplyMixin(
         self._refresh_preproc_controls()
         self._refresh_tensor_controls()
         self._refresh_alignment_controls()
-        self._refresh_features_controls()
+        self._refresh_trial_stage_controls()
         self._refresh_localize_match_status()
         self._refresh_localize_atlas_summary()
         self._refresh_localize_action_state()
