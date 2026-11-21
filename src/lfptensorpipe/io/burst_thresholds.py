@@ -14,6 +14,7 @@ from lfptensorpipe.lfp.burst.semantics import (
     has_current_burst_value_semantics,
     normalize_burst_estimator_signature,
 )
+from lfptensorpipe.utils.freqs import burst_segment_grid, burst_segment_mask
 
 BURST_THRESHOLD_KIND = "lfptensorpipe_burst_thresholds"
 
@@ -143,13 +144,33 @@ def normalize_burst_threshold_payload(value: Any) -> dict[str, Any]:
         field = f"bands[{index}]"
         if not isinstance(band_value, dict):
             raise ValueError(f"{field} must be an object.")
-        _require_exact_keys(band_value, expected=_BAND_KEYS, field=field)
+        has_grid = (
+            "frequency_grid_hz" in band_value and estimator["method"] != "hilbert"
+        )
+        expected_keys = _BAND_KEYS | {"frequency_grid_hz"} if has_grid else _BAND_KEYS
+        _require_exact_keys(band_value, expected=expected_keys, field=field)
         name = _normalize_label(band_value.get("name"), field=f"{field}.name")
         segments = _normalize_segments(
             band_value.get("segments_hz"),
             field=f"{field}.segments_hz",
         )
-        bands.append({"name": name, "segments_hz": segments})
+        band = {"name": name, "segments_hz": segments}
+        if has_grid:
+            grid = band_value["frequency_grid_hz"]
+            if not isinstance(grid, list) or not grid:
+                raise ValueError(f"{field}.frequency_grid_hz must be a non-empty list.")
+            frequencies = [
+                _normalize_number(item, field=f"{field}.frequency_grid_hz")
+                for item in grid
+            ]
+            if not np.all(np.diff(frequencies) > 0) or not np.all(
+                burst_segment_mask(np.asarray(frequencies), segments)
+            ):
+                raise ValueError(
+                    f"{field}.frequency_grid_hz must increase within the band segments."
+                )
+            band["frequency_grid_hz"] = frequencies
+        bands.append(band)
         band_names.append(name)
     if len(set(band_names)) != len(band_names):
         raise ValueError("bands must contain unique case-sensitive names.")
@@ -231,8 +252,10 @@ def build_burst_threshold_payload(
     bands: Mapping[str, Any],
     values: Any,
     estimator: Mapping[str, Any],
+    frequency_grid_hz_by_band: Mapping[str, Sequence[float]] | None = None,
 ) -> dict[str, Any]:
     """Build a canonical threshold payload from a completed Burst run."""
+    estimator = normalize_burst_estimator_signature(estimator)
     band_rows = [
         {
             "name": str(name),
@@ -243,11 +266,20 @@ def build_burst_threshold_payload(
         }
         for name, segments in bands.items()
     ]
+    if estimator["method"] != "hilbert":
+        for row in band_rows:
+            row["frequency_grid_hz"] = (
+                list(frequency_grid_hz_by_band[row["name"]])
+                if frequency_grid_hz_by_band is not None
+                else burst_segment_grid(
+                    row["segments_hz"], estimator["freq_step_hz"]
+                ).tolist()
+            )
     array = np.asarray(values, dtype=float)
     payload = {
         "kind": BURST_THRESHOLD_KIND,
         "value_semantics": burst_value_semantics(),
-        "estimator": normalize_burst_estimator_signature(estimator),
+        "estimator": estimator,
         "channels": [str(item) for item in channels],
         "bands": band_rows,
         "values": array.tolist(),
@@ -261,6 +293,7 @@ def select_burst_threshold_subset(
     channels: Sequence[str],
     bands: Mapping[str, Any],
     estimator: Mapping[str, Any],
+    frequency_grid_hz_by_band: Mapping[str, Sequence[float]] | None = None,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     """Select and reorder a compatible payload to the requested runtime subset."""
     normalized = normalize_burst_threshold_payload(payload)
@@ -317,8 +350,26 @@ def select_burst_threshold_subset(
         bands={name: runtime_segments[name] for name in requested_bands},
         values=selected,
         estimator=expected_estimator,
+        frequency_grid_hz_by_band=frequency_grid_hz_by_band,
     )
+    if expected_estimator["method"] != "hilbert":
+        for row in subset["bands"]:
+            source = normalized["bands"][payload_band_index[row["name"]]]
+            if (
+                recorded_burst_band_grid(source, expected_estimator["freq_step_hz"])
+                != row["frequency_grid_hz"]
+            ):
+                raise ValueError(
+                    f"Incompatible Burst thresholds (frequency grid mismatch: {row['name']})."
+                )
     return selected, subset
+
+
+def recorded_burst_band_grid(band: Mapping[str, Any], step: float) -> list[float]:
+    """Return the actual spectral support of a current or segment-only threshold."""
+    if "frequency_grid_hz" in band:
+        return band["frequency_grid_hz"]
+    return burst_segment_grid(band["segments_hz"], step, legacy=True).tolist()
 
 
 def write_burst_threshold_json(payload: Any, path: str | Path) -> None:

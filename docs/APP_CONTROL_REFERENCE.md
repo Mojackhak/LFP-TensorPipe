@@ -1146,7 +1146,7 @@ or invalidate artifacts.
 | --- | --- | --- | --- |
 | `Low freq` | Sets the lower bound of the frequency grid that will actually be computed for the active metric. It should stay inside the valid post-preprocess range, rather than being treated as a display-only crop. | Active metric configuration. | Shown only for metrics that expose it. |
 | `High freq` | Sets the upper bound of the frequency grid that will actually be computed for the active metric. It cannot exceed the effective preprocess ceiling or the current Nyquist limit. | Active metric configuration. | Shown only for metrics that expose it. |
-| `Step` | Sets the spacing between adjacent sampled frequencies. Smaller steps create a denser frequency grid, but they also increase runtime and output size. | Active metric configuration. | Shown only for metrics that expose it. |
+| `Step` | Sets the spacing between adjacent sampled frequencies. The grid includes the upper bound when it is a whole number of steps from the lower bound, including decimal steps such as 0.2 Hz. | Active metric configuration. | Shown only for metrics that expose it. |
 | `Time resolution` | Sets the target Morlet time scale or target Multitaper window before cycle bounds. With Multitaper, `MT min cycles` may lengthen low-frequency windows and `MT max cycles` may shorten high-frequency windows. | Active metric configuration. | Shown only for metrics that expose it. |
 | `Hop` | Sets the shift between adjacent analysis windows. Smaller hops make the time axis denser and smoother, but they also increase overlap and compute cost. | Active metric configuration. | Shown only for metrics that expose it. |
 | `SpecParam freq range` | Sets the fitting range used by the SpecParam model, not the final display or export range. In practice, it is usually safer to keep this range slightly wider than the final `Low freq` and `High freq` bounds, allowing boundary frequencies to be trimmed using the final `Low freq` and `High freq` bounds because they are often not modeled reliably as oscillatory peaks. | Visible for periodic/aperiodic metrics. |
@@ -1272,8 +1272,10 @@ This panel shows the Burst-specific basic controls. `Step (Hz)` is configured
 in Burst Advance instead of this panel. It is dormant for Hilbert, so changing
 it does not alter Hilbert computation or freshness. Morlet and Multitaper use
 it to build the retained frequency grid; changing it can alter their Burst
-results and freshness. The active estimator determines whether Step participates
-in computation.
+results and freshness. The grid starts at the named band's lower bound within
+the analysis range. Morlet and Multitaper then exclude every bin inside each
+notch, including its endpoints. For example, a 13–30 Hz band with a 2 Hz step
+and a 12–16 Hz notch retains 17, 19, 21, 23, 25, 27, and 29 Hz.
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
@@ -1554,7 +1556,7 @@ fields retain their drafts but do not affect computation.
 | --- | --- | --- | --- |
 | `Method` | Chooses `hilbert`, `morlet`, or `multitaper` as the Burst magnitude estimator before the shared threshold and event-duration rules. | Burst magnitude, estimator guard, reusable-threshold identity, and result freshness. | Burst dialog only. The selection enables only that method's active fields. |
 | `Hilbert filter` | Chooses the fixed `IIR` or `FIR` band-pass implementation inside the Hilbert estimator. IIR preserves the fourth-order zero-phase Butterworth path; FIR uses the fixed automatic Hamming `firwin` contract. | Hilbert magnitude, automatic numerical guard, reusable-threshold identity, and Burst freshness. | Enabled only for Hilbert; defaults to `IIR`. FIR order, transitions, window, phase, and padding are derived internals and are not exposed. |
-| `Step (Hz)` | Sets the frequency spacing of the retained Morlet or Multitaper computation grid inside each effective named-band segment. | Spectral Burst frequency sampling, pooled magnitude, and estimator identity. | Enabled for Morlet and Multitaper; disabled for Hilbert. Must be finite and positive. |
+| `Step (Hz)` | Sets the frequency spacing from the named band's lower bound. Every retained segment uses this same grid. | Spectral Burst frequency sampling, pooled magnitude, and estimator identity. | Requires a finite positive value for Morlet and Multitaper. |
 | `Morlet cycles` | Sets one fixed Morlet cycle count at every retained frequency. | Morlet temporal/spectral support and five-sigma edge guard. | Enabled only for Morlet. Must be finite and positive. |
 | `MT cycles` | Sets one fixed DPSS Multitaper window cycle count at every retained frequency. | Multitaper window duration, smoothing, and half-window edge guard. | Enabled only for Multitaper. Must be finite and positive. |
 | `MT time-bandwidth product` | Sets the dimensionless DPSS time-bandwidth product while `MT cycles` determines window duration. | Multitaper taper family, spectral concentration, and magnitude estimate. | Enabled only for Multitaper. Must be finite and at least `2`. |
@@ -1581,7 +1583,9 @@ fields retain their drafts but do not affect computation.
   band identities. A run accepts a requested channel/band subset, reorders
   values to the runtime order, and fails Burst before numerical computation if
   any requested identity is absent or a band's effective notch-split segments
-  do not match.
+  differ. Morlet and Multitaper also require matching retained frequencies.
+  Older spectral threshold files can be reused when their original frequency
+  grid matches the selected band's current grid.
 - Successful Burst runs write `thresholds.json` for the actual runtime subset.
   The source file path is provenance only and is never reopened for the run.
 - `Baseline annotations` determines which labeled baseline periods define the burst threshold context when thresholds are derived from data rather than loaded from file. Missing or wholly excluded baseline data blocks the run; Burst does not fall back to the full recording.
@@ -1942,12 +1946,13 @@ Burst is handled specially. The aligned Burst raw table is a display artifact,
 and its sampling rate does not define Burst scalar features. For all four
 Alignment methods, percentage phases are mapped back to the original
 full-rate Burst tensor before calculating `mean`, `rate`, `duration`, and
-`occupancy`. Positive amplitudes are averaged in the `log10` domain with source
-cell duration as the weight, then converted back to volts. Therefore Burst
-`mean` is a duration-weighted geometric mean, while zeros continue to mean
-valid non-Burst support and never enter the logarithm. The `mean` output keeps
-the `log10` transform policy; `rate`, `duration`, and `occupancy` keep the
-identity policy. Their Unit values are `V`, `bursts/s`, `s`, and `%`.
+`occupancy`. A positive Burst score is its magnitude divided by the detection
+threshold for that channel and band. Burst `mean` is the geometric mean of
+these scores, weighted by source cell duration and reported in threshold
+multiples. Zeros represent valid non-Burst support and stay outside the
+logarithm. The `mean` output uses the `log10` transform policy. `rate`,
+`duration`, and `occupancy` use the identity policy. The respective `Unit`
+values are `threshold multiple`, `bursts/s`, `s`, and `%`.
 Each native timestamp begins one half-open Burst state cell ending at the next
 timestamp; the final cell uses the last observed sample interval. This makes
 `N` samples at sampling rate `f_s` contribute exactly `N/f_s` seconds without

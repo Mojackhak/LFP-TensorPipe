@@ -10,9 +10,11 @@ import yaml
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.runlog_store import read_run_log
+from lfptensorpipe.utils.freqs import decimal_notch_intervals
 from lfptensorpipe.io.burst_thresholds import (
     load_burst_threshold_json,
     normalize_burst_threshold_payload,
+    recorded_burst_band_grid,
     select_burst_threshold_subset,
 )
 from lfptensorpipe.lfp.burst.semantics import (
@@ -549,6 +551,16 @@ def _metric_log_signature(
             if not np.isfinite(tolerance) or not (0.0 < tolerance < 100.0):
                 return None
             signature["hilbert_edge_tolerance_pct"] = tolerance
+        else:
+            threshold_payload = normalize_burst_threshold_payload(
+                params.get("thresholds_used")
+            )
+            signature["frequency_grid_hz_by_band"] = {
+                band["name"]: recorded_burst_band_grid(
+                    band, estimator_signature["freq_step_hz"]
+                )
+                for band in threshold_payload["bands"]
+            }
         if threshold_mode == "provided":
             try:
                 _, signature["thresholds_used"] = select_burst_threshold_subset(
@@ -556,6 +568,9 @@ def _metric_log_signature(
                     channels=channels,
                     bands=bands_used,
                     estimator=estimator_signature,
+                    frequency_grid_hz_by_band=signature.get(
+                        "frequency_grid_hz_by_band"
+                    ),
                 )
             except ValueError:
                 return None
@@ -611,7 +626,7 @@ def _psi_or_burst_bands_signature(
         return _normalize_runtime_bands_signature(
             _serialize_psi_runtime_bands(runtime_bands)
         )
-    runtime_bands = _build_burst_runtime_bands(
+    runtime_bands, _ = _build_burst_runtime_bands(
         bands=bands,
         low_freq=metric_low,
         high_freq=metric_high,
@@ -811,13 +826,29 @@ def _current_metric_signature(
     if metric_key == "burst":
         channels = _normalize_channels(prepared.metric_channels)
         bands = normalize_metric_bands(params.get("bands"))
-        runtime_bands = _build_burst_runtime_bands(
+        estimator_signature = burst_estimator_signature(
+            method=params.get("method", "hilbert"),
+            hilbert_filter_method=params.get("hilbert_filter_method", "iir"),
+            filter_order=4,
+            hilbert_edge_tolerance_pct=params.get("hilbert_edge_tolerance_pct", 10.0),
+            freq_step_hz=params.get("freq_step_hz", 1.0),
+            morlet_n_cycles=params.get("morlet_n_cycles", 6.0),
+            mt_n_cycles=params.get("mt_n_cycles", 7.0),
+            mt_time_bandwidth_product=params.get("mt_time_bandwidth_product", 4.0),
+        )
+        runtime_bands, spectral_grids = _build_burst_runtime_bands(
             bands=bands,
             low_freq=prepared.metric_low,
             high_freq=prepared.metric_high,
             notch_intervals=[
                 (float(segment[0]), float(segment[1])) for segment in notch_intervals
             ],
+            spectral_step=estimator_signature.get("freq_step_hz"),
+            spectral_notches=(
+                decimal_notch_intervals(notches, notch_radii)
+                if estimator_signature["method"] != "hilbert"
+                else None
+            ),
         )
         bands_used = _normalize_runtime_bands_signature(
             _serialize_burst_runtime_bands(runtime_bands)
@@ -828,16 +859,6 @@ def _current_metric_signature(
         threshold_mode = "provided" if thresholds_payload is not None else "computed"
         boundary_isolated_filter_effective = bool(
             mask_edge_effects and bool(params.get("boundary_isolated_filter", True))
-        )
-        estimator_signature = burst_estimator_signature(
-            method=params.get("method", "hilbert"),
-            hilbert_filter_method=params.get("hilbert_filter_method", "iir"),
-            filter_order=4,
-            hilbert_edge_tolerance_pct=params.get("hilbert_edge_tolerance_pct", 10.0),
-            freq_step_hz=params.get("freq_step_hz", 1.0),
-            morlet_n_cycles=params.get("morlet_n_cycles", 6.0),
-            mt_n_cycles=params.get("mt_n_cycles", 7.0),
-            mt_time_bandwidth_product=params.get("mt_time_bandwidth_product", 4.0),
         )
         signature = {
             "low_freq": prepared.metric_low,
@@ -867,12 +888,15 @@ def _current_metric_signature(
             signature["hilbert_edge_tolerance_pct"] = float(
                 params.get("hilbert_edge_tolerance_pct", 10.0)
             )
+        else:
+            signature["frequency_grid_hz_by_band"] = spectral_grids
         if threshold_mode == "provided":
             _, thresholds_used = select_burst_threshold_subset(
                 thresholds_payload,
                 channels=channels,
                 bands=runtime_bands,
                 estimator=estimator_signature,
+                frequency_grid_hz_by_band=spectral_grids,
             )
             signature["thresholds_used"] = thresholds_used
             return signature

@@ -20,7 +20,12 @@ from lfptensorpipe.lfp.burst.semantics import (
     burst_value_semantics,
     normalize_burst_method,
 )
-from lfptensorpipe.utils.freqs import split_bands_by_intervals
+from lfptensorpipe.lfp.runtime.tensor_helpers import cut_frequency_grid_by_intervals
+from lfptensorpipe.utils.freqs import (
+    decimal_notch_intervals,
+    regular_frequency_grid,
+    split_bands_by_intervals,
+)
 from lfptensorpipe.utils.transforms import (
     VALUE_TRANSFORM_POLICY_KEY,
     attach_transform_policy,
@@ -44,7 +49,9 @@ def _build_runtime_bands(
     low_freq: float,
     high_freq: float,
     notch_intervals: list[tuple[float, float]],
-) -> dict[str, Any]:
+    spectral_step: float | None = None,
+    spectral_notches: list[tuple[float, float]] | None = None,
+) -> tuple[dict[str, Any], dict[str, list[float]] | None]:
     runtime_bands: dict[str, tuple[float, float]] = {}
     for band in bands:
         name = str(band.get("name", "")).strip()
@@ -57,14 +64,26 @@ def _build_runtime_bands(
         if hi <= lo:
             continue
         runtime_bands[name] = (float(lo), float(hi))
-    if not runtime_bands:
-        return {}
-    return split_bands_by_intervals(
+    segments = split_bands_by_intervals(
         runtime_bands,
         notch_intervals,
         include_edges=True,
         drop_empty=True,
     )
+    if spectral_step is None:
+        return segments, None
+    grids: dict[str, list[float]] = {}
+    for name in segments:
+        low, high = runtime_bands[name]
+        full = regular_frequency_grid(low, high, spectral_step)
+        retained, _ = cut_frequency_grid_by_intervals(
+            full[(full >= low) & (full <= high)],
+            spectral_notches if spectral_notches is not None else notch_intervals,
+        )
+        if not retained.size:
+            raise ValueError(f"Burst band '{name}' has no retained frequency bins.")
+        grids[name] = retained.tolist()
+    return segments, grids
 
 
 def _serialize_runtime_bands(
@@ -275,11 +294,17 @@ def run_burst_metric(
         if not picks:
             raise ValueError(f"{metric_label} requires at least 1 valid channel.")
 
-        burst_bands = _build_runtime_bands(
+        burst_bands, spectral_grids = _build_runtime_bands(
             bands=bands,
             low_freq=float(low_freq),
             high_freq=float(high_freq),
             notch_intervals=notch_intervals,
+            spectral_step=float(step_hz) if method_eff != "hilbert" else None,
+            spectral_notches=(
+                decimal_notch_intervals(runtime_notches, runtime_notch_radii)
+                if method_eff != "hilbert"
+                else None
+            ),
         )
         if not burst_bands:
             raise ValueError(
@@ -296,6 +321,7 @@ def run_burst_metric(
                     channels=picks,
                     bands=burst_bands,
                     estimator=estimator_signature,
+                    frequency_grid_hz_by_band=spectral_grids,
                 )
             )
         effective_percentile = (
@@ -315,6 +341,11 @@ def run_burst_metric(
             method=method_eff,
             hilbert_filter_method=str(hilbert_filter_method),
             freq_step_hz=float(step_hz),
+            **(
+                {"frequency_grid_hz_by_band": spectral_grids}
+                if spectral_grids is not None
+                else {}
+            ),
             morlet_n_cycles=float(morlet_n_cycles),
             mt_n_cycles=float(mt_n_cycles),
             mt_time_bandwidth_product=float(mt_time_bandwidth_product),
@@ -370,6 +401,7 @@ def run_burst_metric(
             bands=burst_bands,
             values=written_thresholds,
             estimator=estimator_signature,
+            frequency_grid_hz_by_band=spectral_grids,
         )
         if (
             selected_thresholds_payload is not None

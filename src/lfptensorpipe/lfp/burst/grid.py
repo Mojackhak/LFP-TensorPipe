@@ -29,6 +29,8 @@ from scipy.signal import hilbert
 
 from lfptensorpipe.io.timeline import raw_relative_onsets
 
+from lfptensorpipe.utils.freqs import burst_segment_grid, burst_segment_mask
+
 from ..common import (
     morlet_mask_radius_time_s_from_freqs_n_cycles,
     multitaper_mask_radius_time_s_from_freqs_n_cycles,
@@ -576,18 +578,7 @@ def _band_frequency_grid(
     step = float(step_hz)
     if not np.isfinite(step) or step <= 0.0:
         raise ValueError("freq_step_hz must be finite and > 0.")
-    low = min(float(start) for start, _stop in segments)
-    high = max(float(stop) for _start, stop in segments)
-    count = int(np.floor((high - low) / step)) + 1
-    full = np.unique(np.round(low + np.arange(count, dtype=float) * step, 6))
-    keep = np.zeros(full.size, dtype=bool)
-    for index, (start, stop) in enumerate(segments):
-        lower = full >= float(start) if index == 0 else full > float(start)
-        upper = (
-            full <= float(stop) if index == len(segments) - 1 else full < float(stop)
-        )
-        keep |= lower & upper
-    frequencies = full[keep]
+    frequencies = burst_segment_grid(list(segments), step)
     if frequencies.size == 0:
         raise ValueError(
             "Burst frequency grid has no retained bins; reduce Step (Hz) or widen the band."
@@ -749,6 +740,7 @@ def grid(
     filter_order: int = 4,
     hilbert_filter_method: str = "iir",
     freq_step_hz: float = 1.0,
+    frequency_grid_hz_by_band: Mapping[str, Sequence[float]] | None = None,
     morlet_n_cycles: float = 6.0,
     mt_n_cycles: float = 7.0,
     mt_time_bandwidth_product: float = 4.0,
@@ -810,6 +802,9 @@ def grid(
         Fixed Hilbert subband filter family: "iir" or "fir".
     freq_step_hz:
         Frequency spacing used only by Morlet and Multitaper.
+    frequency_grid_hz_by_band:
+        Explicit retained centers for a spectral estimator when its input bands
+        contain only the surviving notch-split segments.
     morlet_n_cycles:
         Fixed Morlet cycles per retained frequency.
     mt_n_cycles:
@@ -997,7 +992,7 @@ def grid(
     band_centers = band_union_edges.mean(axis=1)
     frequency_grids_by_band: list[np.ndarray] = []
     hilbert_fir_filter_specs_by_band: list[list[dict[str, Any]] | None] = []
-    for segments in band_segments:
+    for name, segments in zip(band_names, band_segments):
         if method_eff == "hilbert":
             frequency_grids_by_band.append(np.asarray([], dtype=float))
             hilbert_fir_filter_specs_by_band.append(
@@ -1006,9 +1001,24 @@ def grid(
                 else None
             )
         else:
-            frequency_grids_by_band.append(
-                _band_frequency_grid(segments, step_hz=float(freq_step_hz))
-            )
+            if frequency_grid_hz_by_band is None:
+                frequencies = _band_frequency_grid(
+                    segments, step_hz=float(freq_step_hz)
+                )
+            else:
+                frequencies = np.asarray(
+                    frequency_grid_hz_by_band.get(name), dtype=float
+                )
+                if (
+                    frequencies.ndim != 1
+                    or not frequencies.size
+                    or not np.all(np.diff(frequencies) > 0)
+                    or not np.all(burst_segment_mask(frequencies, segments))
+                ):
+                    raise ValueError(
+                        f"Burst band '{name}' requires an increasing, nonempty frequency grid within its segments."
+                    )
+            frequency_grids_by_band.append(frequencies)
             hilbert_fir_filter_specs_by_band.append(None)
     min_run_samples_by_band = [
         int(np.ceil(float(min_cycles) * sfreq / float(f_center)))

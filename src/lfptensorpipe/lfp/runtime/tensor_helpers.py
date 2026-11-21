@@ -11,6 +11,8 @@ import warnings
 
 import numpy as np
 
+from lfptensorpipe.utils.freqs import regular_frequency_grid
+
 ESTIMATOR_MASK_SUPPORT_SEMANTICS = "full_estimator_input_and_notch_donor_support"
 
 
@@ -390,11 +392,7 @@ def build_frequency_grid(
     if step_hz <= 0.0:
         raise ValueError("Step must be > 0.")
 
-    count = int(np.floor((high_freq - low_freq) / step_hz)) + 1
-    if count < 2:
-        raise ValueError("Frequency grid requires at least two bins.")
-    freqs = low_freq + np.arange(count, dtype=float) * step_hz
-    freqs = np.unique(np.round(freqs, decimals=6))
+    freqs = regular_frequency_grid(low_freq, high_freq, step_hz)
     if freqs.size < 2:
-        raise ValueError("Frequency grid requires at least two unique bins.")
+        raise ValueError("Frequency grid requires at least two bins.")
     return freqs

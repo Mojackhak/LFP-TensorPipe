@@ -10,12 +10,65 @@ Public API
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Iterable, Mapping
 
 import numpy as np
 
 BandValue = tuple[float, float]
 BandValueOrSegments = BandValue | list[BandValue]
+
+
+def decimal_notch_intervals(
+    centers: Iterable[float], radii: Iterable[float]
+) -> list[BandValue]:
+    """Form closed spectral intervals from the configured centers and radii."""
+    intervals = []
+    for center, radius in zip(centers, radii):
+        middle, width = Decimal(str(center)), Decimal(str(radius))
+        intervals.append((float(middle - width), float(middle + width)))
+    return intervals
+
+
+def frequency_bin_count(low: float, high: float, step: float) -> int:
+    """Count on-grid centers using the decimal bounds supplied by the caller."""
+    span = Decimal(str(high)) - Decimal(str(low))
+    return int(span // Decimal(str(step))) + 1
+
+
+def regular_frequency_grid(low: float, high: float, step: float) -> np.ndarray:
+    """Return uniform centers starting at low, including an on-grid high."""
+    count = frequency_bin_count(low, high, step)
+    return np.unique(np.round(low + np.arange(count, dtype=float) * step, 6))
+
+
+def burst_segment_grid(
+    segments: list[BandValue], step: float, *, legacy: bool = False
+) -> np.ndarray:
+    """Recover the grid of a segment-only Burst specification or old threshold."""
+    low = min(start for start, _ in segments)
+    high = max(stop for _, stop in segments)
+    if legacy:
+        # Old threshold JSON stores the surviving segments and this float count.
+        count = int(np.floor((high - low) / step)) + 1
+        frequencies = np.unique(np.round(low + np.arange(count, dtype=float) * step, 6))
+    else:
+        frequencies = regular_frequency_grid(low, high, step)
+    return frequencies[burst_segment_mask(frequencies, segments)]
+
+
+def burst_segment_mask(
+    frequencies: np.ndarray, segments: list[BandValue]
+) -> np.ndarray:
+    """Select bins within retained segments, excluding the internal notch edges."""
+    keep = np.zeros(frequencies.size, dtype=bool)
+    for index, (start, stop) in enumerate(segments):
+        lower = frequencies >= start if index == 0 else frequencies > start
+        upper = (
+            frequencies <= stop if index == len(segments) - 1 else frequencies < stop
+        )
+        keep |= lower & upper
+    return keep
 
 
 def split_bands_by_intervals(

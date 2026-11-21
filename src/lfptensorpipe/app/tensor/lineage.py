@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any, Concatenate, Mapping, ParamSpec, TypeVar, cast
 from uuid import uuid4
 
+import yaml
+
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.preproc.finish_fingerprint import (
     annotation_dependency_digest,
@@ -27,8 +29,14 @@ from lfptensorpipe.app.shared.generation_lineage import (
     preproc_generation_ref,
 )
 from lfptensorpipe.app.shared.runlog_store import cache_in_run_log_read_snapshot
+from lfptensorpipe.utils.freqs import (
+    decimal_notch_intervals,
+    frequency_bin_count,
+    regular_frequency_grid,
+)
 
 from .paths import (
+    tensor_metric_config_path,
     tensor_metric_log_path,
     tensor_metric_tensor_path,
     tensor_output_metric_keys,
@@ -246,6 +254,96 @@ def tensor_input_generation_changed_during_run() -> bool:
     return not tensor_input_generation_matches(PathResolver(context), expected)
 
 
+def _endpoint_count_changed(low: float, high: float, step: float) -> bool:
+    """Check whether the former binary step count differs from the decimal one."""
+    return int((high - low) / step) + 1 != frequency_bin_count(low, high, step)
+
+
+def _frequency_support_is_current(
+    resolver: PathResolver, metric_key: str, params: Mapping[str, Any]
+) -> bool:
+    if metric_key == "burst":
+        if params.get("method") not in {"morlet", "multitaper"}:
+            return True
+        return _spectral_burst_grid_is_current(resolver, params)
+    if not {"low_freq", "high_freq", "step_hz", "n_freqs"} <= params.keys():
+        # PSI selects frequencies strictly inside each band and stores a band axis.
+        return True
+    low, high, step = (float(params[k]) for k in ("low_freq", "high_freq", "step_hz"))
+    if _endpoint_count_changed(low, high, step):
+        if params["n_freqs"] != regular_frequency_grid(low, high, step).size:
+            return False
+    if metric_key in {"periodic", "aperiodic", "periodic_aperiodic"}:
+        fit_low, fit_high = params.get("freq_range_hz", [low, high])
+        if _endpoint_count_changed(fit_low, fit_high, step):
+            # A successful SpecParam fit has a clean bin at each model boundary.
+            return (
+                params.get("consumed_tfr_frequency_max_hz")
+                == regular_frequency_grid(fit_low, fit_high, step)[-1]
+            )
+    return True
+
+
+def _spectral_burst_grid_is_current(
+    resolver: PathResolver, params: Mapping[str, Any]
+) -> bool:
+    from lfptensorpipe.io.burst_thresholds import recorded_burst_band_grid
+
+    bands = [
+        band
+        for band in params["thresholds_used"]["bands"]
+        if "frequency_grid_hz" not in band
+    ]
+    if not bands:
+        return True
+    step = float(params["estimator_signature"]["freq_step_hz"])
+    from .frequency import normalize_tensor_metric_notch_params
+
+    centers, radii = normalize_tensor_metric_notch_params(
+        params.get("notches"), params.get("notch_radii")
+    )
+    intervals = [
+        (center - radius, center + radius) for center, radius in zip(centers, radii)
+    ]
+    precise = decimal_notch_intervals(centers, radii)
+    nominal = []
+    clipped_edge = False
+    grid_changed = False
+    for band in bands:
+        segments = band["segments_hz"]
+        low, high = segments[0][0], segments[-1][1]
+        nominal.append({"name": band["name"], "start": low, "end": high})
+        clipped_edge |= any(
+            start <= edge <= stop for edge in (low, high) for start, stop in intervals
+        )
+        grid_changed |= _endpoint_count_changed(low, high, step) or any(
+            old != exact and old[1] >= low and old[0] <= high
+            for old, exact in zip(intervals, precise)
+        )
+    if not (clipped_edge or grid_changed):
+        return True
+    if clipped_edge:
+        # Only the accepted configuration retained the original bounds when
+        # a notch cut an outer edge of an old spectral Burst band.
+        with tensor_metric_config_path(resolver, "burst").open(
+            encoding="utf-8"
+        ) as stream:
+            nominal = yaml.safe_load(stream)["bands"]
+    from .runners.burst import _build_runtime_bands
+
+    _, grids = _build_runtime_bands(
+        bands=nominal,
+        low_freq=params["low_freq"],
+        high_freq=params["high_freq"],
+        notch_intervals=intervals,
+        spectral_step=step,
+        spectral_notches=precise,
+    )
+    return all(
+        grids[band["name"]] == recorded_burst_band_grid(band, step) for band in bands
+    )
+
+
 @cache_in_run_log_read_snapshot(
     lambda resolver, metric_key: (resolver.context, metric_key)
 )
@@ -280,6 +378,11 @@ def tensor_metric_lineage_is_current(
         None,
     )
     if receipt is None:
+        return False
+    try:
+        if not _frequency_support_is_current(resolver, metric_key, payload["params"]):
+            return False
+    except (KeyError, OSError, TypeError, ValueError, ArithmeticError, yaml.YAMLError):
         return False
     return metric_key != "burst" or _burst_baseline_is_current(
         payload,
