@@ -1161,6 +1161,9 @@ or invalidate artifacts.
 | `Mask Edge Effects` | Treats samples within annotations whose labels contain `bad` or `edge` as edge-affected. Non-Burst metrics apply their method-specific output mask. Burst applies the toggle before threshold estimation and event detection: checked makes the effective band-specific support invalid, while unchecked leaves annotated support eligible. | Runtime build behavior for every selected metric. | Always available. |
 | `Build Tensor` | Runs tensor generation for all checked metrics after excluding channels listed in the accepted Finish Raw's `raw.info["bads"]`. | Tensor outputs for the current record. | Requires preprocess finish outputs and non-empty effective channel or pair selections for every checked metric. |
 
+Temporarily disabling Build Tensor while Preprocess Finish is pending preserves
+the checked metrics, including a selection imported during that time.
+
 With no record selected, both selector buttons show `0/0`, remain disabled, and
 use a neutral tooltip asking the user to select a record. They do not retain
 channel names or bad-channel exclusions from the previously selected record.

@@ -87,7 +87,7 @@ class MainWindowTensorStateRefreshMixin:
         for row_metric_key, checkbox in self._tensor_metric_checks.items():
             spec = self._tensor_metric_spec(row_metric_key)
             checkbox.setEnabled(editable and bool(spec and spec.supported))
-            if not checkbox.isEnabled():
+            if not (spec and spec.supported):
                 checkbox.setChecked(False)
         for name_button in self._tensor_metric_name_buttons.values():
             name_button.setEnabled(context is not None)
