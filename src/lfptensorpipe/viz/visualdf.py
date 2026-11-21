@@ -154,32 +154,31 @@ def _series_grid_stats(
     Returns:
         x, mean, low, high  (arrays)
     """
-    if len(series_list) == 0:
+    samples = []
+    for series in series_list:
+        if isinstance(series, pd.Series) and not series.empty:
+            x = series.index.to_numpy(dtype=float)
+            keep = np.isfinite(x)
+            if keep.any():
+                order = np.argsort(x[keep], kind="stable")
+                y = series.to_numpy(dtype=float)[keep][order]
+                samples.append((x[keep][order], np.where(np.isfinite(y), y, np.nan)))
+    if not samples:
         return np.array([]), np.array([]), np.array([]), np.array([])
 
-    x_min = np.nanmin([s.index.min() for s in series_list if len(s) > 0])
-    x_max = np.nanmax([s.index.max() for s in series_list if len(s) > 0])
-    if not np.isfinite(x_min) or not np.isfinite(x_max) or x_min == x_max:
+    x_min = min(x[0] for x, _ in samples)
+    x_max = max(x[-1] for x, _ in samples)
+    if x_min == x_max:
         return np.array([]), np.array([]), np.array([]), np.array([])
 
     x_grid = np.linspace(x_min, x_max, int(n_grid))
 
-    ys = []
-    for s in series_list:
-        if not isinstance(s, pd.Series) or s.empty:
-            continue
-        y_interp = np.interp(
-            x_grid, s.index.to_numpy(dtype=float), s.to_numpy(dtype=float)
-        )
-        ys.append(y_interp)
-
-    if len(ys) == 0:
-        return np.array([]), np.array([]), np.array([]), np.array([])
-
-    Y = np.vstack(ys)
-    mean = np.nanmean(Y, axis=0)
-    sd = np.nanstd(Y, axis=0, ddof=1) if Y.shape[0] > 1 else np.zeros_like(mean)
-    sem = sd / np.sqrt(max(1, Y.shape[0]))
+    aligned = pd.DataFrame(
+        [np.interp(x_grid, x, y, left=np.nan, right=np.nan) for x, y in samples]
+    )
+    mean = aligned.mean().to_numpy()
+    sd = aligned.std(ddof=1).to_numpy()
+    sem = sd / np.sqrt(aligned.count().clip(lower=1).to_numpy())
 
     if ribbon == "sd":
         low, high = mean - sd, mean + sd
