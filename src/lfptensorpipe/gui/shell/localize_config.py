@@ -8,7 +8,16 @@ from lfptensorpipe.app.localize.config import (
     build_lead_signature,
     normalize_localize_lead_signature,
     normalize_localize_match_payload,
+    validate_match_contacts,
 )
+from lfptensorpipe.app.localize.lead_inputs import cached_lead_signature
+from lfptensorpipe.app.localize.paths import (
+    LEAD_DBS,
+    localize_log_path,
+    reconstruction_mat_path,
+    source_results,
+)
+from lfptensorpipe.app.runlog_store import read_run_log
 from lfptensorpipe.app.shared.page_config import page_config_node
 from lfptensorpipe.gui.shell.common import (
     Any,
@@ -66,8 +75,26 @@ class MainWindowLocalizeConfigMixin:
         *,
         action_label: str,
     ) -> tuple[bool, str, list[dict[str, Any]]]:
-        if self._current_project is None or self._current_subject is None:
-            return False, "Select project and subject first.", []
+        if (
+            self._current_project is None
+            or self._current_subject is None
+            or self._current_record is None
+        ):
+            return False, "Select project, subject, and record first.", []
+        saved = source_results(
+            read_run_log(
+                localize_log_path(
+                    self._current_project, self._current_subject, self._current_record
+                )
+            )
+        ).get(LEAD_DBS, {})
+        cached = cached_lead_signature(
+            saved,
+            reconstruction_mat_path(self._current_project, self._current_subject),
+            self._localize_paths,
+        )
+        if cached is not None:
+            return True, "", cached
         active_context = (
             str(self._current_project),
             self._current_subject,
@@ -203,6 +230,7 @@ class MainWindowLocalizeConfigMixin:
             self._localize_match_payload,
             expected_channels=channels,
         )
+        validate_match_contacts(match_payload, lead_signature)
         return {
             "schema": LOCALIZE_CONFIG_SCHEMA,
             "version": LOCALIZE_CONFIG_VERSION,
@@ -296,6 +324,7 @@ class MainWindowLocalizeConfigMixin:
             localize_node.get("match"),
             expected_channels=channels,
         )
+        validate_match_contacts(match_payload, current_signature)
         raw_match = localize_node.get("match")
         raw_mappings = raw_match.get("mappings") if isinstance(raw_match, dict) else []
         if isinstance(raw_mappings, list) and any(
@@ -307,6 +336,7 @@ class MainWindowLocalizeConfigMixin:
             warnings.append("Invalid value restored: localize.match.rep_coord -> Mid.")
         match_payload.update(
             {
+                "lead_signature": current_signature,
                 "subject": self._current_subject,
                 "record": self._current_record,
                 "space": self._localize_inferred_space,

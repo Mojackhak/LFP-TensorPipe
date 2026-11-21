@@ -364,7 +364,7 @@ with valid generation receipts are eligible for reuse.
 | `Atlas -> Configure...` | Opens the atlas and region-selection dialog. | Saved atlas payload. | Requires a selected record. |
 | `Atlas` summary | Reports the saved atlas/region selection summary. | Human validation only. | Read-only. |
 | `Configs → Import Configs...` | Loads a Lead-DBS configuration payload. | Current match and atlas draft. | Requires record channels, a reconstruction and an available atlas space. |
-| `Configs → Export Configs...` | Saves the current Lead-DBS configuration. | External JSON config file. | Requires a complete match, atlas, selected regions and accessible lead signature. |
+| `Configs → Export Configs...` | Saves the current Lead-DBS configuration. | External JSON config file. | Requires a complete match, atlas, selected regions, and contact identities verified against the reconstruction and electrode model. An unresolved model or a mapping that refers to missing contacts blocks export. |
 | `Apply` | Publishes the selected labels or reactivates a verified existing result. | Align Finish tables and dependent Features for this record. | Requires a writable record and an eligible source with work to apply. Up to date disables repeated Apply. |
 | `Contact Viewer` | Displays the applied Lead-DBS geometry using its recorded atlas. | Viewer only. | Requires valid Lead-DBS coordinates and viewer dependencies, independently of the active label source. |
 

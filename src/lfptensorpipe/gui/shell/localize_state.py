@@ -14,6 +14,7 @@ from lfptensorpipe.app.localize.paths import (
     source_results,
 )
 from lfptensorpipe.app.localize.lead_inputs import compare_lead_inputs
+from lfptensorpipe.app.localize.config import moved_representative_channels
 from lfptensorpipe.app.localize.user_labels import UserLabels, read_labels, save_labels
 from lfptensorpipe.app.runlog_store import read_run_log
 from PySide6.QtWidgets import QDialog
@@ -591,6 +592,11 @@ class MainWindowLocalizeStateMixin:
                 saved.get("space") == space
                 and saved.get("atlas") == atlas
                 and saved.get("match_signature") == mapping
+                and not moved_representative_channels(
+                    mapping,
+                    saved.get("lead_signature"),
+                    self._localize_match_payload.get("lead_signature"),
+                )
                 and saved.get("selected_regions_signature")
                 == localize_selected_regions_signature(regions)
             ):

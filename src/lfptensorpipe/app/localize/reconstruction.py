@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 import scipy.io
 
+from .lead_inputs import electrode_model_source
 from .paths import reconstruction_mat_path
 
 
@@ -89,15 +90,9 @@ def extract_elmodels(reco: Any, n_leads: int) -> list[str]:
         iterable = [props]
     for node in iterable:
         item = unwrap_matlab_node(node)
-        if item is None or not hasattr(item, "elmodel"):
-            continue
-        text = extract_string(getattr(item, "elmodel"))
-        if text:
-            values.append(text)
-    if not values:
-        values = ["Unknown"]
+        values.append(extract_string(getattr(item, "elmodel", None)) or "Unknown")
     if len(values) < n_leads:
-        values.extend([values[0]] * (n_leads - len(values)))
+        values.extend(["Unknown"] * (n_leads - len(values)))
     return values[:n_leads]
 
 
@@ -108,8 +103,8 @@ def json_list(raw: str | None) -> list[str]:
         decoded = json.loads(raw)
     except Exception:
         return []
-    if isinstance(decoded, list):
-        return [str(item) for item in decoded]
+    if isinstance(decoded, list) and all(isinstance(item, str) for item in decoded):
+        return decoded
     if isinstance(decoded, str):
         return [decoded]
     return []
@@ -119,7 +114,9 @@ def resolve_elspec(paths: Any, elmodel: str) -> dict[str, Any]:
     from . import service as svc
 
     model_key = elmodel.strip()
-    cached = svc._ELSPEC_CACHE.get(model_key)
+    model_source = electrode_model_source(paths)
+    cache_key = (model_source, model_key)
+    cached = svc._ELSPEC_CACHE.get(cache_key)
     if cached is not None:
         return cached
 
@@ -166,7 +163,17 @@ def resolve_elspec(paths: Any, elmodel: str) -> dict[str, Any]:
         svc._set_matlab_runtime_status("failed", message)
         raise RuntimeError(message) from exc
 
-    svc._ELSPEC_CACHE[model_key] = payload
+    names = payload.get("contactnames")
+    if (
+        not isinstance(names, list)
+        or not names
+        or any(not isinstance(name, str) or not name.strip() for name in names)
+    ):
+        raise ValueError(
+            f"Electrode model {model_key} returned incomplete contact names."
+        )
+    if model_source[1] is not None:
+        svc._ELSPEC_CACHE[cache_key] = payload
     return payload
 
 
@@ -192,7 +199,7 @@ def split_contactnames(
     return right, left, other
 
 
-def fallback_contactnames(
+def qualified_contactnames(
     template: list[str], lead_label: str, n_contacts: int
 ) -> list[str]:
     out: list[str] = []
@@ -212,8 +219,6 @@ def fallback_contactnames(
         out.append(token)
     if len(out) > n_contacts:
         out = out[:n_contacts]
-    while len(out) < n_contacts:
-        out.append(f"K{len(out)} ({lead_label})")
     return out
 
 
@@ -249,11 +254,12 @@ def load_reconstruction_contacts(
     mni_coords = mni_coords[:n_leads]
 
     elmodels = extract_elmodels(reco, n_leads)
+    model_source = electrode_model_source(paths)
     leads: list[dict[str, Any]] = []
 
     for lead_idx in range(n_leads):
         lead_label = ordinal_label(lead_idx + 1)
-        elmodel = elmodels[lead_idx] if lead_idx < len(elmodels) else "Unknown"
+        elmodel = elmodels[lead_idx]
         n_contacts = int(
             min(native_coords[lead_idx].shape[0], mni_coords[lead_idx].shape[0])
         )
@@ -270,20 +276,40 @@ def load_reconstruction_contacts(
             )
             continue
 
+        if elmodel == "Unknown":
+            return (
+                False,
+                f"Missing reconstruction electrode model for lead {lead_label}.",
+                {},
+            )
         try:
             elspec = resolve_elspec(paths, elmodel)
-            all_names = list(elspec.get("contactnames", []))
-        except Exception:
-            all_names = []
+            all_names = elspec["contactnames"]
+        except Exception as exc:
+            return (
+                False,
+                f"Could not resolve contact names for {elmodel} {lead_label}: {exc}",
+                {},
+            )
 
         right_names, left_names, other_names = split_contactnames(all_names)
-        if lead_label == "R" and right_names:
-            lead_names = fallback_contactnames(right_names, lead_label, n_contacts)
-        elif lead_label == "L" and left_names:
-            lead_names = fallback_contactnames(left_names, lead_label, n_contacts)
+        if lead_label == "R":
+            template = right_names or other_names
+        elif lead_label == "L":
+            template = left_names or other_names
         else:
-            template = right_names or left_names or other_names
-            lead_names = fallback_contactnames(template, lead_label, n_contacts)
+            template = other_names
+            if not template and qualified_contactnames(
+                right_names, lead_label, n_contacts
+            ) == qualified_contactnames(left_names, lead_label, n_contacts):
+                template = right_names
+        lead_names = qualified_contactnames(template, lead_label, n_contacts)
+        if len(set(lead_names)) != n_contacts:
+            return (
+                False,
+                f"Electrode model {elmodel} does not supply {n_contacts} distinct contact names for lead {lead_label}.",
+                {},
+            )
 
         contacts = []
         for ci in range(n_contacts):
@@ -321,4 +347,12 @@ def load_reconstruction_contacts(
         "n_leads": len(leads),
         "leads": leads,
     }
+    if not any(lead["contacts"] for lead in leads):
+        return (
+            False,
+            "Reconstruction has no contacts with native and MNI coordinates.",
+            {},
+        )
+    if model_source[1] is not None:
+        summary["lead_signature_elspec"] = list(model_source)
     return True, "", summary

@@ -34,8 +34,8 @@ from .atlas_lookup import (
     assign_atlas_regions,
     build_repcoords_frame as build_atlas_frame,
 )
-from .lead_inputs import compare_lead_inputs
-from .config import build_lead_signature
+from .lead_inputs import cached_lead_signature, compare_lead_inputs
+from .config import build_lead_signature, moved_representative_channels
 from .paths import (
     LEAD_DBS,
     USER_LABELS,
@@ -126,6 +126,7 @@ def _prepare_lead_table(
     same_geometry = False
     same_regions = False
     same_endpoints = False
+    reconstruction = None
     if hasattr(paths, "leaddbs_dir"):
         geometry, masks, same_geometry, same_regions = compare_lead_inputs(
             saved, project_root, subject, space, atlas, regions, paths, mapping
@@ -138,8 +139,33 @@ def _prepare_lead_table(
             and saved.get("geometry_inputs", {}).get("files", {}).get(str(input_path))
             == reco_stamp
         )
-        if same_geometry and "lead_signature" in saved:
-            params["lead_signature"] = saved["lead_signature"]
+        signature = cached_lead_signature(saved, input_path, paths)
+        if signature is not None:
+            params["lead_signature"] = signature
+            params["lead_signature_elspec"] = saved["lead_signature_elspec"]
+
+    def load_contacts():
+        ok, message, summary = load_reconstruction_contacts(
+            project_root, subject, paths
+        )
+        if not ok:
+            raise RuntimeError(message)
+        if "leads" in summary:
+            params["lead_signature"] = build_lead_signature(summary["leads"])
+            params["lead_signature_elspec"] = summary.get("lead_signature_elspec")
+        return summary
+
+    expected = match.get("lead_signature")
+    if expected is not None:
+        if "lead_signature" not in params:
+            reconstruction = load_contacts()
+        if expected != params.get("lead_signature"):
+            raise ValueError(
+                "Localize match lead_signature differs from the current reconstruction."
+            )
+    moved = moved_representative_channels(
+        mapping, saved.get("lead_signature"), expected
+    )
     old_match = saved.get("match_signature", [])
     old_frame = None
     if same_geometry and primary.is_file() and "geometry_inputs" not in saved:
@@ -177,7 +203,11 @@ def _prepare_lead_table(
             and all(r + "_in" in old_frame for r in regions)
         )
     reuse = (
-        primary.is_file() and same_geometry and same_regions and mapping == old_match
+        primary.is_file()
+        and same_geometry
+        and same_regions
+        and mapping == old_match
+        and not moved
     )
     if not reuse:
         parts = []
@@ -188,7 +218,9 @@ def _prepare_lead_table(
             kept = {
                 row["channel"]
                 for row in mapping
-                if row in old_match and (same_geometry or row["rep_coord"] != "Mid")
+                if row in old_match
+                and row["channel"] not in moved
+                and (same_geometry or row["rep_coord"] != "Mid")
             }
             base = old_frame.loc[old_frame["channel"].isin(kept)].copy()
             if not base.empty:
@@ -211,13 +243,8 @@ def _prepare_lead_table(
                 parts.append(base)
             changed = [row for row in changed if row["channel"] not in kept]
         if changed:
-            ok, message, reconstruction = load_reconstruction_contacts(
-                project_root, subject, paths
-            )
-            if not ok:
-                raise RuntimeError(message)
-            if "leads" in reconstruction:
-                params["lead_signature"] = build_lead_signature(reconstruction["leads"])
+            if reconstruction is None:
+                reconstruction = load_contacts()
             build = build_repcoords_frame or partial(
                 build_atlas_frame,
                 threshold=params["region_inputs"]["threshold"],
@@ -338,7 +365,11 @@ def run_localize_apply(
 
         if reuse:
             if source_files_ready(root, source):
-                if active == source:
+                identity_updated = "lead_signature" in params and any(
+                    params.get(key) != saved.get(key)
+                    for key in ("lead_signature", "lead_signature_elspec")
+                )
+                if active == source and not identity_updated:
                     return True, "Up to date."
             else:
                 writers.extend(

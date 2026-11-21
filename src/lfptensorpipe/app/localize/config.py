@@ -47,6 +47,48 @@ def normalize_localize_lead_signature(payload: Any) -> list[dict[str, Any]]:
     return normalized
 
 
+def validate_match_contacts(match: dict, signature: list[dict]) -> None:
+    contacts = {contact["token"] for lead in signature for contact in lead["contacts"]}
+    for row in match["mappings"]:
+        special = row["cathode"].lower() in {"case", "ground"}
+        if (
+            row["anode"] not in contacts
+            or (not special and row["cathode"] not in contacts)
+            or row["anode"] == row["cathode"]
+            or (special and row["rep_coord"] != "Anode")
+        ):
+            raise ValueError(f"Invalid Localize contact pair for {row['channel']}.")
+
+
+def moved_representative_channels(
+    mapping: list[dict], old: list | None, current: list | None
+) -> set[str]:
+    """Find saved coordinates whose consumed contact positions changed."""
+    if not old or not current or old == current:
+        return set()
+    positions = [
+        {
+            contact["token"]: (lead_index, index)
+            for lead_index, lead in enumerate(signature)
+            for index, contact in enumerate(lead["contacts"])
+        }
+        for signature in (old, current)
+    ]
+    moved = set()
+    for row in mapping:
+        ends = (
+            ("anode", "cathode")
+            if row["rep_coord"] == "Mid"
+            else (row["rep_coord"].lower(),)
+        )
+        previous, requested = (
+            {index.get(row[key]) for key in ends} for index in positions
+        )
+        if previous != requested:
+            moved.add(row["channel"])
+    return moved
+
+
 def normalize_localize_match_payload(
     payload: Any,
     *,

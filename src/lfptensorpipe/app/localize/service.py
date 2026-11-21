@@ -189,7 +189,7 @@ class _DaemonSingleWorkerExecutor:
         return self._shutdown_complete.is_set()
 
 
-_ELSPEC_CACHE: dict[str, dict[str, Any]] = {}
+_ELSPEC_CACHE: dict[tuple[tuple[str, int | None], str], dict[str, Any]] = {}
 _MATLAB_RUNTIME_LOCK = threading.Lock()
 _MATLAB_RUNTIME_ENGINE: Any | None = None
 _MATLAB_RUNTIME_KEY: tuple[str, str] | None = None

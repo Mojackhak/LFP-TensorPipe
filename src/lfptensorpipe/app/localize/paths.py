@@ -7,6 +7,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from lfptensorpipe.app.config_store import AppConfigStore
+from .config import moved_representative_channels
 from lfptensorpipe.app.runlog_store import read_run_log
 from lfptensorpipe.app.shared.generation_lineage import input_generation_receipts_match
 from lfptensorpipe.app.shared.runlog_store import cache_in_run_log_read_snapshot
@@ -400,6 +401,11 @@ def localize_panel_state(
             current_atlas == logged_atlas
             and current_regions_signature == logged_regions_signature
             and current_match_signature == logged_match_signature
+            and not moved_representative_channels(
+                current_match_signature,
+                params.get("lead_signature"),
+                match_payload.get("lead_signature"),
+            )
         )
         else "yellow"
     )

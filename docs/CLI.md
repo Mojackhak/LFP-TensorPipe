@@ -85,8 +85,11 @@ for every requested metric and records the source and result ID in the trial log
 When Not ready, every output omits localization. Both paths retain the selected
 signals, including channels with unknown region membership. The Localize JSON
 action applies the atlas configuration. It validates the external configuration's
-lead signature before using or generating atlas results. An import whose full lead
-signature has not previously been recorded can require MATLAB for that check.
+lead signature before using or generating atlas results. A signature verified
+against the current reconstruction and electrode model can be reused. When
+verification is required, missing model contact names or a resolver failure
+stops the operation. A change to a mapped representative position affects the
+corresponding channel coordinates and their dependent tables.
 Reactivating a verified v0.3.0 result from the GUI needs no MATLAB session.
 
 ## Outputs and Reruns

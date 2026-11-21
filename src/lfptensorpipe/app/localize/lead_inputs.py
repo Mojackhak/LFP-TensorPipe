@@ -10,6 +10,30 @@ from . import atlas_lookup
 from .paths import reconstruction_mat_path
 
 
+def electrode_model_source(paths) -> tuple[str, int | None]:
+    """Identify the configured Lead-DBS function that supplies model contact names."""
+    resolver = (
+        paths.leaddbs_dir / "templates/electrode_models/ea_resolve_elspec.m"
+    ).resolve()
+    return str(resolver), resolver.stat().st_mtime_ns if resolver.is_file() else None
+
+
+def cached_lead_signature(saved: dict, reconstruction: Path, paths) -> list | None:
+    """Reuse an identity established from these reconstruction and model inputs."""
+    source = saved.get("lead_signature_elspec")
+    if not source or not reconstruction.is_file():
+        return None
+    stamp = saved.get("geometry_inputs", {}).get("files", {}).get(str(reconstruction))
+    model_source = electrode_model_source(paths)
+    if (
+        model_source[1] is None
+        or stamp != reconstruction.stat().st_mtime_ns
+        or list(model_source) != source
+    ):
+        return None
+    return saved.get("lead_signature")
+
+
 def _file_times(files):
     return {str(p): p.stat().st_mtime_ns for p in sorted(files) if p.is_file()}
 

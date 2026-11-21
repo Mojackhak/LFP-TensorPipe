@@ -462,7 +462,9 @@ def _run_localize(
         build_lead_signature,
         normalize_localize_lead_signature,
         normalize_localize_match_payload,
+        validate_match_contacts,
     )
+    from .localize.lead_inputs import cached_lead_signature
     from .localize.paths import (
         LEAD_DBS,
         discover_atlases,
@@ -506,14 +508,7 @@ def _run_localize(
         args = (context.project_root, context.subject, context.record)
         saved = source_results(read_run_log(localize_log_path(*args))).get(LEAD_DBS, {})
         reco = reconstruction_mat_path(context.project_root, context.subject)
-        previous_stamp = (
-            saved.get("geometry_inputs", {}).get("files", {}).get(str(reco))
-        )
-        current_signature = (
-            saved.get("lead_signature")
-            if reco.is_file() and previous_stamp == reco.stat().st_mtime_ns
-            else None
-        )
+        current_signature = cached_lead_signature(saved, reco, paths)
         reconstruction = None
         if current_signature is None:
             ok, message, reconstruction = svc.load_reconstruction_contacts(
@@ -534,24 +529,15 @@ def _run_localize(
             match = normalize_localize_match_payload(
                 node["match"], expected_channels=channels, strict=True
             )
-            contacts = {
-                contact["token"] for lead in signature for contact in lead["contacts"]
-            }
-            for row in match["mappings"]:
-                special_cathode = row["cathode"].lower() in {"case", "ground"}
-                if (
-                    row["anode"] not in contacts
-                    or (not special_cathode and row["cathode"] not in contacts)
-                    or row["anode"] == row["cathode"]
-                    or (special_cathode and row["rep_coord"] != "Anode")
-                ):
-                    raise ValueError(
-                        f"Invalid Localize contact pair for {row['channel']}."
-                    )
+            validate_match_contacts(match, signature)
         except ValueError as exc:
             raise ConfigError(str(exc)) from exc
         match.update(
-            subject=context.subject, record=context.record, space=space, atlas=atlas
+            subject=context.subject,
+            record=context.record,
+            space=space,
+            atlas=atlas,
+            lead_signature=signature,
         )
         _patch_state(
             context,
