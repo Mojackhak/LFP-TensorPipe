@@ -835,9 +835,16 @@ def _finalize_tracked_browser_close(self, token: int, event: Any | None = None) 
                         self.statusBar().showMessage(warning)
                         self._show_warning(f"{title_prefix} Plot", warning)
         elif step == "filter" and context is not None and isinstance(raw_path, Path):
+            output_role = str(entry.get("filter_output_role", "scientific"))
+            if output_role == "preview" and getattr(
+                self, "_mne_browser_shutdown_pending", False
+            ):
+                self.statusBar().showMessage(
+                    "Filter Preview remains pending after shutdown."
+                )
+                return
             opened_signature = entry.get("opened_signature")
             closed_signature = _preproc_plot_raw_signature(raw)
-            output_role = str(entry.get("filter_output_role", "scientific"))
             should_finalize = (
                 output_role == "preview" or opened_signature != closed_signature
             )
