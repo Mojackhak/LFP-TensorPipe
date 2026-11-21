@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.localize.paths import localize_indicator_state
 
 class MainWindowLocalizeApplyActionsMixin:
     def _on_localize_apply(self) -> None:
@@ -23,6 +24,8 @@ class MainWindowLocalizeApplyActionsMixin:
         if not self._ensure_matlab_ready_for_action("Localize Apply"):
             return
 
+        record = (self._current_project, self._current_subject, self._current_record)
+        was_ready = localize_indicator_state(*record) == "green"
         ok, message = self._run_with_busy(
             "Localize Apply",
             lambda: self._run_localize_apply_runtime(
@@ -36,7 +39,7 @@ class MainWindowLocalizeApplyActionsMixin:
                 read_only_project_root=self._demo_data_source_readonly,
             ),
         )
-        if ok:
+        if ok or (was_ready and localize_indicator_state(*record) != "green"):
             self._refresh_stage_states_from_context()
         self._refresh_localize_action_state()
         prefix = "Localize OK" if ok else "Localize Failed"

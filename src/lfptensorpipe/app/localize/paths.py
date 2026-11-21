@@ -7,7 +7,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from lfptensorpipe.app.config_store import AppConfigStore
-from lfptensorpipe.app.runlog_store import indicator_from_log, read_run_log
+from lfptensorpipe.app.runlog_store import read_run_log
 from lfptensorpipe.app.shared.generation_lineage import (
     accepted_result_generation_id,
     input_generation_receipts_match,
@@ -168,9 +168,21 @@ def localize_log_path(project_root: Path, subject: str, record: str) -> Path:
 )
 def localize_indicator_state(project_root: Path, subject: str, record: str) -> str:
     """Derive Localize indicator state from record-level localize log."""
-    state = indicator_from_log(localize_log_path(project_root, subject, record))
-    if state != "green":
-        return state
+    payload = read_run_log(localize_log_path(project_root, subject, record))
+    if payload is None:
+        return "gray"
+    return (
+        "green"
+        if _localize_result_ready(project_root, subject, record, payload)
+        else "yellow"
+    )
+
+
+def _localize_result_ready(
+    project_root: Path, subject: str, record: str, payload: dict[str, Any]
+) -> bool:
+    if not payload["completed"]:
+        return False
     required_outputs = (
         localize_representative_pkl_path(project_root, subject, record),
         localize_representative_csv_path(project_root, subject, record),
@@ -195,15 +207,9 @@ def localize_indicator_state(project_root: Path, subject: str, record: str) -> s
             record,
         ),
     )
-    if not all(path.is_file() for path in required_outputs):
-        return "yellow"
-    try:
-        payload = read_run_log(localize_log_path(project_root, subject, record))
-    except Exception:
-        return "yellow"
-    return (
-        "green" if input_generation_receipts_match(payload, expected={}) else "yellow"
-    )
+    return all(
+        path.is_file() for path in required_outputs
+    ) and input_generation_receipts_match(payload, expected={})
 
 
 def localize_result_generation_id(
@@ -305,6 +311,8 @@ def localize_panel_state(
         return "yellow"
     if completed is not True:
         return "gray"
+    if not _localize_result_ready(project_root, subject, record, payload):
+        return "yellow"
     params = payload.get("params")
     if not isinstance(params, dict):
         return "green"
