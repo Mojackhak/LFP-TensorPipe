@@ -171,7 +171,7 @@ inputs.
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
-| `Import Type` | Chooses the parser family for the source file. | Which fields, validation rules, and sidecars are required. | Always available. |
+| `Import Type` | Chooses the parser family for the source file. The last saved choice persists when projects are opened or missing entries are pruned from Recent Projects. | Which fields, validation rules, and sidecars are required. | Always available. |
 | `Record Name` | Defines the record name that will be created under the current subject and reports any occupied standard record paths. | Record folder name and downstream artifact paths. | Required before import can succeed. An empty, malformed, or occupied name is marked red; a conflict does not block Parse, but it disables `Confirm Import`. |
 | `File Path` | Points to the primary source file. | Parse result and final imported record contents. | Required before parse. An empty or nonexistent path is marked red after editing finishes. |
 | `Browse` | Opens a file chooser for the primary source file. | Fills `File Path`. | Always available. |

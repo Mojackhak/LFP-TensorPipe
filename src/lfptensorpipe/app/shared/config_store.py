@@ -155,47 +155,38 @@ class AppConfigStore:
 
     def load_recent_projects(self) -> list[str]:
         """Return recent project paths with missing paths pruned."""
-        payload = self.read_yaml("recent_projects.yml", {"recent_projects": []})
-        values = payload.get("recent_projects", []) if isinstance(payload, dict) else []
-
-        normalized: list[str] = []
-        for value in values:
-            try:
-                path = self._resolve_recent_project_path(value)
-            except OSError:
-                continue
-            if path.exists():
-                normalized.append(str(path))
-
-        deduped: list[str] = []
-        for entry in normalized:
-            if entry not in deduped:
-                deduped.append(entry)
-
-        if deduped != values:
-            self.write_yaml("recent_projects.yml", {"recent_projects": deduped})
-
-        return deduped
+        return self._refresh_recent_projects()
 
     def append_recent_project(
         self, project_path: str | Path, max_items: int = 5
     ) -> list[str]:
         """Add one project path to FIFO recent-projects and persist the result."""
-        resolved = str(self._resolve_recent_project_path(project_path))
-        current = self.load_recent_projects()
+        return self._refresh_recent_projects(
+            newest=self._resolve_recent_project_path(project_path), max_items=max_items
+        )
 
-        if resolved in current:
-            current.remove(resolved)
-        current.insert(0, resolved)
-
-        pruned: list[str] = []
-        for entry in current:
-            if entry in pruned:
-                continue
-            if Path(entry).exists():
-                pruned.append(entry)
-            if len(pruned) >= max_items:
+    def _refresh_recent_projects(
+        self, *, newest: Path | None = None, max_items: int | None = None
+    ) -> list[str]:
+        payload = self.read_yaml("recent_projects.yml", {})
+        if not isinstance(payload, dict):
+            payload = {}
+        previous = payload.get("recent_projects", [])
+        paths = [str(newest)] if newest is not None and newest.exists() else []
+        for value in previous:
+            if max_items is not None and len(paths) >= max_items:
                 break
+            try:
+                path = self._resolve_recent_project_path(value)
+            except OSError:
+                continue
+            entry = str(path)
+            if entry not in paths and path.exists():
+                paths.append(entry)
 
-        self.write_yaml("recent_projects.yml", {"recent_projects": pruned})
-        return pruned
+        if paths != previous or (
+            newest is not None and "recent_projects" not in payload
+        ):
+            payload["recent_projects"] = paths
+            self.write_yaml("recent_projects.yml", payload)
+        return paths
