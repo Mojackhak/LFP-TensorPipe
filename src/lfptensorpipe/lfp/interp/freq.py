@@ -71,9 +71,6 @@ def _subset_indices_or_none(
     fin = _validate_freq_grid(freqs_in, name="freqs_in")
     fout = _validate_freq_grid(freqs_out, name="freqs_out")
 
-    if fin[0] < fout[0] or fin[-1] > fout[-1]:
-        return None
-
     if tol_hz is None:
         tol_hz = _default_match_tol_hz(fout)
     tol_hz = float(tol_hz)
@@ -201,6 +198,10 @@ def interpolate_freq_axis(
         smoothing ONLY to bins that are missing in freqs_in and lie within the
         same finite input-frequency interval (requires subset match).
 
+    Matched frequencies use the target coordinates, including endpoints within
+    the matching tolerance. Integer and boolean inputs produce floating-point
+    output so interpolated fractions and missing support can be represented.
+
     If freqs_in is NOT a strict subset of freqs_out:
       - on_mismatch="raise": raise ValueError.
       - on_mismatch="interpolate": fall back to pure linear interpolation. If
@@ -220,6 +221,8 @@ def interpolate_freq_axis(
 
     info = diff_freq_grids(x_in, x_out, tol_hz=freq_match_tol_hz)
     is_subset = bool(info["is_subset"])
+    if is_subset:
+        x_in = x_out[info["keep_out_idx"]]
 
     if method == "savgol" and not is_subset:
         if on_mismatch == "raise":
@@ -291,7 +294,9 @@ def interpolate_freq_axis(
 
     out = y_out.reshape(*orig_shape[:-1], x_out.size)
     out = np.moveaxis(out, -1, axis_i)
-    return out.astype(tensor.dtype, copy=False)
+    if np.issubdtype(data.dtype, np.integer) or data.dtype == np.bool_:
+        return out
+    return out.astype(data.dtype, copy=False)
 
 
 def interpolate_freq_axis_transformed(
