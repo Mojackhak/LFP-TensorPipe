@@ -614,6 +614,12 @@ for the same detected peak with Accept unchecked and checked.
 
 ### 6.3 Step 2: Filter
 
+The preview, accepted Filter FIF, and any Finish FIF derived from it record
+the applied high-pass and low-pass cutoffs in the MNE header. Each bound
+retains a stricter cutoff already recorded by the source. A notch-only
+operation leaves the passband bounds in place. For a Filter created before
+this metadata fix, consult its saved settings when interpreting the header.
+
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | `Notches` | Defines comma-separated notch-center frequencies for filter execution. Use it to suppress narrow contamination bands without changing the broader passband set by `Low freq` and `High freq`. Leave it blank to disable FIR notch processing; enabled window models require at least one center. Active removePLI displays generated harmonics read-only and retains the manual list. | Filter output. | Every provided value must be finite, positive, and below the input Nyquist frequency. Unsupported values block Apply instead of being silently dropped. |

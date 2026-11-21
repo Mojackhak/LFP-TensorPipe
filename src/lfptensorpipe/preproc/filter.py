@@ -653,6 +653,8 @@ def finalize_reviewed_lfp_filter(
                 edge_masks.append(channel_edges)
 
     out._data[...] = data
+    # Every channel was filtered. Apply Raw.filter's passband metadata rule.
+    mne.filter._filt_update_info(out.info, True, l_freq, h_freq)
     annotation_rows: list[tuple[float, float, str, tuple[str, ...]]] = []
     if edge_masks:
         common_edges = np.logical_and.reduce(edge_masks)
