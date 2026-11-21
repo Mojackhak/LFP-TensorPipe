@@ -78,9 +78,10 @@ class SignalRepairReview:
 
     def annotation_key(self, annotation):
         # Identify managed support by samples, including after FIF time rounding.
-        start, duration = annotation[:2]
+        onset, duration = annotation[:2]
+        start = onset - self.raw.first_time
         bounds = self.raw.time_as_index(
-            [start - self.raw.first_time, start + duration - self.raw.first_time],
+            [start, start + duration],
             use_rounding=True,
         )
         return annotation[2], tuple(annotation[3]), tuple(bounds)

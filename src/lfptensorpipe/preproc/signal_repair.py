@@ -223,6 +223,23 @@ def _discontinuity_candidates(data, unavailable, sfreq, params, boundaries):
     return candidates
 
 
+def _merge_gap_runs(
+    gaps: list[tuple[int, int, int]],
+) -> list[tuple[int, int, list[int]]]:
+    """Merge sorted gap support and retain each contributing annotation index."""
+    runs: list[tuple[int, int, list[int]]] = []
+    for start, stop, annotation_index in gaps:
+        if stop <= start:
+            continue
+        if runs and start <= runs[-1][1]:
+            run_start, run_stop, members = runs[-1]
+            members.append(annotation_index)
+            runs[-1] = (run_start, max(run_stop, stop), members)
+        else:
+            runs.append((start, stop, [annotation_index]))
+    return runs
+
+
 def repair_signal(raw: mne.io.BaseRaw, params: dict[str, Any]):
     """Return a repaired copy and factual diagnostics; never mutate the input."""
     effective = normalize_signal_repair_params(params)
@@ -231,75 +248,112 @@ def repair_signal(raw: mne.io.BaseRaw, params: dict[str, Any]):
     output = raw.copy().load_data()
     sfreq = float(raw.info["sfreq"])
     channels = tuple(raw.ch_names)
-    gaps, gap_points, _ = annotation_sample_support_by_channel(
-        raw, channels=channels, keep=("BAD_gap",), mode="exact"
+    bad_channels = set(raw.info["bads"])
+    signal_types = {"eeg", "seeg", "ecog", "dbs"}
+    eligible = {
+        channel: index
+        for index, (channel, channel_type) in enumerate(
+            zip(channels, raw.get_channel_types())
+        )
+        if channel not in bad_channels and channel_type in signal_types
+    }
+    gaps_enabled = effective["gaps"]["enabled"]
+    peaks_enabled = effective["peaks"]["enabled"]
+    raw_annotations = raw.annotations
+    labels = [label.strip().lower() for label in raw_annotations.description]
+    gaps_by_channel: dict[str, list[tuple[int, int, int]]] = {
+        channel: [] for channel in eligible
+    }
+    channels_by_gap = {}
+    for index, (label, scope) in enumerate(zip(labels, raw_annotations.ch_names)):
+        if label == "bad_gap":
+            affected = eligible.keys() & scope if scope else eligible
+            if affected:
+                channels_by_gap[index] = affected
+    if channels_by_gap:
+        indices = list(channels_by_gap)
+        onsets = raw_annotations.onset[indices] - raw.first_time
+        times = np.column_stack((onsets, onsets + raw_annotations.duration[indices]))
+        bounds = raw.time_as_index(times, use_rounding=True).clip(0, raw.n_times)
+        for index, (start, stop) in sorted(zip(indices, bounds), key=lambda x: x[1][0]):
+            gap = (int(start), int(stop), index)
+            for channel in channels_by_gap[index]:
+                gaps_by_channel[channel].append(gap)
+
+    active_channels = tuple(
+        channel
+        for channel, gaps in gaps_by_channel.items()
+        if peaks_enabled or any(start < stop for start, stop, _ in gaps)
     )
-    labels = [label.strip().lower() for label in raw.annotations.description]
-    protected_labels = tuple(
+    mask_rows = {channel: row for row, channel in enumerate(active_channels)}
+    protected_labels = {
         label
-        for label in set(labels)
+        for label in labels
         if label != "bad_gap" and label.startswith(("bad", "edge", "interpolated_"))
-    )
-    if protected_labels:
+    }
+    if active_channels and protected_labels:
         protected, protected_points, _ = annotation_sample_support_by_channel(
-            raw, channels=channels, keep=protected_labels, mode="exact"
+            raw, channels=active_channels, keep=tuple(protected_labels), mode="exact"
         )
     else:
-        protected = np.zeros_like(gaps)
-        protected_points = ((),) * len(channels)
-    gap_bounds = {}
-    if effective["gaps"]["enabled"] and "bad_gap" in labels:
-        indices = [index for index, label in enumerate(labels) if label == "bad_gap"]
-        onsets = raw.annotations.onset[indices] - raw.first_time
-        times = np.column_stack((onsets, onsets + raw.annotations.duration[indices]))
-        gap_bounds = dict(zip(indices, raw.time_as_index(times, use_rounding=True)))
-    repaired_gaps = np.zeros_like(gaps)
+        protected = np.broadcast_to(False, (len(active_channels), raw.n_times))
+        protected_points = ((),) * len(active_channels)
+    repaired_gap_channels: dict[int, set[str]] = {}
     annotations = []
     intervals = []
-    signal_types = {"eeg", "seeg", "ecog", "dbs"}
-    for channel_index, (channel, channel_type) in enumerate(
-        zip(channels, raw.get_channel_types())
-    ):
-        if channel in raw.info["bads"] or channel_type not in signal_types:
-            continue
-        x = output._data[channel_index].copy()
-        protected_target = protected[channel_index]
-        for annotation_index, (start, stop) in gap_bounds.items():
-            scope = raw.annotations.ch_names[annotation_index]
-            if start == stop and (not scope or channel in scope):
+    for channel, channel_index in eligible.items():
+        gaps = gaps_by_channel[channel]
+        if gaps_enabled:
+            for start, stop, _ in gaps:
+                if start != stop:
+                    continue
                 intervals.append(
                     {
                         "channel": channel,
                         "kind": "gaps",
-                        "start_sample": int(start),
-                        "stop_sample": int(stop),
+                        "start_sample": start,
+                        "stop_sample": stop,
                         "method": effective["gaps"]["method"],
                         "source": "raw:BAD_gap",
                         "status": "skipped",
                         "reason": "empty_sample_support",
                     }
                 )
-        valid = ~(protected_target | gaps[channel_index])
-        np.isfinite(x, out=valid, where=valid)
-        invalid = ~valid
+        if channel not in mask_rows:
+            continue
+        x = output._data[channel_index]
+        row = mask_rows[channel]
+        protected_target = protected[row]
+        invalid = protected_target.copy()
+        gap_runs = _merge_gap_runs(gaps)
+        for start, stop, _ in gap_runs:
+            invalid[start:stop] = True
         points = sorted(
-            set(gap_points[channel_index]).union(protected_points[channel_index])
+            set(protected_points[row]).union(
+                start
+                for start, _, index in gaps
+                if raw_annotations.duration[index] == 0 and 0 < start < raw.n_times
+            )
         )
-        peaks = np.zeros(raw.n_times, dtype=bool)
-        if effective["peaks"]["enabled"]:
+        peak_runs = ()
+        if peaks_enabled:
+            valid = ~invalid
+            np.isfinite(x, out=valid, where=valid)
+            invalid = ~valid
             detector = (
                 _discontinuity_candidates
                 if effective["peaks"]["detection_method"] == "local_discontinuity"
                 else _peak_candidates
             )
             peaks = detector(x, invalid, sfreq, effective["peaks"], points)
-        support_invalid = invalid | peaks
-        for kind, mask in (("gaps", gaps[channel_index]), ("peaks", peaks)):
+            invalid |= peaks
+            peak_runs = ((int(start), int(stop), ()) for start, stop in _runs(peaks))
+        for kind, runs in (
+            ("gaps", gap_runs if gaps_enabled else ()),
+            ("peaks", peak_runs),
+        ):
             settings = effective[kind]
-            if not settings["enabled"]:
-                continue
-            for start, stop in _runs(mask):
-                start, stop = int(start), int(stop)
+            for start, stop, gap_indices in runs:
                 count = (
                     1 if settings["method"] == "linear" else settings["context_samples"]
                 )
@@ -333,8 +387,16 @@ def repair_signal(raw: mne.io.BaseRaw, params: dict[str, Any]):
                     reason = "protected_target"
                 elif left < 0 or right > raw.n_times:
                     reason = "missing_endpoint"
-                elif np.any(support_invalid[left:start]) or np.any(
-                    support_invalid[stop:right]
+                elif (
+                    invalid[left:start].any()
+                    or invalid[stop:right].any()
+                    or (
+                        not peaks_enabled
+                        and (
+                            not np.isfinite(x[left:start]).all()
+                            or not np.isfinite(x[stop:right]).all()
+                        )
+                    )
                 ):
                     reason = "invalid_support"
                 elif any(left < point < right for point in points):
@@ -355,9 +417,9 @@ def repair_signal(raw: mne.io.BaseRaw, params: dict[str, Any]):
                     values = PchipInterpolator(anchors, x[anchors], extrapolate=False)(
                         targets
                     )
-                output._data[channel_index, start:stop] = values
-                if kind == "gaps":
-                    repaired_gaps[channel_index, start:stop] = True
+                # Anchors exclude every candidate, and repair targets are disjoint.
+                original_samples = x[start:stop].tolist()
+                x[start:stop] = values
                 label = "INTERPOLATED_gap" if kind == "gaps" else "INTERPOLATED_peak"
                 annotations.append(
                     (
@@ -368,63 +430,54 @@ def repair_signal(raw: mne.io.BaseRaw, params: dict[str, Any]):
                     )
                 )
                 gap_annotations = []
-                if kind == "gaps":
-                    for ai in gap_bounds:
-                        scope = raw.annotations.ch_names[ai]
-                        if scope and channel not in scope:
-                            continue
-                        ann = raw.annotations[ai]
-                        a = max(raw.first_time + start / sfreq, ann["onset"])
-                        b = min(
-                            raw.first_time + stop / sfreq,
-                            ann["onset"] + ann["duration"],
-                        )
-                        if b > a:
-                            gap_annotations.append(
-                                [a, b - a, ann["description"], [channel]]
-                            )
+                for index in gap_indices:
+                    repaired_gap_channels.setdefault(index, set()).add(channel)
+                    gap_annotations.append(
+                        [
+                            float(raw_annotations.onset[index]),
+                            float(raw_annotations.duration[index]),
+                            str(raw_annotations.description[index]),
+                            [channel],
+                        ]
+                    )
                 intervals.append(
                     {
                         **record,
                         "status": "repaired",
                         "reason": None,
                         "accepted": True,
-                        "original_samples": x[start:stop].tolist(),
+                        "original_samples": original_samples,
                         "interpolated_samples": values.tolist(),
                         "gap_annotations": gap_annotations,
                     }
                 )
 
-    # Subtract only repaired time/channel support from the originating gap label.
-    for ann_index, ann in enumerate(raw.annotations):
-        onset, duration, description = ann["onset"], ann["duration"], ann["description"]
-        scope = tuple(raw.annotations.ch_names[ann_index])
-        if ann_index not in gap_bounds:
-            annotations.append((onset, duration, description, scope))
-            continue
-        start, stop = np.clip(gap_bounds[ann_index], 0, raw.n_times)
-        affected = [channels.index(ch) for ch in (scope or channels)]
-        if not np.any(repaired_gaps[affected, start:stop]):
-            annotations.append((onset, duration, description, scope))
-            continue
-        for index in affected:
-            for a, b in _runs(~repaired_gaps[index, start:stop]):
-                annotations.append(
-                    (
-                        raw.first_time + (start + int(a)) / sfreq,
-                        (int(b) - int(a)) / sfreq,
-                        description,
-                        (channels[index],),
-                    )
+    if annotations:
+        for index, (onset, duration, description, scope) in enumerate(
+            zip(
+                raw_annotations.onset,
+                raw_annotations.duration,
+                raw_annotations.description,
+                raw_annotations.ch_names,
+            )
+        ):
+            repaired = repaired_gap_channels.get(index)
+            if repaired:
+                annotations.extend(
+                    (onset, duration, description, (channel,))
+                    for channel in (scope or channels)
+                    if channel not in repaired
                 )
-    combined = mne.Annotations(
-        onset=[a[0] for a in annotations],
-        duration=[a[1] for a in annotations],
-        description=[a[2] for a in annotations],
-        ch_names=[a[3] for a in annotations],
-        orig_time=raw.annotations.orig_time,
-    )
-    _set_annotations_from_attached_frame(output, combined)
+            else:
+                annotations.append((onset, duration, description, scope))
+        combined = mne.Annotations(
+            onset=[a[0] for a in annotations],
+            duration=[a[1] for a in annotations],
+            description=[a[2] for a in annotations],
+            ch_names=[a[3] for a in annotations],
+            orig_time=raw_annotations.orig_time,
+        )
+        _set_annotations_from_attached_frame(output, combined)
     return output, {
         "effective_params": effective,
         "intervals": intervals,

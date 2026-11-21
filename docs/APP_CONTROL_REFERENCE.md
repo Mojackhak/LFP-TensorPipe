@@ -517,13 +517,20 @@ and sample limits; disabled groups do not affect processing.
 | `Restore Default` | — | Loads saved defaults into the dialog. |
 | `Cancel` | — | Discards dialog edits. |
 
-Repair uses eligible EEG, SEEG, ECoG, and DBS channels; globally bad channels
-are excluded. Anchor/context samples must be finite and outside BAD/EDGE and
-existing interpolation support. Repair does not cross annotated point boundaries
-or use a detected peak as an anchor. Intervals that
-are too long or lack valid surrounding support remain unchanged. Accepted gap
-repair replaces only the repaired time/channel support of BAD_gap with
-INTERPOLATED_gap; other BAD and EDGE annotations retain their meaning.
+Repair selects eligible EEG, SEEG, ECoG, and DBS channels before building
+annotation masks. Whole-channel bads stay in the output with their original
+data and flags. All peak detectors work within continuous valid segments
+defined by global and channel-specific exclusions. Positive-duration BAD and
+EDGE annotations exclude their samples, and zero-duration markers split
+segments between samples. Linear and PCHIP use finite anchors that stay within
+valid support and avoid previously interpolated samples and peak candidates.
+
+BAD_gap samples are eligible as gap interpolation targets when their channel
+has no overlapping BAD, EDGE, or existing interpolation support. They remain
+excluded from peak detection and anchor selection. Intervals that are too long,
+cross a point boundary, or lack valid anchors remain unchanged. Accepted gap
+repair replaces the repaired channel's BAD_gap support with INTERPOLATED_gap.
+Rejecting the repair restores the original samples and gap annotation timing.
 
 #### 6.2.2 Advance: peak detection
 
