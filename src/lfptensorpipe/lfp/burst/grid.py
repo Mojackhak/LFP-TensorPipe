@@ -27,6 +27,8 @@ import numpy as np
 from mne.time_frequency import tfr_array_morlet, tfr_array_multitaper
 from scipy.signal import hilbert
 
+from lfptensorpipe.io.timeline import raw_relative_onsets
+
 from ..common import (
     morlet_mask_radius_time_s_from_freqs_n_cycles,
     multitaper_mask_radius_time_s_from_freqs_n_cycles,
@@ -156,7 +158,7 @@ def _annotation_intervals(
     keep_l = [k.lower() for k in keep]
     out: List[Tuple[float, float]] = []
     for onset, dur, desc in zip(
-        raw.annotations.onset, raw.annotations.duration, raw.annotations.description
+        raw_relative_onsets(raw), raw.annotations.duration, raw.annotations.description
     ):
         d = str(desc).strip().lower()
         if match == "substring":

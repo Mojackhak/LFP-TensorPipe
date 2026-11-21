@@ -16,6 +16,8 @@ import numpy as np
 
 import mne
 
+from lfptensorpipe.io.timeline import raw_relative_onsets
+
 from ..mask.annotations import MatchMode
 from .utils import (
     intervals_overlap_half_open,
@@ -124,10 +126,11 @@ def pad_warper(
     if anno_drop is not None:
         drop_lower = [str(x).strip().lower() for x in anno_drop if str(x).strip()]
 
+    onsets = raw_relative_onsets(raw)
     drop_intervals: list[tuple[float, float]] = []
     if drop_lower:
         anns0 = raw.annotations
-        for onset0, dur0, desc0 in zip(anns0.onset, anns0.duration, anns0.description):
+        for onset0, dur0, desc0 in zip(onsets, anns0.duration, anns0.description):
             desc_l0 = str(desc0).lower()
             if any(
                 (desc_l0 == pat) if drop_mode == "exact" else (pat in desc_l0)
@@ -140,7 +143,7 @@ def pad_warper(
     epochs_by_label: Dict[str, List[PadEpoch]] = {lbl: [] for lbl in label_cfg.keys()}
 
     anns = raw.annotations
-    for onset, dur, desc in zip(anns.onset, anns.duration, anns.description):
+    for onset, dur, desc in zip(onsets, anns.duration, anns.description):
         desc_l = str(desc).lower()
         anno_start = float(onset)
         anno_end = float(onset + dur)

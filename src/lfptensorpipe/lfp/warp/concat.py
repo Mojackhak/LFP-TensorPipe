@@ -18,6 +18,8 @@ import numpy as np
 
 import mne
 
+from lfptensorpipe.io.timeline import raw_relative_onsets
+
 from ..mask.annotations import MatchMode
 from .utils import (
     intervals_overlap_half_open,
@@ -124,10 +126,11 @@ def concat_warper(
     if anno_drop is not None:
         drop_lower = [str(x).strip().lower() for x in anno_drop if str(x).strip()]
 
+    onsets = raw_relative_onsets(raw)
     drop_intervals: list[tuple[float, float]] = []
     if drop_lower:
         anns0 = raw.annotations
-        for onset0, dur0, desc0 in zip(anns0.onset, anns0.duration, anns0.description):
+        for onset0, dur0, desc0 in zip(onsets, anns0.duration, anns0.description):
             if _desc_matches(str(desc0), drop_lower, mode=drop_mode):
                 start0 = float(onset0)
                 end0 = float(onset0 + dur0)
@@ -138,7 +141,7 @@ def concat_warper(
     intervals: List[Tuple[float, float]] = []
     excluded_zero_duration: dict[str, int] = {}
     for onset, dur, desc in zip(
-        raw.annotations.onset, raw.annotations.duration, raw.annotations.description
+        onsets, raw.annotations.duration, raw.annotations.description
     ):
         if not _desc_matches(str(desc), keep, mode=mode):
             continue

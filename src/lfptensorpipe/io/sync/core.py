@@ -134,7 +134,7 @@ def seed_lfp_markers_from_raw(raw: Any) -> list[MarkerPoint]:
     if annotations is None or len(annotations) == 0:
         return []
     markers: list[MarkerPoint] = []
-    for onset, description in zip(annotations.onset, annotations.description):
+    for onset, description in zip(raw_relative_onsets(raw), annotations.description):
         label = str(description).strip()
         if not label or label.upper().startswith("BAD"):
             continue

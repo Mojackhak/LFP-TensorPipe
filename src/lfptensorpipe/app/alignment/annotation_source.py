@@ -9,7 +9,7 @@ import numpy as np
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.preproc_service import preproc_step_raw_path
-
+from lfptensorpipe.io.timeline import raw_relative_onsets
 
 def _load_unique_annotation_labels(
     raw_path: Path,
@@ -52,7 +52,7 @@ def load_alignment_annotation_events(
     raw = mne.io.read_raw_fif(str(path), preload=False, verbose="ERROR")
     try:
         events: dict[str, list[float]] = {}
-        for label, onset in zip(raw.annotations.description, raw.annotations.onset):
+        for label, onset in zip(raw.annotations.description, raw_relative_onsets(raw)):
             events.setdefault(str(label), []).append(float(onset))
         return {label: tuple(onsets) for label, onsets in events.items()}
     finally:
@@ -114,7 +114,11 @@ def _filter_raw_annotations_by_duration(
     selected_description: list[str] = []
     selected_ch_names: list[tuple[str, ...]] = []
     for onset, duration, description, ch_names in zip(
-        annotations.onset,
+        (
+            annotations.onset
+            if annotations.orig_time is not None
+            else raw_relative_onsets(raw)
+        ),
         annotations.duration,
         annotations.description,
         annotations.ch_names,

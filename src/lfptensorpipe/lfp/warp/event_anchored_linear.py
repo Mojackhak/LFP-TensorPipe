@@ -13,6 +13,8 @@ from typing import Callable, Dict, List, Sequence, Tuple
 import mne
 import numpy as np
 
+from lfptensorpipe.io.timeline import raw_relative_onsets
+
 from ..mask.annotations import MatchMode
 from .utils import (
     interp_along_last_axis,
@@ -46,7 +48,7 @@ def has_drop_annotations_between(
     if len(drop) == 0:
         return False
     for onset, dur, desc in zip(
-        raw.annotations.onset, raw.annotations.duration, raw.annotations.description
+        raw_relative_onsets(raw), raw.annotations.duration, raw.annotations.description
     ):
         d = str(desc).lower()
         if not any((d == s) if drop_mode == "exact" else (s in d) for s in drop):
@@ -130,7 +132,7 @@ def _extract_named_events_from_annotations(
         keys.append(t)
 
     out: Dict[str, List[float]] = {name: [] for name in keys}
-    for onset, desc in zip(raw.annotations.onset, raw.annotations.description):
+    for onset, desc in zip(raw_relative_onsets(raw), raw.annotations.description):
         d = str(desc).lower()
         for token in keys:
             is_match = (d == token) if mode == "exact" else (token in d)
@@ -623,7 +625,7 @@ def cue_response_warper(raw, *, config, anno_drop=None, drop_mode="substring"):
     anchors = cue_response_anchors(config)
     target, _tokens, keys = _resolve_linear_anchor_config(anchors)
     events = {}
-    for onset, label in zip(raw.annotations.onset, raw.annotations.description):
+    for onset, label in zip(raw_relative_onsets(raw), raw.annotations.description):
         events.setdefault(str(label), []).append(float(onset))
     epochs = []
     for pair in config["event_pairs"]:
