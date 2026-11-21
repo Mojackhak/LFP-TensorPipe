@@ -277,7 +277,6 @@ def pad_warper(
             for start_s, end_s in source_intervals:
                 i_start = max(time_s_to_sample_index(start_s, sr), 0)
                 i_end = time_s_to_sample_index(end_s, sr)
-                i_start = min(i_start, T_total - 1)
                 i_end = min(i_end, T_total)
                 if i_end <= i_start:
                     raise RuntimeError(

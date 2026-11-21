@@ -36,6 +36,8 @@ from .generation import (
     read_alignment_finish_payload,
 )
 from .method_specs import (
+    BURST_DISPLAY_GRID,
+    BURST_DISPLAY_GRID_KEY,
     CLIP_STITCH_GEOMETRY,
     CLIP_STITCH_GEOMETRY_KEY,
     linear_event_pairing_mode,
@@ -335,7 +337,7 @@ def run_align_epochs(
                         0.0,
                         100.0,
                         n_samples,
-                        endpoint=cue_response_config is None,
+                        endpoint=target_duration_s is None,
                     )
                     meta_epochs = list(epochs_by_label.get("ALL", []))
                     warped_arr = warp_burst_for_display(
@@ -361,7 +363,8 @@ def run_align_epochs(
                         n_samples=n_samples,
                         **(
                             {"source_times": np.asarray(axes["time"], dtype=float)}
-                            if cue_response_config is not None
+                            if getattr(warp_fn, "accepts_source_times", False)
+                            or cue_response_config is not None
                             else {}
                         ),
                     )
@@ -403,6 +406,8 @@ def run_align_epochs(
                     aligned_axes["requested_sample_rate_hz"] = sample_rate
                     meta_warped["cue_response"] = cue_response_config
                 if metric_key == "burst":
+                    if uses_current_clip_stitch_geometry:
+                        meta_warped[BURST_DISPLAY_GRID_KEY] = BURST_DISPLAY_GRID
                     meta_warped["burst_display_aggregation"] = {
                         "invalid_overlap": "nan",
                         "non_burst_only": "nan",
@@ -462,6 +467,8 @@ def run_align_epochs(
                 }
             if "burst" in metrics:
                 run_params[BURST_SAMPLE_SUPPORT_KEY] = BURST_SAMPLE_SUPPORT
+                if uses_current_clip_stitch_geometry:
+                    run_params[BURST_DISPLAY_GRID_KEY] = BURST_DISPLAY_GRID
             completion_message = "Align Epochs completed."
             if excluded_count > 0:
                 completion_message += (

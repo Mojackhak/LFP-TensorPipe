@@ -229,7 +229,6 @@ def stack_warper(
             i_start = max(time_s_to_sample_index(ep.start_t, sr), 0)
             i_end = time_s_to_sample_index(ep.end_t, sr)
 
-            i_start = min(i_start, T_total - 1)
             i_end = min(i_end, T_total)
 
             if i_end <= i_start:

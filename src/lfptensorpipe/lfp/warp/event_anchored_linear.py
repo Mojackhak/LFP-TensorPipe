@@ -436,7 +436,8 @@ def _linear_epoch_warp_fn(
         )
         percent_axis = np.linspace(0.0, 100.0, n_samples_use, endpoint=not half_open)
 
-        if half_open:
+        native_indices = None
+        if half_open or source_times is not None:
             source_times = np.asarray(source_times, dtype=float)
             if (
                 source_times.ndim != 1
@@ -445,58 +446,52 @@ def _linear_epoch_warp_fn(
                 or np.any(np.diff(source_times) <= 0)
             ):
                 raise ValueError(
-                    "Cue-response alignment requires the actual native time axis."
+                    "Linear alignment requires a finite, increasing native time "
+                    "axis matching the Tensor."
                 )
+            native_indices = np.arange(x.shape[-1], dtype=float)
 
         for ei, ep in enumerate(epochs_all):
-            idx_events = np.asarray(
-                [float(ep.events_t[name]) * float(sr) for name in anchor_keys],
-                dtype=float,
+            event_times = np.asarray(
+                [ep.events_t[name] for name in anchor_keys], dtype=float
             )
-            if np.any(np.diff(idx_events) <= 0):
+            if np.any(np.diff(event_times) <= 0):
                 raise RuntimeError(
-                    f"Non-monotonic anchors for linear epoch {ei}. idx_events={idx_events}."
+                    f"Non-monotonic anchors for linear epoch {ei}. times={event_times}."
                 )
 
+            anchor_positions = (
+                event_times if native_indices is not None else event_times * float(sr)
+            )
             if linear_warp:
                 if n_samples_use < target_perc.size:
                     raise ValueError(
                         "`n_samples` must be at least the number of target anchors."
                     )
-                idx_grid = np.interp(percent_axis, target_perc, idx_events)
+                query = np.interp(percent_axis, target_perc, anchor_positions)
             else:
-                start_idx = float(ep.start_t) * float(sr)
-                end_idx = float(ep.end_t) * float(sr)
-                if end_idx <= start_idx:
-                    raise RuntimeError(
-                        f"Invalid linear epoch bounds for epoch {ei}. "
-                        f"start_idx={start_idx}, end_idx={end_idx}."
-                    )
-                idx_grid = np.linspace(
-                    start_idx, end_idx, num=n_samples_use, endpoint=True, dtype=float
+                query = np.linspace(
+                    anchor_positions[0], anchor_positions[-1], n_samples_use
                 )
 
-            if half_open:
-                query = np.interp(
-                    percent_axis,
-                    target_perc,
-                    [ep.events_t[name] for name in anchor_keys],
-                )
+            if native_indices is not None:
+                outside = np.nan if half_open else None
                 indices = np.interp(
-                    query,
-                    source_times,
-                    np.arange(x.shape[-1]),
-                    left=np.nan,
-                    right=np.nan,
+                    query, source_times, native_indices, left=outside, right=outside
                 )
+            else:
+                indices = query
+            if half_open:
                 supported = np.isfinite(indices)
                 out[ei, ...] = np.nan
                 out[ei][..., supported] = interp_along_last_axis(x, indices[supported])
             else:
-                out[ei, ...] = interp_along_last_axis(x, idx_grid)
+                out[ei, ...] = interp_along_last_axis(x, indices)
 
         return out, percent_axis, list(epochs_all)
 
+    # Other warpers, including injected factories, may take only sr and n_samples.
+    warp_fn.accepts_source_times = True  # type: ignore[attr-defined]
     return warp_fn
 
 

@@ -1704,6 +1704,12 @@ positive-duration instance remains, the run fails without replacing the prior
 Alignment artifacts. No Alignment method promotes a zero-width interval to an
 implicit one-sample signal.
 
+For non-Burst metrics, each positive-width Clip, Stack, or Stitch fragment
+must contain at least one sample after its boundaries are rounded to that
+metric's native grid. Run reports an empty fragment even at the end of a
+decimated Tensor. For historical trials with a fragment beyond the last
+native center, compare its rounded start and stop indices before reusing it.
+
 During restore, annotations that are unavailable in the current trial remain
 unselected. For `linear_warper`, anchors that reference unavailable annotations
 are removed. If the remaining anchors do not form a valid mapping, the anchor
@@ -1731,6 +1737,13 @@ and Features controls immediately.
 ### 8.3 Line Up Key Events Params
 
 ![Line Up Key Events params.](assets/app-control-reference/controlref-advance-align-line-up-key-events-dialog.png)
+
+Line Up Key Events looks up source positions on the Tensor's saved time axis.
+A target on a native center takes that center's value. A target between centers
+requires both neighboring values for linear interpolation. This also applies to
+explicit event groups and straight start-to-end alignment. For earlier runs,
+check source centers next to masked samples when a target unexpectedly shows
+a missing value.
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
@@ -1846,6 +1859,14 @@ and Features controls immediately.
 ### 8.6 Stitch Trials Params
 
 ![Stitch Trials params.](assets/app-control-reference/controlref-advance-align-stitch-trials-dialog.png)
+
+For Clip and Stitch, the center of each Burst display bin has the same physical
+time as its saved table column. A one-second epoch at 4 Hz has centers at 0,
+0.25, 0.50, and 0.75 seconds. Interior bin boundaries are halfway between the
+centers. The first and last bins extend to the edges of the epoch. Native Burst
+scalar calculations use the detected intervals on the original Tensor. A Clip
+or Stitch trial whose accepted Run includes Burst and predates these display
+coordinates needs a new Align Run and Finish before its tables can be reused.
 
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |

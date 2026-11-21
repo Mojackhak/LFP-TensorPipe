@@ -134,7 +134,6 @@ def _fragment_values(
         0,
     )
     segment_stop = time_s_to_sample_index(float(segment.source_end), source_rate)
-    segment_start = min(segment_start, source_times.size - 1)
     segment_stop = min(segment_stop, source_times.size)
     if segment_stop <= segment_start:
         raise ValueError("Alignment source segment contains no native Tensor samples.")

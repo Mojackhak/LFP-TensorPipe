@@ -76,7 +76,10 @@ def finish_alignment_epochs(
     else:
         run_ready = indicator_from_log(log_path) == "green"
     if not run_ready:
-        return False, "Run Align Epochs successfully before Finish."
+        return False, (
+            alignment_generation_rerun_message(resolver, trial_slug=slug, stage="run")
+            or "Run Align Epochs successfully before Finish."
+        )
     run_metrics = accepted_alignment_metrics(
         resolver,
         trial_slug=slug,

@@ -31,6 +31,8 @@ LINEAR_EVENT_PAIRING = "earliest_unused_end_unique_anchors"
 LINEAR_EVENT_PAIRING_DIAGNOSTICS_KEY = "linear_event_pairing_diagnostics"
 CLIP_STITCH_GEOMETRY_KEY = "clip_stitch_geometry"
 CLIP_STITCH_GEOMETRY = "piecewise_half_open_support"
+BURST_DISPLAY_GRID_KEY = "burst_display_grid"
+BURST_DISPLAY_GRID = "half_open_physical_centers"
 ZERO_DURATION_ALIGNMENT_KEY = "zero_duration_alignment"
 ZERO_DURATION_ALIGNMENT = "no_implicit_sample_support"
 ZERO_DURATION_ALIGNMENT_METHODS = frozenset(
@@ -44,6 +46,8 @@ __all__ = [
     "ALIGNMENT_METHODS_BY_LABEL",
     "DEFAULT_DROP_FIELDS",
     "DEFAULT_DROP_MODE",
+    "BURST_DISPLAY_GRID",
+    "BURST_DISPLAY_GRID_KEY",
     "CLIP_STITCH_GEOMETRY",
     "CLIP_STITCH_GEOMETRY_KEY",
     "LINEAR_WARP_GEOMETRY",
