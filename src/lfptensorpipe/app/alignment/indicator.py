@@ -9,23 +9,8 @@ from lfptensorpipe.app.localize_service import localize_indicator_state
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import read_run_log
 
-from .generation import (
-    alignment_generation_requires_burst_sample_support_rerun,
-    alignment_stage_lineage_is_current,
-    metrics_from_alignment_entry,
-)
+from .generation import alignment_stage_lineage_is_current
 from .method_params import validate_alignment_method_params
-from .method_specs import (
-    CLIP_STITCH_GEOMETRY,
-    CLIP_STITCH_GEOMETRY_KEY,
-    linear_event_pairing_mode,
-    LINEAR_EVENT_PAIRING_KEY,
-    LINEAR_WARP_GEOMETRY,
-    LINEAR_WARP_GEOMETRY_KEY,
-    ZERO_DURATION_ALIGNMENT,
-    ZERO_DURATION_ALIGNMENT_KEY,
-    ZERO_DURATION_ALIGNMENT_METHODS,
-)
 from .trial_config import _load_trial_config_from_log, _normalize_paradigm
 
 
@@ -121,67 +106,6 @@ def _normalize_current_signature(
     return slug, method, dict(method_params)
 
 
-def _has_current_linear_warp_geometry(
-    entry: dict[str, Any],
-    *,
-    method: str,
-    method_params: dict[str, Any],
-) -> bool:
-    if method != "linear_warper" or not bool(method_params.get("linear_warp", True)):
-        return True
-    metrics = metrics_from_alignment_entry(entry)
-    if metrics is None:
-        return False
-    if all(metric == "burst" for metric in metrics):
-        return True
-    params = entry.get("params")
-    return (
-        isinstance(params, dict)
-        and params.get(LINEAR_WARP_GEOMETRY_KEY) == LINEAR_WARP_GEOMETRY
-    )
-
-
-def _has_current_linear_event_pairing(
-    entry: dict[str, Any],
-    *,
-    method: str,
-) -> bool:
-    if method != "linear_warper":
-        return True
-    params = entry.get("params")
-    return isinstance(params, dict) and params.get(
-        LINEAR_EVENT_PAIRING_KEY
-    ) == linear_event_pairing_mode(params.get("method_params"))
-
-
-def _has_current_clip_stitch_geometry(
-    entry: dict[str, Any],
-    *,
-    method: str,
-) -> bool:
-    if method not in {"pad_warper", "concat_warper"}:
-        return True
-    params = entry.get("params")
-    return (
-        isinstance(params, dict)
-        and params.get(CLIP_STITCH_GEOMETRY_KEY) == CLIP_STITCH_GEOMETRY
-    )
-
-
-def _has_current_zero_duration_alignment(
-    entry: dict[str, Any],
-    *,
-    method: str,
-) -> bool:
-    if method not in ZERO_DURATION_ALIGNMENT_METHODS:
-        return True
-    params = entry.get("params")
-    return (
-        isinstance(params, dict)
-        and params.get(ZERO_DURATION_ALIGNMENT_KEY) == ZERO_DURATION_ALIGNMENT
-    )
-
-
 def _normalize_picks(picked_epoch_indices: list[int] | None) -> list[int]:
     if not isinstance(picked_epoch_indices, list):
         return []
@@ -266,29 +190,6 @@ def alignment_method_panel_state(
         return "yellow"
     run_method, run_params = run_signature
     if run_method != current_method or run_params != current_params:
-        return "yellow"
-    if not _has_current_linear_warp_geometry(
-        latest_run[1],
-        method=run_method,
-        method_params=run_params,
-    ):
-        return "yellow"
-    if not _has_current_linear_event_pairing(
-        latest_run[1],
-        method=run_method,
-    ):
-        return "yellow"
-    if not _has_current_clip_stitch_geometry(
-        latest_run[1],
-        method=run_method,
-    ):
-        return "yellow"
-    if not _has_current_zero_duration_alignment(
-        latest_run[1],
-        method=run_method,
-    ):
-        return "yellow"
-    if alignment_generation_requires_burst_sample_support_rerun(latest_run[1]):
         return "yellow"
     if not alignment_stage_lineage_is_current(
         resolver,

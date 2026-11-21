@@ -38,6 +38,15 @@ from lfptensorpipe.lfp.burst.semantics import (
 from .method_specs import (
     BURST_DISPLAY_GRID,
     BURST_DISPLAY_GRID_KEY,
+    CLIP_STITCH_GEOMETRY,
+    CLIP_STITCH_GEOMETRY_KEY,
+    LINEAR_EVENT_PAIRING_KEY,
+    LINEAR_WARP_GEOMETRY,
+    LINEAR_WARP_GEOMETRY_KEY,
+    ZERO_DURATION_ALIGNMENT,
+    ZERO_DURATION_ALIGNMENT_KEY,
+    ZERO_DURATION_ALIGNMENT_METHODS,
+    linear_event_pairing_mode,
     DEFAULT_DROP_FIELDS,
     DEFAULT_DROP_MODE,
 )
@@ -78,6 +87,10 @@ ALIGNMENT_BURST_DISPLAY_RERUN_MESSAGE = (
 ALIGNMENT_ZERO_DURATION_RERUN_MESSAGE = (
     "Latest Stack/Clip/Stitch alignment uses legacy point-event signal-support "
     "semantics. Rerun Align Epochs and Finish before Extract Features."
+)
+ALIGNMENT_LINEAR_WARP_GEOMETRY_RERUN_MESSAGE = (
+    "Latest Line Up Key Events alignment uses legacy target-percent geometry. "
+    "Rerun Align Epochs and Finish before Extract Features."
 )
 ALIGNMENT_LINEAR_EVENT_PAIRING_RERUN_MESSAGE = (
     "Latest Line Up Key Events alignment uses legacy event-pairing semantics. "
@@ -133,12 +146,52 @@ def metrics_from_alignment_entry(entry: dict[str, Any]) -> list[str] | None:
     return metrics
 
 
-def _legacy_burst_display_grid(params: dict[str, Any], metrics: list[str]) -> bool:
+def _legacy_burst_sample_support(params: dict[str, Any], metrics: list[str]) -> bool:
     return (
         "burst" in metrics
-        and params.get("method") in {"pad_warper", "concat_warper"}
-        and params.get(BURST_DISPLAY_GRID_KEY) != BURST_DISPLAY_GRID
+        and params.get(BURST_SAMPLE_SUPPORT_KEY) != BURST_SAMPLE_SUPPORT
     )
+
+
+def _run_semantics_rerun_message(
+    params: dict[str, Any], metrics: list[str] | None
+) -> str | None:
+    """Return the first incompatible semantic setting consumed by this Run."""
+    method = params.get("method")
+    method_params = params.get("method_params")
+    if method == "linear_warper":
+        if not isinstance(method_params, dict):
+            return ALIGNMENT_RUN_MANIFEST_RERUN_MESSAGE
+        if params.get(LINEAR_EVENT_PAIRING_KEY) != linear_event_pairing_mode(
+            method_params
+        ):
+            return ALIGNMENT_LINEAR_EVENT_PAIRING_RERUN_MESSAGE
+        if (
+            method_params.get("linear_warp", True)
+            and metrics
+            and any(metric != "burst" for metric in metrics)
+            and params.get(LINEAR_WARP_GEOMETRY_KEY) != LINEAR_WARP_GEOMETRY
+        ):
+            return ALIGNMENT_LINEAR_WARP_GEOMETRY_RERUN_MESSAGE
+    clip_stitch = method in {"pad_warper", "concat_warper"}
+    if clip_stitch and params.get(CLIP_STITCH_GEOMETRY_KEY) != CLIP_STITCH_GEOMETRY:
+        return ALIGNMENT_CLIP_STITCH_GEOMETRY_RERUN_MESSAGE
+    if metrics is None:
+        return ALIGNMENT_RUN_MANIFEST_RERUN_MESSAGE
+    if _legacy_burst_sample_support(params, metrics):
+        return ALIGNMENT_BURST_SAMPLE_SUPPORT_RERUN_MESSAGE
+    if (
+        method in ZERO_DURATION_ALIGNMENT_METHODS
+        and params.get(ZERO_DURATION_ALIGNMENT_KEY) != ZERO_DURATION_ALIGNMENT
+    ):
+        return ALIGNMENT_ZERO_DURATION_RERUN_MESSAGE
+    if (
+        clip_stitch
+        and "burst" in metrics
+        and params.get(BURST_DISPLAY_GRID_KEY) != BURST_DISPLAY_GRID
+    ):
+        return ALIGNMENT_BURST_DISPLAY_RERUN_MESSAGE
+    return None
 
 
 def latest_alignment_step_entry(
@@ -439,7 +492,7 @@ def alignment_stage_lineage_is_current(
 
     if stage == "run":
         run_params = latest[1].get("params")
-        if _legacy_burst_display_grid(run_params, metrics):
+        if _run_semantics_rerun_message(run_params, metrics) is not None:
             return False
         method = (
             str(run_params.get("method", "")).strip() or None
@@ -557,12 +610,8 @@ def alignment_generation_requires_burst_sample_support_rerun(
 ) -> bool:
     """Return whether one accepted Burst alignment predates current support."""
     metrics = metrics_from_alignment_entry(entry)
-    if metrics is None or "burst" not in metrics:
-        return False
-    params = entry.get("params")
-    return not (
-        isinstance(params, dict)
-        and params.get(BURST_SAMPLE_SUPPORT_KEY) == BURST_SAMPLE_SUPPORT
+    return metrics is not None and _legacy_burst_sample_support(
+        entry["params"], metrics
     )
 
 
@@ -609,47 +658,12 @@ def alignment_generation_rerun_message(
     latest_run = _latest_step(entries, "run_align_epochs")
     if latest_run is not None and latest_run[1].get("completed") is True:
         params = latest_run[1].get("params")
-        if (
-            isinstance(params, dict)
-            and str(params.get("method", "")) == "linear_warper"
-        ):
-            from .method_specs import (
-                linear_event_pairing_mode,
-                LINEAR_EVENT_PAIRING_KEY,
+        if isinstance(params, dict):
+            message = _run_semantics_rerun_message(
+                params, metrics_from_alignment_entry(latest_run[1])
             )
-
-            if params.get(LINEAR_EVENT_PAIRING_KEY) != linear_event_pairing_mode(
-                params.get("method_params")
-            ):
-                return ALIGNMENT_LINEAR_EVENT_PAIRING_RERUN_MESSAGE
-        if isinstance(params, dict) and str(params.get("method", "")) in {
-            "pad_warper",
-            "concat_warper",
-        }:
-            from .method_specs import (
-                CLIP_STITCH_GEOMETRY,
-                CLIP_STITCH_GEOMETRY_KEY,
-            )
-
-            if params.get(CLIP_STITCH_GEOMETRY_KEY) != CLIP_STITCH_GEOMETRY:
-                return ALIGNMENT_CLIP_STITCH_GEOMETRY_RERUN_MESSAGE
-        if alignment_generation_requires_burst_sample_support_rerun(latest_run[1]):
-            return ALIGNMENT_BURST_SAMPLE_SUPPORT_RERUN_MESSAGE
-        metrics = metrics_from_alignment_entry(latest_run[1])
-        if isinstance(params, dict) and metrics is not None:
-            from .method_specs import (
-                ZERO_DURATION_ALIGNMENT,
-                ZERO_DURATION_ALIGNMENT_KEY,
-                ZERO_DURATION_ALIGNMENT_METHODS,
-            )
-
-            if (
-                str(params.get("method", "")) in ZERO_DURATION_ALIGNMENT_METHODS
-                and params.get(ZERO_DURATION_ALIGNMENT_KEY) != ZERO_DURATION_ALIGNMENT
-            ):
-                return ALIGNMENT_ZERO_DURATION_RERUN_MESSAGE
-            if _legacy_burst_display_grid(params, metrics):
-                return ALIGNMENT_BURST_DISPLAY_RERUN_MESSAGE
+            if message is not None:
+                return message
     step = "run_align_epochs" if stage == "run" else "build_raw_table"
     latest = _latest_step(entries, step)
     if (
@@ -693,6 +707,7 @@ __all__ = [
     "ALIGNMENT_CLIP_STITCH_GEOMETRY_RERUN_MESSAGE",
     "ALIGNMENT_FINISH_MANIFEST_RERUN_MESSAGE",
     "ALIGNMENT_LINEAR_EVENT_PAIRING_RERUN_MESSAGE",
+    "ALIGNMENT_LINEAR_WARP_GEOMETRY_RERUN_MESSAGE",
     "ALIGNMENT_RUN_MANIFEST_RERUN_MESSAGE",
     "ALIGNMENT_ZERO_DURATION_RERUN_MESSAGE",
     "AlignmentInputGenerationChangedError",

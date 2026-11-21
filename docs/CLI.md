@@ -71,7 +71,10 @@ page parameters, and application settings.
 
 Align updates the named trial or creates that exact canonical slug after
 validating the inputs. An occupied directory that is not a valid trial is an
-error. Features requires an existing trial.
+error. Features requires an existing trial. The GUI, CLI, and Features service
+use the same eligibility checks for a saved Align Run. A trial missing a
+semantic setting required by its method and metrics needs a new Align Run and
+Finish before extraction.
 
 A successful Align Run selects every epoch produced by the method and passes
 that selection to Finish. Annotation, duration, and BAD/EDGE rules determine
