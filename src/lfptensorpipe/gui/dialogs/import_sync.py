@@ -290,9 +290,7 @@ class ImportSyncDialog(QDialog):
         self._external_source_combo.currentTextChanged.connect(
             self._on_external_source_changed
         )
-        self._correct_sfreq_check.toggled.connect(
-            lambda _checked: self._refresh_validation()
-        )
+        self._correct_sfreq_check.toggled.connect(self._on_correction_changed)
         self._refresh_all()
 
     @property
@@ -452,9 +450,17 @@ class ImportSyncDialog(QDialog):
         )
 
     def _on_detect_advance(self, side: str) -> None:
+        try:
+            config = self._build_detect_config(side)
+        except ValueError as exc:
+            set_control_validation_error(
+                getattr(self, f"_{side}_distance_edit"), str(exc)
+            )
+            QMessageBox.warning(self, "Sync", str(exc))
+            return
         dialog = SyncDetectAdvanceDialog(
             title="LFP Advance" if side == "lfp" else "External Advance",
-            current_config=self._build_detect_config(side),
+            current_config=config,
             parent=self,
         )
         if dialog.exec() != QDialog.Accepted or dialog.selected_config is None:
@@ -526,6 +532,11 @@ class ImportSyncDialog(QDialog):
         if selected:
             self._external_path_edit.setText(str(Path(selected).expanduser().resolve()))
             self._refresh_validation()
+
+    def _on_correction_changed(self) -> None:
+        self._reset_estimate()
+        self._refresh_summary()
+        self._refresh_validation()
 
     def _reset_estimate(self) -> None:
         self._estimate = None
@@ -742,14 +753,8 @@ class ImportSyncDialog(QDialog):
         self._show_preview_dialog(fig)
 
     def _on_save(self) -> None:
-        self._refresh_validation()
         if self._estimate is None:
             QMessageBox.warning(self, "Sync", "Run Sync before saving.")
-            return
-        try:
-            _ = build_import_synced_raw(self._raw, self._estimate)
-        except Exception as exc:  # noqa: BLE001
-            QMessageBox.warning(self, "Sync", f"Failed to build synced raw: {exc}")
             return
         lfp_source_kind = (
             "channel_peaks"
@@ -761,6 +766,25 @@ class ImportSyncDialog(QDialog):
             if self._external_source_combo.currentText() == "Audio"
             else "csv_times"
         )
+        try:
+            lfp_config = (
+                self._build_detect_config("lfp")
+                if lfp_source_kind == "channel_peaks"
+                else None
+            )
+            external_config = (
+                self._build_detect_config("external")
+                if external_source_kind == "audio"
+                else None
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self, "Sync", str(exc))
+            return
+        try:
+            _ = build_import_synced_raw(self._raw, self._estimate)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Sync", f"Failed to build synced raw: {exc}")
+            return
         self._saved_state = ImportSyncState(
             lfp_markers=tuple(self._lfp_markers),
             external_markers=tuple(self._external_markers),
@@ -774,16 +798,8 @@ class ImportSyncDialog(QDialog):
                 else ""
             ),
             external_source_path=self._external_path_edit.text().strip(),
-            lfp_detect_config=(
-                self._build_detect_config("lfp")
-                if lfp_source_kind == "channel_peaks"
-                else None
-            ),
-            external_detect_config=(
-                self._build_detect_config("external")
-                if external_source_kind == "audio"
-                else None
-            ),
+            lfp_detect_config=lfp_config,
+            external_detect_config=external_config,
             lfp_figure_data=self._lfp_figure_data,
             external_figure_data=self._external_figure_data,
         )

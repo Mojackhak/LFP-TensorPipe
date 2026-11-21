@@ -277,7 +277,7 @@ finite and nonnegative.
 | `Pair Selected` | Pairs the currently selected LFP marker with the currently selected external marker. | Pair table rows. | Requires one selected row on each side. |
 | `Remove Pair` | Removes the selected pair row. | Pair table rows. | Requires a selected pair row. |
 | `Auto Pair by Order` | Pairs the current marker lists in order. | Pair table rows. | Requires both marker lists to be populated. |
-| `Correct sfreq` | Allows the sync estimate to adjust synchronized sampling rate as well as lag. | Sync estimate payload. | Optional; affects the saved estimate. |
+| `Correct sfreq` | Allows the sync estimate to adjust synchronized sampling rate as well as lag. | Toggling this setting clears the previous estimate. | Run Sync again before Save. |
 | Pair table | Lists paired markers and their timing deltas. | Sync estimation input and summary. | Read-only except for row selection. |
 | `Summary` | Reports current sync-estimate status. | Human validation only. | Read-only. |
 | `Sync` | Computes or refreshes the synchronization estimate from the current pairs. | Sync preview state and saved summary. | Requires a sufficient pair set. |
