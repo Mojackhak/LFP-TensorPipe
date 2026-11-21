@@ -237,6 +237,10 @@ Medtronic `SampleRateInHz` is source metadata, not an editable control. It
 must be finite and strictly positive before Gain is applied. Invalid rates
 block Parse and do not create a record.
 
+Both the import dialog and the direct file import API require a channel-only
+Legacy CSV. A `Time` column is rejected. Compressed `.fif.gz` inputs, like
+`.fif` inputs, are saved as the canonical Raw without an extra Sourcedata copy.
+
 Legacy CSV channel names are read from the original logical header, trimmed at
 their outer edges once, and required to be non-empty and case-sensitively
 unique. The importer does not let pandas or MNE repair a blank or duplicate

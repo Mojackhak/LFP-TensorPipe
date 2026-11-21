@@ -112,7 +112,7 @@ def _load_raw_from_source(
     # Deliberately not normalized here: load_import_channel_names() only needs
     # ch_names, and the import runner normalizes (and reports) before saving.
     raw = mne.io.read_raw(str(source_path), preload=True, verbose="ERROR")
-    return raw, suffix == ".fif"
+    return raw, _is_fif_like_path(source_path)
 
 
 def parse_record_source(

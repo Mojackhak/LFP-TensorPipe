@@ -49,7 +49,11 @@ class ParseError(Exception):
 
 
 class _InvalidChannelHeaderError(ValueError):
-    """Raised when a Legacy CSV header cannot identify channels uniquely."""
+    """A rejected header and its GUI parser error code."""
+
+    def __init__(self, message: str, *, code: str = "PARSE_CHANNEL_MAP_INVALID"):
+        super().__init__(message)
+        self.code = code
 
 
 def _require_file_path(paths: dict[str, str], key: str) -> Path:
@@ -125,6 +129,11 @@ def _validate_legacy_csv_header(csv_path: Path) -> list[str]:
         raise _InvalidChannelHeaderError(
             f"Duplicated channel columns in CSV: {duplicates}"
         )
+    if any(name.lower() == "time" for name in channel_names):
+        raise _InvalidChannelHeaderError(
+            "Legacy (CSV) expects channel-only CSV. 'Time' column is not allowed.",
+            code="PARSE_SCHEMA_INVALID",
+        )
     return channel_names
 
 
@@ -135,7 +144,7 @@ def _read_channel_df(csv_path: Path) -> pd.DataFrame:
         df.columns = channel_names
     except _InvalidChannelHeaderError as exc:
         raise ParseError(
-            code="PARSE_CHANNEL_MAP_INVALID",
+            code=exc.code,
             message=str(exc),
         ) from exc
     except Exception as exc:
@@ -148,12 +157,6 @@ def _read_channel_df(csv_path: Path) -> pd.DataFrame:
         raise ParseError(
             code="PARSE_SCHEMA_INVALID",
             message=f"CSV has no rows: {csv_path}",
-        )
-
-    if any(str(col).strip().lower() == "time" for col in df.columns):
-        raise ParseError(
-            code="PARSE_SCHEMA_INVALID",
-            message="Legacy (CSV) expects channel-only CSV. 'Time' column is not allowed.",
         )
 
     numeric_cols: list[str] = []
