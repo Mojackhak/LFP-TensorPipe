@@ -317,6 +317,9 @@ record is imported. A successful reparse with different channel names or order
 clears the old pairs and requires a new reference selection. Re-parsing the
 same ordered channel list preserves the draft.
 
+Reset Reference preserves the absolute time of every retained sample and
+annotation, including when a dated, cropped Raw is supplied directly.
+
 ![Reset Reference dialog.](assets/app-control-reference/controlref-advance-reset-reference-dialog.png)
 
 | Control | What it does | What it affects | Availability / blocking rule |

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 import math
 from pathlib import Path
 from typing import Any
@@ -276,7 +277,6 @@ def apply_reset_reference(
     info = merged.info.copy()
     info["bads"] = out_bads
     out = mne.io.RawArray(mat, info, verbose="ERROR")
-    out.set_meas_date(raw.info.get("meas_date"))
     # `out` restarts at first_samp == 0, so onsets must be pulled back into the
     # record-relative frame or set_annotations() would crop them away.
     mapped = raw.annotations.copy()
@@ -297,6 +297,8 @@ def apply_reset_reference(
         kept.append(index)
         mapped.ch_names[index] = output_scope
     out.set_annotations(mapped[kept])
+    if raw.first_samp and raw.info["meas_date"] is not None:
+        out.set_meas_date(raw.info["meas_date"] + timedelta(seconds=raw.first_time))
     return out
 
 
