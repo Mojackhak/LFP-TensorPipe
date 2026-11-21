@@ -175,17 +175,99 @@ def _trial_delete_manifest_path(quarantine_root: Path) -> Path:
     return quarantine_root / _TRIAL_DELETE_MANIFEST_FILENAME
 
 
+def _owned_feature_paths(path: Path, *, current: bool) -> list[Path]:
+    """Partition a shared legacy container using the two on-disk layouts.
+
+    Current metric tables live directly in the metric directory. Legacy trials
+    have a trial log and store their tables in nested directories.
+    """
+    entries = list(path.iterdir())
+    if not current:
+        if not any(p.is_file() and p.suffix in {".pkl", ".xlsx"} for p in entries):
+            return [path]
+        return [p for p in entries if p.is_dir() or p.name == "lfptensorpipe_log.json"]
+
+    owned = []
+    for entry in entries:
+        if entry.name == "lfptensorpipe_log.json":
+            owned.append(entry)
+        elif entry.is_dir():
+            children = list(entry.iterdir())
+            tables = [
+                p for p in children if p.is_file() and p.suffix in {".pkl", ".xlsx"}
+            ]
+            if tables and len(tables) == len(children):
+                owned.append(entry)
+            else:
+                owned.extend(tables)
+    return [path] if set(owned) == set(entries) else owned
+
+
+def _trial_feature_members(
+    resolver: PathResolver, slug: str, manifest: dict[str, Any]
+) -> list[Path]:
+    parts_list = manifest.get("feature_members", [])
+    if not isinstance(parts_list, list):
+        raise ValueError("Invalid shared Feature paths in trial deletion.")
+    members = []
+    legacy_roots = {
+        p.parent.name for p in _trial_artifact_dirs(resolver=resolver, slug=slug)[2:]
+    }
+    for components in parts_list:
+        if not isinstance(components, list) or not all(
+            isinstance(p, str)
+            and p not in {".", ".."}
+            and not Path(p).anchor
+            and Path(p).parts == (p,)
+            for p in components
+        ):
+            raise ValueError("Invalid shared Feature path in trial deletion.")
+        if not (
+            len(components) in {2, 3}
+            and components[0] == slug
+            and slug in legacy_roots
+            or len(components) == 3
+            and components[0] in legacy_roots
+            and components[1] == slug
+        ):
+            raise ValueError("Shared Feature path is outside the selected trial.")
+        members.append(resolver.features_root.joinpath(*components))
+    return members
+
+
 def _stage_trial_artifacts(
     *,
     resolver: PathResolver,
     slug: str,
     manifest: dict[str, Any],
 ) -> tuple[list[tuple[Path, Path]], Path | None]:
-    indexed_public_paths = [
-        (index, path)
-        for index, path in enumerate(_trial_artifact_dirs(resolver=resolver, slug=slug))
-        if path.exists()
-    ]
+    roots = _trial_artifact_dirs(resolver=resolver, slug=slug)
+    legacy_containers = {p.parent for p in roots[2:]}
+    indexed_public_paths = []
+    members = []
+    for index, path in enumerate(roots):
+        if not path.exists():
+            continue
+        if any(parent in path.parents for _, parent in indexed_public_paths):
+            continue
+        if index == 1 and path in legacy_containers:
+            owned = _owned_feature_paths(path, current=True)
+        elif index >= 2:
+            owned = _owned_feature_paths(path, current=False)
+        else:
+            owned = [path]
+        for item in owned:
+            if item in members or any(parent in item.parents for parent in members):
+                continue
+            if item == path:
+                indexed_public_paths.append((index, path))
+            else:
+                members.append(item)
+    if members:
+        manifest["feature_members"] = [
+            list(p.relative_to(resolver.features_root).parts) for p in members
+        ]
+        indexed_public_paths.extend(enumerate(members, start=len(roots)))
     if not indexed_public_paths:
         return [], None
 
@@ -246,7 +328,9 @@ def _load_trial_delete_manifest(
     artifact_indices = payload.get("artifact_indices")
     if not isinstance(artifact_indices, list):
         raise ValueError(f"Invalid trial-delete artifact indices in {manifest_path}")
-    artifact_count = len(_trial_artifact_dirs(resolver=resolver, slug=slug))
+    artifact_count = len(_trial_artifact_dirs(resolver=resolver, slug=slug)) + len(
+        _trial_feature_members(resolver, slug, payload)
+    )
     if any(
         isinstance(index, bool)
         or not isinstance(index, int)
@@ -273,8 +357,12 @@ def _restore_manifest_artifacts(
     quarantine_root: Path,
     slug: str,
     artifact_indices: list[int],
+    feature_members: list[Path],
 ) -> list[str]:
-    public_paths = _trial_artifact_dirs(resolver=resolver, slug=slug)
+    public_paths = [
+        *_trial_artifact_dirs(resolver=resolver, slug=slug),
+        *feature_members,
+    ]
     errors: list[str] = []
     for index in reversed(artifact_indices):
         public_path = public_paths[index]
@@ -337,6 +425,9 @@ def recover_trial_delete_transactions(
                 quarantine_root=quarantine_root,
                 slug=manifest["slug"],
                 artifact_indices=manifest["artifact_indices"],
+                feature_members=_trial_feature_members(
+                    resolver, manifest["slug"], manifest
+                ),
             )
             if restore_errors:
                 raise RuntimeError("; ".join(restore_errors))

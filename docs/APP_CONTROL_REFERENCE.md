@@ -1656,7 +1656,7 @@ inspection, and the final finished epoch selection.
 | --- | --- | --- | --- |
 | `Trials` list | Chooses the currently active alignment trial. | Which trial is edited and run. | Requires a selected record. |
 | `+` | Creates a new alignment trial. | Trial inventory. | Requires a selected record. |
-| `-` | Deletes the selected alignment trial. | Trial inventory and trial outputs. | Requires a selected trial. |
+| `-` | Deletes the selected alignment trial, its own outputs, and its saved Alignment and Features drafts. Other trials retain their results even when a trial name matches a metric or a legacy folder name. | Trial inventory and trial outputs. | Requires a selected trial. |
 | `Method + Params` indicator | Reports method-config freshness for the current trial. | User feedback only. | Read-only. |
 | `Method` | Chooses the alignment method for the current trial. | Which params dialog shape is used and how alignment runs. | Requires a selected trial. |
 | `Params` | Opens the method-parameter dialog for the selected method. | Saved method parameters. | Requires a selected trial. |

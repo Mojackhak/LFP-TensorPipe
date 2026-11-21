@@ -217,6 +217,7 @@ class MainWindowAlignmentParadigmsMixin:
             self._show_warning("Trial -", message)
             return
         self._alignment_method_drafts.pop(slug, None)
+        self._features_trial_params_by_slug.pop(slug, None)
         self._set_shared_stage_trial_slug(None)
         self._reload_alignment_paradigms()
         self._reload_features_paradigms(preferred_slug=self._shared_stage_trial_slug())
