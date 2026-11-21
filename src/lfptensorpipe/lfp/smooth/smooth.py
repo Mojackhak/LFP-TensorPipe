@@ -99,7 +99,8 @@ def smooth_axis(
     Args:
         tensor: Input tensor (commonly 4D: epochs x channels x freqs x time).
         kernel_size: Smoothing window length in samples along `axis` for
-            `method='median'` and `method='mean'`.
+            `method='median'` and `method='mean'`. A one-sample kernel still
+            applies the requested transform, output domain, and missing-value policy.
         method: `median`, `mean`, or `gaussian`.
         axis: Axis index to smooth along.
         sigma: Gaussian sigma in bins along `axis` for `method='gaussian'`.
@@ -137,14 +138,6 @@ def smooth_axis(
                 "kernel_size must be provided for method='median' and method='mean'"
             )
         k = _normalize_kernel_size(kernel_size, enforce_odd=enforce_odd_kernel)
-        if k == 1:
-            if (
-                method_l == "median"
-                and nan_policy == "omit"
-                and not np.all(np.isfinite(x_in))
-            ):
-                return np.where(np.isfinite(x_in), x_in, np.nan)
-            return np.array(x_in, copy=True)
     elif method_l == "gaussian":
         sigma_f = _validate_sigma(sigma)
         truncate_f = _validate_truncate(truncate)
@@ -164,7 +157,11 @@ def smooth_axis(
         omit_signal_cval = 0.0
         omit_validity_cval = 0.0
 
-    if method_l == "median":
+    if method_l in {"mean", "median"} and k == 1:
+        x_smooth = (
+            np.where(np.isfinite(x), x, np.nan) if nan_policy == "omit" else x.copy()
+        )
+    elif method_l == "median":
         size = [1] * x.ndim
         size[ax] = k
         if nan_policy == "omit":
