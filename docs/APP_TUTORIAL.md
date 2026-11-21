@@ -1206,6 +1206,10 @@ Use `Export Configs...` if you want to save your own feature-axes variant.
 
 Click `Extract Features` after the import is complete.
 
+Extraction uses the metric tables from the trial's current Align Finish.
+Reimporting the same alignment parameters keeps those tables eligible. After
+a new Align Run, finish the new epoch selection before extracting features.
+
 Use `Bands Configure...` to define the frequency bands of interest and
 `Phases Configure...` to define the time windows of interest. The software
 computes feature values for the combinations of those configured bands and time

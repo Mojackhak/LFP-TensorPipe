@@ -13,12 +13,10 @@ import pandas as pd
 from lfptensorpipe.app.alignment.generation import (
     alignment_generation_rerun_message,
 )
-from lfptensorpipe.app.alignment_service import alignment_paradigm_log_path
 from lfptensorpipe.app.config_store import AppConfigStore
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.runlog_store import (
     RunLogRecord,
-    indicator_from_log,
     read_run_log,
     write_run_log,
 )
@@ -653,11 +651,6 @@ def run_extract_features(
     if not slug:
         return False, "Select one trial first."
 
-    if indicator_from_log(alignment_paradigm_log_path(resolver, slug)) != "green":
-        return (
-            False,
-            "Selected alignment trial must be green before Extract Features.",
-        )
     alignment_rerun_message = alignment_generation_rerun_message(
         resolver,
         trial_slug=slug,
@@ -667,20 +660,15 @@ def run_extract_features(
         return False, alignment_rerun_message
 
     raw_tables = svc._iter_alignment_raw_tables(resolver, trial_slug=slug)
+    if not raw_tables:
+        return False, "The selected trial must have a current Align Finish."
     if selected_metrics is not None:
         requested_metrics = {
             str(metric).strip() for metric in selected_metrics if str(metric).strip()
         }
         raw_tables = [item for item in raw_tables if item[0] in requested_metrics]
-    if not raw_tables:
-        return False, (
-            alignment_generation_rerun_message(
-                resolver,
-                trial_slug=slug,
-                stage="finish",
-            )
-            or "No alignment raw-table inputs found for selected trial."
-        )
+        if not raw_tables:
+            return False, "No alignment raw-table inputs found for selected trial."
 
     derive_param_cfg = svc._load_derive_param_cfg(config_store)
     reducer_cfg = svc._load_reducer_cfg(config_store)
