@@ -98,13 +98,20 @@ class MainWindowPreprocActionsMixin:
 
         default_params = self._load_filter_advance_defaults()
         default_basic_params = self._load_filter_basic_defaults()
+        restored_basic = False
+
+        def _restore_basic_draft() -> None:
+            nonlocal restored_basic
+            restored_basic = True
 
         def _save_filter_defaults(advance_params: dict[str, Any]) -> None:
             notches = self._filter_manual_notches_text()
             low_freq = self._preproc_filter_low_freq_edit.text()
             high_freq = self._preproc_filter_high_freq_edit.text()
             self._save_filter_basic_defaults(
-                {"notches": notches, "l_freq": low_freq, "h_freq": high_freq}
+                default_basic_params
+                if restored_basic
+                else {"notches": notches, "l_freq": low_freq, "h_freq": high_freq}
             )
             self._save_filter_advance_defaults(advance_params)
             self.statusBar().showMessage(
@@ -125,14 +132,14 @@ class MainWindowPreprocActionsMixin:
             parent=self,
         )
         if hasattr(dialog, "set_restore_callback"):
-            dialog.set_restore_callback(
-                lambda: self._apply_filter_basic_params_to_fields(default_basic_params)
-            )
+            dialog.set_restore_callback(_restore_basic_draft)
         if dialog.exec() != QDialog.Accepted:
             return
         if dialog.selected_params is None:
             return
 
+        if restored_basic:
+            self._apply_filter_basic_params_to_fields(default_basic_params)
         self._preproc_filter_advance_params = dict(dialog.selected_params)
         self.statusBar().showMessage("Filter Advance session parameters updated.")
         self._refresh_preproc_controls()

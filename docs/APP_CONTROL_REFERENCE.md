@@ -627,7 +627,7 @@ parameter fields and Skip choices.
 | `mark filter edges` | When BAD-boundary isolation is enabled, optionally marks the exact support of the active filter and notch model at every valid-segment edge as system-owned `EDGE_filter`. Unchecked by default accepts MNE padding results without adding these annotations. | Accepted Filter annotations only; it does not change the filtered numeric values. | Enabled only while `isolate BAD boundaries` is checked. An inconsistent persisted pair is invalid. |
 | `Save` | Saves current advanced values to the session. | Current filter session parameters. | May retain invalid values as a red record draft; Filter Apply and valid-only persistence remain blocked. |
 | `Set as Default` | Saves current advanced and basic filter values as defaults. | Future default filter settings. | Blocks on invalid values. |
-| `Restore Defaults` | Restores saved default values. | Current dialog fields. | Always available. |
+| `Restore Defaults` | Loads saved filter defaults into the draft. | Save applies the restored basic and advanced fields to the record. Cancel discards the draft. | Always available. |
 | `Cancel` | Closes the dialog without saving. | No session/default update. | Always available. |
 
 AutoReject estimates its channel thresholds from eligible regular-grid windows
