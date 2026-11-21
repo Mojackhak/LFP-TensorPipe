@@ -177,7 +177,7 @@ class TensorBandsConfigureDialog(QDialog):
                 4,
                 make_action_table_item(
                     "Del",
-                    str(row["name"]),
+                    row_idx,
                     tool_tip="Delete this band.",
                 ),
             )
@@ -289,13 +289,7 @@ class TensorBandsConfigureDialog(QDialog):
         action_item = self._table.item(row, column)
         if action_item is None:
             return
-        payload = action_item.data(ACTION_PAYLOAD_ROLE)
-        if not isinstance(payload, str):
-            return
-        self._bands = [
-            current for current in self._bands if str(current["name"]) != payload
-        ]
-        self._render_table()
+        self._on_remove_row(row)
 
     def _on_clear_draft(self) -> None:
         self._draft_name_edit.clear()
