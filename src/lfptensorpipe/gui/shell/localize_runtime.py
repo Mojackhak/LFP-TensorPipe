@@ -5,7 +5,6 @@ from __future__ import annotations
 from lfptensorpipe.app.localize.paths import normalize_localize_path_payload
 from lfptensorpipe.gui.shell.common import (
     Any,
-    DISABLE_MATLAB_WARMUP_ENV,
     LOCALIZE_PATH_CONFIG_FILENAME,
     LOCALIZE_PATH_FIELD_LABELS,
     QApplication,
@@ -13,7 +12,6 @@ from lfptensorpipe.gui.shell.common import (
     QProgressDialog,
     Qt,
     is_stale_context_message,
-    os,
     matlab_runtime_status,
     reset_matlab_runtime,
     time,
@@ -70,10 +68,12 @@ class MainWindowLocalizeRuntimeMixin:
         }
         label = label_map.get(state, state.title())
         text = f"MATLAB: {label}"
-        if message and state == "failed":
-            text = f"{text} ({message})"
         if self._localize_matlab_status_label is not None:
-            self._localize_matlab_status_label.setText(text)
+            if self._localize_matlab_status_label.text() != text:
+                self._localize_matlab_status_label.setText(text)
+                self._localize_matlab_status_label.parentWidget().set_title_status(
+                    self._localize_matlab_status_label
+                )
             tooltip = "MATLAB runtime status. Actions auto-connect when needed."
             if message:
                 tooltip = f"{tooltip} Details: {message}"
@@ -86,20 +86,12 @@ class MainWindowLocalizeRuntimeMixin:
                 self._localize_matlab_status_label.setStyleSheet("color: #a22d2d;")
             else:
                 self._localize_matlab_status_label.setStyleSheet("color: #666666;")
-        self._refresh_localize_action_state()
 
     def _poll_localize_matlab_status(self) -> None:
         self._refresh_localize_matlab_status()
 
-    def _schedule_matlab_warmup(self) -> None:
-        disabled = os.environ.get(DISABLE_MATLAB_WARMUP_ENV, "").strip().lower()
-        if disabled in {"1", "true", "yes", "on"}:
-            return
-        state, _ = matlab_runtime_status()
-        if state != "idle":
-            return
-        warmup_matlab_async(self._localize_paths)
-        self._refresh_localize_matlab_status()
+    def _schedule_matlab_warmup(self):
+        return warmup_matlab_async(self._localize_paths)
 
     def _wait_future_with_cancel(
         self,
@@ -146,7 +138,7 @@ class MainWindowLocalizeRuntimeMixin:
         state, _ = matlab_runtime_status()
         if state == "ready":
             return True
-        future = warmup_matlab_async(self._localize_paths)
+        future = self._schedule_matlab_warmup()
         ok, message, cancelled = self._wait_future_with_cancel(
             future=future,
             title=f"{action_name}: MATLAB",

@@ -232,6 +232,10 @@ def build_ordered_pair_representative_frame(
             "mni_y": _pair_coordinate_tuple(row_a, row_b, "mni_y"),
             "mni_z": _pair_coordinate_tuple(row_a, row_b, "mni_z"),
         }
+        if not (row_a.get("assessed", True) and row_b.get("assessed", True)):
+            row.update(dict.fromkeys(region_columns, pd.NA))
+            rows.append(row)
+            continue
         for region_a in region_names:
             left_hit = bool(row_a[f"{region_a}_in"])
             for region_b in region_names:
@@ -288,6 +292,10 @@ def build_undirected_pair_representative_frame(
             "mni_y": _pair_coordinate_tuple(row_a, row_b, "mni_y"),
             "mni_z": _pair_coordinate_tuple(row_a, row_b, "mni_z"),
         }
+        if not (row_a.get("assessed", True) and row_b.get("assessed", True)):
+            row.update(dict.fromkeys(region_columns, pd.NA))
+            rows.append(row)
+            continue
         for idx, region_a in enumerate(ordered_region_names):
             for region_b in ordered_region_names[idx:]:
                 region_left, region_right = normalize_region_pair_name(

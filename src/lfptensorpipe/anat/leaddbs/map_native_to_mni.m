@@ -1,4 +1,4 @@
-function mni_mm = map_native_to_mni(subj_folder, native_mm, transform_folder_name)
+function [mni_mm, anchor_file] = map_native_to_mni(subj_folder, native_mm, transform_folder_name)
 %MAP_NATIVE_TO_MNI Map native-space points to MNI using Lead-DBS transforms.
 %
 % mni_mm = map_native_to_mni(subj_folder, native_mm)
@@ -22,6 +22,7 @@ end
 
 if isempty(native_mm)
     mni_mm = zeros(0,3);
+    anchor_file = '';
     return;
 end
 
@@ -46,6 +47,7 @@ if ~isfield(opt.subj.coreg.anat.preop, anchor)
 end
 
 anat_nii_path = opt.subj.coreg.anat.preop.(anchor);
+anchor_file = anat_nii_path;
 nii = ea_load_nii(anat_nii_path);
 if ~isfield(nii, 'mat') || ~isfield(nii, 'fname')
     error('ea_load_nii output missing required fields "mat" and/or "fname".');

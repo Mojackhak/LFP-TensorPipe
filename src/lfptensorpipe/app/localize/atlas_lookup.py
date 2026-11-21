@@ -22,6 +22,8 @@ def default_map_native_to_mni(
     subject: str,
     native_points: np.ndarray,
     paths: Any,
+    *,
+    anchor_files: list[str] | None = None,
 ) -> np.ndarray:
     if native_points.size == 0:
         return np.zeros((0, 3), dtype=float)
@@ -43,7 +45,7 @@ def default_map_native_to_mni(
         return eng.map_native_to_mni(
             str(subject_dir),
             points,
-            nargout=1,
+            nargout=2 if anchor_files is not None else 1,
         )
 
     future = svc.submit_matlab_task(paths, _task)
@@ -54,6 +56,9 @@ def default_map_native_to_mni(
         svc._set_matlab_runtime_status("failed", message)
         raise RuntimeError(message) from exc
 
+    if anchor_files is not None:
+        mapped, anchor_file = mapped
+        anchor_files.append(str(anchor_file))
     arr = np.asarray(mapped, dtype=float)
     if arr.ndim == 1:
         arr = arr.reshape(1, -1)
@@ -77,13 +82,17 @@ def build_repcoords_frame(
     paths: Any,
     reconstruction: dict[str, Any],
     mappings: list[dict[str, Any]],
+    threshold: float | None = None,
+    capture_anchor: bool = False,
 ) -> pd.DataFrame:
-    atlas_path = paths.leaddbs_dir / "templates" / "space" / space / "atlases" / atlas
-    atlas_index = atlas_path / "atlas_index.mat"
-    if not atlas_path.is_dir():
-        raise FileNotFoundError(f"Atlas path not found: {atlas_path}")
-    if not atlas_index.is_file():
-        raise FileNotFoundError(f"atlas_index.mat not found: {atlas_index}")
+    anchor_files: list[str] = []
+
+    def map_points(native_points):
+        if capture_anchor:
+            return default_map_native_to_mni(
+                project_root, subject, native_points, paths, anchor_files=anchor_files
+            )
+        return default_map_native_to_mni(project_root, subject, native_points, paths)
 
     frame = build_channel_representative_frame(
         subject=subject,
@@ -92,13 +101,21 @@ def build_repcoords_frame(
         atlas=atlas,
         reconstruction=reconstruction,
         mappings=mappings,
-        map_native_to_mni_fn=lambda native_points: default_map_native_to_mni(
-            project_root,
-            subject,
-            native_points,
-            paths,
-        ),
+        map_native_to_mni_fn=map_points,
     )
+    if anchor_files:
+        frame.attrs["anchor_file"] = anchor_files[0]
+    atlas_path = paths.leaddbs_dir / "templates" / "space" / space / "atlases" / atlas
+    return assign_atlas_regions(frame, atlas_path, region_names, threshold=threshold)
+
+
+def assign_atlas_regions(
+    frame, atlas_path: Path, region_names, *, threshold: float | None = None
+):
+    """Query the selected masks at already established representative points."""
+    atlas_index = atlas_path / "atlas_index.mat"
+    if not atlas_index.is_file():
+        raise FileNotFoundError(f"atlas_index.mat not found: {atlas_index}")
     target_region_names = (
         [str(item).strip() for item in region_names if str(item).strip()]
         if region_names is not None
@@ -107,7 +124,8 @@ def build_repcoords_frame(
     if not target_region_names:
         return frame
 
-    threshold = float(read_atlas_threshold(atlas_index))
+    if threshold is None:
+        threshold = float(read_atlas_threshold(atlas_index))
     return append_region_membership_columns(
         frame,
         atlas_path=atlas_path,

@@ -24,7 +24,8 @@ MATLAB-backed actions. Open `LFP-TensorPipe -> Preferences...` on macOS or
 | `Save` | Validates and stores the current dependency paths in app storage. | Future Localize runtime checks. | Blocks on invalid paths. |
 | `Cancel` | Closes the dialog without saving path changes. | No persisted state. | Always available. |
 
-After a valid save, the Localize panel can report `MATLAB: Ready`.
+After a valid save, a MATLAB-backed action can connect the runtime. The panel
+reports `MATLAB: Ready` once connected.
 
 ## 2. Main Window Overview
 
@@ -326,25 +327,46 @@ record is imported.
 
 ## 4. Localize
 
-The Localize page defines how record channels map to Lead-DBS contacts and how
-representative coordinates are exported for downstream use.
+Localize publishes anatomical information for a record from either Lead-DBS
+atlas mapping or user-assigned channel regions. The Source selection is a
+draft. Active names the source last successfully applied.
 
 ![Localize panel.](assets/app-control-reference/controlref-basic-localize-panel.png)
 
 ### 4.1 Main Panel
 
+User Labels → Edit / Import opens the record's channel list without MATLAB.
+Add a region to enter membership manually or use Import CSV with a unique
+`channel` field and one or more `<region>_in` fields containing 0 or 1.
+Imported cells update the draft. Save retains it for a subsequent Apply.
+An assessed channel outside all listed regions has all zero flags. Unassessed
+channels and connections involving them retain their signals and unknown
+membership. The user-defined tables contain missing coordinates.
+
+![User Labels editor with four assessed and two unassessed example channels.](assets/app-control-reference/controlref-user-labels.png)
+
+Source offers Lead-DBS atlas after Match and Atlas are configured, and User
+Labels after at least one channel has been assessed for a named region.
+Apply generates, updates or activates that source. On switching back to a
+current result it reuses its tables. An unchanged active result needs no
+Apply. Contact Viewer always uses the Lead-DBS coordinate table. The record
+Localize log identifies the active source and result. Lead-DBS tables stay in
+`localize/`. User Labels stores its draft at `localize/user_labels/input.csv`
+and its applied tables in the same directory. Only v0.3.0 historical results
+with valid generation receipts are eligible for reuse.
+
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
-| `Localize` indicator | Reports Localize freshness for the current record. | Downstream readiness feedback only. | Read-only. |
+| `Localize` indicator | Compares the selected draft and the last successfully applied result. | Align uses the separate Ready status of the applied result. | Read-only. |
 | `Match -> Configure...` | Opens the channel-to-contact mapping dialog. | Saved mapping payload. | Requires a selected record and parsed channel inventory. |
 | `Match` status | Reports how many record channels are mapped. | Whether Apply can use a complete mapping. | Read-only. |
 | `MATLAB` status | Reports whether MATLAB dependencies are currently ready. | Expected runtime availability for Apply and Contact Viewer. | Read-only. |
 | `Atlas -> Configure...` | Opens the atlas and region-selection dialog. | Saved atlas payload. | Requires a selected record. |
 | `Atlas` summary | Reports the saved atlas/region selection summary. | Human validation only. | Read-only. |
-| `Import Configs...` | Loads a Localize configuration payload. | Current match and atlas draft. | Requires a selected record. |
-| `Export Configs...` | Saves the current Localize configuration payload. | External JSON config file. | Requires a selected record. |
-| `Apply` | Generates representative-coordinate artifacts for the current record. After a successful rewrite, the main window immediately rescans stage state so invalidated Alignment Finish and Features results turn yellow and dependent actions are blocked without requiring record reselection. | Localize outputs consumed by downstream alignment and feature views, plus their current GUI freshness display and action gating. | Requires complete match state, saved atlas state, and working MATLAB/Lead-DBS dependencies. A failed Apply does not invalidate or rescan downstream stages. |
-| `Contact Viewer` | Launches the external MATLAB-based contact viewer. | Independent viewer process only. | Requires a valid current atlas and representative-coordinate export context. |
+| `Configs → Import Configs...` | Loads a Lead-DBS configuration payload. | Current match and atlas draft. | Requires record channels, a reconstruction and an available atlas space. |
+| `Configs → Export Configs...` | Saves the current Lead-DBS configuration. | External JSON config file. | Requires a complete match, atlas, selected regions and accessible lead signature. |
+| `Apply` | Publishes the selected labels or reactivates a verified existing result. | Align Finish tables and dependent Features for this record. | Requires a writable record and an eligible source with work to apply. Up to date disables repeated Apply. |
+| `Contact Viewer` | Displays the applied Lead-DBS geometry using its recorded atlas. | Viewer only. | Requires valid Lead-DBS coordinates and viewer dependencies, independently of the active label source. |
 
 Closing the main window first stops accepting new Localize MATLAB work and
 cancels work that has not started. The app then cancels any MATLAB launch that

@@ -21,9 +21,6 @@ from lfptensorpipe.anat.repcoords import (
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.runlog_store import read_ui_state
 from .apply_runner import run_localize_apply as _run_localize_apply_impl
-from .atlas_lookup import (
-    build_repcoords_frame as _build_repcoords_frame_impl,
-)
 from .paths import (
     discover_atlases,
     discover_spaces,
@@ -684,31 +681,6 @@ def load_reconstruction_contacts(
     return _load_reconstruction_contacts_impl(project_root, subject, paths)
 
 
-def _build_repcoords_frame(
-    *,
-    project_root: Path,
-    subject: str,
-    record: str,
-    space: str,
-    atlas: str,
-    region_names: list[str] | tuple[str, ...] | None = None,
-    paths: LocalizePaths,
-    reconstruction: dict[str, Any],
-    mappings: list[dict[str, Any]],
-) -> pd.DataFrame:
-    return _build_repcoords_frame_impl(
-        project_root=project_root,
-        subject=subject,
-        record=record,
-        space=space,
-        atlas=atlas,
-        region_names=region_names,
-        paths=paths,
-        reconstruction=reconstruction,
-        mappings=mappings,
-    )
-
-
 def _build_ordered_pair_repcoords_frame(channel_frame: pd.DataFrame) -> pd.DataFrame:
     return _build_ordered_pair_repcoords_frame_impl(channel_frame)
 
@@ -727,6 +699,8 @@ def run_localize_apply(
     selected_regions: list[str] | tuple[str, ...],
     paths: LocalizePaths | None = None,
     runtime_runner: LocalizeRuntimeRunner | None = None,
+    source: str = "leaddbs",
+    channels: tuple[str, ...] = (),
     read_only_project_root: Path | None = None,
     load_match_payload_fn: (
         Callable[[Path, str, str], dict[str, Any] | None] | None
@@ -752,11 +726,13 @@ def run_localize_apply(
         selected_regions=selected_regions,
         paths=paths,
         read_only_project_root=read_only_project_root,
+        source=source,
+        channels=channels,
         load_match_payload=load_match_payload_fn
         or _load_match_payload_from_record_ui_state,
         load_reconstruction_contacts=load_reconstruction_contacts_fn
         or load_reconstruction_contacts,
-        build_repcoords_frame=build_repcoords_frame_fn or _build_repcoords_frame,
+        build_repcoords_frame=build_repcoords_frame_fn,
         build_ordered_pair_repcoords_frame=build_ordered_pair_repcoords_frame_fn
         or _build_ordered_pair_repcoords_frame,
         build_undirected_pair_repcoords_frame=build_undirected_pair_repcoords_frame_fn

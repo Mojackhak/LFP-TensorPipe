@@ -39,8 +39,7 @@ Throughout this guide:
 
 ![Home page before selecting a record.](assets/app-tutorial/figure-00-home-overview-pre-import.png)
 
-The key status to notice is the `Localize` block. Once the machine-local
-dependencies are configured correctly, it should show `MATLAB: Ready`.
+The Localize block reports `MATLAB: Idle` until an action needs MATLAB. User Labels and reactivation of a verified atlas result do not start the runtime.
 
 On first launch, open the configs dialog and set the local paths used by
 `Localize`:
@@ -58,8 +57,8 @@ Use:
 | `Lead-DBS Directory` | `<lead-dbs-root>` |
 | `MATLAB Installation Path` | `<matlab-root>` |
 
-After saving valid paths, return to the home page and confirm that
-`Localize -> MATLAB: Ready` is visible.
+After saving valid paths, return to the home page. The first operation requiring
+MATLAB connects the runtime and updates the status to `MATLAB: Ready`.
 
 This walkthrough assumes one fixed local context for the whole run:
 
@@ -233,10 +232,12 @@ Control map:
 
 - `Match status`: how many record channels are mapped
 - `Atlas status`: how many regions are selected
+- `Source`: choose `Lead-DBS atlas` for this example
+- `Active`: the last successfully applied source
 - `Apply`: generate representative-coordinate outputs
 - `Contact Viewer`: launch the MATLAB-based 3D viewer
 
-Use `Import Configs...` to load the tutorial config quickly:
+Use `Configs → Import Configs...` to load the tutorial config quickly:
 
 - `dataset/configs/localize/lfptensorpipe_localize_config.json`
 

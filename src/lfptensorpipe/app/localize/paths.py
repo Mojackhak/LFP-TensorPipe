@@ -8,10 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from lfptensorpipe.app.config_store import AppConfigStore
 from lfptensorpipe.app.runlog_store import read_run_log
-from lfptensorpipe.app.shared.generation_lineage import (
-    accepted_result_generation_id,
-    input_generation_receipts_match,
-)
+from lfptensorpipe.app.shared.generation_lineage import input_generation_receipts_match
 from lfptensorpipe.app.shared.runlog_store import cache_in_run_log_read_snapshot
 from lfptensorpipe.matlab import infer_matlab_root
 
@@ -163,12 +160,81 @@ def localize_log_path(project_root: Path, subject: str, record: str) -> Path:
     return localize_record_dir(project_root, subject, record) / "lfptensorpipe_log.json"
 
 
+LEAD_DBS = "leaddbs"
+USER_LABELS = "user_labels"
+TABLE_STEMS = (
+    "channel_representative_coords",
+    "channel_pair_ordered_representative_coords",
+    "channel_pair_undirected_representative_coords",
+)
+
+
+def source_directory(root: Path, source: str) -> Path:
+    if source == USER_LABELS:
+        return root / USER_LABELS
+    if source == LEAD_DBS:
+        return root
+    raise ValueError(f"Unknown Localize source: {source!r}")
+
+
+def source_results(payload: dict | None) -> dict[str, dict]:
+    """Accepted receipts, including the single-source v0.3.0 writer."""
+    if not payload:
+        return {}
+    state = payload.get("state", {})
+    if not isinstance(state, dict):
+        return {}
+    if "source_results" in state:
+        stored = state["source_results"]
+        if not isinstance(stored, dict):
+            return {}
+        return {
+            name: params
+            for name, params in stored.items()
+            if name in (LEAD_DBS, USER_LABELS)
+            and input_generation_receipts_match(
+                {"completed": True, "params": params}, expected={}
+            )
+        }
+    if payload.get("completed") and input_generation_receipts_match(
+        payload, expected={}
+    ):
+        return {
+            LEAD_DBS: {**payload["params"], "computed_at": payload.get("timestamp_utc")}
+        }
+    return {}
+
+
+def applied_source(payload: dict | None) -> str | None:
+    if not payload:
+        return None
+    state = payload.get("state", {})
+    if not isinstance(state, dict):
+        return None
+    active = state.get("active_source", LEAD_DBS)
+    if active not in (LEAD_DBS, USER_LABELS):
+        return None
+    return active if active in source_results(payload) else None
+
+
+def source_files_ready(root: Path, source: str) -> bool:
+    directory = source_directory(root, source)
+    return all(
+        (directory / (stem + ext)).is_file()
+        for stem in TABLE_STEMS
+        for ext in (".pkl", ".csv")
+    )
+
+
 @cache_in_run_log_read_snapshot(
     lambda project_root, subject, record: (project_root, subject, record)
 )
 def localize_indicator_state(project_root: Path, subject: str, record: str) -> str:
     """Derive Localize indicator state from record-level localize log."""
-    payload = read_run_log(localize_log_path(project_root, subject, record))
+    try:
+        payload = read_run_log(localize_log_path(project_root, subject, record))
+    except (OSError, ValueError):
+        return "yellow"
     if payload is None:
         return "gray"
     return (
@@ -181,35 +247,12 @@ def localize_indicator_state(project_root: Path, subject: str, record: str) -> s
 def _localize_result_ready(
     project_root: Path, subject: str, record: str, payload: dict[str, Any]
 ) -> bool:
-    if not payload["completed"]:
+    active = applied_source(payload)
+    if active is None:
         return False
-    required_outputs = (
-        localize_representative_pkl_path(project_root, subject, record),
-        localize_representative_csv_path(project_root, subject, record),
-        localize_ordered_pair_representative_pkl_path(
-            project_root,
-            subject,
-            record,
-        ),
-        localize_ordered_pair_representative_csv_path(
-            project_root,
-            subject,
-            record,
-        ),
-        localize_undirected_pair_representative_pkl_path(
-            project_root,
-            subject,
-            record,
-        ),
-        localize_undirected_pair_representative_csv_path(
-            project_root,
-            subject,
-            record,
-        ),
+    return source_files_ready(
+        localize_record_dir(project_root, subject, record), active
     )
-    return all(
-        path.is_file() for path in required_outputs
-    ) and input_generation_receipts_match(payload, expected={})
 
 
 def localize_result_generation_id(
@@ -224,7 +267,10 @@ def localize_result_generation_id(
         payload = read_run_log(localize_log_path(project_root, subject, record))
     except Exception:
         return None
-    return accepted_result_generation_id(payload)
+    active = applied_source(payload)
+    if active is None:
+        return None
+    return source_results(payload)[active]["result_generation_id"]
 
 
 def localize_match_signature(
@@ -301,6 +347,8 @@ def localize_panel_state(
     atlas: Any,
     selected_regions: Any,
     match_payload: dict[str, Any] | None,
+    source: str | None = None,
+    label_signature: dict | None = None,
 ) -> str:
     """Return `gray|yellow|green` for the inline editable Localize panel light."""
     payload = _read_localize_payload(localize_log_path(project_root, subject, record))
@@ -313,7 +361,17 @@ def localize_panel_state(
         return "gray"
     if not _localize_result_ready(project_root, subject, record, payload):
         return "yellow"
-    params = payload.get("params")
+    active = applied_source(payload)
+    if source is not None and source != active:
+        return "yellow"
+    params = source_results(payload).get(active)
+    if active == USER_LABELS:
+        return (
+            "green"
+            if label_signature is None
+            or params.get("label_signature") == label_signature
+            else "yellow"
+        )
     if not isinstance(params, dict):
         return "green"
     logged_atlas = _normalized_atlas(params.get("atlas"))

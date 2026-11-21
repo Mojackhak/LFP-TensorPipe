@@ -1,13 +1,25 @@
-"""Orchestration runner for Localize Apply."""
+"""Publish one record's applied label source and representative tables."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from functools import partial
 import logging
 from pathlib import Path
 from typing import Any, Callable
 
+import pandas as pd
+
+from lfptensorpipe.anat.repcoords import (
+    build_ordered_pair_representative_frame,
+    build_undirected_pair_representative_frame,
+)
 from lfptensorpipe.app.path_resolver import RecordContext
-from lfptensorpipe.app.runlog_store import RunLogRecord, write_run_log
+from lfptensorpipe.app.runlog_store import (
+    RunLogRecord,
+    append_run_log_event,
+    read_run_log,
+)
 from lfptensorpipe.app.shared.atomic_outputs import write_outputs_atomically
 from lfptensorpipe.app.shared.downstream_invalidation import (
     invalidate_after_localize_result_change,
@@ -16,30 +28,232 @@ from lfptensorpipe.app.shared.generation_lineage import (
     new_result_generation_id,
     params_with_generation_lineage,
 )
-from lfptensorpipe.io.pkl_io import save_pkl
+from lfptensorpipe.io.pkl_io import load_pkl, save_pkl
 
-from .paths import (
-    localize_match_signature,
-    localize_log_path,
-    localize_ordered_pair_representative_csv_path,
-    localize_ordered_pair_representative_pkl_path,
-    localize_selected_regions_signature,
-    localize_record_dir,
-    localize_representative_csv_path,
-    localize_representative_pkl_path,
-    localize_undirected_pair_representative_csv_path,
-    localize_undirected_pair_representative_pkl_path,
-    reconstruction_mat_path,
+from .atlas_lookup import (
+    assign_atlas_regions,
+    build_repcoords_frame as build_atlas_frame,
 )
-
-LoadMatchPayloadFn = Callable[[Path, str, str], dict[str, Any] | None]
-LoadReconstructionContactsFn = Callable[
-    [Path, str, Any], tuple[bool, str, dict[str, Any]]
-]
-BuildRepcoordsFrameFn = Callable[..., Any]
-BuildPairRepcoordsFrameFn = Callable[[Any], Any]
+from .lead_inputs import compare_lead_inputs
+from .config import build_lead_signature
+from .paths import (
+    LEAD_DBS,
+    USER_LABELS,
+    TABLE_STEMS,
+    applied_source,
+    localize_match_signature,
+    localize_record_dir,
+    localize_selected_regions_signature,
+    reconstruction_mat_path,
+    source_directory,
+    source_files_ready,
+    source_results,
+)
+from .user_labels import read_labels
 
 logger = logging.getLogger(__name__)
+
+
+def _table_writers(directory, index, frame, *, missing_only=False):
+    stem = directory / TABLE_STEMS[index]
+    writers = []
+    for ext in (".pkl", ".csv"):
+        path = stem.with_suffix(ext)
+        if missing_only and path.is_file():
+            continue
+        if ext == ".pkl":
+            writers.append((path, lambda dest: save_pkl(frame, dest)))
+        else:
+            writers.append((path, lambda dest: frame.to_csv(dest, index=False)))
+    return writers
+
+
+def _repair_tables(directory, ordered, undirected):
+    writers = []
+    primary = directory / (TABLE_STEMS[0] + ".pkl")
+    channels = load_pkl(primary)
+    for i, build in enumerate((None, ordered, undirected)):
+        stem = directory / TABLE_STEMS[i]
+        if stem.with_suffix(".pkl").is_file() and stem.with_suffix(".csv").is_file():
+            continue
+        if build is None:
+            frame = channels
+        elif stem.with_suffix(".pkl").is_file():
+            frame = load_pkl(stem.with_suffix(".pkl"))
+        else:
+            frame = build(channels)
+        writers.extend(_table_writers(directory, i, frame, missing_only=True))
+    return writers
+
+
+def _prepare_lead_table(
+    *,
+    project_root,
+    subject,
+    record,
+    space,
+    atlas,
+    selected_regions,
+    paths,
+    channels,
+    saved,
+    primary,
+    load_match_payload,
+    load_reconstruction_contacts,
+    build_repcoords_frame,
+):
+    """Return a new/updated frame, or None when the retained table is current."""
+    frame = None
+    if paths is None:
+        raise ValueError(
+            "Missing Localize runtime paths; configure the app path settings."
+        )
+    match = load_match_payload(project_root, subject, record)
+    mapping = localize_match_signature(match)
+    regions = localize_selected_regions_signature(selected_regions)
+    if not mapping or not regions or not space or not atlas:
+        raise ValueError("Complete Match and Atlas configuration before Apply.")
+    if channels and {row["channel"] for row in mapping} != set(channels):
+        raise ValueError("Match does not cover the current record channels.")
+    input_path = reconstruction_mat_path(project_root, subject)
+    params = {
+        "record": record,
+        "space": space,
+        "atlas": atlas,
+        "match_signature": mapping,
+        "selected_regions_signature": regions,
+    }
+    same_geometry = False
+    same_regions = False
+    same_endpoints = False
+    if hasattr(paths, "leaddbs_dir"):
+        geometry, masks, same_geometry, same_regions = compare_lead_inputs(
+            saved, project_root, subject, space, atlas, regions, paths, mapping
+        )
+        params.update(geometry_inputs=geometry, region_inputs=masks)
+        reco_stamp = geometry["files"].get(str(input_path))
+        same_endpoints = (
+            reco_stamp is not None
+            and saved.get("space") == space
+            and saved.get("geometry_inputs", {}).get("files", {}).get(str(input_path))
+            == reco_stamp
+        )
+        if same_geometry and "lead_signature" in saved:
+            params["lead_signature"] = saved["lead_signature"]
+    old_match = saved.get("match_signature", [])
+    old_frame = None
+    if same_geometry and primary.is_file() and "geometry_inputs" not in saved:
+        # v0.3 has an output ID but no individual input receipts. Check the
+        # artifact itself against the historical channel/atlas assignment.
+        old_frame = load_pkl(primary)
+        required = {
+            "subject",
+            "record",
+            "space",
+            "atlas",
+            "channel",
+            "anode",
+            "cathode",
+            "rep_coord",
+            "mni_x",
+            "mni_y",
+            "mni_z",
+        }
+        same_geometry = (
+            isinstance(old_frame, pd.DataFrame)
+            and required.issubset(old_frame)
+            and old_frame["subject"].eq(subject).all()
+            and old_frame["record"].eq(record).all()
+            and old_frame["space"].eq(space).all()
+            and localize_match_signature(
+                {"completed": True, "mappings": old_frame.to_dict("records")}
+            )
+            == old_match
+        )
+        same_regions = bool(
+            same_geometry
+            and same_regions
+            and old_frame["atlas"].eq(atlas).all()
+            and all(r + "_in" in old_frame for r in regions)
+        )
+    reuse = (
+        primary.is_file() and same_geometry and same_regions and mapping == old_match
+    )
+    if not reuse:
+        parts = []
+        changed = list(match["mappings"])
+        if (same_geometry or same_endpoints) and primary.is_file():
+            if old_frame is None:
+                old_frame = load_pkl(primary)
+            kept = {
+                row["channel"]
+                for row in mapping
+                if row in old_match and (same_geometry or row["rep_coord"] != "Mid")
+            }
+            base = old_frame.loc[old_frame["channel"].isin(kept)].copy()
+            if not base.empty:
+                if not same_regions:
+                    base = base.drop(
+                        columns=[col for col in base if col.endswith("_in")]
+                    )
+                    base["atlas"] = atlas
+                    base = assign_atlas_regions(
+                        base,
+                        paths.leaddbs_dir
+                        / "templates"
+                        / "space"
+                        / space
+                        / "atlases"
+                        / atlas,
+                        regions,
+                        threshold=masks["threshold"],
+                    )
+                parts.append(base)
+            changed = [row for row in changed if row["channel"] not in kept]
+        if changed:
+            ok, message, reconstruction = load_reconstruction_contacts(
+                project_root, subject, paths
+            )
+            if not ok:
+                raise RuntimeError(message)
+            if "leads" in reconstruction:
+                params["lead_signature"] = build_lead_signature(reconstruction["leads"])
+            build = build_repcoords_frame or partial(
+                build_atlas_frame,
+                threshold=params["region_inputs"]["threshold"],
+                capture_anchor=(
+                    "fsl" in geometry["method"] or "fnirt" in geometry["method"]
+                ),
+            )
+            parts.append(
+                build(
+                    project_root=project_root,
+                    subject=subject,
+                    record=record,
+                    space=space,
+                    atlas=atlas,
+                    region_names=regions,
+                    paths=paths,
+                    reconstruction=reconstruction,
+                    mappings=changed,
+                )
+            )
+            anchor_file = parts[-1].attrs.get("anchor_file")
+            if anchor_file:
+                geometry["anchor_file"] = anchor_file
+                geometry["files"][anchor_file] = Path(anchor_file).stat().st_mtime_ns
+        if len(parts) > 1:
+            order = [row["channel"] for row in match["mappings"]]
+            frame = (
+                pd.concat(parts)
+                .set_index("channel", drop=False)
+                .loc[order]
+                .reset_index(drop=True)
+            )
+        else:
+            frame = parts[0]
+
+    return frame, params, input_path
 
 
 def run_localize_apply(
@@ -52,162 +266,170 @@ def run_localize_apply(
     selected_regions: list[str] | tuple[str, ...],
     paths: Any | None,
     read_only_project_root: Path | None,
-    load_match_payload: LoadMatchPayloadFn,
-    load_reconstruction_contacts: LoadReconstructionContactsFn,
-    build_repcoords_frame: BuildRepcoordsFrameFn,
-    build_ordered_pair_repcoords_frame: BuildPairRepcoordsFrameFn,
-    build_undirected_pair_repcoords_frame: BuildPairRepcoordsFrameFn,
+    load_match_payload: Callable,
+    load_reconstruction_contacts: Callable,
+    build_repcoords_frame: Callable | None,
+    build_ordered_pair_repcoords_frame: Callable = build_ordered_pair_representative_frame,
+    build_undirected_pair_repcoords_frame: Callable = build_undirected_pair_representative_frame,
+    source: str = LEAD_DBS,
+    channels: tuple[str, ...] = (),
 ) -> tuple[bool, str]:
-    """Build record-scoped representative-channel localize artifacts."""
+    """Apply one source, preserving both accepted receipts and the other source's tables."""
     if (
         read_only_project_root is not None
         and project_root.resolve() == read_only_project_root.resolve()
     ):
         return False, "Read-only demo project: Localize Apply is disabled."
 
-    out_dir = localize_record_dir(project_root, subject, record)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_csv = localize_representative_csv_path(project_root, subject, record)
-    out_pkl = localize_representative_pkl_path(project_root, subject, record)
-    ordered_csv = localize_ordered_pair_representative_csv_path(
-        project_root, subject, record
-    )
-    ordered_pkl = localize_ordered_pair_representative_pkl_path(
-        project_root, subject, record
-    )
-    undirected_csv = localize_undirected_pair_representative_csv_path(
-        project_root, subject, record
-    )
-    undirected_pkl = localize_undirected_pair_representative_pkl_path(
-        project_root, subject, record
-    )
-    out_log = localize_log_path(project_root, subject, record)
-
+    root = localize_record_dir(project_root, subject, record)
+    log_path = root / "lfptensorpipe_log.json"
     try:
-        if paths is None:
-            raise RuntimeError(
-                "Missing Localize runtime paths; configure the app path settings."
+        directory = source_directory(root, source)
+        previous = read_run_log(log_path)
+    except (OSError, ValueError) as exc:
+        return False, f"Localize apply failed: {exc}"
+    sources = source_results(previous).copy()
+    active = applied_source(previous)
+    saved = sources.get(source, {})
+    primary = directory / (TABLE_STEMS[0] + ".pkl")
+    writers = []
+    frame = None
+    context = RecordContext(project_root, subject, record)
+    try:
+        if source == USER_LABELS:
+            if not channels:
+                from lfptensorpipe.app.preproc.paths import rawdata_input_fif_path
+                from lfptensorpipe.app.tensor.selectors import (
+                    load_tensor_channel_inventory,
+                )
+
+                channels = load_tensor_channel_inventory(
+                    rawdata_input_fif_path(context)
+                ).all_channels
+            labels_path = directory / "input.csv"
+            labels = read_labels(labels_path, channels)
+            if not labels.regions or not labels.assessed:
+                raise ValueError(
+                    "Save at least one assessed channel and one region first."
+                )
+            signature = labels.signature(channels)
+            params = {"record": record, "label_signature": signature}
+            reuse = saved.get("label_signature") == signature and primary.is_file()
+            if not reuse:
+                frame = labels.frame(subject, record, channels)
+            input_path = labels_path
+        else:
+            frame, params, input_path = _prepare_lead_table(
+                project_root=project_root,
+                subject=subject,
+                record=record,
+                space=space,
+                atlas=atlas,
+                selected_regions=selected_regions,
+                paths=paths,
+                channels=channels,
+                saved=saved,
+                primary=primary,
+                load_match_payload=load_match_payload,
+                load_reconstruction_contacts=load_reconstruction_contacts,
+                build_repcoords_frame=build_repcoords_frame,
             )
-        match_payload = load_match_payload(project_root, subject, record)
-        if not isinstance(match_payload, dict):
-            raise FileNotFoundError(
-                "Missing match payload in record UI state (localize.match)."
+            reuse = frame is None
+
+        if reuse:
+            if source_files_ready(root, source):
+                if active == source:
+                    return True, "Up to date."
+            else:
+                writers.extend(
+                    _repair_tables(
+                        directory,
+                        build_ordered_pair_repcoords_frame,
+                        build_undirected_pair_repcoords_frame,
+                    )
+                )
+            params = {**saved, **params}
+            message = "Using existing Localize result."
+        else:
+            if frame.empty:
+                raise ValueError("No representative channel rows generated.")
+            ordered = build_ordered_pair_repcoords_frame(frame)
+            undirected = build_undirected_pair_repcoords_frame(frame)
+            for i, table in enumerate((frame, ordered, undirected)):
+                writers.extend(_table_writers(directory, i, table))
+            params.update(
+                channel_rows=len(frame),
+                channel_columns=len(frame.columns),
+                ordered_pair_rows=len(ordered),
+                ordered_pair_columns=len(ordered.columns),
+                undirected_pair_rows=len(undirected),
+                undirected_pair_columns=len(undirected.columns),
+                computed_at=datetime.now(timezone.utc).isoformat(),
             )
-        mappings_raw = match_payload.get("mappings")
-        if not isinstance(mappings_raw, list) or not mappings_raw:
-            raise ValueError("Match payload contains no mappings.")
-        if not bool(match_payload.get("completed", False)):
-            raise ValueError("Match file is not marked completed.")
-        match_signature = localize_match_signature(match_payload)
-        if match_signature is None:
-            raise ValueError("Match payload is incomplete.")
-
-        ok_reco, msg_reco, reconstruction = load_reconstruction_contacts(
-            project_root, subject, paths
-        )
-        if not ok_reco:
-            raise RuntimeError(msg_reco)
-
-        frame = build_repcoords_frame(
-            project_root=project_root,
-            subject=subject,
-            record=record,
-            space=space,
-            atlas=atlas,
-            region_names=selected_regions,
-            paths=paths,
-            reconstruction=reconstruction,
-            mappings=[item for item in mappings_raw if isinstance(item, dict)],
-        )
-        if frame.empty:
-            raise ValueError("No representative channel rows generated.")
-        ordered_frame = build_ordered_pair_repcoords_frame(frame)
-        undirected_frame = build_undirected_pair_repcoords_frame(frame)
-
-        success_record = RunLogRecord(
-            step="localize_apply",
-            completed=True,
-            params=params_with_generation_lineage(
-                {
-                    "space": space,
-                    "atlas": atlas,
-                    "record": record,
-                    "selected_regions_signature": (
-                        localize_selected_regions_signature(list(selected_regions))
-                    ),
-                    "channel_rows": int(frame.shape[0]),
-                    "channel_columns": int(frame.shape[1]),
-                    "ordered_pair_rows": int(ordered_frame.shape[0]),
-                    "ordered_pair_columns": int(ordered_frame.shape[1]),
-                    "undirected_pair_rows": int(undirected_frame.shape[0]),
-                    "undirected_pair_columns": int(undirected_frame.shape[1]),
-                    "match_signature": match_signature,
-                },
+            params = params_with_generation_lineage(
+                params,
                 result_generation_id=new_result_generation_id(),
                 input_generations={},
-            ),
-            input_path=str(reconstruction_mat_path(project_root, subject)),
-            output_path=str(out_dir),
-            message=(
-                "Record-scoped representative localize artifacts generated "
-                "(channel, ordered pair, undirected pair)."
-            ),
+            )
+            message = f"Saved {len(frame)} channel row(s), {len(ordered)} ordered pair row(s), and {len(undirected)} undirected pair row(s)."
+
+        params["label_source"] = source
+        sources[source] = params
+        event = RunLogRecord(
+            step="localize_apply",
+            completed=True,
+            params=params,
+            input_path=str(input_path),
+            output_path=str(directory),
+            message=message,
         )
+        writers.append(
+            (
+                log_path,
+                lambda dest: append_run_log_event(
+                    dest,
+                    event,
+                    source_path=log_path,
+                    state_replacements={
+                        "active_source": source,
+                        "source_results": sources,
+                    },
+                ),
+            )
+        )
+
+        def check_binding() -> None:
+            if read_run_log(log_path) != previous:
+                raise RuntimeError(
+                    "Localize changed during Apply. Apply again to use the current result."
+                )
+
         write_outputs_atomically(
-            [
-                (out_pkl, lambda path: save_pkl(frame, path)),
-                (out_csv, lambda path: frame.to_csv(path, index=False)),
-                (ordered_pkl, lambda path: save_pkl(ordered_frame, path)),
-                (
-                    ordered_csv,
-                    lambda path: ordered_frame.to_csv(path, index=False),
-                ),
-                (undirected_pkl, lambda path: save_pkl(undirected_frame, path)),
-                (
-                    undirected_csv,
-                    lambda path: undirected_frame.to_csv(path, index=False),
-                ),
-                (out_log, lambda path: write_run_log(path, success_record)),
-            ],
-            cleanup_stale_residues=True,
+            writers, cleanup_stale_residues=True, precommit_check=check_binding
         )
     except Exception as exc:
+        # Report a failed scientific or filesystem operation while retaining
+        # the last accepted binding (including a v0.3 single-source result).
         message = f"Localize apply failed: {exc}"
-        write_run_log(
-            out_log,
+        current = read_run_log(log_path)
+        append_run_log_event(
+            log_path,
             RunLogRecord(
                 step="localize_apply",
                 completed=False,
-                params={
-                    "space": space,
-                    "atlas": atlas,
-                    "record": record,
-                    "selected_regions_signature": localize_selected_regions_signature(
-                        list(selected_regions)
-                    ),
-                    "match_signature": (
-                        localize_match_signature(match_payload)
-                        if "match_payload" in locals()
-                        else None
-                    ),
-                },
-                input_path=str(reconstruction_mat_path(project_root, subject)),
-                output_path=str(out_dir),
+                params={"label_source": source},
                 message=message,
             ),
+            state_replacements={
+                "active_source": applied_source(current),
+                "source_results": source_results(current),
+            },
         )
         return False, message
 
-    try:
-        invalidate_after_localize_result_change(
-            RecordContext(project_root=project_root, subject=subject, record=record)
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not invalidate Localize downstream results: %s", exc)
-    return (
-        True,
-        "Localize completed. "
-        f"Saved {frame.shape[0]} channel row(s), "
-        f"{ordered_frame.shape[0]} ordered pair row(s), and "
-        f"{undirected_frame.shape[0]} undirected pair row(s).",
-    )
+    if not reuse or active != source:
+        try:
+            invalidate_after_localize_result_change(context)
+        except Exception as exc:
+            logger.warning("Could not invalidate Localize downstream results: %s", exc)
+    return True, "Localize completed. " + message

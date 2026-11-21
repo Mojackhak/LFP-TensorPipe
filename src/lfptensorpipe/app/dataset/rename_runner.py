@@ -488,21 +488,22 @@ def _rewrite_derivatives_contracts(
                 updated_paths.append(path)
 
     localize_root = derivatives_root / "localize"
-    for basename in _LOCALIZE_TABLE_BASENAMES:
-        pkl_path = localize_root / f"{basename}.pkl"
-        if pkl_path.exists() and _rewrite_pickle_dataframe(
-            pkl_path,
-            old_record=old_record,
-            new_record=new_record,
-        ):
-            updated_paths.append(pkl_path)
-        csv_path = localize_root / f"{basename}.csv"
-        if csv_path.exists() and _rewrite_csv_dataframe(
-            csv_path,
-            old_record=old_record,
-            new_record=new_record,
-        ):
-            updated_paths.append(csv_path)
+    for source_dir in (localize_root, localize_root / "user_labels"):
+        for basename in _LOCALIZE_TABLE_BASENAMES:
+            pkl_path = source_dir / f"{basename}.pkl"
+            if pkl_path.exists() and _rewrite_pickle_dataframe(
+                pkl_path,
+                old_record=old_record,
+                new_record=new_record,
+            ):
+                updated_paths.append(pkl_path)
+            csv_path = source_dir / f"{basename}.csv"
+            if csv_path.exists() and _rewrite_csv_dataframe(
+                csv_path,
+                old_record=old_record,
+                new_record=new_record,
+            ):
+                updated_paths.append(csv_path)
 
     alignment_root = derivatives_root / "alignment"
     if alignment_root.exists():

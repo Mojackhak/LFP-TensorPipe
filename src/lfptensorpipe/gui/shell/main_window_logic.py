@@ -63,6 +63,7 @@ from lfptensorpipe.gui.dialogs.feature_axis import FeatureAxisConfigureDialog
 from lfptensorpipe.gui.dialogs.features_plot_advance import FeaturesPlotAdvanceDialog
 from lfptensorpipe.gui.dialogs.filter_advance import FilterAdvanceDialog
 from lfptensorpipe.gui.dialogs.localize_atlas import LocalizeAtlasDialog
+from lfptensorpipe.app.localize.user_labels import UserLabels
 from lfptensorpipe.gui.dialogs.localize_match import LocalizeMatchDialog
 from lfptensorpipe.gui.dialogs.paths_config import PathsConfigDialog
 from lfptensorpipe.gui.dialogs.qc_advance import QcAdvanceDialog
@@ -316,11 +317,16 @@ class MainWindow(
         self._features_last_plot_data: pd.DataFrame | None = None
         self._features_last_plot_name: str = ""
         self._space_value_edit: QLineEdit | None = None
+        self._localize_selected_source = None
+        self._localize_label_channels: tuple[str, ...] = ()
+        self._localize_user_draft = UserLabels()
+        self._localize_label_error = ""
+        self._localize_source_combo = None
         self._localize_atlas_button: QPushButton | None = None
         self._localize_atlas_summary_label: QLabel | None = None
         self._localize_apply_button: QPushButton | None = None
-        self._localize_import_button: QPushButton | None = None
-        self._localize_export_button: QPushButton | None = None
+        self._localize_import_button: QAction | None = None
+        self._localize_export_button: QAction | None = None
         self._localize_match_button: QPushButton | None = None
         self._localize_match_status_label: QLabel | None = None
         self._localize_matlab_status_label: QLabel | None = None
@@ -377,7 +383,6 @@ class MainWindow(
         self._bind_record_param_dirty_signals()
         self._localize_matlab_timer.start()
         self._refresh_localize_matlab_status()
-        self._schedule_matlab_warmup()
         if auto_load_dataset:
             self._initialize_dataset_context()
         else:

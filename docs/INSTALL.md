@@ -11,8 +11,9 @@ provides the `lfptp run` command-line workflow.
 | Desktop application | Running the GUI without a Python environment | An application package for your operating system and CPU architecture |
 | Source installation | Using the GUI, command-line workflow, or Python package | The source repository and the `lfptp` Conda environment |
 
-MATLAB and Lead-DBS are external dependencies for **Localize** and **Contact
-Viewer**. Record import, preprocessing, Tensor computation, alignment, and
+MATLAB and Lead-DBS are external dependencies for atlas-based **Localize** and
+**Contact Viewer**. User Labels requires only the imported record's channels.
+Record import, preprocessing, Tensor computation, alignment, and
 feature extraction do not require localization. Results can be analyzed without
 location columns.
 
@@ -112,7 +113,7 @@ run also requires the selected subject's anatomical inputs.
 
 ## 5. Localize Requirements
 
-Localize uses:
+Lead-DBS atlas localization uses:
 
 - the configured MATLAB and Lead-DBS installations;
 - a subject reconstruction whose contacts match the recording channels;

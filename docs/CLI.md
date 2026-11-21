@@ -74,9 +74,15 @@ which epochs are generated. To inspect and choose individual epochs, use the
 GUI's Epoch Inspector. Both Run and Finish must succeed for the command to
 complete successfully.
 
-Align Finish merges location information when the record's Localize result is
-current. Otherwise, it produces tables without location information. The
-completion message reports location-merge readiness and any service warnings.
+Align Finish uses the same record-level localization readiness as the GUI.
+When Ready, it joins the last applied source (Lead-DBS atlas or User Labels)
+for every requested metric and records the source and result ID in the trial log.
+When Not ready, every output omits localization. Both paths retain the selected
+signals, including channels with unknown region membership. The Localize JSON
+action applies the atlas configuration. It validates the external configuration's
+lead signature before using or generating atlas results. An import whose full lead
+signature has not previously been recorded can require MATLAB for that check.
+Reactivating a verified v0.3.0 result from the GUI needs no MATLAB session.
 
 ## Outputs and Reruns
 

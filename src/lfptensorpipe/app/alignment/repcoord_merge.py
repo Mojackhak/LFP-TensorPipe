@@ -7,6 +7,8 @@ from pathlib import Path
 import pandas as pd
 
 from lfptensorpipe.app.localize.paths import (
+    LEAD_DBS,
+    source_directory,
     localize_ordered_pair_representative_pkl_path,
     localize_representative_csv_path,
     localize_representative_pkl_path,
@@ -113,9 +115,11 @@ def _merge_repcoord_frame(
 def _merge_channel_representative_coords(
     frame: pd.DataFrame,
     context: RecordContext,
+    source: str = LEAD_DBS,
 ) -> tuple[pd.DataFrame, str | None]:
+    path = _localize_representative_pkl_path(context)
     rep_frame, warning = _load_repcoord_frame(
-        _localize_representative_pkl_path(context)
+        source_directory(path.parent, source) / path.name
     )
     if rep_frame is None:
         return frame, warning
@@ -163,6 +167,7 @@ def _merge_pair_representative_coords(
     context: RecordContext,
     *,
     directed: bool,
+    source: str = LEAD_DBS,
 ) -> tuple[pd.DataFrame, str | None]:
     path = (
         _localize_ordered_pair_representative_pkl_path(context)
@@ -170,7 +175,9 @@ def _merge_pair_representative_coords(
         else _localize_undirected_pair_representative_pkl_path(context)
     )
     key_column = "pair_key_ordered" if directed else "pair_key_undirected"
-    rep_frame, warning = _load_repcoord_frame(path)
+    rep_frame, warning = _load_repcoord_frame(
+        source_directory(path.parent, source) / path.name
+    )
     if rep_frame is None:
         return frame, warning
     if key_column not in rep_frame.columns:
@@ -206,13 +213,18 @@ def _merge_representative_coords_for_metric(
     context: RecordContext,
     *,
     metric_key: str,
+    source: str = LEAD_DBS,
 ) -> tuple[pd.DataFrame, str | None]:
     key = str(metric_key).strip().lower()
     if key in TENSOR_DIRECTED_SELECTOR_KEYS:
-        return _merge_pair_representative_coords(frame, context, directed=True)
+        return _merge_pair_representative_coords(
+            frame, context, directed=True, source=source
+        )
     if key in TENSOR_UNDIRECTED_SELECTOR_KEYS:
-        return _merge_pair_representative_coords(frame, context, directed=False)
-    return _merge_channel_representative_coords(frame, context)
+        return _merge_pair_representative_coords(
+            frame, context, directed=False, source=source
+        )
+    return _merge_channel_representative_coords(frame, context, source=source)
 
 
 __all__ = [

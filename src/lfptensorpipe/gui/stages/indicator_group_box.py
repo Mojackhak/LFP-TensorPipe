@@ -19,6 +19,7 @@ class IndicatorGroupBox(QGroupBox):
         super().__init__(title, parent)
         self._indicator_spacing = indicator_spacing
         self._indicator = QLabel(self)
+        self._title_status: QLabel | None = None
         self._indicator.setFixedSize(12, 12)
         self._indicator.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self._indicator.show()
@@ -27,6 +28,13 @@ class IndicatorGroupBox(QGroupBox):
 
     def indicator_label(self) -> QLabel:
         return self._indicator
+
+    def set_title_status(self, label: QLabel) -> None:
+        if label is not self._title_status:
+            self._title_status = label
+            label.setParent(self)
+        self._sync_indicator_geometry()
+        label.show()
 
     def setTitle(self, title: str) -> None:
         super().setTitle(title)
@@ -78,3 +86,13 @@ class IndicatorGroupBox(QGroupBox):
         self._indicator.move(min(indicator_x, max_x), max(0, indicator_y))
         self._indicator.show()
         self._indicator.raise_()
+        if self._title_status is not None:
+            status = self._title_status
+            status.adjustSize()
+            status.move(
+                max(
+                    self._indicator.x() + self._indicator.width() + 4,
+                    self.width() - status.width() - 8,
+                ),
+                title_rect.center().y() - status.height() // 2,
+            )

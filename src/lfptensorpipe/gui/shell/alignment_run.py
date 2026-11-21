@@ -156,9 +156,25 @@ class MainWindowAlignmentRunMixin:
             ready = localize_state == "green"
         if self._alignment_merge_location_status_label is None:
             return ready
-        self._alignment_merge_location_status_label.setText(
-            self._alignment_merge_location_status_text(ready)
-        )
+        text = self._alignment_merge_location_status_text(ready)
+        if ready and context is not None:
+            from lfptensorpipe.app.localize.paths import (
+                USER_LABELS,
+                applied_source,
+                localize_log_path,
+            )
+            from lfptensorpipe.app.runlog_store import read_run_log
+
+            source = applied_source(
+                read_run_log(
+                    localize_log_path(
+                        context.project_root, context.subject, context.record
+                    )
+                )
+            )
+            if source:
+                text += " · " + ("User Labels" if source == USER_LABELS else "Lead-DBS")
+        self._alignment_merge_location_status_label.setText(text)
         self._alignment_merge_location_status_label.setStyleSheet(
             "color: #1f7a1f;" if ready else "color: #666666;"
         )

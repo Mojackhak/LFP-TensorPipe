@@ -463,7 +463,16 @@ def _run_localize(
         normalize_localize_lead_signature,
         normalize_localize_match_payload,
     )
-    from .localize.paths import discover_atlases, infer_subject_space
+    from .localize.paths import (
+        LEAD_DBS,
+        discover_atlases,
+        infer_subject_space,
+        localize_log_path,
+        reconstruction_mat_path,
+        source_results,
+    )
+    from .runlog_store import read_run_log
+    from .preproc.paths import rawdata_input_fif_path
     from .tensor.selectors import load_tensor_channel_inventory
 
     _require_fields(
@@ -494,16 +503,31 @@ def _run_localize(
             raise ConfigError(
                 "Localize selected_regions must contain available region names."
             )
-        ok, message, reconstruction = svc.load_reconstruction_contacts(
-            context.project_root, context.subject, paths
+        args = (context.project_root, context.subject, context.record)
+        saved = source_results(read_run_log(localize_log_path(*args))).get(LEAD_DBS, {})
+        reco = reconstruction_mat_path(context.project_root, context.subject)
+        previous_stamp = (
+            saved.get("geometry_inputs", {}).get("files", {}).get(str(reco))
         )
-        _checked_result((ok, message))
-        channels = load_tensor_channel_inventory(
-            PathResolver(context).preproc_root / "raw" / "raw.fif"
-        ).all_channels
+        current_signature = (
+            saved.get("lead_signature")
+            if reco.is_file() and previous_stamp == reco.stat().st_mtime_ns
+            else None
+        )
+        reconstruction = None
+        if current_signature is None:
+            ok, message, reconstruction = svc.load_reconstruction_contacts(
+                context.project_root, context.subject, paths
+            )
+            _checked_result((ok, message))
+            current_signature = build_lead_signature(reconstruction["leads"])
+        raw_path = rawdata_input_fif_path(context)
+        if not raw_path.is_file():
+            raw_path = PathResolver(context).preproc_root / "raw" / "raw.fif"
+        channels = load_tensor_channel_inventory(raw_path).all_channels
         try:
             signature = normalize_localize_lead_signature(node["lead_signature"])
-            if signature != build_lead_signature(reconstruction["leads"]):
+            if signature != current_signature:
                 raise ValueError(
                     "Localize lead_signature does not match the current reconstruction."
                 )
@@ -532,7 +556,12 @@ def _run_localize(
         _patch_state(
             context,
             ("localize",),
-            {"atlas": atlas, "selected_regions": regions, "match": match},
+            {
+                "atlas": atlas,
+                "selected_regions": regions,
+                "match": match,
+                "selected_source": LEAD_DBS,
+            },
         )
         return _checked_result(
             svc.run_localize_apply(
@@ -543,7 +572,10 @@ def _run_localize(
                 atlas=atlas,
                 selected_regions=regions,
                 paths=paths,
-                load_reconstruction_contacts_fn=lambda *_: (True, "", reconstruction),
+                channels=channels,
+                load_reconstruction_contacts_fn=(lambda *_: (True, "", reconstruction))
+                if reconstruction is not None
+                else None,
             )
         )
     finally:

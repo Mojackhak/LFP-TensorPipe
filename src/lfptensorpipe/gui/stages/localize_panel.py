@@ -4,15 +4,18 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import (
     QGridLayout,
+    QComboBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
     QWidget,
 )
 
 from lfptensorpipe.gui.stages.indicator_group_box import IndicatorGroupBox
+from lfptensorpipe.app.localize.paths import LEAD_DBS, USER_LABELS
 
 GRID_SPACING = 0
 
@@ -66,8 +69,12 @@ def _build_localize_panel(self) -> QGroupBox:
     )
 
     self._localize_apply_button = QPushButton("Apply")
-    self._localize_import_button = QPushButton("Import Configs...")
-    self._localize_export_button = QPushButton("Export Configs...")
+    config_button = QPushButton("Configs")
+    menu = QMenu(config_button)
+    self._localize_import_button = menu.addAction("Import Configs...")
+    self._localize_export_button = menu.addAction("Export Configs...")
+    config_button.setMenu(menu)
+    self._localize_configs_button = config_button
     self._contact_viewer_button = QPushButton("Contact Viewer")
     self._localize_apply_button.setToolTip(
         "Generate representative localize artifacts for the current record."
@@ -82,8 +89,8 @@ def _build_localize_panel(self) -> QGroupBox:
         "Open Contact Viewer with current atlas and representative CSV."
     )
     self._localize_apply_button.clicked.connect(self._on_localize_apply)
-    self._localize_import_button.clicked.connect(self._on_localize_import_config)
-    self._localize_export_button.clicked.connect(self._on_localize_export_config)
+    self._localize_import_button.triggered.connect(self._on_localize_import_config)
+    self._localize_export_button.triggered.connect(self._on_localize_export_config)
     self._contact_viewer_button.clicked.connect(self._on_contact_viewer)
     self._localize_apply_button.setEnabled(False)
     self._localize_import_button.setEnabled(False)
@@ -102,11 +109,10 @@ def _build_localize_panel(self) -> QGroupBox:
     match_layout.addWidget(self._localize_match_status_label)
     match_layout.addStretch(1)
 
-    if self._localize_matlab_status_label is not None:
-        grid.addWidget(self._localize_matlab_status_label, 0, 0, 1, 2)
-    grid.addWidget(QLabel("Match"), 1, 0)
-    grid.addWidget(match_row, 1, 1)
-    grid.addWidget(QLabel("Atlas"), 2, 0)
+    panel.set_title_status(self._localize_matlab_status_label)
+    grid.addWidget(QLabel("Match"), 0, 0)
+    grid.addWidget(match_row, 0, 1)
+    grid.addWidget(QLabel("Atlas"), 1, 0)
     atlas_row = QWidget()
     atlas_row_layout = QHBoxLayout(atlas_row)
     atlas_row_layout.setContentsMargins(0, 0, 0, 0)
@@ -114,16 +120,38 @@ def _build_localize_panel(self) -> QGroupBox:
     atlas_row_layout.addWidget(self._localize_atlas_button)
     atlas_row_layout.addWidget(self._localize_atlas_summary_label)
     atlas_row_layout.addStretch(1)
-    grid.addWidget(atlas_row, 2, 1)
+    grid.addWidget(atlas_row, 1, 1)
 
-    config_row = QWidget()
-    config_row_layout = QHBoxLayout(config_row)
-    config_row_layout.setContentsMargins(0, 0, 0, 0)
-    config_row_layout.setSpacing(grid_spacing)
-    config_row_layout.addWidget(self._localize_import_button)
-    config_row_layout.addWidget(self._localize_export_button)
-    config_row_layout.addStretch(1)
-    grid.addWidget(config_row, 3, 0, 1, 2)
+    self._localize_labels_button = QPushButton("Edit / Import...")
+    self._localize_labels_button.clicked.connect(self._on_localize_user_labels)
+    self._localize_labels_summary = QLabel("0/0 assessed")
+    labels_row = QHBoxLayout()
+    labels_row.addWidget(self._localize_labels_button)
+    labels_row.addWidget(self._localize_labels_summary)
+    labels_row.addStretch()
+    grid.addWidget(QLabel("User Labels"), 2, 0)
+    grid.addLayout(labels_row, 2, 1)
+
+    self._localize_source_combo = QComboBox()
+    self._localize_source_combo.addItem("Lead-DBS atlas", LEAD_DBS)
+    self._localize_source_combo.addItem("User Labels", USER_LABELS)
+    self._localize_source_combo.setMinimumWidth(
+        self._localize_source_combo.fontMetrics().horizontalAdvance("Lead-DBS atlas")
+        + 34
+    )
+    self._localize_source_combo.setCurrentIndex(-1)
+    self._localize_source_combo.setPlaceholderText("—")
+    self._localize_source_combo.currentIndexChanged.connect(
+        self._on_localize_source_changed
+    )
+    self._localize_active_label = QLabel("Active: —")
+    source_row = QHBoxLayout()
+    source_row.setSpacing(4)
+    source_row.addWidget(QLabel("Source"))
+    source_row.addWidget(self._localize_source_combo)
+    source_row.addWidget(self._localize_active_label)
+    source_row.addStretch()
+    grid.addLayout(source_row, 3, 0, 1, 2)
 
     button_row = QWidget()
     button_row_layout = QHBoxLayout(button_row)
@@ -131,6 +159,7 @@ def _build_localize_panel(self) -> QGroupBox:
     button_row_layout.setSpacing(grid_spacing)
     button_row_layout.addWidget(self._localize_apply_button)
     button_row_layout.addWidget(self._contact_viewer_button)
+    button_row_layout.addWidget(config_button)
 
     grid.addWidget(button_row, 4, 0, 1, 2)
     return panel

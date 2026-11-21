@@ -12,10 +12,18 @@ from lfptensorpipe.app.alignment.generation import (
     alignment_finish_input_generations_match,
     alignment_generation_rerun_message,
     capture_alignment_finish_input_generations,
+    latest_alignment_step_entry,
 )
 from lfptensorpipe.app.localize_service import localize_indicator_state
+from lfptensorpipe.app.localize.paths import (
+    applied_source,
+    localize_log_path,
+    source_results,
+)
+from lfptensorpipe.app.runlog_store import read_run_log
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
 from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
+from lfptensorpipe.app.shared.generation_lineage import LOCALIZE_GENERATION_REF
 from lfptensorpipe.app.shared.downstream_invalidation import (
     invalidate_after_alignment_finish,
 )
@@ -74,7 +82,14 @@ def finish_alignment_epochs(
             alignment_method_panel_state(resolver, paradigm=trial_cfg) == "green"
         )
     else:
-        run_ready = indicator_from_log(log_path) == "green"
+        run_event = latest_alignment_step_entry(
+            resolver, trial_slug=slug, step="run_align_epochs"
+        )
+        run_ready = (
+            bool(run_event[1]["completed"])
+            if run_event
+            else indicator_from_log(log_path) == "green"
+        )
     if not run_ready:
         return False, (
             alignment_generation_rerun_message(resolver, trial_slug=slug, stage="run")
@@ -133,9 +148,18 @@ def finish_alignment_epochs(
     )
     if input_generations is None:
         return False, "Align Finish inputs are not current; rerun their producers."
+    label_source = None
+    if merge_location_info_ready:
+        published = read_run_log(
+            localize_log_path(context.project_root, context.subject, context.record)
+        )
+        label_source = applied_source(published)
+        if label_source is None or source_results(published)[label_source][
+            "result_generation_id"
+        ] != input_generations.get(LOCALIZE_GENERATION_REF):
+            return False, "Localization changed before Finish. Run Finish again."
 
     paradigm_dir = alignment_paradigm_dir(resolver, slug)
-    repcoord_warnings: list[str] = []
     frames: dict[str, object] = {}
     output_paths = {
         metric: alignment_trial_raw_table_path(
@@ -222,9 +246,16 @@ def finish_alignment_epochs(
                     frame,
                     context,
                     metric_key=metric_key,
+                    source=label_source,
                 )
                 if merge_warning:
-                    repcoord_warnings.append(f"{metric_key}:{merge_warning}")
+                    raise ValueError(
+                        f"Cannot merge the applied localization for {metric_key}: {merge_warning}"
+                    )
+                frame.attrs["label_source"] = label_source
+                frame.attrs["localize_result_id"] = input_generations[
+                    LOCALIZE_GENERATION_REF
+                ]
             transform_policy = meta.get(VALUE_TRANSFORM_POLICY_KEY)
             if isinstance(transform_policy, dict):
                 frame.attrs[VALUE_TRANSFORM_POLICY_KEY] = dict(transform_policy)
@@ -256,11 +287,10 @@ def finish_alignment_epochs(
                             "metrics": required_metrics,
                             "n_metrics": len(required_metrics),
                             "merge_location_info_ready": merge_location_info_ready,
-                            "merge_location_info_applied": (
-                                merge_location_info_ready and not repcoord_warnings
-                            ),
+                            "label_source": label_source,
+                            "merge_location_info_applied": merge_location_info_ready,
                             "saved_tables": len(frames),
-                            "repcoord_merge_warnings": repcoord_warnings,
+                            "repcoord_merge_warnings": [],
                         },
                         result_generation_id=new_result_generation_id(),
                         input_generations=input_generations,
@@ -269,12 +299,8 @@ def finish_alignment_epochs(
                     output_path=str(paradigm_dir),
                     message=(
                         "Raw tables generated from warped tensors and merged representative coords."
-                        if merge_location_info_ready and not repcoord_warnings
-                        else (
-                            "Raw tables generated from warped tensors; representative-coordinate merge completed with warnings."
-                            if merge_location_info_ready
-                            else "Raw tables generated from warped tensors without representative-coordinate merge."
-                        )
+                        if merge_location_info_ready
+                        else "Raw tables generated from warped tensors without representative-coordinate merge."
                     ),
                 ).to_dict(),
                 keep_top_level=True,
@@ -285,6 +311,16 @@ def finish_alignment_epochs(
                 trial_slug=slug,
                 include_localize=merge_location_info_ready,
                 input_generations=input_generations,
+            ) or (
+                merge_location_info_ready
+                and applied_source(
+                    read_run_log(
+                        localize_log_path(
+                            context.project_root, context.subject, context.record
+                        )
+                    )
+                )
+                != label_source
             ):
                 raise AlignmentInputGenerationChangedError(
                     "Alignment inputs changed while Finish was running; "
