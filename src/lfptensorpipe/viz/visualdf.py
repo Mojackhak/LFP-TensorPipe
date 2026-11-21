@@ -5389,17 +5389,16 @@ def plot_prism_boxplot(
         ax.set_ylim(*y_limits)
     elif all_vals and any(v.size for v in all_vals):
         ymin = float(np.min([np.min(v) for v in all_vals if v.size]))
-        if y_min_zero and ymin > 0:
+        zero_floor = y_min_zero and ymin >= 0.0 and not y_log
+        if zero_floor:
             ymin = 0.0
         ymax = float(np.max([np.max(v) for v in all_vals if v.size]))
         yr = ymax - ymin
         if yr <= 0:
             yr = 1.0
 
-        ymin = ymin - 0.10 * yr
-        ymax = ymax + 0.30 * yr
-
-        ax.set_ylim(ymin - 0.10 * yr, ymax + 0.30 * yr)
+        lower = 0.0 if zero_floor else ymin - 0.10 * yr
+        ax.set_ylim(lower, ymax + 0.30 * yr)
     y_limits_use = ax.get_ylim()
 
     if show_brackets and tuk is not None and not tuk.empty:
