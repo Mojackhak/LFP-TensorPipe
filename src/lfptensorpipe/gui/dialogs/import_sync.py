@@ -222,6 +222,16 @@ class ImportSyncDialog(QDialog):
         self._estimate = None
         self._lfp_figure_data: SyncFigureData | None = None
         self._external_figure_data: SyncFigureData | None = None
+        self._loaded_lfp_source: tuple[str, str, PeakDetectConfig | None] = (
+            "parsed_annotations",
+            "",
+            None,
+        )
+        self._loaded_external_source: tuple[str, str, PeakDetectConfig | None] = (
+            "csv_times",
+            "",
+            None,
+        )
         self._saved_state: ImportSyncState | None = None
         self._lfp_advanced_detect_config = PeakDetectConfig()
         self._external_advanced_detect_config = PeakDetectConfig()
@@ -390,6 +400,16 @@ class ImportSyncDialog(QDialog):
             self._estimate = self._state.estimate
             self._lfp_figure_data = self._state.lfp_figure_data
             self._external_figure_data = self._state.external_figure_data
+            self._loaded_lfp_source = (
+                self._state.lfp_source_kind,
+                self._state.lfp_source_path,
+                self._state.lfp_detect_config,
+            )
+            self._loaded_external_source = (
+                self._state.external_source_kind,
+                self._state.external_source_path,
+                self._state.external_detect_config,
+            )
             self._lfp_source_combo.setCurrentText(
                 "Channel peaks"
                 if self._state.lfp_source_kind == "channel_peaks"
@@ -416,18 +436,7 @@ class ImportSyncDialog(QDialog):
 
     def _apply_detect_config(self, side: str, config: PeakDetectConfig) -> None:
         getattr(self, f"_{side}_distance_edit").setText(str(config.min_distance_s))
-        setattr(
-            self,
-            f"_{side}_advanced_detect_config",
-            PeakDetectConfig(
-                search_range_s=config.search_range_s,
-                min_distance_s=config.min_distance_s,
-                height=config.height,
-                prominence=config.prominence,
-                max_peaks=config.max_peaks,
-                use_abs=config.use_abs,
-            ),
-        )
+        setattr(self, f"_{side}_advanced_detect_config", config)
 
     def _float_or_none(self, edit: QLineEdit) -> float | None:
         text = edit.text().strip()
@@ -571,28 +580,27 @@ class ImportSyncDialog(QDialog):
         return (max(suffixes) + 1) if suffixes else 0
 
     def _on_lfp_reload(self) -> None:
-        if self._lfp_source_combo.currentText() == "Channel peaks":
-            try:
+        try:
+            if self._lfp_source_combo.currentText() == "Channel peaks":
+                channel = self._lfp_channel_combo.currentText().strip()
                 detect_config = self._build_detect_config("lfp")
-            except (TypeError, ValueError) as exc:
-                self._refresh_validation()
-                QMessageBox.warning(self, "Sync", str(exc))
-                return
-        else:
-            detect_config = None
+                markers, figure_data = detect_raw_channel_markers(
+                    self._raw, channel, detect_config
+                )
+                source = ("channel_peaks", channel, detect_config)
+            else:
+                markers = build_import_sync_seed(self._raw)
+                figure_data = None
+                source = ("parsed_annotations", "", None)
+        except (OSError, TypeError, ValueError) as exc:
+            self._refresh_validation()
+            QMessageBox.warning(self, "Sync", str(exc))
+            return
         self._reset_estimate()
         self._pairs = []
-        if self._lfp_source_combo.currentText() == "Parsed annotations":
-            self._lfp_markers = list(build_import_sync_seed(self._raw))
-            self._lfp_figure_data = None
-        else:
-            markers, figure_data = detect_raw_channel_markers(
-                self._raw,
-                self._lfp_channel_combo.currentText().strip(),
-                detect_config,
-            )
-            self._lfp_markers = list(markers)
-            self._lfp_figure_data = figure_data
+        self._lfp_markers = list(markers)
+        self._lfp_figure_data = figure_data
+        self._loaded_lfp_source = source
         self._refresh_all()
 
     def _on_external_reload(self) -> None:
@@ -611,6 +619,7 @@ class ImportSyncDialog(QDialog):
                     path,
                     detect_config,
                 )
+                source = ("audio", path, detect_config)
             else:
                 markers = load_external_markers_from_csv(path)
                 figure_data = SyncFigureData(
@@ -619,6 +628,7 @@ class ImportSyncDialog(QDialog):
                     marker_times_s=tuple(marker.time_s for marker in markers),
                     title=f"External Marker Source ({Path(path).name})",
                 )
+                source = ("csv_times", path, None)
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, "Sync", str(exc))
             return
@@ -627,6 +637,7 @@ class ImportSyncDialog(QDialog):
         self._pairs = []
         self._external_markers = list(markers)
         self._external_figure_data = figure_data
+        self._loaded_external_source = source
         self._refresh_all()
 
     def _on_add_marker(self, side: str) -> None:
@@ -756,27 +767,11 @@ class ImportSyncDialog(QDialog):
         if self._estimate is None:
             QMessageBox.warning(self, "Sync", "Run Sync before saving.")
             return
-        lfp_source_kind = (
-            "channel_peaks"
-            if self._lfp_source_combo.currentText() == "Channel peaks"
-            else "parsed_annotations"
-        )
-        external_source_kind = (
-            "audio"
-            if self._external_source_combo.currentText() == "Audio"
-            else "csv_times"
-        )
         try:
-            lfp_config = (
+            if self._lfp_source_combo.currentText() == "Channel peaks":
                 self._build_detect_config("lfp")
-                if lfp_source_kind == "channel_peaks"
-                else None
-            )
-            external_config = (
+            if self._external_source_combo.currentText() == "Audio":
                 self._build_detect_config("external")
-                if external_source_kind == "audio"
-                else None
-            )
         except ValueError as exc:
             QMessageBox.warning(self, "Sync", str(exc))
             return
@@ -785,6 +780,10 @@ class ImportSyncDialog(QDialog):
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(self, "Sync", f"Failed to build synced raw: {exc}")
             return
+        lfp_source_kind, lfp_path, lfp_config = self._loaded_lfp_source
+        external_source_kind, external_path, external_config = (
+            self._loaded_external_source
+        )
         self._saved_state = ImportSyncState(
             lfp_markers=tuple(self._lfp_markers),
             external_markers=tuple(self._external_markers),
@@ -792,12 +791,8 @@ class ImportSyncDialog(QDialog):
             estimate=self._estimate,
             lfp_source_kind=lfp_source_kind,
             external_source_kind=external_source_kind,
-            lfp_source_path=(
-                self._lfp_channel_combo.currentText().strip()
-                if lfp_source_kind == "channel_peaks"
-                else ""
-            ),
-            external_source_path=self._external_path_edit.text().strip(),
+            lfp_source_path=lfp_path,
+            external_source_path=external_path,
             lfp_detect_config=lfp_config,
             external_detect_config=external_config,
             lfp_figure_data=self._lfp_figure_data,

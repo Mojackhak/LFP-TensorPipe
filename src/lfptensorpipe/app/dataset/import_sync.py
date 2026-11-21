@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -110,13 +111,7 @@ def _config_payload(
             "detect_config": (
                 None
                 if sync_state.lfp_detect_config is None
-                else {
-                    "search_range_s": sync_state.lfp_detect_config.search_range_s,
-                    "min_distance_s": sync_state.lfp_detect_config.min_distance_s,
-                    "height": sync_state.lfp_detect_config.height,
-                    "prominence": sync_state.lfp_detect_config.prominence,
-                    "max_peaks": sync_state.lfp_detect_config.max_peaks,
-                }
+                else asdict(sync_state.lfp_detect_config)
             ),
         },
         "external_source": {
@@ -125,13 +120,7 @@ def _config_payload(
             "detect_config": (
                 None
                 if sync_state.external_detect_config is None
-                else {
-                    "search_range_s": sync_state.external_detect_config.search_range_s,
-                    "min_distance_s": sync_state.external_detect_config.min_distance_s,
-                    "height": sync_state.external_detect_config.height,
-                    "prominence": sync_state.external_detect_config.prominence,
-                    "max_peaks": sync_state.external_detect_config.max_peaks,
-                }
+                else asdict(sync_state.external_detect_config)
             ),
         },
         "pair_ids": [pair.pair_id for pair in sync_state.pairs],

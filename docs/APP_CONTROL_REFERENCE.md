@@ -265,6 +265,11 @@ containing `NaN`, `+Inf`, or `-Inf` is rejected as a whole before channel
 averaging and peak detection. Reload failure preserves the current external
 markers, pair table, sync estimate, and external preview.
 
+The saved source type, file or channel, and detection settings describe the
+last successfully loaded markers on each side. Editing those controls takes
+effect on the next successful reload, which clears the pairs and estimate.
+Manual marker edits remain part of the displayed list used for pairing.
+
 The peak-detection Advance dialog treats blank search-range, height, and
 prominence fields as `None`. If either search-range endpoint is supplied, both
 must be finite and satisfy `0 <= start < stop`; an optional prominence must be
@@ -283,6 +288,10 @@ finite and nonnegative.
 | `Sync` | Computes or refreshes the synchronization estimate from the current pairs. | Sync preview state and saved summary. | Requires a sufficient pair set. |
 | `Save` | Saves the current sync state back to Import Record. | Import gating and imported synchronization behavior. | Typically requires a valid estimate. |
 | `Cancel` | Closes the dialog without saving changes. | No sync state update. | Always available. |
+
+Sampling-rate correction requires at least two paired times and a nonzero
+time span on both clocks. Lag-only synchronization can still use a single
+pair or coincident times.
 
 ### 3.3 Reset Reference
 

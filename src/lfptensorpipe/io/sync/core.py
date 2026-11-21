@@ -325,6 +325,10 @@ def estimate_sync_from_pairs(
     if correct_sfreq:
         if len(pairs) < 2:
             raise ValueError("Correct sfreq requires at least two marker pairs.")
+        if np.ptp(ext_arr) == 0 or np.ptp(lfp_arr) == 0:
+            raise ValueError(
+                "Correct sfreq requires distinct paired times on both clocks."
+            )
         y = lfp_arr * float(sfreq_before_hz)
         slope, intercept = np.polyfit(ext_arr, y, 1)
         if not np.isfinite(slope) or slope <= 0:
