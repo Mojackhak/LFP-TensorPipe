@@ -157,6 +157,10 @@ still-current successful artifact restores the green indicator and downstream
 availability without rerunning. Formatting, key ordering, and equivalent
 numeric serialization do not affect that comparison.
 
+Alignment, Features, Localize, and Tensor configuration exports replace the
+chosen JSON file only after the entire document has been written successfully.
+The same rule applies when exporting an individual Burst threshold file.
+
 ## 3. Import Record
 
 The import dialog defines a new record, parses the selected source, and runs any

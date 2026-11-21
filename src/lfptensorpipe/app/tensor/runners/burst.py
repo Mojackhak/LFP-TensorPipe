@@ -10,10 +10,10 @@ from lfptensorpipe.app.path_resolver import RecordContext
 from lfptensorpipe.app.preproc.finish_fingerprint import (
     burst_baseline_annotation_digest,
 )
+from lfptensorpipe.io.atomic_file import strict_json_text
 from lfptensorpipe.io.burst_thresholds import (
     build_burst_threshold_payload,
     select_burst_threshold_subset,
-    write_burst_threshold_json,
 )
 from lfptensorpipe.lfp.burst.semantics import (
     burst_estimator_signature,
@@ -519,7 +519,9 @@ def run_burst_metric(
             ),
             (
                 thresholds_artifact_path,
-                lambda path: write_burst_threshold_json(thresholds_used, path),
+                lambda path: path.write_text(
+                    strict_json_text(thresholds_used), encoding="utf-8"
+                ),
             ),
         ]
         if effective_baseline_keep:

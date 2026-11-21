@@ -9,6 +9,7 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from lfptensorpipe.io.atomic_file import write_json_atomically
 from lfptensorpipe.lfp.burst.semantics import (
     burst_value_semantics,
     has_current_burst_value_semantics,
@@ -375,9 +376,7 @@ def recorded_burst_band_grid(band: Mapping[str, Any], step: float) -> list[float
 def write_burst_threshold_json(payload: Any, path: str | Path) -> None:
     """Write one canonical Burst threshold payload as UTF-8 JSON."""
     normalized = normalize_burst_threshold_payload(payload)
-    with Path(path).open("w", encoding="utf-8") as handle:
-        json.dump(normalized, handle, ensure_ascii=False, indent=2, allow_nan=False)
-        handle.write("\n")
+    write_json_atomically(Path(path), normalized)
 
 
 __all__ = [

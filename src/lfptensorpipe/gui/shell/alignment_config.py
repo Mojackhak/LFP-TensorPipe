@@ -15,6 +15,7 @@ from lfptensorpipe.gui.shell.common import (
     QMessageBox,
     RecordContext,
 )
+from lfptensorpipe.io.atomic_file import write_json_atomically
 
 ALIGNMENT_CONFIG_SCHEMA = "lfptensorpipe.alignment-config"
 ALIGNMENT_CONFIG_VERSION = 1
@@ -309,16 +310,7 @@ class MainWindowAlignmentConfigMixin:
             export_path = export_path.with_suffix(".json")
         try:
             payload = self._build_alignment_config_export_payload()
-            export_path.parent.mkdir(parents=True, exist_ok=True)
-            with export_path.open("w", encoding="utf-8") as handle:
-                json.dump(
-                    payload,
-                    handle,
-                    ensure_ascii=False,
-                    indent=2,
-                    allow_nan=False,
-                )
-                handle.write("\n")
+            write_json_atomically(export_path, payload)
         except Exception as exc:  # noqa: BLE001
             self._show_warning("Export Configs", f"Export failed:\n{exc}")
             return
