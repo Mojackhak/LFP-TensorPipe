@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from io import BytesIO
 import json
 import os
 from pathlib import Path, PureWindowsPath
-import tempfile
 from typing import Any, Callable
 
 import pandas as pd
 import yaml
 
 from lfptensorpipe.app.features.table_io import _save_table_xlsx
+from lfptensorpipe.io.atomic_file import atomic_binary_file
 from lfptensorpipe.io.pkl_io import load_pkl, save_pkl
 
 ValidateNameFn = Callable[[str], tuple[bool, str]]
@@ -210,34 +211,6 @@ def _is_metadata_sidecar(path: Path) -> bool:
     return path.name.startswith("._")
 
 
-def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
-    with tempfile.NamedTemporaryFile(
-        "w",
-        encoding="utf-8",
-        dir=path.parent,
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        delete=False,
-    ) as handle:
-        json.dump(payload, handle, ensure_ascii=False, indent=2)
-        temp_path = Path(handle.name)
-    temp_path.replace(path)
-
-
-def _write_yaml_atomic(path: Path, payload: Any) -> None:
-    with tempfile.NamedTemporaryFile(
-        "w",
-        encoding="utf-8",
-        dir=path.parent,
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        delete=False,
-    ) as handle:
-        yaml.safe_dump(payload, handle, sort_keys=False, allow_unicode=False)
-        temp_path = Path(handle.name)
-    temp_path.replace(path)
-
-
 def _rewrite_path_prefix(
     value: str,
     replacements: tuple[tuple[str, str], ...],
@@ -301,56 +274,6 @@ def _rewrite_serialized_value(
     return value, False
 
 
-def _rewrite_json_contract_file(
-    path: Path,
-    *,
-    old_record: str,
-    new_record: str,
-    path_replacements: tuple[tuple[str, str], ...],
-) -> bool:
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"Failed to parse JSON contract {path}: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise ValueError(f"JSON contract must be an object: {path}")
-    updated, changed = _rewrite_serialized_value(
-        payload,
-        old_record=old_record,
-        new_record=new_record,
-        path_replacements=path_replacements,
-    )
-    if changed:
-        _write_json_atomic(path, updated)
-    return changed
-
-
-def _rewrite_yaml_contract_file(
-    path: Path,
-    *,
-    old_record: str,
-    new_record: str,
-    path_replacements: tuple[tuple[str, str], ...],
-) -> bool:
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            payload = yaml.safe_load(handle)
-    except (UnicodeDecodeError, yaml.YAMLError) as exc:
-        raise ValueError(f"Failed to parse YAML contract {path}: {exc}") from exc
-    if payload is None:
-        return False
-    updated, changed = _rewrite_serialized_value(
-        payload,
-        old_record=old_record,
-        new_record=new_record,
-        path_replacements=path_replacements,
-    )
-    if changed:
-        _write_yaml_atomic(path, updated)
-    return changed
-
-
 def _rewrite_dataframe_record_columns(
     frame: pd.DataFrame,
     *,
@@ -391,21 +314,93 @@ def _rewrite_pickle_dataframe(
     return changed
 
 
-def _rewrite_csv_dataframe(
-    path: Path,
+@dataclass
+class _TextEdit:
+    original: bytes
+    replacement: bytes
+    applied: bool = False
+
+
+def _prepare_text_edits(
+    derivatives_root: Path,
     *,
     old_record: str,
     new_record: str,
-) -> bool:
-    frame = pd.read_csv(path, dtype=str, na_filter=False)
-    updated, changed = _rewrite_dataframe_record_columns(
-        frame,
-        old_record=old_record,
-        new_record=new_record,
+    path_replacements: tuple[tuple[str, str], ...],
+) -> dict[Path, _TextEdit]:
+    if not derivatives_root.exists():
+        return {}
+    paths = [derivatives_root / "lfptensorpipe_ui_state.json"]
+    for pattern in (*_JSON_CONTRACT_PATTERNS, *_YAML_CONTRACT_PATTERNS):
+        paths.extend(sorted(derivatives_root.glob(pattern)))
+    localize = derivatives_root / "localize"
+    for directory in (localize, localize / "user_labels"):
+        paths.extend(directory / f"{stem}.csv" for stem in _LOCALIZE_TABLE_BASENAMES)
+
+    edits = {}
+    for path in dict.fromkeys(paths):
+        if _is_metadata_sidecar(path) or not path.exists():
+            continue
+        original = path.read_bytes()
+        try:
+            if path.suffix == ".csv":
+                frame = pd.read_csv(BytesIO(original), dtype=str, na_filter=False)
+                updated, changed = _rewrite_dataframe_record_columns(
+                    frame, old_record=old_record, new_record=new_record
+                )
+                if not changed:
+                    continue
+                replacement = updated.to_csv(index=False)
+            else:
+                text = original.decode("utf-8")
+                if path.suffix == ".json":
+                    payload = json.loads(text)
+                    if not isinstance(payload, dict):
+                        raise ValueError("JSON contract must be an object.")
+                else:
+                    payload = yaml.safe_load(text)
+                updated, changed = _rewrite_serialized_value(
+                    payload,
+                    old_record=old_record,
+                    new_record=new_record,
+                    path_replacements=path_replacements,
+                )
+                if not changed:
+                    continue
+                replacement = (
+                    json.dumps(updated, ensure_ascii=False, indent=2)
+                    if path.suffix == ".json"
+                    else yaml.safe_dump(updated, sort_keys=False, allow_unicode=False)
+                )
+        except (ValueError, yaml.YAMLError) as exc:
+            raise ValueError(f"Failed to prepare contract {path}: {exc}") from exc
+        edits[path.relative_to(derivatives_root)] = _TextEdit(
+            original, replacement.encode("utf-8")
+        )
+    return edits
+
+
+class _ContractChanged(ValueError):
+    """A different writer changed a prepared text contract."""
+
+
+def _replace_text_contract(path: Path, edit: _TextEdit, *, restore: bool) -> None:
+    expected, replacement = (
+        (edit.replacement, edit.original)
+        if restore
+        else (edit.original, edit.replacement)
     )
-    if changed:
-        updated.to_csv(path, index=False)
-    return changed
+    with atomic_binary_file(path, create_mode=0o600) as stream:
+        stream.write(replacement)
+        try:
+            current = path.read_bytes()
+        except FileNotFoundError as exc:
+            raise _ContractChanged(
+                f"Contract removed during record rename: {path}"
+            ) from exc
+        if current != expected:
+            raise _ContractChanged(f"Contract changed during record rename: {path}")
+    edit.applied = not restore
 
 
 def _rewrite_features_tables(
@@ -450,47 +445,32 @@ def _rewrite_derivatives_contracts(
     old_record: str,
     new_record: str,
     path_replacements: tuple[tuple[str, str], ...],
+    text_edits: dict[Path, _TextEdit] | None = None,
+    restore_text: bool = False,
 ) -> tuple[Path, ...]:
     updated_paths: list[Path] = []
     if not derivatives_root.exists():
         return ()
 
-    ui_state_path = derivatives_root / "lfptensorpipe_ui_state.json"
-    if ui_state_path.exists() and _rewrite_json_contract_file(
-        ui_state_path,
-        old_record=old_record,
-        new_record=new_record,
-        path_replacements=path_replacements,
-    ):
-        updated_paths.append(ui_state_path)
-
-    seen_json: set[Path] = set()
-    for pattern in _JSON_CONTRACT_PATTERNS:
-        for path in sorted(derivatives_root.glob(pattern)):
-            if path in seen_json or _is_metadata_sidecar(path):
-                continue
-            seen_json.add(path)
-            if _rewrite_json_contract_file(
-                path,
-                old_record=old_record,
-                new_record=new_record,
-                path_replacements=path_replacements,
-            ):
-                updated_paths.append(path)
-
-    seen_yaml: set[Path] = set()
-    for pattern in _YAML_CONTRACT_PATTERNS:
-        for path in sorted(derivatives_root.glob(pattern)):
-            if path in seen_yaml or _is_metadata_sidecar(path):
-                continue
-            seen_yaml.add(path)
-            if _rewrite_yaml_contract_file(
-                path,
-                old_record=old_record,
-                new_record=new_record,
-                path_replacements=path_replacements,
-            ):
-                updated_paths.append(path)
+    if text_edits is None:
+        text_edits = _prepare_text_edits(
+            derivatives_root,
+            old_record=old_record,
+            new_record=new_record,
+            path_replacements=path_replacements,
+        )
+    for relative, edit in text_edits.items():
+        if restore_text and not edit.applied:
+            continue
+        path = derivatives_root / relative
+        try:
+            _replace_text_contract(path, edit, restore=restore_text)
+        except _ContractChanged:
+            if not restore_text:
+                raise
+            # This live rollback only owns bytes published by this rename.
+            continue
+        updated_paths.append(path)
 
     localize_root = derivatives_root / "localize"
     for source_dir in (localize_root, localize_root / "user_labels"):
@@ -502,13 +482,6 @@ def _rewrite_derivatives_contracts(
                 new_record=new_record,
             ):
                 updated_paths.append(pkl_path)
-            csv_path = source_dir / f"{basename}.csv"
-            if csv_path.exists() and _rewrite_csv_dataframe(
-                csv_path,
-                old_record=old_record,
-                new_record=new_record,
-            ):
-                updated_paths.append(csv_path)
 
     alignment_root = derivatives_root / "alignment"
     if alignment_root.exists():
@@ -540,6 +513,7 @@ def recover_record_rename(
     move_path_fn: MovePathFn = _default_move_path,
     delete_marker_fn: DeletePathFn = _default_delete_path,
     read_only_project_root: Path | None = None,
+    _text_edits: dict[Path, _TextEdit] | None = None,
 ) -> RecordRenameRecoveryResult:
     """Roll one interrupted subject-scoped Record Rename back to its old name."""
 
@@ -666,6 +640,8 @@ def recover_record_rename(
             old_record=new_record,
             new_record=old_record,
             path_replacements=path_replacements,
+            text_edits=_text_edits,
+            restore_text=_text_edits is not None,
         )
         delete_marker_fn(marker_path)
     except Exception as exc:
@@ -799,6 +775,16 @@ def rename_record(
     moved_pairs: list[tuple[Path, Path]] = []
 
     try:
+        text_edits = _prepare_text_edits(
+            source_roots[0],
+            old_record=normalized_record,
+            new_record=normalized_new_record,
+            path_replacements=path_replacements,
+        )
+    except (OSError, ValueError) as exc:
+        return result_cls(ok=False, message=str(exc))
+
+    try:
         marker_payload = _record_rename_marker_payload(
             subject=normalized_subject,
             old_record=normalized_record,
@@ -817,6 +803,7 @@ def rename_record(
             old_record=normalized_record,
             new_record=normalized_new_record,
             path_replacements=path_replacements,
+            text_edits=text_edits,
         )
         delete_marker_fn(marker_path)
     except Exception as exc:
@@ -829,6 +816,7 @@ def rename_record(
             move_path_fn=move_path_fn,
             delete_marker_fn=delete_marker_fn,
             read_only_project_root=read_only_project_root,
+            _text_edits=text_edits,
         )
         message = (
             f"Failed to rename record {normalized_subject}/{normalized_record}: {exc}"

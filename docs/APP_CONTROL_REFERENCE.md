@@ -72,6 +72,9 @@ Record Rename updates the record column in Localize CSV tables and preserves
 the original text of the other identifiers, including leading zeros and the
 literal channel name `NA`. Embedded paths under the renamed record follow
 the new directory on POSIX, Windows drive and UNC paths.
+Rename prepares changes to managed JSON, YAML, and Localize CSV files before
+moving the record. If one cannot be parsed, the error identifies the original
+file and the subject remains available for other renames.
 
 When Sourcedata is the record's only existing standard root, the Record list
 shows the record name in red. Selecting that record from another selection opens
