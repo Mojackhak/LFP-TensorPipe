@@ -286,6 +286,9 @@ containing `NaN`, `+Inf`, or `-Inf` is rejected as a whole before channel
 averaging and peak detection. Reload failure preserves the current external
 markers, pair table, sync estimate, and external preview.
 
+For unsigned 8-bit PCM WAV files, both decoders center silence at byte value
+128 before channel averaging and peak detection.
+
 The saved source type, file or channel, and detection settings describe the
 last successfully loaded markers on each side. Editing those controls takes
 effect on the next successful reload, which clears the pairs and estimate.

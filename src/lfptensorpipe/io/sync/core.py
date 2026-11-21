@@ -115,7 +115,9 @@ def _load_audio_mono(audio_path: str) -> tuple[np.ndarray, int]:
 
         sr, audio = wavfile.read(str(path))
         data = np.asarray(audio)
-        if np.issubdtype(data.dtype, np.integer):
+        if data.dtype == np.uint8:
+            data = (data.astype(float) - 128.0) / 128.0
+        elif np.issubdtype(data.dtype, np.integer):
             max_val = float(np.iinfo(data.dtype).max)
             data = data.astype(float) / max_val
         else:
