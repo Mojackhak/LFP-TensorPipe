@@ -130,13 +130,6 @@ class AlignmentMethodParamsDialog(QDialog):
         self._annotation_labels = [
             str(item).strip() for item in annotation_labels if str(item).strip()
         ]
-        self._hidden_drop_fields = _normalize_hidden_drop_fields(
-            session_params.get("drop_fields", ["bad", "edge"])
-        )
-        self._visible_annotation_labels = _filter_visible_annotation_labels(
-            self._annotation_labels,
-            hidden_drop_fields=self._hidden_drop_fields,
-        )
         self._selected_params: dict[str, Any] | None = None
         self._table_validation_error = False
         self._method_ui_ready = False
@@ -150,9 +143,6 @@ class AlignmentMethodParamsDialog(QDialog):
         root.setSpacing(8)
 
         self._drop_bad_check = QCheckBox("drop bad/edge")
-        self._drop_bad_check.setToolTip(
-            "Drop epochs overlapping annotations containing 'bad' or 'edge' (substring match)."
-        )
         self._sample_rate_edit = QLineEdit("5")
         self._sample_rate_edit.setToolTip(self._sample_rate_tooltip_text())
 
@@ -320,6 +310,7 @@ class AlignmentMethodParamsDialog(QDialog):
                         "event_pairs": [],
                     },
                 }
+            params["drop_fields"] = list(self._hidden_drop_fields)
         self._method_ui_ready = False
         self._cue_response = params.get("cue_response")
         self._event_groups = params.get("event_groups")
@@ -406,6 +397,16 @@ class AlignmentMethodParamsDialog(QDialog):
             self._refresh_active_validation()
 
     def _apply_common(self, params: dict[str, Any]) -> None:
+        self._hidden_drop_fields = _normalize_hidden_drop_fields(
+            params.get("drop_fields")
+        )
+        self._visible_annotation_labels = _filter_visible_annotation_labels(
+            self._annotation_labels, hidden_drop_fields=self._hidden_drop_fields
+        )
+        tokens = " or ".join(repr(token) for token in self._hidden_drop_fields)
+        self._drop_bad_check.setToolTip(
+            f"Drop epochs overlapping annotations containing {tokens} (substring match)."
+        )
         self._drop_bad_check.setChecked(bool(params.get("drop_bad", True)))
         default_rate = (
             50.0 if self._method_key in {"pad_warper", "concat_warper"} else 5.0

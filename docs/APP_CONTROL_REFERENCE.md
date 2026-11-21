@@ -1725,6 +1725,10 @@ fields retain their drafts but do not affect computation.
 The Align page manages trial definitions, alignment-method parameters, epoch
 inspection, and the final finished epoch selection.
 
+The drop checkbox uses the trial's configured annotation substrings. Opening
+and saving Params preserves imported exclusions such as `motion` alongside
+the default `bad` and `edge`. The checkbox tooltip lists the current fields.
+
 ![Align Epochs page.](assets/app-control-reference/controlref-basic-align-epochs.png)
 
 ### 8.1 Trials and Method Block

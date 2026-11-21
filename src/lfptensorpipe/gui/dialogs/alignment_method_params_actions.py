@@ -37,7 +37,7 @@ def _collect_candidate_params(
     parse_float = float if strict else _draft_float
     candidate: dict[str, Any] = {
         "drop_bad": dialog._drop_bad_check.isChecked(),
-        "drop_fields": ["bad", "edge"],
+        "drop_fields": list(dialog._hidden_drop_fields),
         "sample_rate": parse_float(dialog._sample_rate_edit.text().strip()),
     }
     if getattr(dialog, "_cue_response", None) is not None:
