@@ -427,5 +427,5 @@ def normalize_df_by_baseline(
             slice_mode=slice_mode,
         )
 
-    out[value_col] = out[value_col].map(norm_func)
+    out[value_col] = out[value_col].map(norm_func, na_action="ignore")
     return out

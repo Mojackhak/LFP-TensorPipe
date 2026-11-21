@@ -2122,6 +2122,10 @@ changing the Tensor timestamps or detected values.
 
 ### 9.5 Plot Advance
 
+Baseline normalization processes each available trace or grid. Epochs whose
+transformed values are entirely missing remain missing, and the other epochs
+can still be plotted.
+
 ![Plot Advance dialog.](assets/app-control-reference/controlref-advance-features-plot-dialog.png)
 
 | Control | What it does | What it affects | Availability / blocking rule |
