@@ -345,7 +345,13 @@ def update_run_log_state(
     existing = read_run_log(out_path)
     if not isinstance(existing, dict):
         raise FileNotFoundError(f"Run log not found: {out_path}")
+    return _write_updated_run_log_state(out_path, existing, state_patch)
 
+
+def _write_updated_run_log_state(
+    out_path: Path, existing: dict[str, Any], state_patch: dict[str, Any]
+) -> Path:
+    """Apply a state patch to the validated log from which it was derived."""
     state = existing.get(RUNLOG_STATE_KEY)
     merged_state = _merge_dict(state if isinstance(state, dict) else {}, state_patch)
 

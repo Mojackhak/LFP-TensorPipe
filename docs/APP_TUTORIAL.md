@@ -1151,7 +1151,14 @@ This QC step decides which aligned epochs are trustworthy enough to keep. In
 this demo, only the picked epochs are exported and all later feature analyses
 use that accepted set.
 
-After running `Align Epochs`, stay in `Epoch Inspector`.
+After running `Align Epochs`, stay in `Epoch Inspector`. Each successful Run
+starts with every generated epoch checked. Reopening the trial restores the
+selection for that Run, including an explicitly empty selection. Finish
+records the epoch indices used to build its tables.
+
+Older inspector edits may have no record of which Run they belong to. If a
+trial has run more than once, reopening it uses its current Run's finished
+selection or checks all its epochs when that Run has no finished selection.
 
 ![Epoch Inspector.](assets/app-tutorial/figure-26-epoch-inspector-panel.png)
 

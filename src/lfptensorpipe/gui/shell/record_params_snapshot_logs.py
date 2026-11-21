@@ -306,11 +306,8 @@ class MainWindowRecordParamsSnapshotLogsMixin:
             resolver.context,
             paradigm_slug=alignment_slug,
         )
-        if persisted_picks is None:
-            return
-        snapshot.setdefault("alignment", {})["picked_epoch_indices"] = list(
-            persisted_picks
-        )
+        # None lets the epoch rows use their Run default when no picks are known.
+        snapshot["alignment"]["picked_epoch_indices"] = persisted_picks
 
     def _merge_localize_logs_into_snapshot(
         self, snapshot: dict[str, Any], resolver: PathResolver

@@ -245,9 +245,25 @@ def _append_alignment_history(
     source_path: Path | None = None,
 ) -> None:
     _ = keep_top_level
+    # The accepted event now owns the initial Run picks or the finished picks.
+    # Any inspector edit stored before this event has been superseded.
+    accepted_epochs = entry.get("completed") is True and entry.get("step") in {
+        "run_align_epochs",
+        "build_raw_table",
+    }
     append_run_log_event(
         path,
         entry,
+        state_patch=(
+            {
+                "epoch_inspector": {
+                    "picked_epoch_indices": None,
+                    "run_history_index": None,
+                }
+            }
+            if accepted_epochs
+            else None
+        ),
         state_replacements=(
             {"trial_config": trial_config} if trial_config is not None else None
         ),

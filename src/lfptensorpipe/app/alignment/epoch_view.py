@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
 import numpy as np
 
 from lfptensorpipe.app.path_resolver import PathResolver, RecordContext
+from lfptensorpipe.app.shared.runlog_store import _write_updated_run_log_state
 
 from . import service as svc
+from .generation import _history_entries
 
 
 def _normalize_pick_list(value: Any) -> list[int] | None:
@@ -36,38 +39,12 @@ def _alignment_log_payload(
     return payload if isinstance(payload, dict) else None
 
 
-def _draft_alignment_epoch_picks(payload: dict[str, Any] | None) -> list[int] | None:
-    if not isinstance(payload, dict):
-        return None
-    state = payload.get("state")
-    if not isinstance(state, dict):
-        return None
-    epoch_inspector = state.get("epoch_inspector")
-    if not isinstance(epoch_inspector, dict):
-        return None
-    return _normalize_pick_list(epoch_inspector.get("picked_epoch_indices"))
-
-
-def _latest_finished_alignment_epoch_picks(
-    payload: dict[str, Any] | None,
-) -> list[int] | None:
-    if not isinstance(payload, dict):
-        return None
-    history = payload.get("history")
-    if not isinstance(history, list):
-        return None
-    for item in reversed(history):
-        if not isinstance(item, dict):
-            continue
-        if str(item.get("step", "")).strip() != "build_raw_table":
-            continue
-        if not bool(item.get("completed", False)):
-            continue
-        params = item.get("params")
-        if not isinstance(params, dict):
-            return None
-        return _normalize_pick_list(params.get("picked_epoch_indices"))
-    return None
+def _successful_run_indices(history: list[dict[str, Any]]) -> Iterator[int]:
+    """Yield positions in the trial's append-only history, newest Run first."""
+    for index in range(len(history) - 1, -1, -1):
+        event = history[index]
+        if event.get("step") == "run_align_epochs" and event.get("completed") is True:
+            yield index
 
 
 def _epoch_duration_s(epoch: Any) -> float:
@@ -102,10 +79,36 @@ def load_alignment_epoch_picks(
     if not slug:
         return None
     payload = _alignment_log_payload(resolver, slug=slug)
-    draft_picks = _draft_alignment_epoch_picks(payload)
-    if draft_picks is not None:
-        return draft_picks
-    return _latest_finished_alignment_epoch_picks(payload)
+    if payload is None:
+        return None
+    history = _history_entries(payload)
+    runs = _successful_run_indices(history)
+    run_index = next(runs, -1)
+    state = payload.get("state")
+    inspector = state.get("epoch_inspector") if isinstance(state, dict) else None
+    if isinstance(inspector, dict):
+        draft = _normalize_pick_list(inspector.get("picked_epoch_indices"))
+        # Older drafts are unambiguous only until the first successful rerun.
+        owner = inspector.get("run_history_index")
+        if draft is not None and (
+            owner == run_index or (owner is None and next(runs, None) is None)
+        ):
+            return draft
+
+    for event in reversed(history[run_index + 1 :]):
+        if event.get("step") == "build_raw_table" and event.get("completed") is True:
+            params = event.get("params")
+            return (
+                _normalize_pick_list(params.get("picked_epoch_indices"))
+                if isinstance(params, dict)
+                else None
+            )
+    if run_index >= 0:
+        params = history[run_index].get("params")
+        count = params.get("n_epochs") if isinstance(params, dict) else None
+        if type(count) is int and count >= 0:
+            return list(range(count))
+    return None
 
 
 def load_alignment_epoch_rows(
@@ -159,23 +162,24 @@ def persist_alignment_epoch_picks(
     """Persist current epoch-inspector draft picks into alignment log state."""
     _normalize_slug = svc._normalize_slug
     alignment_paradigm_log_path = svc.alignment_paradigm_log_path
-    update_run_log_state = svc.update_run_log_state
 
     resolver = PathResolver(context)
     slug = _normalize_slug(paradigm_slug)
     if not slug:
         return False
     log_path = alignment_paradigm_log_path(resolver, slug)
-    if not log_path.exists():
+    payload = svc.read_run_log(log_path)
+    if payload is None:
         return False
-    normalized_picks = _normalize_pick_list(picked_epoch_indices)
-    update_run_log_state(
+    runs = _successful_run_indices(_history_entries(payload))
+    _write_updated_run_log_state(
         log_path,
-        state_patch={
+        payload,
+        {
             "epoch_inspector": {
-                "picked_epoch_indices": (
-                    list(normalized_picks) if normalized_picks is not None else []
-                )
+                "run_history_index": next(runs, -1),
+                "picked_epoch_indices": _normalize_pick_list(picked_epoch_indices)
+                or [],
             }
         },
     )
