@@ -35,6 +35,11 @@ MATLAB or scientific computation.
 | `lfptensorpipe.alignment-config` | Align Run, then Finish with every generated epoch | Current Tensor metrics |
 | `lfptensorpipe.features-config` | Extract Features for the selected trial | Current Align Finish |
 
+Localize reads channel names from the canonical Rawdata FIF as soon as a record
+has been imported, including channels marked bad. Existing records with only a
+Preprocess Raw FIF use that channel inventory. The other pages require their
+upstream processing results.
+
 Each invocation processes one record and, when required, one trial. Record
 import, Preprocess Signal, batch traversal, and manual epoch selection are GUI
 workflows. A command requires its upstream results to be ready.

@@ -58,10 +58,7 @@ def load_request(args: argparse.Namespace):
         subject_path.parents[2], subject_path.name, args.record.strip()
     )
     record_path = subject_path / context.record
-    if (
-        not record_path.is_dir()
-        or not (record_path / "preproc" / "raw" / "raw.fif").is_file()
-    ):
+    if not record_path.is_dir():
         raise ValueError(f"Imported record not found: {record_path}")
     if record_path.resolve().parent != subject_path:
         raise ValueError(
@@ -78,6 +75,11 @@ def load_request(args: argparse.Namespace):
     )
     if page is None:
         raise ValueError(f"Unsupported page config schema: {schema!r}.")
+    if not (record_path / "preproc" / "raw" / "raw.fif").is_file():
+        from lfptensorpipe.app.preproc.paths import rawdata_input_fif_path
+
+        if page != "localize" or not rawdata_input_fif_path(context).is_file():
+            raise ValueError(f"Imported record not found: {record_path}")
     node = page_config_node(payload, page)
     if page in {"alignment", "features"}:
         if not args.trial:
