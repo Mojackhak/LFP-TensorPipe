@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from scipy import stats
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
@@ -33,12 +34,19 @@ def single_var_stat_test(
         groups=data[var].astype(str).to_numpy(),
         alpha=p,
     )
-    tukey_df = pd.DataFrame(tukey.summary().data[1:], columns=tukey.summary().data[0])
-    for column in tukey_df.columns:
-        try:
-            tukey_df[column] = pd.to_numeric(tukey_df[column], errors="raise")
-        except (TypeError, ValueError):
-            continue
+    labels = tukey.groupsunique
+    left, right = np.triu_indices(len(labels), k=1)
+    tukey_df = pd.DataFrame(
+        {
+            "group1": labels[left],
+            "group2": labels[right],
+            "meandiff": tukey.meandiffs,
+            "p-adj": tukey.pvalues,
+            "lower": tukey.confint[:, 0],
+            "upper": tukey.confint[:, 1],
+            "reject": tukey.reject,
+        }
+    )
 
     return {
         "test": "One-way ANOVA",
