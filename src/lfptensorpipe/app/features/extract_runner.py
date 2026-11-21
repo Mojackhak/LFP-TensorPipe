@@ -391,7 +391,6 @@ def _extract_burst_outputs(
         _remove_stale_xlsx(metric_out_dir / "na-raw.xlsx")
     for reducer, table in scalar_tables.items() if export_xlsx else ():
         xlsx_path = metric_out_dir / f"{reducer}-scalar.xlsx"
-        _remove_stale_xlsx(xlsx_path)
         from . import service as svc
 
         xlsx_ok, xlsx_message = svc._save_table_xlsx(table, xlsx_path)
