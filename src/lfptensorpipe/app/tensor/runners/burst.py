@@ -29,9 +29,13 @@ from lfptensorpipe.utils.transforms import (
 )
 
 from .. import service as svc
-from ..lineage import tensor_runner_entry
+from ..lineage import require_tensor_input_generation_unchanged, tensor_runner_entry
 
 BURST_BASELINE_FALLBACK = "raise"
+
+
+class _BurstBaselineChanged(RuntimeError):
+    """Finish no longer contains the baseline used by this candidate."""
 
 
 def _build_runtime_bands(
@@ -486,8 +490,24 @@ def run_burst_metric(
                 lambda path: write_burst_threshold_json(thresholds_used, path),
             ),
         ]
-        _write_outputs_atomically(outputs)
+        if effective_baseline_keep:
+
+            def check_burst_inputs() -> None:
+                require_tensor_input_generation_unchanged()
+                if (
+                    burst_baseline_annotation_digest(resolver, effective_baseline_keep)
+                    != baseline_annotation_digest
+                ):
+                    raise _BurstBaselineChanged(
+                        "Burst baseline annotations changed during computation."
+                    )
+
+            _write_outputs_atomically(outputs, precommit_check=check_burst_inputs)
+        else:
+            _write_outputs_atomically(outputs)
         return True, f"{metric_label} tensor computed."
+    except _BurstBaselineChanged as exc:
+        return False, str(exc)
     except Exception as exc:  # noqa: BLE001
         _write_metric_log(
             resolver,

@@ -103,11 +103,13 @@ from .selectors import (
 from .validators import validate_bands as _validate_bands
 
 
-def _write_outputs_atomically(outputs, **kwargs):
+def _write_outputs_atomically(
+    outputs, *, precommit_check=require_tensor_input_generation_unchanged, **kwargs
+):
     """Promote one Tensor output set after rechecking the parent input receipt."""
     return _write_output_set_atomically(
         outputs,
-        precommit_check=require_tensor_input_generation_unchanged,
+        precommit_check=precommit_check,
         **kwargs,
     )
 
