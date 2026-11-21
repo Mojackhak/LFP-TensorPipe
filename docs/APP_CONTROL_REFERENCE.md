@@ -70,7 +70,8 @@ edited record draft can create its Derivatives output.
 
 Record Rename updates the record column in Localize CSV tables and preserves
 the original text of the other identifiers, including leading zeros and the
-literal channel name `NA`.
+literal channel name `NA`. Embedded paths under the renamed record follow
+the new directory on POSIX, Windows drive and UNC paths.
 
 When Sourcedata is the record's only existing standard root, the Record list
 shows the record name in red. Selecting that record from another selection opens

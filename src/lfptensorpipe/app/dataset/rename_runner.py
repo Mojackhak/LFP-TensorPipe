@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import tempfile
 from typing import Any, Callable
 
@@ -243,10 +243,15 @@ def _rewrite_path_prefix(
     replacements: tuple[tuple[str, str], ...],
 ) -> str:
     for old_prefix, new_prefix in replacements:
-        if value == old_prefix:
-            return new_prefix
-        if value.startswith(old_prefix + "/"):
+        if value == old_prefix or value.startswith(old_prefix + "/"):
             return new_prefix + value[len(old_prefix) :]
+        windows_root = PureWindowsPath(old_prefix)
+        if windows_root.is_absolute():
+            try:
+                relative = PureWindowsPath(value).relative_to(windows_root)
+            except ValueError:
+                continue
+            return str(PureWindowsPath(new_prefix) / relative)
     return value
 
 
