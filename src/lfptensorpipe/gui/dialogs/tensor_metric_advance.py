@@ -483,12 +483,9 @@ class TensorMetricAdvanceDialog(QDialog):
             thresholds_layout.addWidget(clear_button)
             baseline_combo = QComboBox()
             baseline_combo.setToolTip(
-                "Optional annotation label used for Burst baseline thresholding. "
-                "Only finish-step annotations with duration > 0 are listed."
+                "Select a label for Burst baseline thresholding. A saved group "
+                "keeps all its labels until you select a replacement."
             )
-            baseline_combo.addItem("", None)
-            for label in self._burst_baseline_choice_labels():
-                baseline_combo.addItem(label, label)
             self._baseline_annotations_combo = baseline_combo
             min_cycles = QLineEdit()
             min_cycles.setToolTip("Minimum cycles used for Burst detection.")
@@ -607,17 +604,19 @@ class TensorMetricAdvanceDialog(QDialog):
                 baseline_keep = self._normalize_baseline_keep(
                     params.get("baseline_keep")
                 )
-                selected_label = baseline_keep[0] if baseline_keep else None
-                if selected_label is not None:
-                    idx = self._baseline_annotations_combo.findData(selected_label)
-                    if idx < 0:
-                        self._baseline_annotations_combo.addItem(
-                            selected_label, selected_label
-                        )
-                        idx = self._baseline_annotations_combo.count() - 1
-                    self._baseline_annotations_combo.setCurrentIndex(idx)
-                else:
-                    self._baseline_annotations_combo.setCurrentIndex(0)
+                combo = self._baseline_annotations_combo
+                combo.clear()
+                combo.addItem("", None)
+                for label in self._burst_baseline_choice_labels():
+                    combo.addItem(label, label)
+                if baseline_keep and len(baseline_keep) > 1:
+                    combo.addItem(
+                        f"{len(baseline_keep)} labels ({', '.join(baseline_keep)})",
+                        baseline_keep,
+                    )
+                    combo.setCurrentIndex(combo.count() - 1)
+                elif baseline_keep:
+                    combo.setCurrentIndex(combo.findData(baseline_keep[0]))
             self._loaded_thresholds = params.get("thresholds")
             path = params.get("thresholds_source_path")
             if isinstance(path, str) and path.strip():
@@ -831,11 +830,13 @@ class TensorMetricAdvanceDialog(QDialog):
         self._loaded_thresholds = normalized
         self._loaded_thresholds_path = file_path
         self._sync_burst_threshold_controls()
+        self._validate_draft_fields()
 
     def _on_clear_thresholds(self) -> None:
         self._loaded_thresholds = None
         self._loaded_thresholds_path = None
         self._sync_burst_threshold_controls()
+        self._validate_draft_fields()
 
     def _on_restore_defaults(self) -> None:
         self._working_base_params = dict(self._default_params)
@@ -857,11 +858,10 @@ class TensorMetricAdvanceDialog(QDialog):
                     out[key] = data if data is not None else widget.currentText()
         if self._metric_key == "burst":
             if self._baseline_annotations_combo is not None:
-                selected_label = self._baseline_annotations_combo.currentData()
-                if isinstance(selected_label, str) and selected_label.strip():
-                    out["baseline_keep"] = [selected_label.strip()]
-                else:
-                    out["baseline_keep"] = None
+                baseline = self._baseline_annotations_combo.currentData()
+                out["baseline_keep"] = (
+                    [baseline] if isinstance(baseline, str) else baseline
+                )
             out["thresholds"] = self._loaded_thresholds
             out["thresholds_source_path"] = self._loaded_thresholds_path
         return out

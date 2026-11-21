@@ -1661,7 +1661,7 @@ fields retain their drafts but do not affect computation.
   grid matches the selected band's current grid.
 - Successful Burst runs write `thresholds.json` for the actual runtime subset.
   The source file path is provenance only and is never reopened for the run.
-- `Baseline annotations` determines which labeled baseline periods define the burst threshold context when thresholds are derived from data rather than loaded from file. Missing or wholly excluded baseline data blocks the run; Burst does not fall back to the full recording.
+- `Baseline annotations` determines which labeled baseline periods define the burst threshold context when thresholds are derived from data. An imported multi-label baseline appears as a group. Saving that group retains every label; selecting one individual label replaces the group. Loading or clearing a threshold file immediately refreshes validation for the active controls. Missing or wholly excluded baseline data blocks the run.
 - Boundary isolation changes the transform input, not only the display mask.
   Short valid segments with no interior after both transform guards remain
   `NaN`; the application never substitutes unfiltered data or valid non-Burst
