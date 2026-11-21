@@ -28,7 +28,11 @@ from lfptensorpipe.app.shared.generation_lineage import (
 )
 from lfptensorpipe.app.shared.runlog_store import cache_in_run_log_read_snapshot
 
-from .paths import tensor_metric_log_path, tensor_metric_tensor_path
+from .paths import (
+    tensor_metric_log_path,
+    tensor_metric_tensor_path,
+    tensor_output_metric_keys,
+)
 
 TENSOR_INPUT_LINEAGE_ENV = "LFPTENSORPIPE_TENSOR_INPUT_LINEAGE"
 TENSOR_CURRENT_FINISH_REQUIRED_MESSAGE = (
@@ -253,12 +257,14 @@ def tensor_metric_lineage_is_current(
     if not preproc_step_lineage_is_current(resolver, "finish"):
         return False
     log_path = tensor_metric_log_path(resolver, metric_key, create=False)
-    artifact_path = tensor_metric_tensor_path(resolver, metric_key, create=False)
     payload = _read_payload(log_path)
     if (
         payload is None
         or payload.get("completed") is not True
-        or not artifact_path.is_file()
+        or not all(
+            tensor_metric_tensor_path(resolver, key).is_file()
+            for key in tensor_output_metric_keys([metric_key])
+        )
     ):
         return False
     finish_payload = _read_payload(_finish_log_path(resolver))
