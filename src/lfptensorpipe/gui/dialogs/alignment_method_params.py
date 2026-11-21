@@ -5,7 +5,9 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from lfptensorpipe.app.alignment.annotation_source import cue_response_annotation_error
+from lfptensorpipe.app.alignment.annotation_source import (
+    explicit_alignment_annotation_error,
+)
 from lfptensorpipe.app.alignment.method_params import default_alignment_method_params
 
 from .common import (
@@ -504,13 +506,11 @@ class AlignmentMethodParamsDialog(QDialog):
         )
         if (
             ok
-            and self._cue_response is not None
+            and ("cue_response" in normalized or "event_groups" in normalized)
             and self._annotation_events is not None
         ):
             message = (
-                cue_response_annotation_error(
-                    normalized["cue_response"], self._annotation_events
-                )
+                explicit_alignment_annotation_error(normalized, self._annotation_events)
                 or ""
             )
             ok = not message

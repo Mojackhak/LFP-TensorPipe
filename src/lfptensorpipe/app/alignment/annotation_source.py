@@ -85,6 +85,23 @@ def _load_raw_for_warp(raw_path: Path):
     return mne.io.read_raw_fif(str(raw_path), preload=False, verbose="ERROR")
 
 
+def explicit_alignment_annotation_error(
+    params: dict[str, Any], events: dict[str, tuple[float, ...]]
+) -> str | None:
+    """Resolve the actual source labels of a normalized explicit configuration."""
+    if "cue_response" in params:
+        return cue_response_annotation_error(params["cue_response"], events)
+    counts: dict[str, int] = {}
+    for label, onsets in events.items():
+        key = label.strip().lower()
+        counts[key] = counts.get(key, 0) + len(onsets)
+    for group in params["event_groups"]:
+        for label in group:
+            if counts.get(label.lower()) != 1:
+                return f"Expected one annotation per event-group label: {label}."
+    return None
+
+
 def _float_pair_list(
     value: Any,
     default: tuple[float | None, float | None],

@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 
 from lfptensorpipe.app.shared.page_config import json_value, page_config_node
-from lfptensorpipe.app.alignment.annotation_source import cue_response_annotation_error
+from lfptensorpipe.app.alignment.annotation_source import (
+    explicit_alignment_annotation_error,
+)
 from lfptensorpipe.gui.shell.common import (
     Any,
     Path,
@@ -127,7 +129,10 @@ class MainWindowAlignmentConfigMixin:
                         f"Ignored {dropped} unavailable annotation label(s)."
                     )
 
-        if method_key == "linear_warper" and "cue_response" not in params_node:
+        if method_key == "linear_warper" and not {
+            "cue_response",
+            "event_groups",
+        }.intersection(params_node):
             raw_anchors = params_node.get("anchors_percent")
             if isinstance(raw_anchors, dict):
                 kept_anchors: dict[str, str] = {}
@@ -188,8 +193,8 @@ class MainWindowAlignmentConfigMixin:
             if not ok:
                 raise ValueError(message)
             if annotation_events is not None:
-                message = cue_response_annotation_error(
-                    normalized["cue_response"], annotation_events
+                message = explicit_alignment_annotation_error(
+                    normalized, annotation_events
                 )
                 if message:
                     raise ValueError(message)
@@ -228,12 +233,16 @@ class MainWindowAlignmentConfigMixin:
                 self._validate_alignment_method_params_runtime(
                     method_key,
                     candidate,
-                    annotation_labels=[],
+                    annotation_labels=(
+                        list(annotation_labels) if "event_groups" in candidate else []
+                    ),
                 )
             )
             if ok:
                 break
             lowered = message.lower()
+            if "event group" in lowered or "event_groups" in lowered:
+                raise ValueError(message)
             if "annotation" in lowered:
                 raise ValueError(
                     "Alignment annotation selection is invalid and has no safe automatic default."
@@ -258,6 +267,12 @@ class MainWindowAlignmentConfigMixin:
                 )
         else:
             raise ValueError("Alignment config normalization did not converge.")
+        if "event_groups" in normalized_params and annotation_events is not None:
+            message = explicit_alignment_annotation_error(
+                normalized_params, annotation_events
+            )
+            if message:
+                raise ValueError(message)
         return (
             {
                 "method": method_key,

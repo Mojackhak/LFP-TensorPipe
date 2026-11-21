@@ -262,10 +262,28 @@ def _run_alignment(
     method, params = node["method"], node["method_params"]
     if not isinstance(method, str) or method not in svc.ALIGNMENT_METHODS_BY_KEY:
         raise ConfigError(f"Unknown alignment method: {method!r}")
-    _require_fields(
-        params, svc.default_alignment_method_params(method), "alignment.method_params"
+    paired = (
+        method == "linear_warper"
+        and isinstance(params, dict)
+        and "cue_response" in params
     )
-    labels = svc.load_alignment_annotation_labels(context)
+    required = (
+        ("drop_bad", "drop_fields", "sample_rate")
+        if paired
+        else svc.default_alignment_method_params(method)
+    )
+    _require_fields(params, required, "alignment.method_params")
+    explicit = paired or (method == "linear_warper" and "event_groups" in params)
+    if explicit:
+        from .alignment.annotation_source import (
+            explicit_alignment_annotation_error,
+            load_alignment_annotation_events,
+        )
+
+        events = load_alignment_annotation_events(context)
+        labels = list(events)
+    else:
+        labels = svc.load_alignment_annotation_labels(context)
     for field in ("drop_bad", "linear_warp"):
         if field in params and not isinstance(params[field], bool):
             raise ConfigError(f"alignment.method_params.{field} must be true or false.")
@@ -278,7 +296,9 @@ def _run_alignment(
         raise ConfigError(
             "alignment.method_params.drop_fields must contain nonempty strings."
         )
-    if method == "linear_warper":
+    if explicit:
+        requested_labels = []
+    elif method == "linear_warper":
         anchors = params["anchors_percent"]
         if not isinstance(anchors, dict) or not anchors:
             raise ConfigError(
@@ -287,7 +307,7 @@ def _run_alignment(
         requested_labels = list(anchors.values())
     else:
         requested_labels = params["annotations"]
-    if (
+    if not explicit and (
         not isinstance(requested_labels, list)
         or not requested_labels
         or any(
@@ -303,6 +323,10 @@ def _run_alignment(
     )
     if not ok:
         raise ConfigError(message)
+    if explicit:
+        message = explicit_alignment_annotation_error(normalized, events)
+        if message:
+            raise ConfigError(message)
     if existing is None:
         _checked_result(
             svc.create_alignment_paradigm(config_store, name=trial, context=context)

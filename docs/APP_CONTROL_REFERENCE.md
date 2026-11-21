@@ -1756,7 +1756,9 @@ and Features controls immediately.
   boundaries without rematching another action. The dialog shows the first
   group as a read-only anchor template and preserves every group on Save;
   config export and import preserve every group and its order. Record-specific
-  groups cannot be global defaults.
+  groups cannot be global defaults. On import into a record each full label
+  must identify exactly one annotation after trimming and case-insensitive
+  matching. The error identifies a missing, repeated or malformed group.
 - Without explicit groups, starts are processed chronologically. Each start is paired with the earliest
   duration-eligible end that has not already been consumed by an accepted
   event group. This pairing is not bounded by the next start, so valid aligned

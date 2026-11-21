@@ -145,6 +145,7 @@ def validate_alignment_method_params(
                 )
             event_groups = []
             seen_groups = set()
+            available = {label.lower() for label in labels}
             for group in groups:
                 if not isinstance(group, list) or len(group) != len(anchors):
                     return (
@@ -164,8 +165,14 @@ def validate_alignment_method_params(
                 identity = tuple(label.lower() for label in normalized_group)
                 if identity in seen_groups:
                     return False, defaults, "Duplicate event groups are not allowed."
-                if labels and any(label not in labels for label in normalized_group):
-                    return False, defaults, "An event group annotation is unavailable."
+                if available:
+                    for label in normalized_group:
+                        if label.lower() not in available:
+                            return (
+                                False,
+                                defaults,
+                                f"Event group annotation is unavailable: {label}.",
+                            )
                 seen_groups.add(identity)
                 event_groups.append(normalized_group)
         ok_range, epoch_duration_range, msg_range = _normalize_duration_range(

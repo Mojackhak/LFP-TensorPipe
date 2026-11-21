@@ -39,6 +39,10 @@ Each invocation processes one record and, when required, one trial. Record
 import, Preprocess Signal, batch traversal, and manual epoch selection are GUI
 workflows. A command requires its upstream results to be ready.
 
+For cue-response alignment, the record labels are the cue and response in each
+event pair. The generated window anchors describe the target timeline. Explicit
+percent groups resolve each full label to one record annotation.
+
 For Tensor, `selected_metrics` selects computation. Align processes all current
 Tensor metrics. Features processes all metrics in the accepted Align Finish;
 the configuration must supply the required axes for each metric. UI fields such

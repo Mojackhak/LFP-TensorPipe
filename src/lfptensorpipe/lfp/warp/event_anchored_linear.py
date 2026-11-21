@@ -116,6 +116,7 @@ def _extract_named_events_from_annotations(
     event_tokens: Sequence[str],
     *,
     mode: MatchMode = "exact",
+    strip_descriptions: bool = False,
 ) -> Dict[str, np.ndarray]:
     """Collect onset times (seconds) for each event token using match mode."""
     if mode not in ("substring", "exact"):
@@ -134,6 +135,8 @@ def _extract_named_events_from_annotations(
     out: Dict[str, List[float]] = {name: [] for name in keys}
     for onset, desc in zip(raw_relative_onsets(raw), raw.annotations.description):
         d = str(desc).lower()
+        if strip_descriptions:
+            d = d.strip()
         for token in keys:
             is_match = (d == token) if mode == "exact" else (token in d)
             if is_match:
@@ -511,7 +514,10 @@ def grouped_linear_warper(
     """Warp configuration-normalized explicit groups without temporal rematching."""
     target, _tokens, keys = _resolve_linear_anchor_config(anchors_percent)
     events = _extract_named_events_from_annotations(
-        raw, [label for group in event_groups for label in group], mode="exact"
+        raw,
+        [label for group in event_groups for label in group],
+        mode="exact",
+        strip_descriptions=True,
     )
     epochs = []
     diagnostics = {
@@ -525,7 +531,7 @@ def grouped_linear_warper(
     }
     minimum, maximum = epoch_duration_range
     for group in event_groups:
-        arrays = [events[label.lower()] for label in group]
+        arrays = [events[label.strip().lower()] for label in group]
         if any(len(values) != 1 for values in arrays):
             raise ValueError(f"Expected one annotation per event-group label: {group}")
         start, end = float(arrays[0][0]), float(arrays[-1][0])
