@@ -5,6 +5,9 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from lfptensorpipe.io.source_metadata import SourceMetadata
+from lfptensorpipe.app.dataset.record_info import RecordProvenance
+
 from .common import (
     MNE_SUPPORTED_RECOMMENDED_EXTENSIONS,
     Path,
@@ -178,10 +181,12 @@ def _on_parse(dialog) -> None:
         return
 
     try:
+        metadata = SourceMetadata()
         raw, report, is_fif_input = parse_record_source(
             import_type=import_type,
             paths=paths,
             options=options,
+            source_metadata=metadata,
         )
     except Exception as exc:  # noqa: BLE001
         _show_parse_error(dialog, exc)
@@ -194,20 +199,38 @@ def _on_parse(dialog) -> None:
         and dialog._reset_rows
     ):
         dialog._reset_rows = ()
-        dialog._reset_summary_label.setText("Pairs: No pairs configured")
+        dialog._reset_summary_label.setText("Configured outputs: 0")
         QMessageBox.warning(
             dialog,
             "Reset Reference",
-            "Pair configuration is invalid after re-parse. Please configure again.",
+            "The channel list changed after re-parse. Configure the outputs again.",
         )
 
+    provenance = RecordProvenance.from_parsed(import_type, source_path, raw, metadata)
+    old_preview = dialog._parsed
+    if (
+        old_preview
+        and old_preview.provenance
+        and old_preview.source_path == source_path
+        and old_preview.import_type == import_type
+    ):
+        old_inputs = {row.name: row for row in old_preview.provenance.inputs}
+        for row in provenance.inputs:
+            previous = old_inputs.get(row.name)
+            if previous and previous.source_label == row.source_label:
+                for field in ("recording_contact", "reference_contact"):
+                    if getattr(previous, field + "_source") == "operator":
+                        setattr(row, field, getattr(previous, field))
+                        setattr(row, field + "_source", "operator")
     dialog._parsed = ParsedImportPreview(
         base_raw=raw,
         report=report,
         source_path=source_path,
         is_fif_input=bool(is_fif_input),
         import_type=import_type,
+        provenance=provenance,
     )
+    dialog._acquisition_button.setEnabled(True)
     dialog._parsed_channel_signature = current_signature
     dialog._result_label.setText(_format_parse_result(dialog, dialog._parsed))
     _update_sync_configure_button_state(dialog)
@@ -292,7 +315,7 @@ def _on_confirm(dialog) -> None:
         QMessageBox.warning(
             dialog,
             "Import Failed",
-            "No pair configured. Add at least one pair or disable Reset reference.",
+            "Configure at least one output or disable Reset reference.",
         )
         return
     dialog.accept()

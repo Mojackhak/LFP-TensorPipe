@@ -11,6 +11,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
+from lfptensorpipe.io.source_metadata import SourceMetadata
 from lfptensorpipe.io.converter import InfiniteSignalValuesError, df2mne
 
 VENDOR_NAME = "Sceneray"
@@ -432,6 +433,8 @@ def _set_meas_date_from_bjs(raw: Any, start_time_bjs: dt.datetime | None) -> Non
 def parse(
     paths: dict[str, str],
     options: dict[str, Any] | None = None,
+    *,
+    source_metadata: SourceMetadata | None = None,
 ) -> tuple[Any, dict[str, str]]:
     version = "unknown"
 
@@ -484,6 +487,16 @@ def parse(
         header_row, sfreq_from_csv, channel_tokens = _find_header_and_meta_rows(
             csv_path
         )
+        if source_metadata is not None:
+            source_metadata.labels.update(
+                (_normalize_channel_token(token), token)
+                for token in channel_tokens
+                if token.strip()
+            )
+            source_metadata.metadata_file = txt_path.name if txt_path else None
+            source_metadata.sampling_rate_hz = sfreq_from_csv or (
+                txt_meta.sample_frequency_hz if txt_meta else None
+            )
         sfreq_hz = sr_from_options if sr_from_options is not None else sfreq_from_csv
         if (
             sfreq_hz is None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.dataset.record_info import imported_outputs
 from lfptensorpipe.gui.shell.common import (
     Path,
     QDialog,
@@ -110,6 +111,7 @@ class MainWindowDatasetContextActionsMixin:
         use_sync = bool(getattr(dialog, "use_sync", False))
         if use_sync and synced_raw is not None:
             raw_to_import = synced_raw
+        rows = ()
         if dialog.use_reset_reference and dialog.reset_rows:
             rows = tuple(
                 (row.anode, row.cathode, row.name) for row in dialog.reset_rows
@@ -123,6 +125,11 @@ class MainWindowDatasetContextActionsMixin:
                 )
                 return
 
+        provenance = getattr(preview, "provenance", None)
+        if provenance is not None:
+            provenance.outputs = imported_outputs(
+                [ch.name for ch in provenance.inputs], rows
+            )
         result = self._run_with_busy(
             "Record Import",
             lambda: self._import_record_from_raw_runtime(
@@ -132,6 +139,7 @@ class MainWindowDatasetContextActionsMixin:
                 raw=raw_to_import,
                 source_path=preview.source_path,
                 is_fif_input=preview.is_fif_input,
+                record_info=provenance,
                 sync_state=getattr(dialog, "sync_state", None) if use_sync else None,
                 read_only_project_root=self._demo_data_source_readonly,
             ),
@@ -151,6 +159,22 @@ class MainWindowDatasetContextActionsMixin:
             return
         self._set_empty_record_context()
         self.statusBar().showMessage(f"{result.message} 请手动选择 record。")
+
+    def _on_record_info(self) -> None:
+        from lfptensorpipe.app.dataset.record_info_reader import read_record_information
+        from lfptensorpipe.gui.dialogs.record_information import RecordInformationDialog
+
+        context = self._record_context()
+        if context is None:
+            return
+        try:
+            info = self._run_with_busy(
+                "Record Information", lambda: read_record_information(context)
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            self._show_warning("Record Information", str(exc))
+            return
+        RecordInformationDialog(info, self).exec()
 
     def _on_record_delete(self) -> None:
         if (

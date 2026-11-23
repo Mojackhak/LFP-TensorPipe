@@ -123,11 +123,15 @@ def build_channel_representative_frame(
         if not channel:
             raise ValueError("Match entry missing channel.")
         if anode not in lookup:
-            raise ValueError(f"Anode token not found in reconstruction: {anode}")
+            raise ValueError(f"Recording contact not found in reconstruction: {anode}")
 
         anode_node = lookup[anode]
-        anode_native = _as_xyz(anode_node.get("native", []), label=f"anode {anode}")
-        anode_mni = _as_xyz(anode_node.get("mni", []), label=f"anode {anode}")
+        anode_native = _as_xyz(
+            anode_node.get("native", []), label=f"recording contact {anode}"
+        )
+        anode_mni = _as_xyz(
+            anode_node.get("mni", []), label=f"recording contact {anode}"
+        )
 
         is_special_cathode = cathode in {"case", "ground"}
         cathode_native = None
@@ -135,34 +139,36 @@ def build_channel_representative_frame(
         if not is_special_cathode:
             if cathode_raw not in lookup:
                 raise ValueError(
-                    f"Cathode token not found in reconstruction: {cathode_raw}"
+                    f"Reference contact not found in reconstruction: {cathode_raw}"
                 )
             cathode_node = lookup[cathode_raw]
             cathode_native = _as_xyz(
                 cathode_node.get("native", []),
-                label=f"cathode {cathode_raw}",
+                label=f"reference contact {cathode_raw}",
             )
             cathode_mni = _as_xyz(
                 cathode_node.get("mni", []),
-                label=f"cathode {cathode_raw}",
+                label=f"reference contact {cathode_raw}",
             )
 
         if rep_coord not in {"Anode", "Cathode", "Mid"}:
             raise ValueError(f"Invalid rep_coord for channel {channel}: {rep_coord}")
         if is_special_cathode and rep_coord != "Anode":
             raise ValueError(
-                f"rep_coord must be 'Anode' when cathode is case/ground: {channel}"
+                f"Case and Ground use the recording contact as the representative coordinate: {channel}"
             )
 
         if rep_coord == "Anode":
             mni_xyz = anode_mni
         elif rep_coord == "Cathode":
             if cathode_mni is None:
-                raise ValueError(f"Missing cathode for rep_coord Cathode: {channel}")
+                raise ValueError(
+                    f"Missing reference contact for its representative coordinate: {channel}"
+                )
             mni_xyz = cathode_mni
         else:
             if cathode_native is None:
-                raise ValueError(f"Missing cathode for rep_coord Mid: {channel}")
+                raise ValueError(f"Missing reference contact for midpoint: {channel}")
             mni_xyz = np.asarray([np.nan, np.nan, np.nan], dtype=float)
             mid_native_points.append((anode_native + cathode_native) / 2.0)
             mid_row_indices.append(len(rows))

@@ -8,6 +8,7 @@ import shutil
 from typing import Any
 
 from lfptensorpipe.app.dataset_index import discover_subjects
+from lfptensorpipe.io.source_metadata import SourceMetadata
 from .delete_runner import delete_record as _delete_record_impl
 from .import_runner import (
     import_record as _import_record_impl,
@@ -28,6 +29,7 @@ from .source_parser import (
     load_import_channel_names as _load_import_channel_names_impl,
     parse_record_source as _parse_record_source_impl,
 )
+from .record_info import RecordProvenance
 from .rename_runner import (
     RecordRenameRecoveryResult,
     RecordRenameResult,
@@ -145,11 +147,13 @@ def parse_record_source(
     import_type: str,
     paths: dict[str, str],
     options: dict[str, Any] | None = None,
+    source_metadata: SourceMetadata | None = None,
 ) -> tuple[Any, dict[str, str], bool]:
     return _parse_record_source_impl(
         import_type=import_type,
         paths=paths,
         options=options,
+        source_metadata=source_metadata,
     )
 
 
@@ -182,6 +186,7 @@ def import_record_from_raw(
     source_path: Path,
     is_fif_input: bool,
     sync_state: Any | None = None,
+    record_info: RecordProvenance | None = None,
     read_only_project_root: Path | None = None,
 ) -> RecordImportResult:
     return _import_record_from_raw_impl(
@@ -192,6 +197,7 @@ def import_record_from_raw(
         source_path=source_path,
         is_fif_input=is_fif_input,
         sync_state=sync_state,
+        record_info=record_info,
         result_cls=RecordImportResult,
         validate_subject_name_fn=validate_subject_name,
         validate_record_name_fn=validate_record_name,

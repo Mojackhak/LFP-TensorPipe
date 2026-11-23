@@ -224,16 +224,24 @@ def _import_record_via_dialog(
     warnings: list[str],
     options: dict[str, Any] | None = None,
 ) -> None:
+    from lfptensorpipe.app.dataset.record_info import RecordProvenance
+    from lfptensorpipe.io.source_metadata import SourceMetadata
+
+    metadata = SourceMetadata()
     raw, report, is_fif_input = parse_record_source(
         import_type=import_type,
         paths={"file_path": str(source_path)},
         options=options,
+        source_metadata=metadata,
     )
     preview = ParsedImportPreview(
         base_raw=raw,
         report=report,
         source_path=source_path.expanduser().resolve(),
         is_fif_input=is_fif_input,
+        provenance=RecordProvenance.from_parsed(
+            import_type, source_path, raw, metadata
+        ),
         import_type=import_type,
     )
 

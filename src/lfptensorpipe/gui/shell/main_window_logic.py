@@ -181,6 +181,7 @@ class MainWindow(
         self._subject_add_button: QPushButton | None = None
         self._record_add_button: QPushButton | None = None
         self._record_delete_button: QPushButton | None = None
+        self._record_info_button: QPushButton | None = None
         self._record_rename_button: QPushButton | None = None
         self._preproc_raw_plot_button: QPushButton | None = None
         self._preproc_raw_restore_button: QPushButton | None = None

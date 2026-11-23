@@ -362,5 +362,7 @@ class MainWindowDatasetContextSelectionMixin:
             self._record_add_button.setEnabled(has_subject)
         if self._record_delete_button is not None:
             self._record_delete_button.setEnabled(has_record)
+        if self._record_info_button is not None:
+            self._record_info_button.setEnabled(has_record)
         if self._record_rename_button is not None:
             self._record_rename_button.setEnabled(has_record)

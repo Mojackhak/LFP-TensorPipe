@@ -15,6 +15,12 @@ from .common import (
     set_control_validation_error,
 )
 
+REPRESENTATIVE_LABELS = {
+    "Anode": "Recording contact",
+    "Cathode": "Reference contact",
+    "Mid": "Midpoint",
+}
+
 
 def _build_contact_maps(dialog) -> None:
     dialog._contact_by_token = {}
@@ -129,7 +135,7 @@ def _render_mapping_table(dialog) -> None:
         dialog._mapping_table.setItem(row_idx, 1, QTableWidgetItem(mapping["anode"]))
         dialog._mapping_table.setItem(row_idx, 2, QTableWidgetItem(mapping["cathode"]))
         dialog._mapping_table.setItem(
-            row_idx, 3, QTableWidgetItem(mapping["rep_coord"])
+            row_idx, 3, QTableWidgetItem(REPRESENTATIVE_LABELS[mapping["rep_coord"]])
         )
         dialog._mapping_table.setItem(
             row_idx,
@@ -235,12 +241,13 @@ def _sync_draft_widgets(dialog) -> None:
         dialog._draft_rep_coord = "Anode"
     dialog._rep_combo.blockSignals(True)
     dialog._rep_combo.clear()
-    dialog._rep_combo.addItems(rep_options)
-    target_idx = dialog._rep_combo.findText(dialog._draft_rep_coord)
+    for token in rep_options:
+        dialog._rep_combo.addItem(REPRESENTATIVE_LABELS[token], token)
+    target_idx = dialog._rep_combo.findData(dialog._draft_rep_coord)
     dialog._rep_combo.setCurrentIndex(target_idx if target_idx >= 0 else 0)
     dialog._rep_combo.blockSignals(False)
-    dialog._draft_rep_coord = dialog._rep_combo.currentText()
+    dialog._draft_rep_coord = dialog._rep_combo.currentData()
 
 
 def _on_rep_coord_changed(dialog, _index: int) -> None:
-    dialog._draft_rep_coord = dialog._rep_combo.currentText()
+    dialog._draft_rep_coord = dialog._rep_combo.currentData()

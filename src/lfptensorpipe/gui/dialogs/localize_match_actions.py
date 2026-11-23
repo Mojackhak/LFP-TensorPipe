@@ -188,7 +188,7 @@ def _on_contact_clicked(dialog, token: str, cathode_only: bool) -> None:
             QMessageBox.warning(
                 dialog,
                 "Match",
-                "Select Anode first before choosing case/ground.",
+                "Select a recording contact before choosing Case or Ground.",
             )
             return
         if dialog._draft_cathode:
@@ -214,29 +214,37 @@ def _on_bind_update(dialog) -> None:
     cathode = dialog._draft_cathode.strip()
     rep_coord = dialog._draft_rep_coord.strip().title()
     if not anode or not cathode:
-        QMessageBox.warning(dialog, "Match", "Anode and Cathode are required.")
+        QMessageBox.warning(
+            dialog, "Match", "Recording contact and reference contact are required."
+        )
         return
     if anode.lower() in {"case", "ground"}:
-        QMessageBox.warning(dialog, "Match", "Anode cannot be case/ground.")
+        QMessageBox.warning(
+            dialog, "Match", "Select a lead contact as the recording contact."
+        )
         return
     if anode == cathode:
-        QMessageBox.warning(dialog, "Match", "Anode and Cathode cannot be identical.")
+        QMessageBox.warning(
+            dialog,
+            "Match",
+            "Recording contact and reference contact must be different.",
+        )
         return
     if anode not in dialog._contact_by_token:
-        QMessageBox.warning(dialog, "Match", f"Unknown anode token: {anode}")
+        QMessageBox.warning(dialog, "Match", f"Unknown recording contact: {anode}")
         return
     cathode_lower = cathode.lower()
     if (
         cathode_lower not in {"case", "ground"}
         and cathode not in dialog._contact_by_token
     ):
-        QMessageBox.warning(dialog, "Match", f"Unknown cathode token: {cathode}")
+        QMessageBox.warning(dialog, "Match", f"Unknown reference contact: {cathode}")
         return
     if cathode_lower in {"case", "ground"} and rep_coord != "Anode":
         QMessageBox.warning(
             dialog,
             "Match",
-            "Rep. coord must be Anode when Cathode is case/ground.",
+            "Case and Ground use the recording contact as the representative coordinate.",
         )
         return
     dialog._mapping[channel] = {

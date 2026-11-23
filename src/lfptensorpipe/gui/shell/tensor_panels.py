@@ -106,6 +106,13 @@ class MainWindowTensorPanelsMixin:
         self._record_add_button = QPushButton("+")
         self._record_delete_button = QPushButton("-")
         self._record_rename_button = QPushButton("R")
+        self._record_info_button = QPushButton("I")
+        self._record_info_button.setAccessibleName("Record Information")
+        self._record_info_button.setToolTip(
+            "View recording information and channel definitions."
+        )
+        self._record_info_button.clicked.connect(self._on_record_info)
+        self._record_info_button.setEnabled(False)
         self._project_add_button.clicked.connect(self._on_project_add)
         self._subject_add_button.clicked.connect(self._on_subject_add)
         self._record_add_button.clicked.connect(self._on_record_add)
@@ -151,6 +158,7 @@ class MainWindowTensorPanelsMixin:
         record_actions_layout.addWidget(self._record_add_button)
         record_actions_layout.addWidget(self._record_delete_button)
         record_actions_layout.addWidget(self._record_rename_button)
+        record_actions_layout.addWidget(self._record_info_button)
         record_actions_layout.addStretch(1)
         grid.addWidget(record_actions, 2, 2)
 

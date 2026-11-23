@@ -170,14 +170,25 @@ Click `Save` in the sync dialog before returning to the import window.
 This step remaps the imported vendor channels into the bipolar derivations used
 throughout the tutorial.
 
+**SceneRay and PINS polarity.** In the original labels below, `a` and `b` are
+contact identifiers and `x` is the PINS channel number. LFP-TensorPipe lists
+the recording contact first and the reference contact second in its normalized
+channel names. SceneRay places the negative reference before `~` and the
+positive recording contact after it. PINS marks each contact with its polarity.
+
+| Vendor | Original label | Normalized channel | Positive terminal | Negative terminal | Recorded voltage |
+| --- | --- | --- | --- | --- | --- |
+| SceneRay | `a~b` | `b_a` | `b` | `a` | `V(b) − V(a)` |
+| PINS | `CHx_a+b-` | `b_a` | `a` | `b` | `V(a) − V(b)` |
+
 Check `Reset reference`, then open `Configure...`.
 
 ![Reset Reference dialog.](assets/app-tutorial/figure-05-reset-reference-dialog.png)
 
-Add these six bipolar rows so the imported channel names match the tutorial
+The field names below apply to the current interface. Add these six bipolar rows so the imported channel names match the tutorial
 configs used later by `Localize` and `Build Tensor`:
 
-| Anode | Cathode | Name |
+| Signal channel | Reference channel | Output name |
 |---|---|---|
 | `0_7` | `1_7` | `0_1` |
 | `1_7` | `2_7` | `1_2` |
@@ -189,6 +200,14 @@ configs used later by `Localize` and `Build Tensor`:
 Click `Save` before returning to the import dialog.
 
 When both are ready, click `Confirm Import`.
+
+Select the imported record and click `I` below `R` to see its Record Information.
+For this SceneRay example, subtracting `2_7` from `1_7` gives the output
+`1_2`. Its `Recorded signal` is `(1 − 7) − (2 − 7)`, with recording contact 1
+and reference contact 2. For two PINS inputs `CHx_a+b-` and `CHy_a+c-` sharing
+positive contact `a`, subtracting the second waveform from the first gives
+`(V(a) − V(b)) − (V(a) − V(c))`.
+The input tab identifies the original channels used for each derivation.
 
 Expected imported channels:
 
@@ -247,7 +266,7 @@ Use `Export Configs...` whenever you want to save your own local variant.
 
 This step binds each imported bipolar channel to the Lead-DBS contacts that
 define it. In this demo, the match table also defines that each channel uses
-the midpoint between its anode and cathode as the representative coordinate.
+the midpoint between its recording and reference contacts as the representative coordinate.
 
 Open `Match -> Configure...`.
 
@@ -270,12 +289,12 @@ Auto Match follows the current implementation contract:
 - match both endpoints on the same lead
 - apply the trailing `_L/_R` token only as a side constraint
 - compare endpoint indices case-insensitively
-- write `Anode`, `Cathode`, and `Rep. coord = Mid` only when exactly one lead
+- write `Recording contact`, `Reference contact`, and `Rep. coord = Midpoint` only when exactly one lead
   is a valid candidate
 - skip ambiguous or missing matches instead of writing a guess
 
 If Auto Match is not ideal, use the Binding Editor to select
-`Anode`, `Cathode`, `Rep. coord`, then click `Bind/Update`.
+`Recording contact`, `Reference contact`, `Rep. coord`, then click `Bind/Update`.
 
 ### 4.2 Configure the Atlas
 

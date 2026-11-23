@@ -28,38 +28,39 @@ class ChannelPairDialog(QDialog):
                 self._pair_names[pair] = token if token else f"{pair[0]}-{pair[1]}"
             else:
                 self._pair_names[pair] = f"{pair[0]}-{pair[1]}"
-        self._current_anode: str | None = None
+        self._current_signal: str | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(6)
 
-        root.addWidget(QLabel("Bipolar channels"))
-        self._pair_table = QTableWidget(0, 2)
-        self._pair_table.setHorizontalHeaderLabels(["Pair", "Name"])
+        root.addWidget(QLabel("Configured outputs"))
+        self._pair_table = QTableWidget(0, 3)
+        self._pair_table.setHorizontalHeaderLabels(
+            ["Signal channel", "Reference channel", "Output name"]
+        )
         self._pair_table.verticalHeader().setVisible(False)
         self._pair_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._pair_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self._pair_table.itemChanged.connect(self._on_pair_name_changed)
         pair_header = self._pair_table.horizontalHeader()
-        pair_header.setSectionResizeMode(0, QHeaderView.Stretch)
-        pair_header.setSectionResizeMode(1, QHeaderView.Stretch)
+        pair_header.setSectionResizeMode(QHeaderView.Stretch)
         root.addWidget(self._pair_table, stretch=1)
         remove_row = QWidget()
         remove_row_layout = QHBoxLayout(remove_row)
         remove_row_layout.setContentsMargins(0, 0, 0, 0)
         remove_row_layout.addStretch(1)
-        remove_button = QPushButton("Remove Pair")
+        remove_button = QPushButton("Remove output")
         remove_button.clicked.connect(self._on_remove_pair)
         remove_row_layout.addWidget(remove_button)
         root.addWidget(remove_row)
 
-        root.addWidget(QLabel("Channels (click anode then cathode)"))
+        root.addWidget(QLabel("Select the signal channel, then the reference channel"))
         self._channel_list = QListWidget()
         self._channel_list.itemClicked.connect(self._on_channel_clicked)
         root.addWidget(self._channel_list, stretch=1)
 
-        self._status_label = QLabel("No anode selected.")
+        self._status_label = QLabel("Select a signal channel.")
         root.addWidget(self._status_label)
 
         footer = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
@@ -88,7 +89,7 @@ class ChannelPairDialog(QDialog):
     def _sync_pair_names_from_table(self) -> None:
         for row in range(self._pair_table.rowCount()):
             pair_item = self._pair_table.item(row, 0)
-            name_item = self._pair_table.item(row, 1)
+            name_item = self._pair_table.item(row, 2)
             if pair_item is None:
                 continue
             pair_token = pair_item.data(Qt.UserRole)
@@ -102,44 +103,52 @@ class ChannelPairDialog(QDialog):
         self._pair_table.blockSignals(True)
         self._pair_table.setRowCount(len(self._pairs))
         for row, pair in enumerate(self._pairs):
-            pair_item = QTableWidgetItem(f"{pair[0]} -> {pair[1]}")
+            pair_item = QTableWidgetItem(pair[0])
             pair_item.setData(Qt.UserRole, pair)
             pair_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
             self._pair_table.setItem(row, 0, pair_item)
 
+            reference_item = QTableWidgetItem(pair[1])
+            reference_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+            self._pair_table.setItem(row, 1, reference_item)
+
             name = self._pair_names.get(pair, f"{pair[0]}-{pair[1]}")
             name_item = QTableWidgetItem(name)
-            self._pair_table.setItem(row, 1, name_item)
+            self._pair_table.setItem(row, 2, name_item)
         self._pair_table.blockSignals(False)
 
     def _render_channels(self) -> None:
         self._channel_list.clear()
         for channel in self._channel_names:
             item = QListWidgetItem(channel)
-            if channel == self._current_anode:
+            if channel == self._current_signal:
                 item.setForeground(Qt.red)
             self._channel_list.addItem(item)
 
     def _on_channel_clicked(self, item: QListWidgetItem) -> None:
         channel = item.text()
-        if self._current_anode is None:
-            self._current_anode = channel
-            self._status_label.setText(f"Anode selected: {channel}. Pick cathode.")
+        if self._current_signal is None:
+            self._current_signal = channel
+            self._status_label.setText(
+                f"Signal channel {channel} selected. Select the reference channel."
+            )
             self._render_channels()
             return
 
-        if channel == self._current_anode:
-            self._current_anode = None
-            self._status_label.setText("Anode selection cancelled.")
+        if channel == self._current_signal:
+            self._current_signal = None
+            self._status_label.setText("Signal channel selection cleared.")
             self._render_channels()
             return
 
-        pair = (self._current_anode, channel)
+        pair = (self._current_signal, channel)
         if pair not in self._pairs:
             self._pairs.append(pair)
             self._pair_names[pair] = f"{pair[0]}-{pair[1]}"
-        self._current_anode = None
-        self._status_label.setText("Pair added. Select next anode or Save.")
+        self._current_signal = None
+        self._status_label.setText(
+            "Output added. Select another signal channel or save."
+        )
         self._render_pairs()
         self._render_channels()
 
@@ -152,7 +161,7 @@ class ChannelPairDialog(QDialog):
         self._render_pairs()
 
     def _on_pair_name_changed(self, item: QTableWidgetItem) -> None:
-        if item.column() != 1:
+        if item.column() != 2:
             return
         pair_item = self._pair_table.item(item.row(), 0)
         if pair_item is None:
@@ -171,14 +180,12 @@ class ChannelPairDialog(QDialog):
             for pair in self._pairs
         ]
         if not self._pairs:
-            self._show_warning("Channel Pair", "At least one pair is required.")
+            self._show_warning("Channel Pair", "Configure at least one output.")
             return
         if any(not name for name in names):
-            self._show_warning(
-                "Channel Pair", "Each bipolar pair requires a non-empty name."
-            )
+            self._show_warning("Channel Pair", "Each output requires a name.")
             return
         if len(set(names)) != len(names):
-            self._show_warning("Channel Pair", "Bipolar channel names must be unique.")
+            self._show_warning("Channel Pair", "Output names must be unique.")
             return
         self.accept()

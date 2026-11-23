@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from lfptensorpipe.io.source_metadata import SourceMetadata
 from lfptensorpipe.io.converter import InfiniteSignalValuesError, df2mne
 
 VENDOR_NAME = "PINS"
@@ -306,7 +307,9 @@ def _finalize_packet(
     return _Packet(num=packet_num, declared_len=declared_len, data=arr)
 
 
-def _read_signal_packets(file_path: Path) -> tuple[list[str], list[_Packet]]:
+def _read_signal_packets(
+    file_path: Path, source_metadata: SourceMetadata | None = None
+) -> tuple[list[str], list[_Packet]]:
     with file_path.open("r", encoding="utf-8", errors="ignore", newline="") as f:
         reader = csv.reader(f)
         try:
@@ -343,6 +346,12 @@ def _read_signal_packets(file_path: Path) -> tuple[list[str], list[_Packet]]:
             raise ParseError(
                 code="PARSE_CHANNEL_MAP_INVALID",
                 message=f"Duplicate normalized channel names: {ch_names}",
+            )
+
+        if source_metadata is not None:
+            source_metadata.labels.update(
+                (name, header_trim[idx])
+                for name, idx in zip(ch_names, channel_cols, strict=True)
             )
 
         packets: list[_Packet] = []
@@ -592,6 +601,8 @@ def _append_annotations(
 def parse(
     paths: dict[str, str],
     options: dict[str, Any] | None = None,
+    *,
+    source_metadata: SourceMetadata | None = None,
 ) -> tuple[Any, dict[str, str]]:
     version = "unknown"
 
@@ -607,7 +618,7 @@ def parse(
             version = meta.sampling_device_version
 
         sfreq_hz = _resolve_sampling_rate(options, meta, version=version)
-        ch_names, packets = _read_signal_packets(file_path)
+        ch_names, packets = _read_signal_packets(file_path, source_metadata)
         mode_packet_len = _mode_packet_length(packets)
         data, gap_specs = _reconstruct_with_gaps(
             packets,
@@ -638,6 +649,10 @@ def parse(
         _append_annotations(raw, marker_events=marker_events, gap_specs=gap_specs)
         _set_meas_date_from_bjs(raw, meta.sampling_start_bjs)
 
+        if source_metadata is not None:
+            source_metadata.sampling_rate_hz = meta.sampling_rate_hz
+            source_metadata.metadata_file = metadata_path.name
+            source_metadata.marker_file = marker_path.name if marker_path else None
         report = {"vendor": VENDOR_NAME, "version": version, "status": "ok"}
         return raw, report
     except ParseError:

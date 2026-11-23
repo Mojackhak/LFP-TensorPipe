@@ -51,7 +51,7 @@ class ResetReferenceDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Reset Reference")
-        self.resize(460, 300)
+        self.resize(680, 390)
         self._channel_names = tuple(channel_names)
         self._set_default_callback = set_default_callback
         self._default_rows = self._normalize_rows(default_rows)
@@ -70,7 +70,7 @@ class ResetReferenceDialog(QDialog):
         top_layout.addWidget(QLabel("Search"))
         self._search_edit = QLineEdit()
         self._search_edit.textChanged.connect(self._on_search_changed)
-        self._search_edit.setToolTip("Filter channels and configured pairs.")
+        self._search_edit.setToolTip("Filter channels and configured outputs.")
         top_layout.addWidget(self._search_edit)
         root.addWidget(top)
 
@@ -82,23 +82,25 @@ class ResetReferenceDialog(QDialog):
         self._channel_list = QListWidget()
         self._channel_list.itemClicked.connect(self._on_channel_clicked)
         self._channel_list.setToolTip(
-            "Click once to set Anode; click a second channel to set Cathode."
+            "Select the signal channel first, then the reference channel to subtract."
         )
+        left_layout.addWidget(QLabel("Input channels"))
         left_layout.addWidget(self._channel_list, stretch=1)
 
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(4)
+        right_layout.addWidget(QLabel("Configured outputs"))
         self._pair_table = QTableWidget(0, 5)
         self._pair_table.setHorizontalHeaderLabels(
-            ["#", "Anode", "Cathode", "Name", "Action"]
+            ["#", "Signal channel", "Reference channel", "Output name", "Action"]
         )
         self._pair_table.verticalHeader().setVisible(False)
         self._pair_table.setSelectionMode(QAbstractItemView.NoSelection)
         self._pair_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._pair_table.cellClicked.connect(self._on_pair_table_clicked)
-        self._pair_table.setToolTip("Current reset-reference pairs for this import.")
+        self._pair_table.setToolTip("Configured output channels for this import.")
         header = self._pair_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
@@ -119,27 +121,29 @@ class ResetReferenceDialog(QDialog):
         draft_layout.setContentsMargins(0, 0, 0, 0)
         draft_layout.setHorizontalSpacing(6)
         draft_layout.setVerticalSpacing(4)
-        draft_layout.addWidget(QLabel("Anode"), 0, 0)
+        draft_layout.addWidget(QLabel("Signal channel"), 0, 0)
         self._draft_anode_edit = QLineEdit()
         self._draft_anode_edit.textChanged.connect(self._on_draft_anode_changed)
-        self._draft_anode_edit.setToolTip("Draft anode channel.")
+        self._draft_anode_edit.setToolTip("The waveform to keep or subtract from.")
         draft_layout.addWidget(self._draft_anode_edit, 0, 1)
-        draft_layout.addWidget(QLabel("Cathode"), 1, 0)
+        draft_layout.addWidget(QLabel("Reference channel"), 1, 0)
         self._draft_cathode_edit = QLineEdit()
         self._draft_cathode_edit.textChanged.connect(self._update_apply_state)
-        self._draft_cathode_edit.setToolTip("Draft cathode channel.")
+        self._draft_cathode_edit.setToolTip(
+            "Subtract this waveform. Used alone, it is sign-reversed."
+        )
         draft_layout.addWidget(self._draft_cathode_edit, 1, 1)
-        draft_layout.addWidget(QLabel("Name"), 2, 0)
+        draft_layout.addWidget(QLabel("Output name"), 2, 0)
         name_row = QWidget()
         name_row_layout = QHBoxLayout(name_row)
         name_row_layout.setContentsMargins(0, 0, 0, 0)
         name_row_layout.setSpacing(6)
         self._draft_name_edit = QLineEdit()
         self._draft_name_edit.textChanged.connect(self._update_apply_state)
-        self._draft_name_edit.setToolTip("Output channel name for the new pair.")
+        self._draft_name_edit.setToolTip("Name of the imported output channel.")
         self._draft_apply_button = QPushButton("Apply")
         self._draft_apply_button.clicked.connect(self._on_apply_draft)
-        self._draft_apply_button.setToolTip("Add the draft pair to the configuration.")
+        self._draft_apply_button.setToolTip("Add this output to the configuration.")
         name_row_layout.addWidget(self._draft_name_edit, stretch=1)
         name_row_layout.addWidget(self._draft_apply_button)
         draft_layout.addWidget(name_row, 2, 1)
@@ -157,20 +161,16 @@ class ResetReferenceDialog(QDialog):
         self._clear_all_button.clicked.connect(self._on_clear_all)
         self._set_default_button.clicked.connect(self._on_set_default)
         self._restore_default_button.clicked.connect(self._on_restore_default)
-        self._clear_draft_button.setToolTip("Clear the current draft pair.")
-        self._clear_all_button.setToolTip("Remove all configured pairs.")
-        self._set_default_button.setToolTip(
-            "Save current reset-reference pairs as defaults."
-        )
-        self._restore_default_button.setToolTip(
-            "Restore saved reset-reference default pairs."
-        )
+        self._clear_draft_button.setToolTip("Clear the current draft output.")
+        self._clear_all_button.setToolTip("Remove all configured outputs.")
+        self._set_default_button.setToolTip("Save configured outputs as defaults.")
+        self._restore_default_button.setToolTip("Restore the default outputs.")
         cancel_button = QPushButton("Cancel")
         save_button = QPushButton("Save")
         cancel_button.clicked.connect(self.reject)
         save_button.clicked.connect(self._on_save)
-        cancel_button.setToolTip("Close without applying pair changes.")
-        save_button.setToolTip("Use the current reset-reference pairs for this import.")
+        cancel_button.setToolTip("Discard edits to the current outputs.")
+        save_button.setToolTip("Use the configured outputs for this import.")
         footer_layout.addWidget(self._clear_draft_button)
         footer_layout.addWidget(self._clear_all_button)
         footer_layout.addWidget(self._set_default_button)
@@ -278,12 +278,12 @@ class ResetReferenceDialog(QDialog):
                 make_action_table_item(
                     "Del",
                     (row.anode, row.cathode, row.name),
-                    tool_tip="Delete this pair.",
+                    tool_tip="Delete this output.",
                 ),
             )
         set_control_validation_error(
             self._pair_table,
-            None if self._rows else "At least one pair is required before import.",
+            None if self._rows else "Configure at least one output before import.",
         )
         self._update_footer_states()
 
@@ -314,7 +314,7 @@ class ResetReferenceDialog(QDialog):
         set_control_validation_error(
             self._draft_anode_edit,
             (
-                "At least one endpoint is required."
+                "Enter a signal channel or a reference channel."
                 if has_draft and not (anode or cathode)
                 else None
             ),
@@ -322,14 +322,14 @@ class ResetReferenceDialog(QDialog):
         set_control_validation_error(
             self._draft_cathode_edit,
             (
-                "At least one endpoint is required."
+                "Enter a signal channel or a reference channel."
                 if has_draft and not (anode or cathode)
                 else None
             ),
         )
         set_control_validation_error(
             self._draft_name_edit,
-            "Name is required." if has_draft and not name else None,
+            "Output name is required." if has_draft and not name else None,
         )
 
     def _update_footer_states(self) -> None:
@@ -345,27 +345,33 @@ class ResetReferenceDialog(QDialog):
         name = self._draft_name_edit.text().strip()
         if not anode and not cathode:
             self._show_warning(
-                "Reset Reference", "At least one of anode or cathode is required."
+                "Reset Reference", "Enter a signal channel or a reference channel."
             )
             return
         if not name:
-            self._show_warning("Reset Reference", "Name is required.")
+            self._show_warning("Reset Reference", "Output name is required.")
             return
         if anode and anode not in self._channel_names:
-            self._show_warning("Reset Reference", f"Unknown anode channel: {anode}")
+            self._show_warning("Reset Reference", f"Unknown signal channel: {anode}")
             return
         if cathode and cathode not in self._channel_names:
-            self._show_warning("Reset Reference", f"Unknown cathode channel: {cathode}")
+            self._show_warning(
+                "Reset Reference", f"Unknown reference channel: {cathode}"
+            )
             return
         if cathode and cathode == anode:
             self._show_warning(
-                "Reset Reference", "Anode and cathode cannot be identical."
+                "Reset Reference",
+                "Signal channel and reference channel must be different.",
             )
             return
         pair_key = (anode, cathode)
         existing_keys = {(row.anode, row.cathode) for row in self._rows}
         if pair_key in existing_keys:
-            self._show_warning("Reset Reference", "Duplicate pair is not allowed.")
+            self._show_warning(
+                "Reset Reference",
+                "These input channels are already configured in this order.",
+            )
             return
         existing_names = {row.name for row in self._rows}
         if name in existing_names:
@@ -416,7 +422,7 @@ class ResetReferenceDialog(QDialog):
         if not rows:
             self._show_warning(
                 "Reset Reference",
-                "At least one pair is required before setting defaults.",
+                "Configure at least one output before setting defaults.",
             )
             return
         if self._set_default_callback is not None:

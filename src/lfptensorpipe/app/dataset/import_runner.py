@@ -6,10 +6,13 @@ from pathlib import Path
 import shutil
 from typing import Any, Callable
 
+from lfptensorpipe.io.source_metadata import SourceMetadata
 from lfptensorpipe.io.timeline import (
     format_timeline_normalization,
     normalize_raw_timeline,
 )
+
+from .record_info import RecordProvenance, imported_outputs
 
 ValidateNameFn = Callable[[str], tuple[bool, str]]
 DiscoverFn = Callable[..., list[str]]
@@ -65,6 +68,7 @@ def _persist_record_import(
     sourcedata_record_raw_dir_fn: Callable[[Path, str, str], Path],
     persist_import_sync_artifacts_fn: Callable[..., Any] | None = None,
     sync_state: Any | None = None,
+    record_info: RecordProvenance,
 ):
     """Persist an import and roll back only record roots created by this call."""
     standard_roots = _standard_record_roots(
@@ -103,6 +107,7 @@ def _persist_record_import(
         owned_roots.append(rawdata_root)
         raw_fif_path.parent.mkdir(parents=True, exist_ok=True)
         raw.save(str(raw_fif_path))
+        record_info.save(raw_fif_path)
 
         if not bool(is_fif_input):
             sourcedata_root = standard_roots["sourcedata"]
@@ -172,6 +177,7 @@ def import_record_from_raw(
     sourcedata_record_raw_dir_fn: Callable[[Path, str, str], Path],
     persist_import_sync_artifacts_fn: Callable[..., Any] | None = None,
     sync_state: Any | None = None,
+    record_info: RecordProvenance | None = None,
     read_only_project_root: Path | None = None,
 ):
     """Persist one already-parsed raw into standardized record paths."""
@@ -225,6 +231,10 @@ def import_record_from_raw(
         sourcedata_record_raw_dir_fn=sourcedata_record_raw_dir_fn,
         persist_import_sync_artifacts_fn=persist_import_sync_artifacts_fn,
         sync_state=sync_state,
+        record_info=record_info
+        or RecordProvenance(
+            "Legacy (MNE supported)" if is_fif_input else None, source_path.name
+        ),
     )
 
 
@@ -293,11 +303,24 @@ def import_record(
             csv_sr=csv_sr,
             csv_unit=csv_unit,
         )
+        import_type = (
+            "Legacy (CSV)"
+            if source_path.suffix.lower() == ".csv"
+            else "Legacy (MNE supported)"
+        )
+        info = RecordProvenance.from_parsed(
+            import_type, source_path, raw, SourceMetadata()
+        )
         raw = apply_bipolar_reference_fn(
             raw,
             bipolar_pairs,
             bipolar_names if bipolar_names else None,
         )
+        rows = [
+            (a, b, bipolar_names[i] if bipolar_names else f"{a}-{b}")
+            for i, (a, b) in enumerate(bipolar_pairs)
+        ]
+        info.outputs = imported_outputs((row.name for row in info.inputs), rows)
     except Exception as exc:  # noqa: BLE001
         return result_cls(ok=False, message=f"Failed to load source: {exc}")
 
@@ -308,6 +331,7 @@ def import_record(
         raw=raw,
         source_path=source_path,
         is_fif_input=is_fif_input,
+        record_info=info,
         result_cls=result_cls,
         record_scope_paths_fn=record_scope_paths_fn,
         rawdata_record_fif_path_fn=rawdata_record_fif_path_fn,

@@ -9,6 +9,8 @@ from typing import Any
 
 import numpy as np
 
+from lfptensorpipe.io.source_metadata import SourceMetadata
+
 VENDOR_NAME = "Medtronic"
 SECTION_NAME = "BrainSenseTimeDomain"
 MICROVOLTS_TO_VOLTS = 1e-6
@@ -467,6 +469,8 @@ def _append_gap_annotations(raw: Any, gap_specs: list[tuple[float, float]]) -> N
 def parse(
     paths: dict[str, str],
     options: dict[str, Any] | None = None,
+    *,
+    source_metadata: SourceMetadata | None = None,
 ) -> tuple[Any, dict[str, str]]:
     version = "unknown"
 
@@ -480,34 +484,9 @@ def parse(
 
         session = _load_session_json(file_path)
         version = _extract_version(session)
-
-        entries = _parse_entries(session, version=version)
-        sfreq_set = {round(entry.sfreq_hz, 8) for entry in entries}
-        if len(sfreq_set) != 1:
-            raise ParseError(
-                code="PARSE_TIMELINE_INVALID",
-                message=f"Mixed SampleRateInHz values found: {sorted(sfreq_set)}",
-                version=version,
-            )
-        sfreq_hz = float(next(iter(sfreq_set)))
-
-        channel_order = _collect_channel_order(entries)
-        runs, gap_specs = _build_runs(entries, sfreq_hz=sfreq_hz, version=version)
-
-        ch_type = "dbs"
-        if options is not None and options.get("ch_type") is not None:
-            ch_type = str(options.get("ch_type")).strip() or "dbs"
-
-        raw = _build_raw(
-            runs,
-            channel_order,
-            sfreq_hz=sfreq_hz,
-            ch_type=ch_type,
-            version=version,
+        return parse_session(
+            session, options=options, source_metadata=source_metadata, version=version
         )
-        _append_gap_annotations(raw, gap_specs)
-        report = {"vendor": VENDOR_NAME, "version": version, "status": "ok"}
-        return raw, report
     except ParseError:
         raise
     except Exception as exc:
@@ -516,3 +495,49 @@ def parse(
             message=f"Failed to parse Medtronic record: {exc}",
             version=version,
         ) from exc
+
+
+def parse_session(
+    session: dict[str, Any],
+    *,
+    options: dict[str, Any] | None = None,
+    source_metadata: SourceMetadata | None = None,
+    version: str | None = None,
+) -> tuple[Any, dict[str, str]]:
+    """Parse an already decoded BrainSense session report."""
+    version = version or _extract_version(session)
+
+    entries = _parse_entries(session, version=version)
+    sfreq_set = {round(entry.sfreq_hz, 8) for entry in entries}
+    if len(sfreq_set) != 1:
+        raise ParseError(
+            code="PARSE_TIMELINE_INVALID",
+            message=f"Mixed SampleRateInHz values found: {sorted(sfreq_set)}",
+            version=version,
+        )
+    sfreq_hz = float(next(iter(sfreq_set)))
+
+    channel_order = _collect_channel_order(entries)
+    runs, gap_specs = _build_runs(entries, sfreq_hz=sfreq_hz, version=version)
+
+    ch_type = "dbs"
+    if options is not None and options.get("ch_type") is not None:
+        ch_type = str(options.get("ch_type")).strip() or "dbs"
+
+    raw = _build_raw(
+        runs,
+        channel_order,
+        sfreq_hz=sfreq_hz,
+        ch_type=ch_type,
+        version=version,
+    )
+    _append_gap_annotations(raw, gap_specs)
+    if source_metadata is not None:
+        source_metadata.sampling_rate_hz = sfreq_hz
+        for entry in entries:
+            source_metadata.labels.setdefault(
+                entry.channel,
+                str(session[SECTION_NAME][entry.order]["Channel"]).strip(),
+            )
+    report = {"vendor": VENDOR_NAME, "version": version, "status": "ok"}
+    return raw, report

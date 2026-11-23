@@ -9,6 +9,7 @@ from typing import Any
 
 import pandas as pd
 
+from lfptensorpipe.io.source_metadata import SourceMetadata
 from lfptensorpipe.io.converter import df2mne
 from lfptensorpipe.io.timeline import (
     format_timeline_normalization,
@@ -36,9 +37,9 @@ def _validate_bipolar_pairs(
         if anode == cathode:
             raise ValueError(f"Bipolar pair has identical channels: {anode}")
         if anode not in names:
-            raise ValueError(f"Bipolar anode channel not found: {anode}")
+            raise ValueError(f"Signal channel not found: {anode}")
         if cathode not in names:
-            raise ValueError(f"Bipolar cathode channel not found: {cathode}")
+            raise ValueError(f"Reference channel not found: {cathode}")
         pair_names.append(f"{anode}-{cathode}")
     for idx, pair in enumerate(bipolar_pairs):
         if bipolar_names is None:
@@ -120,6 +121,7 @@ def parse_record_source(
     import_type: str,
     paths: dict[str, str],
     options: dict[str, Any] | None = None,
+    source_metadata: SourceMetadata | None = None,
 ) -> tuple[Any, dict[str, str], bool]:
     """Parse one import source by selected import type.
 
@@ -131,17 +133,17 @@ def parse_record_source(
     if normalized == "Medtronic":
         from lfptensorpipe.io.medtronic import parse as parse_medtronic
 
-        raw, report = parse_medtronic(paths, options)
+        raw, report = parse_medtronic(paths, options, source_metadata=source_metadata)
         is_fif_input = False
     elif normalized == "PINS":
         from lfptensorpipe.io.pins import parse as parse_pins
 
-        raw, report = parse_pins(paths, options)
+        raw, report = parse_pins(paths, options, source_metadata=source_metadata)
         is_fif_input = False
     elif normalized == "Sceneray":
         from lfptensorpipe.io.sceneray import parse as parse_sceneray
 
-        raw, report = parse_sceneray(paths, options)
+        raw, report = parse_sceneray(paths, options, source_metadata=source_metadata)
         is_fif_input = False
     elif normalized == "Legacy (MNE supported)":
         from lfptensorpipe.io.mne_supported import parse as parse_mne_supported
@@ -199,17 +201,17 @@ def apply_reset_reference(
         name = str(row[2]).strip()
 
         if not anode and not cathode:
-            raise ValueError("At least one of anode or cathode is required.")
+            raise ValueError("A signal or reference channel is required.")
         if anode and anode not in available:
-            raise ValueError(f"Anode channel not found: {anode}")
+            raise ValueError(f"Signal channel not found: {anode}")
         if cathode and cathode not in available:
-            raise ValueError(f"Cathode channel not found: {cathode}")
+            raise ValueError(f"Reference channel not found: {cathode}")
         if not name:
             raise ValueError("Name is required.")
         if name in seen_names:
             raise ValueError(f"Duplicate output channel name: {name}")
         if anode and cathode and cathode == anode:
-            raise ValueError("Anode and cathode cannot be identical.")
+            raise ValueError("Signal channel and reference channel must be different.")
 
         key = (anode, cathode)
         if key in seen_pairs:

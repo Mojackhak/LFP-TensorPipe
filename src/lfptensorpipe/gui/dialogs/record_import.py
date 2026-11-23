@@ -281,12 +281,12 @@ class RecordImportDialog(QDialog):
         self._reset_configure_button = QPushButton("Configure...")
         self._reset_configure_button.clicked.connect(self._on_reset_configure)
         self._reset_configure_button.setToolTip(
-            "Configure reset-reference pairs for the parsed channels."
+            "Configure output channels for this import."
         )
         reset_row_layout.addWidget(self._reset_check)
         reset_row_layout.addStretch(1)
         reset_row_layout.addWidget(self._reset_configure_button)
-        self._reset_summary_label = QLabel("Pairs: No pairs configured")
+        self._reset_summary_label = QLabel("Configured outputs: 0")
         self._reset_summary_label.setToolTip(
             "Current reset-reference configuration summary."
         )
@@ -301,7 +301,13 @@ class RecordImportDialog(QDialog):
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(4)
-        right_layout.addWidget(QLabel("Parse Result"))
+        result_header = QHBoxLayout()
+        result_header.addWidget(QLabel("Parse Result"))
+        result_header.addStretch(1)
+        self._acquisition_button = QPushButton("Acquisition Reference…")
+        self._acquisition_button.clicked.connect(self._on_acquisition_reference)
+        result_header.addWidget(self._acquisition_button)
+        right_layout.addLayout(result_header)
         self._result_label = QLabel()
         self._result_label.setWordWrap(True)
         self._result_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
@@ -347,6 +353,16 @@ class RecordImportDialog(QDialog):
         self._update_type_visibility()
         self._invalidate_parse_state()
         self._refresh_input_validation()
+
+    def _on_acquisition_reference(self) -> None:
+        from .record_information import AcquisitionReferenceDialog
+
+        if not self._parsed or not self._parsed.provenance:
+            return
+        info = self._parsed.provenance
+        editor = AcquisitionReferenceDialog(info.inputs, self)
+        if editor.exec() == QDialog.Accepted:
+            info.inputs = editor.channels()
 
     @property
     def selected_import_type(self) -> str:
@@ -427,10 +443,10 @@ class RecordImportDialog(QDialog):
     def _set_reset_summary(self) -> None:
         if self._reset_rows:
             self._reset_summary_label.setText(
-                f"Pairs: {len(self._reset_rows)} pairs configured"
+                f"Configured outputs: {len(self._reset_rows)}"
             )
             return
-        self._reset_summary_label.setText("Pairs: No pairs configured")
+        self._reset_summary_label.setText("Configured outputs: 0")
 
     def _set_sync_summary(self) -> None:
         if not self._sync_check.isChecked():
@@ -583,11 +599,7 @@ class RecordImportDialog(QDialog):
         if self._parsed is not None and self._reset_check.isChecked():
             set_control_validation_error(
                 self._reset_configure_button,
-                (
-                    None
-                    if self._reset_rows
-                    else "At least one reset-reference pair is required."
-                ),
+                (None if self._reset_rows else "Configure at least one output."),
             )
 
     def _update_type_visibility(self) -> None:

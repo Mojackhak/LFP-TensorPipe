@@ -154,13 +154,17 @@ class LocalizeMatchDialog(QDialog):
         special_layout = QHBoxLayout(special_row)
         special_layout.setContentsMargins(0, 0, 0, 0)
         special_layout.setSpacing(6)
-        special_layout.addWidget(QLabel("Cathode-only"))
+        special_layout.addWidget(QLabel("Reference only"))
         case_button = QPushButton("Case")
         case_button.clicked.connect(lambda: self._on_contact_clicked("case", True))
-        case_button.setToolTip("Cathode-only option. Select anode first.")
+        case_button.setToolTip(
+            "Reference contact option. Select the recording contact first."
+        )
         ground_button = QPushButton("Ground")
         ground_button.clicked.connect(lambda: self._on_contact_clicked("ground", True))
-        ground_button.setToolTip("Cathode-only option. Select anode first.")
+        ground_button.setToolTip(
+            "Reference contact option. Select the recording contact first."
+        )
         special_layout.addWidget(case_button)
         special_layout.addWidget(ground_button)
         special_layout.addStretch(1)
@@ -176,21 +180,20 @@ class LocalizeMatchDialog(QDialog):
         self._selected_channel_label = QLabel("-")
         self._selected_channel_label.setToolTip("Current record channel being edited.")
         right_layout.addWidget(self._selected_channel_label, 0, 1)
-        right_layout.addWidget(QLabel("Anode"), 1, 0)
+        right_layout.addWidget(QLabel("Recording contact"), 1, 0)
         self._anode_button = QPushButton("")
         self._anode_button.clicked.connect(lambda: self._clear_draft_endpoint("anode"))
-        self._anode_button.setToolTip("Click to clear current anode selection.")
+        self._anode_button.setToolTip("Clear the recording contact.")
         right_layout.addWidget(self._anode_button, 1, 1)
-        right_layout.addWidget(QLabel("Cathode"), 2, 0)
+        right_layout.addWidget(QLabel("Reference contact"), 2, 0)
         self._cathode_button = QPushButton("")
         self._cathode_button.clicked.connect(
             lambda: self._clear_draft_endpoint("cathode")
         )
-        self._cathode_button.setToolTip("Click to clear current cathode selection.")
+        self._cathode_button.setToolTip("Clear the reference contact.")
         right_layout.addWidget(self._cathode_button, 2, 1)
         right_layout.addWidget(QLabel("Rep. coord"), 3, 0)
         self._rep_combo = QComboBox()
-        self._rep_combo.addItems(["Anode", "Cathode", "Mid"])
         self._rep_combo.currentIndexChanged.connect(self._on_rep_coord_changed)
         self._rep_combo.setToolTip(
             "Representative coordinate exported for this channel."
@@ -210,7 +213,13 @@ class LocalizeMatchDialog(QDialog):
         table_layout.setSpacing(4)
         self._mapping_table = QTableWidget(0, 5)
         self._mapping_table.setHorizontalHeaderLabels(
-            ["channel", "Anode", "Cathode", "Rep. coord", "Action"]
+            [
+                "Channel",
+                "Recording contact",
+                "Reference contact",
+                "Rep. coord",
+                "Action",
+            ]
         )
         self._mapping_table.verticalHeader().setVisible(False)
         self._mapping_table.setSelectionBehavior(QAbstractItemView.SelectRows)

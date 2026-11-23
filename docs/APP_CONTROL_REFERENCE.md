@@ -48,7 +48,24 @@ on the selected project, subject, and record.
 | `Record` | Selects the active record under the current subject. Records are listed when any standard Derivatives, Rawdata, or Sourcedata record root exists. A record with only its Sourcedata root is shown in red. | Localize and all stage pages. | Requires a selected subject. A record with no canonical Rawdata input remains manageable but is not runnable. |
 | `Record +` | Opens the record import dialog. | Creates a new record when the import completes successfully. | Requires a selected subject. A name already occupied by any standard record root cannot be imported. |
 | `Record R` | Renames the selected record while preserving compatible downstream artifacts. | Record name and artifact paths that track that name. | Requires exactly one selected record. |
+| `Record I` | Opens the read-only Record Information dialog. | Recording summary and input/output channel definitions. | Requires a selected record, including in a read-only project. |
 | `Record -` | Opens a permanent-delete dialog for the selected record. | The selected standard `Derivatives`, `Rawdata`, and/or `Sourcedata` record roots. | Requires exactly one selected record. Missing scopes are disabled; the first existing scope in Derivatives, Rawdata, Sourcedata order is selected by default. |
+
+Record Information opens on **Output channels**. Both tabs show the channel name,
+recording contact, reference contact, and the recorded signal expression. Source
+format and filenames are shown alongside the imported sampling rate, duration
+and channel inventory. An import with sampling-rate correction also shows the
+pre-correction rate from its Sync config. The canonical Rawdata `raw/raw.fif`
+supplies the effective rate and output channels. New imports store their source
+labels, acquisition contacts and actual software derivations in the adjacent
+`record_info.json`.
+
+For a historical record, information is read on demand for the selected record.
+For SceneRay, PINS and Medtronic, a recoverable derivation requires a matching
+source and a unique whole-waveform match after the recorded sync shift.
+Missing or ambiguous information is shown as `Unknown`. Historical Legacy
+(MNE supported) and Legacy (CSV) inputs and outputs display `Unknown` in all
+three contact and signal columns and skip waveform matching.
 
 `Record -` deletes only the selected standard record roots:
 
@@ -172,7 +189,7 @@ required pre-import transforms before the record is committed.
 
 ![Import Record dialog.](assets/app-control-reference/controlref-basic-import-record.png)
 
-The screenshot shows the visible fields for one parser configuration with
+The screenshot predates the Acquisition Reference control and shows one parser configuration with
 `Advanced` enabled. Other import types can expose additional type-specific
 inputs.
 
@@ -189,11 +206,12 @@ inputs.
 | `Browse` (metadata) | Opens a file chooser for the metadata sidecar. | Fills the metadata path field. | Same gating as `Metadata`. |
 | `Sampling rate` | Sets the source sampling rate for Legacy CSV input. | Legacy CSV time axis and all derived timing. | Visible only for Legacy CSV; must be a finite number greater than zero. |
 | `Parse` | Reads the selected source and previews import metadata without committing the record. | Parsed channels, sample rate, duration, and parser-dependent import state. | Requires a valid source path and any required parser inputs. |
+| `Acquisition Reference…` | Review or enter recording and reference contacts for parsed inputs. A common reference can fill missing references. | Current import draft. | Available after Parse, independently of Reset reference. |
 | `Sync` | Enables import-time timeline synchronization. | Whether a saved sync state becomes part of the import requirements. | Requires a successful parse. |
 | `Configure...` (Sync) | Opens the sync configuration dialog. | Saved import-time sync state. | Enabled when `Sync` is checked and parse state exists. |
 | `Sync` summary | Reports the saved synchronization state. | Import gating feedback. | Read-only. |
 | `Reset reference` | Enables pre-import channel remapping. | Whether a saved reset-reference state becomes part of the import requirements. | Requires a successful parse. |
-| `Configure...` (Reset reference) | Opens the reset-reference dialog. | Saved reset-reference pairs. | Enabled when `Reset reference` is checked and channels were parsed. |
+| `Configure...` (Reset reference) | Opens the reset-reference dialog. | Saved output-channel definitions. | Enabled when `Reset reference` is checked and channels were parsed. |
 | `Reset reference` summary | Reports the saved reset-reference state. | Import gating feedback. | Read-only. |
 | `Parse Result` | Reports parser summary such as vendor, channels, sampling rate, and duration. | Human validation only. | Read-only after parse. |
 | `Confirm Import` | Commits the parsed record into the current subject. The backend repeats the standard-path conflict check immediately before writing. | Record creation under the selected subject. | Disabled until parse succeeds, all enabled prerequisite dialogs are saved, and the normalized record name is not occupied. |
@@ -319,24 +337,27 @@ pair or coincident times.
 
 ### 3.3 Reset Reference
 
-This dialog defines bipolar or unary remapping pairs that are applied before the
-record is imported. A successful reparse with different channel names or order
-clears the old pairs and requires a new reference selection. Re-parsing the
-same ordered channel list preserves the draft.
+This dialog defines an ordered list of output channels. A signal channel alone
+passes through. A reference channel alone is sign-reversed. With both inputs
+present, the reference waveform is subtracted from the signal waveform. A
+successful reparse with different channel names or order clears the old output
+definitions. Re-parsing the same ordered channel list preserves the draft.
 
 Reset Reference preserves the absolute time of every retained sample and
 annotation, including when a dated, cropped Raw is supplied directly.
 
 ![Reset Reference dialog.](assets/app-control-reference/controlref-advance-reset-reference-dialog.png)
 
+The table below uses the current field names.
+
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | `Search` | Filters parsed channels and configured pairs. | Dialog browsing only. | Always available. |
-| Channel list | Provides the parsed input channels used to draft pairs. | Draft anode/cathode selection. | Requires parsed channels. |
-| Pair table | Lists the currently configured reset-reference outputs. | Saved reset-reference payload. | Read-only except for delete actions. |
-| `Anode` | Draft source channel for the positive pole. | The pending pair draft. | Required unless the pair is cathode-only. |
-| `Cathode` | Draft source channel for the negative pole. | The pending pair draft. | Required unless the pair is anode-only. |
-| `Name` | Output channel name written into the imported record. | Imported channel naming. | Required for every saved pair. |
+| Channel list | Provides the parsed input channels used to draft pairs. | Draft signal and reference channels. | Requires parsed channels. |
+| Configured outputs | Lists the output channels in import order. | Saved reset-reference payload. | Read-only except for delete actions. |
+| `Signal channel` | Selects the input waveform to keep or subtract from. | Current output draft. | May be used alone for pass-through. |
+| `Reference channel` | Selects the waveform to subtract. | Current output draft. | May be used alone for sign reversal. |
+| `Output name` | Output channel name written into the imported record. | Imported channel naming. | Required for every saved pair. |
 | `Apply` | Adds the draft pair to the table. | Pair table rows. | Requires a valid draft. |
 | `Clear Draft` | Clears the current draft row. | Draft fields only. | Always available. |
 | `Clear All` | Removes all configured pairs. | Pair table rows. | Always available. |
@@ -398,7 +419,7 @@ by the main app is outside this close contract and is not terminated.
 
 ### 4.2 Match: Record Channels ↔ Lead-DBS Contacts
 
-This dialog binds each record channel to an anode, cathode, and representative
+This dialog binds each record channel to a recording contact, reference contact, and representative
 coordinate mode.
 
 ![Localize Match dialog.](assets/app-control-reference/controlref-advance-localize-match-dialog.png)
@@ -410,12 +431,12 @@ coordinate mode.
 | `Reset` | Clears all mappings for the current record. | Entire mapping table. | Always available. |
 | `Status` | Reports mapped channels versus total channels. | Human validation only. | Read-only. |
 | `Record Channels` list | Lists channels that still need mapping. | Active channel selection for editing. | Requires parsed channels. |
-| Lead contact buttons | Select an anode or cathode endpoint from a Lead-DBS lead. | Current binding draft. | Requires an active channel. |
-| `Case` / `Ground` | Provide cathode-only special endpoints. | Current binding draft. | Require an anode to be chosen first. |
+| Lead contact buttons | Select a recording or reference contact from a Lead-DBS lead. | Current binding draft. | Requires an active channel. |
+| `Case` / `Ground` | Provide special reference endpoints. | Current binding draft. | Require a recording contact first. |
 | `Selected` | Shows which record channel is currently being edited. | Human validation only. | Read-only. |
-| `Anode` | Shows the drafted anode and lets the user clear it. | Current binding draft. | Requires an active channel. |
-| `Cathode` | Shows the drafted cathode and lets the user clear it. | Current binding draft. | Requires an active channel. |
-| `Rep. coord` | Chooses the representative coordinate mode exported for this channel. | Representative-coordinate outputs for that channel. | Requires an active channel. |
+| `Recording contact` | Shows the drafted recording contact and lets the user clear it. | Current binding draft. | Requires an active channel. |
+| `Reference contact` | Shows the drafted reference contact and lets the user clear it. | Current binding draft. | Requires an active channel. |
+| `Rep. coord` | Chooses Recording contact, Reference contact, or Midpoint for this channel. Case and Ground use the recording contact. | Representative-coordinate outputs for that channel. | Requires an active channel. |
 | `Bind/Update` | Commits the current draft for the active channel. | Mapping table. | Requires a valid draft. |
 | `Mapping Table` | Lists committed bindings for this record. | Saved payload and row editing entrypoint. | Read-only except for row selection and row delete actions. |
 | `Set as Default` | Saves the current mapping table as the app default. | Future default mappings. | Requires a complete valid mapping; no mapping is synthesized when a safe default does not exist. |

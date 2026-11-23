@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.dataset.record_info import RecordProvenance
 from .common import *  # noqa: F403
 from lfptensorpipe.io.sync import ImportSyncState, SyncEstimate, SyncFigureData
 
@@ -24,6 +25,8 @@ class ParsedImportPreview:
     sync_estimate: SyncEstimate | None = None
     sync_figure_data: SyncFigureData | None = None
     sync_state: ImportSyncState | None = None
+
+    provenance: RecordProvenance | None = None
 
     @property
     def raw(self) -> Any:
