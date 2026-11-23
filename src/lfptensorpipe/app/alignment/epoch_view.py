@@ -160,27 +160,102 @@ def persist_alignment_epoch_picks(
     picked_epoch_indices: list[int] | None,
 ) -> bool:
     """Persist current epoch-inspector draft picks into alignment log state."""
-    _normalize_slug = svc._normalize_slug
-    alignment_paradigm_log_path = svc.alignment_paradigm_log_path
-
-    resolver = PathResolver(context)
-    slug = _normalize_slug(paradigm_slug)
+    slug = svc._normalize_slug(paradigm_slug)
     if not slug:
         return False
-    log_path = alignment_paradigm_log_path(resolver, slug)
-    payload = svc.read_run_log(log_path)
-    if payload is None:
-        return False
-    runs = _successful_run_indices(_history_entries(payload))
-    _write_updated_run_log_state(
-        log_path,
-        payload,
+    return save_epoch_review(
+        context,
+        slug,
         {
-            "epoch_inspector": {
-                "run_history_index": next(runs, -1),
-                "picked_epoch_indices": _normalize_pick_list(picked_epoch_indices)
-                or [],
-            }
+            "picked_epoch_indices": _normalize_pick_list(picked_epoch_indices) or [],
         },
     )
+
+
+def _current_review_state(payload):
+    review = (payload.get("state") or {}).get("epoch_inspector") or {}
+    report = review.get("qc_result") or {}
+    for resolved in report.get("resolved", {}).values():
+        bins = resolved.get("frequency_bins", [])
+        if (
+            resolved["rule"]["method"] == "MAD"
+            and bins
+            and isinstance(bins[0], (int, float))
+            and (len(bins) > 1 or bins[0] <= 0)
+            and resolved.get("cluster_frequency_scale") != "log"
+        ):
+            # Original exclusion evidence stays attached to its manual decision.
+            return {**review, "qc_result": None}
+    return review
+
+
+def load_epoch_review(context, slug):
+    """Read current Run decisions and trial-wide QC/Preview preferences."""
+    payload = _alignment_log_payload(PathResolver(context), slug=slug) or {}
+    review = _current_review_state(payload)
+    run_index = next(_successful_run_indices(_history_entries(payload)), -1)
+    return {**review, "run_history_index": run_index}
+
+
+def save_epoch_review(context, slug, patch, *, run_index=None):
+    """Replace edited inspector fields without merging an old rule or deleted note."""
+    path = svc.alignment_paradigm_log_path(PathResolver(context), slug)
+    payload = svc.read_run_log(path)
+    if not payload:
+        return False
+    runs = _successful_run_indices(_history_entries(payload))
+    owner = next(runs, -1)
+    if run_index is not None and owner != run_index:
+        raise ValueError("The Align Run changed. Reopen the current trial.")
+    state = dict(payload.get("state", {}))
+    inspector = dict(state.get("epoch_inspector", {}))
+    previous_owner = inspector.get("run_history_index")
+    if previous_owner != owner and (
+        previous_owner is not None or next(runs, None) is not None
+    ):
+        inspector["picked_epoch_indices"] = None
+    inspector.update(patch, run_history_index=owner)
+    state["epoch_inspector"] = inspector
+    _write_updated_run_log_state(path, {**payload, "state": state}, {})
     return True
+
+
+def finish_review_snapshot(context, slug, picked, epochs):
+    """Attach Run-owned decisions to the source geometry already read by Finish."""
+    from lfptensorpipe.lfp.warp.pad_concat import positive_pad_intervals
+
+    payload = _alignment_log_payload(PathResolver(context), slug=slug) or {}
+    owner = next(_successful_run_indices(_history_entries(payload)), None)
+    review = _current_review_state(payload)
+    decisions = []
+    accepted = set(picked)
+    for i, epoch in enumerate(epochs):
+        events = epoch.get("events_t") or {}
+        intervals = epoch.get("intervals_s")
+        if intervals is None and "pad_left" in events:
+            intervals = positive_pad_intervals(events)
+        if intervals is None and np.all(
+            np.isfinite([epoch.get("start_t", np.nan), epoch.get("end_t", np.nan)])
+        ):
+            intervals = [[epoch["start_t"], epoch["end_t"]]]
+        key = str(i)
+        decisions.append(
+            {
+                "epoch_index": i,
+                "epoch": epoch["label"],
+                "source_intervals_s": intervals,
+                "source_events": events,
+                "include": i in accepted,
+                "notes": (review.get("notes") or {}).get(key, ""),
+                "automatic_exclusion": (
+                    (review.get("exclusions") or {}).get(key)
+                    if i not in accepted
+                    else None
+                ),
+            }
+        )
+    return {
+        "run_history_index": owner,
+        "qc_result": review.get("qc_result"),
+        "decisions": decisions,
+    }

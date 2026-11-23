@@ -34,6 +34,7 @@ from lfptensorpipe.app.shared.generation_lineage import (
 from lfptensorpipe.utils.transforms import VALUE_TRANSFORM_POLICY_KEY
 
 from . import service as svc
+from .epoch_view import finish_review_snapshot
 
 
 def finish_alignment_epochs(
@@ -217,6 +218,11 @@ def finish_alignment_epochs(
                     f"Picked epoch indices exceed {metric_key} epoch support: "
                     + ", ".join(str(index) for index in invalid_picks)
                 )
+            if metric_key == required_metrics[0]:
+                epochs = meta.get("warp_epochs")
+                if epochs is None:
+                    epochs = [{"label": str(label)} for label in axis_values["epoch"]]
+                review = finish_review_snapshot(context, slug, picked, epochs)
             tensor_keep = tensor[picked, ...]
             epochs_keep = [axis_values["epoch"][idx] for idx in picked]
             time_axis = _finish_time_axis_values(
@@ -284,6 +290,7 @@ def finish_alignment_epochs(
                         {
                             "trial_slug": slug,
                             "picked_epoch_indices": picked,
+                            "epoch_review": review,
                             "metrics": required_metrics,
                             "n_metrics": len(required_metrics),
                             "merge_location_info_ready": merge_location_info_ready,
