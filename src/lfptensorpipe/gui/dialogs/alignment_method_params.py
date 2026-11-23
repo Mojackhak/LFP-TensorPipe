@@ -27,6 +27,7 @@ from .common import (
     QListWidget,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -134,9 +135,7 @@ class AlignmentMethodParamsDialog(QDialog):
         self._table_validation_error = False
         self._method_ui_ready = False
         self.setWindowTitle("Align Epochs Params")
-        self.resize(620, 460)
-        if method_key == "linear_warper":
-            self.resize(900, 680)
+        self.resize(620, 620)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
@@ -211,7 +210,11 @@ class AlignmentMethodParamsDialog(QDialog):
         self._method_layout = QVBoxLayout(self._method_box)
         self._method_layout.setContentsMargins(8, 8, 8, 8)
         self._method_layout.setSpacing(6)
-        root.addWidget(self._method_box, stretch=1)
+        method_scroll = QScrollArea()
+        method_scroll.setFrameShape(QScrollArea.NoFrame)
+        method_scroll.setWidgetResizable(True)
+        method_scroll.setWidget(self._method_box)
+        root.addWidget(method_scroll, stretch=1)
 
         action_row = QWidget()
         action_layout = QHBoxLayout(action_row)

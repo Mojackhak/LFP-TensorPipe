@@ -1761,6 +1761,9 @@ the default `bad` and `edge`. The checkbox tooltip lists the current fields.
 Method drafts are saved per trial, including incomplete values. Selecting another trial
 or record restores its own draft.
 
+All four methods open the Params dialog at 620 × 620 logical pixels. The
+Method Params section scrolls as needed. The dialog is resizable.
+
 **Method default behavior**
 
 The four method-parameter dialogs store app defaults independently for
