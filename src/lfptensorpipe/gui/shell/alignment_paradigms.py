@@ -49,10 +49,9 @@ class MainWindowAlignmentParadigmsMixin:
         paradigm = self._current_alignment_paradigm()
         context = self._record_context()
         if paradigm is None:
-            if self._alignment_method_description_label is not None:
-                self._alignment_method_description_label.setText("")
+            if self._alignment_method_combo is not None:
+                self._alignment_method_combo.setToolTip("")
             self._set_alignment_epoch_rows([])
-            self._refresh_alignment_metric_combo()
             self._refresh_alignment_controls()
             return
 
@@ -77,7 +76,6 @@ class MainWindowAlignmentParadigmsMixin:
             self._set_alignment_epoch_rows(rows)
         else:
             self._set_alignment_epoch_rows([])
-        self._refresh_alignment_metric_combo()
         self._refresh_alignment_controls()
 
     def _current_alignment_paradigm_slug(self) -> str | None:
@@ -151,7 +149,6 @@ class MainWindowAlignmentParadigmsMixin:
             self._alignment_paradigm_list.blockSignals(False)
             self._set_shared_stage_trial_slug(None)
             self._set_alignment_epoch_rows([])
-            self._refresh_alignment_metric_combo()
             self._refresh_alignment_controls()
             return
 

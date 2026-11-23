@@ -6,7 +6,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
-    QFormLayout,
+    QGridLayout,
+    QMenu,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -62,8 +63,9 @@ def _build_alignment_page(self) -> QWidget:
     left_layout.setContentsMargins(0, 0, 0, 0)
     left_layout.setSpacing(page_spacing)
     left_layout.addWidget(self._page_title("Align Epochs"))
-    left_layout.addWidget(self._build_alignment_paradigm_block())
-    left_layout.addWidget(self._build_alignment_method_block(), stretch=1)
+    left_layout.addWidget(self._build_alignment_paradigm_block(), stretch=1)
+    left_layout.addWidget(self._build_alignment_method_block())
+    left_layout.addWidget(self._build_alignment_epoch_inspector_block())
 
     right = QWidget()
     right.setMinimumWidth(0)
@@ -71,12 +73,11 @@ def _build_alignment_page(self) -> QWidget:
     right_layout = QVBoxLayout(right)
     right_layout.setContentsMargins(0, 0, 0, 0)
     right_layout.setSpacing(page_spacing)
-    right_layout.addWidget(self._build_alignment_epoch_inspector_block(), stretch=1)
+    right_layout.addWidget(_epoch_list(self), stretch=1)
 
-    layout.addWidget(left, stretch=1)
-    layout.addWidget(right, stretch=1)
-    layout.setStretch(0, 1)
-    layout.setStretch(1, 1)
+    left.setMinimumWidth(258)
+    layout.addWidget(left, stretch=4)
+    layout.addWidget(right, stretch=6)
     return page
 
 
@@ -101,165 +102,101 @@ def _build_alignment_paradigm_block(self) -> QGroupBox:
 
 def _build_alignment_method_block(self) -> QGroupBox:
     block = IndicatorGroupBox("Method + Params")
-    layout = QFormLayout(block)
-    layout.setLabelAlignment(Qt.AlignLeft)
-    layout.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
-    block.setContentsMargins(8, 8, 8, 8)
+    layout = QGridLayout(block)
+    layout.setContentsMargins(8, 8, 8, 8)
+    layout.setSpacing(_grid_spacing(self))
     self._alignment_method_indicator = block.indicator_label()
     self._set_indicator_color(self._alignment_method_indicator, "gray")
-    self._alignment_method_indicator.setToolTip(
-        "Alignment method state: gray=not run, yellow=stale or failed, "
-        "green=current params have successful alignment outputs."
-    )
-
     self._alignment_method_combo = QComboBox()
+    self._alignment_method_combo.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
     for item in _alignment_methods(self):
         self._alignment_method_combo.addItem(item.display_name, item.key)
-        row = self._alignment_method_combo.count() - 1
         self._alignment_method_combo.setItemData(
-            row,
+            self._alignment_method_combo.count() - 1,
             self._alignment_method_description_text(item.key),
             Qt.ToolTipRole,
         )
     self._alignment_method_combo.currentIndexChanged.connect(
         self._on_alignment_method_changed
     )
-    layout.addRow("Method", self._alignment_method_combo)
-
-    run_row = QWidget()
-    run_layout = QHBoxLayout(run_row)
-    run_layout.setContentsMargins(0, 0, 0, 0)
-    run_layout.setSpacing(_grid_spacing(self))
     self._alignment_method_params_button = QPushButton("Params")
-    self._alignment_method_params_button.setToolTip("Open method parameter settings.")
     self._alignment_method_params_button.clicked.connect(
         self._on_alignment_method_params
     )
     self._alignment_run_button = QPushButton("Align Epochs")
-    self._alignment_run_button.setToolTip(
-        "Run alignment and save warped tensors for the selected trial."
-    )
     self._alignment_run_button.clicked.connect(self._on_alignment_run)
-    run_layout.addWidget(self._alignment_method_params_button)
-    run_layout.addWidget(self._alignment_run_button)
-    run_layout.addStretch(1)
-    layout.addRow(run_row)
-
-    self._alignment_method_description_label = QLabel("")
-    self._alignment_method_description_label.setWordWrap(True)
-    self._alignment_method_description_label.setStyleSheet("color: #555555;")
-    layout.addRow("", self._alignment_method_description_label)
-
-    config_row = QWidget()
-    config_layout = QHBoxLayout(config_row)
-    config_layout.setContentsMargins(0, 0, 0, 0)
-    config_layout.setSpacing(_grid_spacing(self))
-    self._alignment_import_button = QPushButton("Import Configs...")
-    self._alignment_import_button.setToolTip(
-        "Load alignment config for the selected trial."
+    configs = QPushButton("Configs")
+    menu = QMenu(configs)
+    self._alignment_import_button = menu.addAction(
+        "Import Configs…", self._on_alignment_import_config
     )
-    self._alignment_import_button.clicked.connect(self._on_alignment_import_config)
-    self._alignment_export_button = QPushButton("Export Configs...")
-    self._alignment_export_button.setToolTip(
-        "Save alignment config for the selected trial."
+    self._alignment_export_button = menu.addAction(
+        "Export Configs…", self._on_alignment_export_config
     )
-    self._alignment_export_button.clicked.connect(self._on_alignment_export_config)
-    config_layout.addWidget(self._alignment_import_button, 1)
-    config_layout.addWidget(self._alignment_export_button, 1)
-    layout.addRow(config_row)
-
+    configs.setMenu(menu)
+    layout.addWidget(self._alignment_method_combo, 0, 0)
+    layout.addWidget(self._alignment_method_params_button, 0, 1)
+    layout.addWidget(configs, 1, 0)
+    layout.addWidget(self._alignment_run_button, 1, 1)
+    layout.setColumnStretch(0, 2)
+    layout.setColumnStretch(1, 1)
     self._update_alignment_method_description()
     return block
 
 
 def _build_alignment_epoch_inspector_block(self) -> QGroupBox:
     block = IndicatorGroupBox("Epoch Inspector")
-    layout = QVBoxLayout(block)
+    layout = QGridLayout(block)
     layout.setContentsMargins(8, 8, 8, 8)
-    grid_spacing = _grid_spacing(self)
-    layout.setSpacing(grid_spacing)
+    layout.setSpacing(_grid_spacing(self))
     self._alignment_epoch_inspector_indicator = block.indicator_label()
     self._set_indicator_color(self._alignment_epoch_inspector_indicator, "gray")
-    self._alignment_epoch_inspector_indicator.setToolTip(
-        "Epoch inspector state: gray=not ready, yellow=stale or failed, "
-        "green=current picked epochs have preview-ready outputs."
+    buttons = (
+        ("_qc_run", "Run QC", self._run_epoch_qc),
+        ("_qc_advance", "Advance", self._edit_epoch_qc),
+        ("_qc_import", "Import Configs…", self._import_epoch_qc),
+        ("_qc_export", "Export Configs…", self._export_epoch_qc),
+        ("_qc_view", "View flagged", self._view_flagged),
+        ("_qc_exclude", "Exclude flagged", self._exclude_flagged),
+        (
+            "_alignment_select_all_button",
+            "Select all Include",
+            self._on_alignment_select_all,
+        ),
+        ("_view_all", "Select all View", self._toggle_epoch_view),
+        ("_alignment_preview_button", "Preview", self._on_alignment_preview),
+        ("_alignment_finish_button", "Finish", self._on_alignment_finish),
     )
+    for i, (attr, title, handler) in enumerate(buttons):
+        button = QPushButton(title)
+        setattr(self, attr, button)
+        button.clicked.connect(handler)
+        layout.addWidget(button, i // 2, i % 2)
+    return block
 
-    metric_row = QWidget()
-    metric_layout = QHBoxLayout(metric_row)
-    metric_layout.setContentsMargins(0, 0, 0, 0)
-    metric_layout.setSpacing(grid_spacing)
-    metric_layout.addWidget(QLabel("Metric"))
-    self._alignment_epoch_metric_combo = QComboBox()
-    self._alignment_epoch_metric_combo.currentIndexChanged.connect(
-        self._on_alignment_epoch_metric_changed
-    )
-    self._alignment_epoch_metric_combo.setToolTip(
-        "Select the metric shown in Epoch Inspector."
-    )
-    metric_layout.addWidget(self._alignment_epoch_metric_combo, stretch=1)
-    metric_layout.addWidget(QLabel("Channel"))
-    self._alignment_epoch_channel_combo = QComboBox()
-    self._alignment_epoch_channel_combo.setToolTip(
-        "Select channel used for preview averaging."
-    )
-    metric_layout.addWidget(self._alignment_epoch_channel_combo, stretch=1)
-    layout.addWidget(metric_row)
 
-    self._alignment_epoch_table = QTableWidget(0, 5)
-    self._alignment_epoch_table.setHorizontalHeaderLabels(
-        ["Pick", "Epoch", "Duration (s)", "Start (s)", "End (s)"]
-    )
-    self._alignment_epoch_table.verticalHeader().setVisible(False)
-    self._alignment_epoch_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-    header = self._alignment_epoch_table.horizontalHeader()
-    header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-    header.setSectionResizeMode(1, QHeaderView.Stretch)
-    header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-    header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-    header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-    self._alignment_epoch_table.setMinimumHeight(220)
-    self._alignment_epoch_table.setToolTip(
-        "Epochs detected in the last run. Pick controls Preview and Finish outputs."
-    )
-    self._alignment_epoch_table.itemChanged.connect(
-        self._on_alignment_epoch_item_changed
-    )
-    layout.addWidget(self._alignment_epoch_table, stretch=1)
-
-    action_block = QWidget()
-    action_block_layout = QVBoxLayout(action_block)
-    action_block_layout.setContentsMargins(0, 0, 0, 0)
-    action_block_layout.setSpacing(grid_spacing)
-
-    action_row = QWidget()
-    action_layout = QHBoxLayout(action_row)
-    action_layout.setContentsMargins(0, 0, 0, 0)
-    action_layout.setSpacing(grid_spacing)
-    self._alignment_select_all_button = QPushButton("Select All")
-    self._alignment_select_all_button.setToolTip("Toggle all epoch picks on or off.")
-    self._alignment_preview_button = QPushButton("Preview")
-    self._alignment_preview_button.setToolTip("Show average map from picked epochs.")
-    self._alignment_finish_button = QPushButton("Finish")
-    self._alignment_finish_button.setToolTip(
-        "Build raw tables from picked epochs only."
-    )
-    self._alignment_select_all_button.clicked.connect(self._on_alignment_select_all)
-    self._alignment_preview_button.clicked.connect(self._on_alignment_preview)
-    self._alignment_finish_button.clicked.connect(self._on_alignment_finish)
-    action_layout.addWidget(self._alignment_select_all_button)
-    action_layout.addWidget(self._alignment_preview_button)
-    action_layout.addWidget(self._alignment_finish_button)
-    action_layout.addStretch(1)
-    action_block_layout.addWidget(action_row)
-
+def _epoch_list(self):
+    block = QGroupBox("Epoch list")
+    layout = QVBoxLayout(block)
+    layout.setContentsMargins(6, 8, 6, 6)
+    table = self._alignment_epoch_table = QTableWidget(0, 5)
+    table.setHorizontalHeaderLabels(["Include", "Epoch", "Duration", "View", "Notes"])
+    table.horizontalHeaderItem(2).setToolTip("Duration in seconds")
+    table.verticalHeader().hide()
+    table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+    table.setSelectionMode(QAbstractItemView.NoSelection)
+    table.setTextElideMode(Qt.ElideRight)
+    header = table.horizontalHeader()
+    header.setMinimumSectionSize(35)
+    for col in (0, 2, 3):
+        header.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+    for col in (1, 4):
+        header.setSectionResizeMode(col, QHeaderView.Stretch)
+    table.itemChanged.connect(self._on_alignment_epoch_item_changed)
+    table.cellDoubleClicked.connect(self._open_epoch_cell)
+    layout.addWidget(table, 1)
     self._alignment_merge_location_status_label = QLabel(
         "Merge Location Info: Not Ready"
     )
-    self._alignment_merge_location_status_label.setToolTip(
-        "Representative-coordinate merge readiness follows the current record Localize state."
-    )
-    action_block_layout.addWidget(self._alignment_merge_location_status_label)
-
-    layout.addWidget(action_block)
+    layout.addWidget(self._alignment_merge_location_status_label)
     return block

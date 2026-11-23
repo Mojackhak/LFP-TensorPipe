@@ -85,29 +85,18 @@ class MainWindowRecordParamsApplyAlignmentMixin:
         else:
             skipped += 1
 
-        if "alignment.epoch_metric" not in self._record_param_dirty_keys:
-            epoch_metric = _nested_get(snapshot, ("alignment", "epoch_metric"))
-            if (
-                isinstance(epoch_metric, str)
-                and self._alignment_epoch_metric_combo is not None
-            ):
-                idx = self._alignment_epoch_metric_combo.findData(epoch_metric)
-                if idx >= 0:
-                    self._alignment_epoch_metric_combo.setCurrentIndex(idx)
-        else:
-            skipped += 1
-
-        if "alignment.epoch_channel" not in self._record_param_dirty_keys:
-            epoch_channel = _nested_get(snapshot, ("alignment", "epoch_channel"))
-            if (
-                isinstance(epoch_channel, (int, float))
-                and self._alignment_epoch_channel_combo is not None
-            ):
-                idx = self._alignment_epoch_channel_combo.findData(int(epoch_channel))
-                if idx >= 0:
-                    self._alignment_epoch_channel_combo.setCurrentIndex(idx)
-        else:
-            skipped += 1
+        # A trial-owned Preview takes precedence over older one-channel record settings.
+        legacy = snapshot.get("alignment", {})
+        metric = legacy.get("epoch_metric")
+        if (
+            isinstance(metric, str)
+            and legacy.get("trial_slug") == self._current_alignment_paradigm_slug()
+            and not self._epoch_review.get("preview")
+        ):
+            self._epoch_review["preview"] = {
+                "metric": metric,
+                "channel_index": legacy.get("epoch_channel"),
+            }
 
         if "alignment.picks" not in self._record_param_dirty_keys:
             picks = _nested_get(snapshot, ("alignment", "picked_epoch_indices"))

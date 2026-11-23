@@ -61,14 +61,11 @@ class MainWindowAlignmentParamsMixin:
         return "Keeps selected annotations as trials and resamples each trial to a common length."
 
     def _update_alignment_method_description(self) -> None:
-        if self._alignment_method_description_label is None:
-            return
         if self._alignment_method_combo is None:
-            self._alignment_method_description_label.setText("")
             return
         method_key = self._alignment_method_combo.currentData()
         if not isinstance(method_key, str):
-            self._alignment_method_description_label.setText("")
+            self._alignment_method_combo.setToolTip("")
             return
         description = self._alignment_method_description_text(method_key)
         paradigm = self._current_alignment_paradigm()
@@ -81,7 +78,6 @@ class MainWindowAlignmentParamsMixin:
                 "Cue-response: explicitly paired events; only the reaction interval "
                 "is normalized. The time axis uses aligned seconds."
             )
-        self._alignment_method_description_label.setText(description)
         self._alignment_method_combo.setToolTip(description)
 
     def _on_alignment_method_changed(self, index: int) -> None:

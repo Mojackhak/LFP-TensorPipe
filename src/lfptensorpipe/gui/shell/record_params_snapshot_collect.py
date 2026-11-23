@@ -159,16 +159,7 @@ class MainWindowRecordParamsSnapshotCollectMixin:
             if self._alignment_method_combo is not None
             else None
         )
-        alignment_epoch_metric = (
-            self._alignment_epoch_metric_combo.currentData()
-            if self._alignment_epoch_metric_combo is not None
-            else None
-        )
-        alignment_epoch_channel = (
-            self._alignment_epoch_channel_combo.currentData()
-            if self._alignment_epoch_channel_combo is not None
-            else None
-        )
+        preview = getattr(self, "_epoch_review", {}).get("preview") or {}
         active_method = (
             str(alignment_method) if isinstance(alignment_method, str) else None
         )
@@ -216,16 +207,8 @@ class MainWindowRecordParamsSnapshotCollectMixin:
             "method": active_method,
             "method_params": method_params,
             "method_params_by_method": method_params_by_method,
-            "epoch_metric": (
-                str(alignment_epoch_metric)
-                if isinstance(alignment_epoch_metric, str)
-                else None
-            ),
-            "epoch_channel": (
-                int(alignment_epoch_channel)
-                if isinstance(alignment_epoch_channel, (int, np.integer))
-                else None
-            ),
+            "epoch_metric": preview.get("metric"),
+            "epoch_channel": preview.get("channel_index"),
             "picked_epoch_indices": self._collect_alignment_pick_indices(),
         }
 

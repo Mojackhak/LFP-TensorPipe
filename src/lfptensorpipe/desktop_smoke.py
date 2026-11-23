@@ -864,14 +864,7 @@ def _drop_first_epoch_pick(window: MainWindow) -> None:
     pick_item = table.item(0, 0)
     if pick_item is None:
         raise RuntimeError("Epoch Inspector first-row pick item is missing.")
-    table.blockSignals(True)
-    try:
-        pick_item.setCheckState(Qt.Unchecked)
-    finally:
-        table.blockSignals(False)
-    window._refresh_alignment_select_all_button_label()
-    window._refresh_alignment_controls()
-    window._persist_alignment_epoch_picks_state()
+    pick_item.setCheckState(Qt.Unchecked)
 
 
 def run_smoke_numerical_preproc(
