@@ -1123,7 +1123,7 @@ Import the tutorial config:
 
 - [Alignment configuration](assets/tutorial-configs/alignment.json)
 
-Use `Export Configs...` if you want to save your own alignment variant.
+Use `Method + Params → Configs → Export Configs…` to save an alignment method.
 
 Importing a configuration replaces the active method's saved parameters for
 this trial. Removing an anchor or switching alignment modes takes effect on
@@ -1165,48 +1165,19 @@ Missing or ambiguous anchors, or a BAD/EDGE overlap when dropping is enabled,
 reject the group rather than selecting an arbitrary candidate or rematching the
 same start to a later end.
 
-### 7.1 Pick, Preview, and Finish
+### 7.1 Review, Preview, and Finish
 
-This QC step decides which aligned epochs are trustworthy enough to keep. In
-this demo, only the picked epochs are exported and all later feature analyses
-use that accepted set.
-
-After running `Align Epochs`, stay in `Epoch Inspector`. Each successful Run
-starts with every generated epoch checked. Reopening the trial restores the
-selection for that Run, including an explicitly empty selection. Finish
-records the epoch indices used to build its tables.
-
-Older inspector edits may have no record of which Run they belong to. If a
-trial has run more than once, reopening it uses its current Run's finished
-selection or checks all its epochs when that Run has no finished selection.
+After Align Epochs, each candidate starts with `Include` checked. Click `Run QC` to mark epochs for review. Hover over a red row to see the affected channel and interval. Double-click the epoch to inspect the Preprocessed Signal. Add an optional note by double-clicking Notes.
 
 ![Epoch Inspector.](assets/app-tutorial/figure-26-epoch-inspector-panel.png)
 
-Control map:
-
-- `Metric`: choose the tensor used for QC
-- `Channel`: choose the representative channel
-- `Pick`: keep or exclude individual epochs
-- `Preview`: inspect the currently picked set
-- `Finish`: export the currently picked set
-
-This is the key downstream rule:
-
-- only the checked rows in `Pick` are included in all later analysis
-
-Use `Preview` as the manual QC surface for deciding whether an epoch should be
-excluded.
-
-The below figure shows the preview result for the selected picked set.
+Use `View flagged` and open `Preview` to compare flagged epochs with the remaining candidates. Adjust the metric, channels and frequency band in Preview. The numbered deviation rows update with these choices. Double-click an epoch number or its row to inspect the active metric for that epoch. The detail view follows the selected channels and frequency band. To inspect the native waveform directly, double-click Epoch or Duration in the main Epoch list. Use `Exclude flagged` to remove the flagged epochs from the included set, or make individual decisions in Include.
 
 ![Alignment preview.](assets/app-tutorial/figure-27-align-preview-figure.png)
 
-Before clicking `Finish`, confirm that the footer says:
+The factory scheme flags a Preprocessed Signal amplitude excursion or valid coverage below 80% (`A OR B`). Use `Advance` to edit QC methods, thresholds and the final expression. `Export Configs` saves the scheme for another trial. Inspect an imported scheme in Advance, then click Save and Run QC.
 
-- `Merge Location Info: Ready`
-
-That status means the aligned export will merge localization metadata together
-with the picked epochs.
+Click `Finish` to export the included epochs. The Merge Location Info footer indicates whether localization will accompany the export. Reopening the same trial restores its decisions. A new successful Align Run starts a fresh selection.
 
 ## 8. Extract Features and Available Features
 

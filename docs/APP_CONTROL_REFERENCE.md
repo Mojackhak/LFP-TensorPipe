@@ -1776,8 +1776,8 @@ the default `bad` and `edge`. The checkbox tooltip lists the current fields.
 | `Method` | Chooses the alignment method for the current trial. | Which params dialog shape is used and how alignment runs. | Requires a selected trial. |
 | `Params` | Opens the method-parameter dialog for the selected method. | Saved method parameters. | Requires a selected trial. |
 | `Align Epochs` | Runs alignment for the current trial. If no usable Tensor result is available, a warning directs the user to run or rerun Build Tensor. | Trial alignment outputs and Epoch Inspector freshness. | Requires valid params and upstream data. |
-| `Import Configs...` | Loads an alignment configuration for the current trial. | Trial configuration payload. | Requires a selected trial. |
-| `Export Configs...` | Saves the current trial configuration. | External alignment config file. | Requires a selected trial. |
+| `Configs → Import Configs…` | Loads an alignment configuration for the current trial. | Trial configuration payload. | Requires a selected trial. |
+| `Configs → Export Configs…` | Saves the current trial configuration. | External alignment config file. | Requires a selected trial. |
 
 Method drafts are saved per trial, including incomplete values. Selecting another trial
 or record restores its own draft.
@@ -1834,19 +1834,31 @@ dialog draft and does not modify the saved app default.
 
 ### 8.2 Epoch Inspector
 
-Editing the current method or epoch selection updates the navigation lights
-and Features controls immediately.
+Each successful Align Run starts with all epochs included and none selected for viewing.
+The five columns are `Include`, `Epoch`, `Duration`, `View`, and `Notes`. Duration is in seconds.
+Double-click Epoch or Duration to inspect the native Preprocessed Signal. Double-click Notes for an optional multiline note.
 
-| Control | What it does | What it affects | Availability / blocking rule |
-| --- | --- | --- | --- |
-| `Epoch Inspector` indicator | Reports whether the current run and finish state are fresh for the selected trial. | User feedback only. | Read-only. |
-| `Metric` | Chooses which metric is shown in the inspector. | Preview source and table context. | Requires alignment run outputs. |
-| `Channel` | Chooses which channel is shown in the inspector preview. | Preview source and table context. | Requires alignment run outputs. |
-| Epoch table | Lists detected epochs and their pick state. The pick state is the actual inclusion list used by `Finish`. | Preview and finish selection. | Read-only except for pick toggles. |
-| `Select All` | Toggles every epoch pick on or off. | Current pick set. | Requires epoch rows. |
-| `Preview` | Opens a preview based on the current pick set only. Use it as a QC surface before deciding which epochs should remain checked. | Preview figure only. | Requires at least one picked epoch and run outputs. |
-| `Finish` | Builds finished outputs using the current pick set only. Unchecked epochs are excluded from downstream feature extraction. | Trial finish outputs consumed by feature extraction. | Requires a valid pick set and current alignment outputs. |
-| `Merge Location Info` | Reports whether Localize representative-coordinate metadata can be attached during finish. | Finish-time merge behavior only. | Read-only. |
+| Control | Operation |
+| --- | --- |
+| Run QC / Advance | Score all candidate epochs with the saved rules. Matching rows turn red immediately. Hover for rule evidence in epoch-relative coordinates. |
+| Import Configs / Export Configs | Exchange the QC rules and final expression as JSON. Review an import in Advance and save to apply it. Manual decisions and record data stay with the trial. |
+| View flagged / Exclude flagged | Replace View with the flagged set, or remove flagged epochs from Include. Each automatic exclusion retains its QC evidence. |
+| Select all Include / Select all View | Toggle the entire corresponding column. From a partial selection, select all. |
+| Preview | Compare View unchecked and checked, their difference, and each epoch's deviation from the common median. Choose a metric, channels and frequency band in the dialog. Double-click a deviation row or its number to inspect that epoch's selected metric, channels and frequency band. |
+| Finish | Build the trial tables from Include. Changes to Include or consumed upstream results, including applied localization, affect freshness. QC, View, Notes and Preview preferences are saved independently. |
+| Merge Location Info | Finish merges the applied localization only when Localize is ready. |
+
+**QC rules.** Configure up to 26 rules (A–Z). Select the Preprocessed Signal or an aligned metric, channels/pairs, All/Any channel match, time window, frequency support and method. Combine rules with AND, OR and parentheses. AND takes precedence. Save validates the expression and selected inputs. Set as Default stores a reusable preference and Restore Default loads it into the editor.
+
+The factory scheme is `A OR B`, with both rules applied to all Preprocessed Signal channels over the full epoch. Rule A compares each candidate, including the scored epoch, at the same aligned position using MAD threshold 6, at least 3 finite epochs, a zero baseline window and no minimum excursion duration. Rule B flags valid signal coverage below 80%. An affected channel can trigger either rule. A positive baseline window subtracts a centered rolling median inside each continuous segment. The `Time window`, `Baseline window`, and `Min. excursion duration` labels show `(%)` for a percentage axis and `(s)` for a seconds axis. A two-dimensional MAD rule defaults to threshold 4 and a minimum same-direction four-connected area of 5%. For numeric frequencies, each cell contributes its aligned time width multiplied by its frequency span in octaves, `log2(f_high / f_low)`. Adjacent frequency centers meet at their geometric mean. The measured endpoints, rule band and notch intervals bound the supported area. Discrete band and parameter rows retain their individual bin identities. An earlier QC result that used linear-Hz cluster areas across multiple numeric frequencies needs a new Run QC before applying its flags. Positions with insufficient reference values or zero MAD are skipped. Valid coverage flags support below the chosen percentage (default 80%). It includes finite zeros, excludes intentional gaps and counts missing in-domain values against coverage. MAD scores finite, comparable values. To flag either an amplitude outlier or missing support, combine the MAD rule and a separate Valid coverage rule with OR. A wholly unevaluable rule is unknown. Only a true final expression flags the epoch.
+
+Stack Trials and standard Line Up Key Events use 0–100%. Clip and Stitch use seconds from the aligned start. Cue-response uses seconds from the cue and retains negative pre-cue times. Time windows clip to the Run's support. The signal coverage denominator uses the selected original durations. Metric coverage weights numeric frequency widths in Hz and retains finite zeros within the selected support. For Burst, valid non-burst samples also contribute to coverage. Import checks explicit channel or pair identities, named band support and numeric time settings against the target Run. After changing the effective scheme, run QC again to enable the flagged-row actions.
+
+The Preprocessed Signal and a single selected frequency or parameter are shown as time traces. The two group traces share a vertical scale and the signed difference has its own scale. Trace previews omit colorbars. Numeric frequency maps in both Preview and single-epoch details use a logarithmic Hz axis. Labeled ticks include the displayed frequency limits and each of 4, 8, 13, 20, 35 and 60 Hz within those limits. For time–frequency maps the upper groups share one colorbar, and the lower-left difference has a separate scale centered at zero. The numbered Epoch deviation rows update with the selected metric, channels and frequency support. For each epoch and time point they show the median absolute deviation from the common epoch template across the selected bins. In a two-dimensional preview the deviation colorbar runs from zero to the largest displayed absolute deviation.
+
+The single-epoch metric view displays the selected epoch's values using the same transform, channel reduction and time axis as the group plots. Aperiodic parameters retain the common reference across candidate epochs. Missing estimates appear as gaps in traces or gray cells in maps. With Preprocessed Signal selected, double-click opens the native traces for the selected channels.
+
+Preview transforms power to dB and positive Burst amplitude to log10 before averaging. Aperiodic parameters use separate common-reference z-scores. Connectivity and signal amplitude retain their arithmetic scales. The group difference uses the displayed group means. Preview selections are saved for the trial independently of QC.
 
 ### 8.3 Line Up Key Events Params
 
