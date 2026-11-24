@@ -215,7 +215,8 @@ class InspectorData:
                         and abs(stop / sf - s.source_end) < 1e-10
                     ):
                         stop += 1
-                    times = np.arange(start, stop) / sf
+                    sample_indices = np.arange(start, stop)
+                    times = sample_indices / sf
                     source = np.maximum(times, s.source_start)
                     end = np.minimum(times + 1 / sf, s.source_end)
                     values = (
@@ -232,17 +233,21 @@ class InspectorData:
                     scale = (s.source_end - s.source_start) / (
                         s.target_end - s.target_start
                     )
-                    sample_time = s.target_start + (times - s.source_start) / scale
+                    sample_time = s.target_start + (source - s.source_start) / scale
                     if self.method == "stack_warper":
                         first = max(0, round(s.source_start * sf))
                         last = min(raw.n_times, round(s.source_end * sf)) - 1
-                        indices = np.arange(start, stop)
-                        sample_time = s.target_start + (indices - first) * (
+                        sample_time = s.target_start + (sample_indices - first) * (
                             s.target_end - s.target_start
                         ) / max(1, last - first)
-                        sample_time[(indices < first) | (indices > last)] = np.nan
+                        sample_time[
+                            (sample_indices < first) | (sample_indices > last)
+                        ] = np.nan
                     else:
-                        sample_time[times < s.source_start - 1e-10] = np.nan
+                        # Reading starts at the overlapping cell for coverage. Its
+                        # waveform center belongs to exactly one adjoining segment.
+                        first = int(np.ceil(s.source_start * sf - 1e-9))
+                        sample_time[sample_indices < first] = np.nan
                     spans.append(
                         SignalSpan(
                             s.target_start + (source - s.source_start) / scale,

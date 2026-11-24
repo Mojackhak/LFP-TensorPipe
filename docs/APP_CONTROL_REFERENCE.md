@@ -1876,6 +1876,7 @@ Restoring a record applies its selected method, parameters and epoch picks only 
 Each successful Align Run starts with all epochs included and none selected for viewing.
 For Line Up Key Events with automatic anchors, QC and Preview map 0% and 100% to the start and end stored in each accepted epoch. Existing Runs can be inspected with their original event times.
 The five columns are `Include`, `Epoch`, `Duration`, `View`, and `Notes`. Duration is in seconds.
+Across adjoining linear warp segments, each native waveform sample belongs to one segment. Coverage can include fractions of the same sample interval on both sides of an anchor. A rolling QC baseline therefore sees ordered waveform times while retaining the full observed duration.
 Double-click Epoch or Duration to inspect the native Preprocessed Signal. Double-click Notes for an optional multiline note.
 
 | Control | Operation |
