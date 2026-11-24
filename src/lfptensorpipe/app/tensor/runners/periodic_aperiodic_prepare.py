@@ -17,9 +17,11 @@ METRIC_LABEL = "Periodic/APeriodic"
 
 def build_periodic_aperiodic_paths(
     options: PeriodicAperiodicOptions,
+    *,
+    create: bool = True,
 ) -> PeriodicAperiodicPaths:
     resolver = svc.PathResolver(options.context)
-    output_path = svc.tensor_metric_tensor_path(resolver, METRIC_KEY, create=True)
+    output_path = svc.tensor_metric_tensor_path(resolver, METRIC_KEY, create=create)
     return PeriodicAperiodicPaths(
         resolver=resolver,
         input_path=svc.preproc_step_raw_path(resolver, "finish"),
@@ -27,11 +29,11 @@ def build_periodic_aperiodic_paths(
         aperiodic_output_path=svc.tensor_metric_tensor_path(
             resolver,
             "aperiodic",
-            create=True,
+            create=create,
         ),
         report_dir=output_path.parent / "specparam_report",
-        config_path=svc.tensor_metric_config_path(resolver, METRIC_KEY, create=True),
-        log_path=svc.tensor_metric_log_path(resolver, METRIC_KEY, create=True),
+        config_path=svc.tensor_metric_config_path(resolver, METRIC_KEY, create=create),
+        log_path=svc.tensor_metric_log_path(resolver, METRIC_KEY, create=create),
     )
 
 
