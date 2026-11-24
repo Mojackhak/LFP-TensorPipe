@@ -240,22 +240,27 @@ class MainWindowFeaturesAxesMixin:
                 self._features_axis_bands_button.setEnabled(False)
                 set_control_validation_error(self._features_axis_bands_button, None)
         if self._features_axis_times_button is not None:
-            count_times = (
-                len(self._normalized_features_axes_for_metric(metric_key)["times"])
-                if has_metric and metric_key is not None
-                else 0
+            axes = (
+                self._normalized_features_axes_for_metric(metric_key)
+                if has_metric
+                else {}
             )
+            times = axes.get("times", [])
+            error = None
+            if has_metric and not times:
+                error = "At least one phase is required."
+            elif axes.get("time_unit") == "s":
+                try:
+                    validate_phase_bounds(times, "s", self._features_seconds_duration())
+                except ValueError as exc:
+                    error = str(exc)
             self._features_axis_times_button.setText(
-                f"Phases Configure... ({count_times})"
+                f"Phases Configure... ({len(times)})"
             )
             self._features_axis_times_button.setEnabled(has_metric)
             set_control_validation_error(
                 self._features_axis_times_button,
-                (
-                    None
-                    if not has_metric or count_times
-                    else "At least one phase is required."
-                ),
+                error,
             )
         if self._features_axis_apply_all_button is not None:
             self._features_axis_apply_all_button.setEnabled(has_metric)
@@ -339,11 +344,13 @@ class MainWindowFeaturesAxesMixin:
             duration_s=duration,
             time_unit=unit,
             phase_defaults=defaults,
-            save_phase_default=lambda time_unit, rows: self._save_features_axis_defaults(
-                metric_key=metric_key,
-                axis_key="times",
-                time_unit=time_unit,
-                rows=[dict(item) for item in rows],
+            save_phase_default=lambda time_unit, rows: (
+                self._save_features_axis_defaults(
+                    metric_key=metric_key,
+                    axis_key="times",
+                    time_unit=time_unit,
+                    rows=[dict(item) for item in rows],
+                )
             ),
             min_start=0.0,
             max_end=100.0,

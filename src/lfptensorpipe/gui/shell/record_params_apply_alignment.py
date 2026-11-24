@@ -5,11 +5,11 @@ from __future__ import annotations
 from lfptensorpipe.gui.shell.common import (
     Any,
     Qt,
-    _nested_get,
 )
 
 
-def _restore_method_draft(paradigm, saved, method):
+def _restore_method_draft(paradigm, saved):
+    method = saved["method"]
     cache = dict(paradigm.get("method_params_by_method", {}))
     saved_cache = saved.get("method_params_by_method")
     if isinstance(saved_cache, dict):
@@ -32,26 +32,30 @@ def _restore_method_draft(paradigm, saved, method):
 class MainWindowRecordParamsApplyAlignmentMixin:
     def _apply_record_params_alignment_snapshot(self, snapshot: dict[str, Any]) -> int:
         skipped = 0
+        alignment = snapshot.get("alignment", {})
+        owner = alignment.get("trial_slug")
 
         if "alignment.paradigm" not in self._record_param_dirty_keys:
-            slug = _nested_get(snapshot, ("alignment", "trial_slug"))
             if (
-                isinstance(slug, str)
-                and slug
+                isinstance(owner, str)
+                and owner
                 and self._alignment_paradigm_list is not None
             ):
                 for idx in range(self._alignment_paradigm_list.count()):
                     item = self._alignment_paradigm_list.item(idx)
                     if item is None:
                         continue
-                    if item.data(Qt.UserRole) == slug:
+                    if item.data(Qt.UserRole) == owner:
                         self._alignment_paradigm_list.setCurrentRow(idx)
                         break
         else:
             skipped += 1
 
+        current = self._current_alignment_paradigm()
+        owns_active = bool(
+            owner and isinstance(current, dict) and current.get("slug", owner) == owner
+        )
         if "alignment.method" not in self._record_param_dirty_keys:
-            alignment = snapshot.get("alignment", {})
             self._alignment_method_drafts = {}
             inactive = alignment.get("trial_params_by_slug")
             combo = self._alignment_method_combo
@@ -63,44 +67,54 @@ class MainWindowRecordParamsApplyAlignmentMixin:
                         isinstance(saved, dict)
                         and combo.findData(saved.get("method")) >= 0
                     ):
-                        draft = _restore_method_draft(paradigm, saved, saved["method"])
+                        draft = _restore_method_draft(paradigm, saved)
                         if draft is not None:
                             self._alignment_method_drafts[slug] = draft
-            method = alignment.get("method")
-            if isinstance(method, str) and combo is not None:
-                index = combo.findData(method)
+            active_draft = (
+                alignment
+                if owns_active
+                else self._alignment_method_drafts.get(
+                    current.get("slug") if current else None, {}
+                )
+            )
+            method = active_draft.get("method")
+            index = (
+                combo.findData(method)
+                if isinstance(method, str) and combo is not None
+                else -1
+            )
+            if index >= 0:
                 combo.blockSignals(True)
                 try:
-                    combo.setCurrentIndex(max(index, 0))
+                    combo.setCurrentIndex(index)
                 finally:
                     combo.blockSignals(False)
-                current = self._current_alignment_paradigm()
-                if isinstance(current, dict):
-                    draft = _restore_method_draft(
-                        current, alignment, combo.currentData()
-                    )
-                    slug = current.get("slug", alignment.get("trial_slug"))
-                    if draft is not None and isinstance(slug, str):
-                        self._alignment_method_drafts[slug] = draft
+                if owns_active:
+                    draft = _restore_method_draft(current, alignment)
+                    if draft is not None:
+                        self._alignment_method_drafts[owner] = draft
         else:
             skipped += 1
 
         # A trial-owned Preview takes precedence over older one-channel record settings.
-        legacy = snapshot.get("alignment", {})
-        metric = legacy.get("epoch_metric")
+        metric = alignment.get("epoch_metric")
         if (
             isinstance(metric, str)
-            and legacy.get("trial_slug") == self._current_alignment_paradigm_slug()
+            and owns_active
             and not self._epoch_review.get("preview")
         ):
             self._epoch_review["preview"] = {
                 "metric": metric,
-                "channel_index": legacy.get("epoch_channel"),
+                "channel_index": alignment.get("epoch_channel"),
             }
 
         if "alignment.picks" not in self._record_param_dirty_keys:
-            picks = _nested_get(snapshot, ("alignment", "picked_epoch_indices"))
-            if isinstance(picks, list) and self._alignment_epoch_table is not None:
+            picks = alignment.get("picked_epoch_indices")
+            if (
+                owns_active
+                and isinstance(picks, list)
+                and self._alignment_epoch_table is not None
+            ):
                 selected = {
                     int(item) for item in picks if isinstance(item, (int, float))
                 }

@@ -1871,6 +1871,8 @@ dialog draft and does not modify the saved app default.
 
 ### 8.2 Epoch Inspector
 
+Restoring a record applies its selected method, parameters and epoch picks only to the saved trial. If that trial no longer exists, the selected trial keeps its own settings. A method unavailable in this installation is skipped.
+
 Each successful Align Run starts with all epochs included and none selected for viewing.
 For Line Up Key Events with automatic anchors, QC and Preview map 0% and 100% to the start and end stored in each accepted epoch. Existing Runs can be inspected with their original event times.
 The five columns are `Include`, `Epoch`, `Duration`, `View`, and `Notes`. Duration is in seconds.
@@ -2183,6 +2185,8 @@ changing the Tensor timestamps or detected values.
 - Band names are not cosmetic only: they become the labels shown in downstream feature tables and plots.
 
 ### 9.4 Features Phases Editor
+
+The Phases Configure button shows a validation warning when saved seconds windows exceed the current trial duration or the current method uses a percentage axis. The button remains available to edit the draft.
 
 ![Features Phases dialog.](assets/app-control-reference/controlref-advance-features-phases-dialog.png)
 
