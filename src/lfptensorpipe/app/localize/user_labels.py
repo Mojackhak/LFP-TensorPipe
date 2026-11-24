@@ -118,23 +118,23 @@ def read_labels(
 
 
 def save_labels(path: Path, labels: UserLabels, channels: tuple[str, ...]) -> None:
-    def write(staged: Path) -> None:
-        with staged.open("w", encoding="utf-8", newline="") as stream:
-            writer = csv.writer(stream)
-            writer.writerow(
-                ["channel", *(r + "_in" for r in labels.regions), "assignment_method"]
-            )
-            for ch in channels:
-                hits = labels.assessed.get(ch)
-                writer.writerow(
-                    [
-                        ch,
-                        *(
-                            "" if hits is None else int(r in hits)
-                            for r in labels.regions
-                        ),
-                        labels.method.strip(),
-                    ]
-                )
+    write_outputs_atomically(
+        [(path, lambda staged: write_labels_csv(staged, labels, channels))]
+    )
 
-    write_outputs_atomically([(path, write)])
+
+def write_labels_csv(path: Path, labels: UserLabels, channels: tuple[str, ...]) -> None:
+    with path.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(
+            ["channel", *(r + "_in" for r in labels.regions), "assignment_method"]
+        )
+        for ch in channels:
+            hits = labels.assessed.get(ch)
+            writer.writerow(
+                [
+                    ch,
+                    *("" if hits is None else int(r in hits) for r in labels.regions),
+                    labels.method.strip(),
+                ]
+            )

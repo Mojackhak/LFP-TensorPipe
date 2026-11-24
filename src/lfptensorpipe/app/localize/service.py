@@ -701,6 +701,7 @@ def run_localize_apply(
     runtime_runner: LocalizeRuntimeRunner | None = None,
     source: str = "leaddbs",
     channels: tuple[str, ...] = (),
+    user_labels=None,
     read_only_project_root: Path | None = None,
     load_match_payload_fn: (
         Callable[[Path, str, str], dict[str, Any] | None] | None
@@ -728,6 +729,7 @@ def run_localize_apply(
         read_only_project_root=read_only_project_root,
         source=source,
         channels=channels,
+        user_labels=user_labels,
         load_match_payload=load_match_payload_fn
         or _load_match_payload_from_record_ui_state,
         load_reconstruction_contacts=load_reconstruction_contacts_fn

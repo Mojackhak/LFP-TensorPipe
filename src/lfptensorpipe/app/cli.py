@@ -481,6 +481,51 @@ def _run_features(
 def _run_localize(
     context: RecordContext, node: dict[str, Any], config_store: Any
 ) -> str:
+    from .localize.paths import LEAD_DBS, USER_LABELS
+
+    source = node.get("source", LEAD_DBS)
+    if source == USER_LABELS:
+        import csv
+        from pathlib import Path
+        from .localize.user_labels import read_labels
+        from .localize.service import run_localize_apply
+        from .preproc.paths import rawdata_input_fif_path
+        from .tensor.selectors import load_tensor_channel_inventory
+
+        raw_path = rawdata_input_fif_path(context)
+        if not raw_path.is_file():
+            raw_path = PathResolver(context).preproc_root / "raw/raw.fif"
+        channels = tuple(load_tensor_channel_inventory(raw_path).all_channels)
+        if (
+            not isinstance(node.get("labels_csv"), str)
+            or not node["labels_csv"].strip()
+        ):
+            raise ConfigError("User Labels requires a labels_csv path.")
+        try:
+            labels = read_labels(Path(node["labels_csv"]), channels)
+        except (OSError, ValueError, csv.Error) as exc:
+            raise ConfigError(f"Invalid User Labels CSV: {exc}") from exc
+        if not labels.regions or not labels.assessed:
+            raise ConfigError(
+                "User Labels requires at least one region and assessed channel."
+            )
+        message = _checked_result(
+            run_localize_apply(
+                project_root=context.project_root,
+                subject=context.subject,
+                record=context.record,
+                space="",
+                atlas="",
+                selected_regions=[],
+                source=source,
+                channels=channels,
+                user_labels=labels,
+            )
+        )
+        _patch_state(context, ("localize",), {"selected_source": source})
+        return message
+    if source != LEAD_DBS:
+        raise ConfigError(f"Unknown localization source: {source!r}")
     from lfptensorpipe.anat.lead_config import discover_regions
 
     from .localize import service as svc
@@ -492,7 +537,6 @@ def _run_localize(
     )
     from .localize.lead_inputs import cached_lead_signature
     from .localize.paths import (
-        LEAD_DBS,
         discover_atlases,
         infer_subject_space,
         localize_log_path,

@@ -96,6 +96,8 @@ def read_page(config_path):
 def resolve_references(page, node, parent):
     if page == "preprocess":
         owner, key = node.get("annotations"), "csv"
+    elif page == "localize":
+        owner, key = node, "labels_csv"
     else:
         return
     if isinstance(owner, dict) and isinstance(owner.get(key), str):

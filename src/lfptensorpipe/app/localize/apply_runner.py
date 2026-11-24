@@ -49,7 +49,7 @@ from .paths import (
     source_files_ready,
     source_results,
 )
-from .user_labels import read_labels
+from .user_labels import UserLabels, read_labels, write_labels_csv
 
 logger = logging.getLogger(__name__)
 
@@ -300,6 +300,7 @@ def run_localize_apply(
     build_undirected_pair_repcoords_frame: Callable = build_undirected_pair_representative_frame,
     source: str = LEAD_DBS,
     channels: tuple[str, ...] = (),
+    user_labels: UserLabels | None = None,
 ) -> tuple[bool, str]:
     """Apply one source, preserving both accepted receipts and the other source's tables."""
     if (
@@ -334,7 +335,11 @@ def run_localize_apply(
                     rawdata_input_fif_path(context)
                 ).all_channels
             labels_path = directory / "input.csv"
-            labels = read_labels(labels_path, channels)
+            labels = (
+                user_labels
+                if user_labels is not None
+                else read_labels(labels_path, channels)
+            )
             if not labels.regions or not labels.assessed:
                 raise ValueError(
                     "Save at least one assessed channel and one region first."
@@ -344,6 +349,10 @@ def run_localize_apply(
             reuse = saved.get("label_signature") == signature and primary.is_file()
             if not reuse:
                 frame = labels.frame(subject, record, channels)
+            if user_labels is not None:
+                writers.append(
+                    (labels_path, lambda path: write_labels_csv(path, labels, channels))
+                )
             input_path = labels_path
         else:
             frame, params, input_path = _prepare_lead_table(
@@ -369,7 +378,7 @@ def run_localize_apply(
                     params.get(key) != saved.get(key)
                     for key in ("lead_signature", "lead_signature_elspec")
                 )
-                if active == source and not identity_updated:
+                if active == source and not identity_updated and not writers:
                     return True, "Up to date."
             else:
                 writers.extend(
