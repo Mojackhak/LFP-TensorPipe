@@ -607,6 +607,10 @@ def run_page(
     config_store=None,
 ) -> str:
     """Run one page; all optional service imports are action-local."""
+    if page == "preprocess":
+        from .cli_preprocess import run_preprocess
+
+        return run_preprocess(context, node)
     if page == "tensor":
         return _run_tensor(context, node, version)
     if config_store is None:

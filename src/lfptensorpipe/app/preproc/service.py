@@ -617,12 +617,17 @@ def preproc_ecg_panel_state(
 
 
 def apply_signal_repair_step(
-    context: RecordContext, *, params: dict[str, Any]
+    context: RecordContext, *, params: dict[str, Any], decisions=None
 ) -> tuple[bool, str]:
     """Accept Repair and invalidate dependent generations only after success."""
     from .steps.signal_repair import apply_signal_repair_step as apply
 
-    ok, message = apply(context, params=params, mark_preproc_step_fn=mark_preproc_step)
+    ok, message = apply(
+        context,
+        params=params,
+        mark_preproc_step_fn=mark_preproc_step,
+        decisions=decisions,
+    )
     if ok:
         _clear_preproc_step_skip(context, "signal_repair")
         invalidate_downstream_preproc_steps(context, "signal_repair")

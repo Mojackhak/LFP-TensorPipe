@@ -659,6 +659,27 @@ def finalize_filter_review(
             "filter_output_role": "scientific",
             "filter_support_radius_samples": support_report["support_radius_samples"],
         }
+        import mne
+
+        if isinstance(reviewed_annotations, mne.Annotations) and isinstance(
+            raw, mne.io.BaseRaw
+        ):
+            from ..review_edits import current_state, review_delta, review_state
+
+            with mne.io.read_raw_fif(
+                preview if pending_preview else dst, preload=False, verbose="ERROR"
+            ) as opened:
+                delta = review_delta(
+                    current_state(opened),
+                    review_state(
+                        reviewed_annotations, reviewed_bads, opened.first_time
+                    ),
+                )
+            if pending_preview or "review_edits" in params:
+                final_params["review_edits"] = [
+                    *params.get("review_edits", []),
+                    *([delta] if delta else []),
+                ]
         final_config = {
             **config,
             "bad_samples_policy": (

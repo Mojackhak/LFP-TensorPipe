@@ -28,7 +28,11 @@ from ..paths import (
 
 
 def apply_signal_repair_step(
-    context: RecordContext, *, params: dict[str, Any], mark_preproc_step_fn
+    context: RecordContext,
+    *,
+    params: dict[str, Any],
+    mark_preproc_step_fn,
+    decisions=None,
 ):
     """Repair from Raw and immediately accept the result without review gating."""
     resolver = PathResolver(context)
@@ -44,6 +48,11 @@ def apply_signal_repair_step(
     output = None
     try:
         output, report = repair_signal(raw, params)
+        if decisions is not None:
+            from lfptensorpipe.preproc.repair_review import replay_repair
+
+            review = replay_repair(output, report["intervals"], decisions)
+            report.update(intervals=review.intervals, summary=review.summary)
         with AtomicOutputSet(
             [dst, config, log], cleanup_stale_residues=True
         ) as outputs:

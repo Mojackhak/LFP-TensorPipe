@@ -11,8 +11,7 @@ from pathlib import Path
 from lfptensorpipe.app.shared.page_config import PAGE_SCHEMAS, page_config_node
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(prog="lfptp run")
+def target_arguments(parser):
     parser.add_argument(
         "--subject-path",
         required=True,
@@ -23,15 +22,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--record", required=True, help="Existing imported record name."
     )
     parser.add_argument(
-        "--config", required=True, type=Path, help="One page-exported .json file."
-    )
-    parser.add_argument(
         "--trial", help="Exact trial slug; required for Align and Features."
+    )
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="lfptp run")
+    target_arguments(parser)
+    parser.add_argument(
+        "--config", required=True, type=Path, help="Page configuration JSON."
     )
     return parser.parse_args(argv)
 
 
-def load_request(args: argparse.Namespace):
+def record_context(args: argparse.Namespace):
     from lfptensorpipe.app.dataset.validation import (
         validate_record_name,
         validate_subject_name,
@@ -64,38 +68,76 @@ def load_request(args: argparse.Namespace):
         raise ValueError(
             "Record path must remain inside the selected subject directory."
         )
-    config_path = args.config.expanduser().resolve()
-    if config_path.suffix.lower() != ".json":
-        raise ValueError("--config must be a page-exported .json file.")
+    return context
+
+
+def read_page(config_path):
     with config_path.open(encoding="utf-8") as handle:
         payload = json.load(handle)
-    schema = payload.get("schema") if isinstance(payload, dict) else None
-    page = next(
-        (key for key, (name, _) in PAGE_SCHEMAS.items() if name == schema), None
-    )
-    if page is None:
-        raise ValueError(f"Unsupported page config schema: {schema!r}.")
-    if not (record_path / "preproc" / "raw" / "raw.fif").is_file():
-        from lfptensorpipe.app.preproc.paths import rawdata_input_fif_path
+    if not isinstance(payload, dict):
+        raise ValueError("The JSON configuration must be an object.")
+    schema = payload.get("schema")
+    if schema == "lfptensorpipe.preprocess-config":
+        page = "preprocess"
+        node = payload.get(page)
+        if not isinstance(node, dict):
+            raise ValueError("Expected a preprocess object.")
+    else:
+        page = next(
+            (key for key, (name, _) in PAGE_SCHEMAS.items() if name == schema), None
+        )
+        if page is None:
+            raise ValueError(f"Unsupported page config schema: {schema!r}.")
+        node = page_config_node(payload, page)
+    resolve_references(page, node, config_path.parent)
+    return page, node, payload.get("version")
 
-        if page != "localize" or not rawdata_input_fif_path(context).is_file():
-            raise ValueError(f"Imported record not found: {record_path}")
-    node = page_config_node(payload, page)
+
+def resolve_references(page, node, parent):
+    if page == "preprocess":
+        owner, key = node.get("annotations"), "csv"
+    else:
+        return
+    if isinstance(owner, dict) and isinstance(owner.get(key), str):
+        owner[key] = str((parent / Path(owner[key]).expanduser()).resolve())
+
+
+def check_trial(context, page, trial):
+    from lfptensorpipe.app.path_resolver import PathResolver
+
+    record_path = PathResolver(context).lfp_root
     if page in {"alignment", "features"}:
-        if not args.trial:
+        if not trial:
             raise ValueError(f"--trial is required for {page}.")
         from lfptensorpipe.app.alignment.param_normalizers import _normalize_slug
 
-        if args.trial != _normalize_slug(args.trial):
+        if trial != _normalize_slug(trial):
             raise ValueError(
                 "--trial must be an exact canonical trial slug (lowercase letters, digits, and hyphens)."
             )
-        trial_path = record_path / "alignment" / args.trial
+        trial_path = record_path / "alignment" / trial
         if trial_path.resolve().parent != (record_path / "alignment").resolve():
             raise ValueError("Trial path must remain inside the selected record.")
-    elif args.trial is not None:
+    elif trial is not None:
         raise ValueError(f"--trial is not accepted for {page}.")
-    return context, page, node, payload["version"]
+
+
+def load_request(args: argparse.Namespace):
+    from lfptensorpipe.app.preproc.paths import rawdata_input_fif_path
+    from lfptensorpipe.app.path_resolver import PathResolver
+
+    context = record_context(args)
+    path = args.config.expanduser().resolve()
+    if path.suffix.lower() != ".json":
+        raise ValueError("--config must be a JSON file.")
+    page, node, version = read_page(path)
+    if not (PathResolver(context).preproc_root / "raw" / "raw.fif").is_file() and (
+        page not in {"localize", "preprocess"}
+        or not rawdata_input_fif_path(context).is_file()
+    ):
+        raise ValueError(f"Imported record not found: {context.record}")
+    check_trial(context, page, args.trial)
+    return context, page, node, version
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -112,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
         message = run_page(
             context, page=page, node=node, version=version, trial=args.trial
         )
-    except ConfigError as exc:
+    except (ConfigError, ValueError) as exc:
         print(f"Invalid configuration: {exc}", file=sys.stderr)
         return 2
     except (OSError, RunFailed) as exc:

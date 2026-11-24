@@ -433,6 +433,16 @@ def _promote_edited_preproc_plot_raw(
     input_generations = dict(generation_snapshot["input_generations"])
     result_generation_id = new_result_generation_id()
 
+    if step in {"signal_repair", "ecg_artifact_removal", "annotations"}:
+        import mne
+        from lfptensorpipe.app.preproc.review_edits import plot_edits
+
+        if isinstance(raw, mne.io.BaseRaw):
+            params_updates = dict(params_updates or {})
+            params_updates["review_edits"] = plot_edits(
+                raw_path, raw, step, prior_params, params_updates
+            )
+
     with AtomicOutputSet(
         [raw_path, log_path],
         cleanup_stale_residues=True,
