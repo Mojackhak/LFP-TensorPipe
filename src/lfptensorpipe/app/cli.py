@@ -501,18 +501,20 @@ def _run_features(
     if not metrics:
         raise RunFailed("The selected trial must have a current Align Finish.")
     snapshot = prepare_features_config(context, node, metrics, trial=trial)
-    _patch_state(context, ("features", "trial_params_by_slug", trial), snapshot)
-    _select_trial_state(
-        context, config, load_alignment_epoch_picks(context, paradigm_slug=trial)
-    )
-    return _checked_result(
+    message = _checked_result(
         run_extract_features(
             context,
             paradigm_slug=trial,
             config_store=config_store,
             axes_by_metric=snapshot["axes_by_metric"],
+            **({"execution": node["execution"]} if "execution" in node else {}),
         )
     )
+    _patch_state(context, ("features", "trial_params_by_slug", trial), snapshot)
+    _select_trial_state(
+        context, config, load_alignment_epoch_picks(context, paradigm_slug=trial)
+    )
+    return message
 
 
 def _run_localize(

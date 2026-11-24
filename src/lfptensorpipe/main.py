@@ -34,7 +34,8 @@ def _ensure_console_streams() -> None:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        prog="lfptensorpipe", epilog="Run one exported page JSON with: lfptp run --help"
+        prog="lfptensorpipe",
+        epilog="Analysis commands: lfptp run, lfptp export. Use --help with any command.",
     )
     parser.add_argument(
         "--auto-close-ms",
@@ -196,6 +197,11 @@ def main(
         from lfptensorpipe.cli import main as cli_main
 
         return cli_main(argv_list[1:])
+
+    if argv_list and argv_list[0] == "export":
+        from lfptensorpipe.cli import analysis_command
+
+        return analysis_command(argv_list[0], argv_list[1:])
 
     args = parse_args(argv_list)
 

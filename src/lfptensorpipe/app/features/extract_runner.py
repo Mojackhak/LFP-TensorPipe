@@ -716,6 +716,7 @@ def run_extract_features(
     enabled_outputs_by_metric: dict[str, dict[str, bool]] | None = None,
     reducer_by_metric: dict[str, str] | None = None,
     selected_metrics: list[str] | tuple[str, ...] | None = None,
+    execution: dict[str, Any] | None = None,
 ) -> tuple[bool, str]:
     """Run Extract-Features over alignment raw-table inputs for one selected trial."""
     from . import service as svc
@@ -745,10 +746,30 @@ def run_extract_features(
         if not raw_tables:
             return False, "No alignment raw-table inputs found for selected trial."
 
-    derive_param_cfg = svc._load_derive_param_cfg(config_store)
-    reducer_cfg = svc._load_reducer_cfg(config_store)
-    reducer_rule_by_method = svc._load_reducer_rule_by_method(config_store)
-    collapse_base_cfg = svc._load_collapse_base_cfg(config_store)
+    if execution is None:
+        derive_param_cfg = svc._load_derive_param_cfg(config_store)
+        reducer_cfg = svc._load_reducer_cfg(config_store)
+        reducer_rule_by_method = svc._load_reducer_rule_by_method(config_store)
+        collapse_base_cfg = svc._load_collapse_base_cfg(config_store)
+    else:
+        from .execution import execution_configs, value_definition
+
+        try:
+            derive_param_cfg, reducer_cfg, collapse_base_cfg = execution_configs(
+                execution, [metric for metric, _ in raw_tables]
+            )
+            for metric, _ in raw_tables:
+                spec = execution["metrics"][metric]
+                actual = value_definition(
+                    context, slug, metric, spec["outputs"], spec["reducers"]
+                )
+                if any(spec.get(key) != value for key, value in actual.items()):
+                    raise ValueError(
+                        f"The numerical domain or units of {metric} differ from the exported definition."
+                    )
+        except ValueError as exc:
+            return False, str(exc)
+        reducer_rule_by_method = {}
     alignment_method = svc._extract_alignment_method_from_log(resolver, trial_slug=slug)
     metric_axes = axes_by_metric if isinstance(axes_by_metric, dict) else {}
     metric_outputs = (
@@ -976,6 +997,14 @@ def run_extract_features(
                 "alignment_method": alignment_method,
                 "metrics": [metric for metric, _ in raw_tables],
                 "outputs_by_metric": outputs_by_metric,
+                "output_work": {
+                    status: sorted(str(path.relative_to(deriv_root)) for path in paths)
+                    for status, paths in (
+                        ("computed", compute_paths),
+                        ("retained", keep),
+                        ("relabeled", relabel),
+                    )
+                },
                 "target_outputs": total_targets,
                 "saved_outputs": saved,
                 "errors": [],

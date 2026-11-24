@@ -114,7 +114,7 @@ def check_trial(context, page, trial):
     from lfptensorpipe.app.path_resolver import PathResolver
 
     record_path = PathResolver(context).lfp_root
-    if page in {"alignment", "features"}:
+    if page in {"alignment", "features", "epoch-selection"}:
         if not trial:
             raise ValueError(f"--trial is required for {page}.")
         from lfptensorpipe.app.alignment.param_normalizers import _normalize_slug
@@ -179,6 +179,39 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"{page} completed: {scope}\n{message}\nResults: {PathResolver(context).lfp_root}"
     )
+    return 0
+
+
+def analysis_command(command, argv):
+    parser = argparse.ArgumentParser(prog=f"lfptp {command}")
+    parser.add_argument("--output", required=True, type=Path)
+    target_arguments(parser)
+    parser.add_argument(
+        "--page",
+        required=True,
+        choices=("preprocess", "epoch-selection", "alignment", "features"),
+    )
+    args = parser.parse_args(argv)
+    from .app.cli import RunFailed
+
+    try:
+        from .app.cli_export import export_page
+        from .io.atomic_file import write_json_atomically
+
+        context = record_context(args)
+        check_trial(context, args.page, args.trial)
+        if args.output.exists():
+            raise ValueError("Choose a new export file.")
+        payload = export_page(context, args.page, args.trial)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        write_json_atomically(args.output, payload)
+    except ValueError as exc:
+        print(f"Invalid input: {exc}", file=sys.stderr)
+        return 2
+    except (OSError, RunFailed) as exc:
+        print(f"{command} failed: {exc}", file=sys.stderr)
+        return 1
+    print(args.output.resolve())
     return 0
 
 

@@ -65,7 +65,7 @@ class MainWindowFeaturesConfigMixin:
                 ),
                 "times": [dict(item) for item in axes["times"]],
             }
-        return {
+        payload = {
             "schema": FEATURES_CONFIG_SCHEMA,
             "version": FEATURES_CONFIG_VERSION,
             "features": {
@@ -73,6 +73,39 @@ class MainWindowFeaturesConfigMixin:
                 "axes_by_metric": self._features_config_json_value(axes_by_metric),
             },
         }
+        context = self._record_context()
+        slug = self._current_features_paradigm_slug()
+        if context and slug and metric_keys:
+            from lfptensorpipe.app.features.execution import execution_snapshot
+            from lfptensorpipe.app.alignment.generation import (
+                accepted_alignment_metrics,
+            )
+
+            ready = accepted_alignment_metrics(
+                PathResolver(context), trial_slug=slug, stage="finish"
+            )
+            if set(metric_keys) <= set(ready):
+                from lfptensorpipe.app.features.indicator import (
+                    features_panel_state,
+                    features_derivatives_log_path,
+                )
+                from lfptensorpipe.app.shared.runlog_store import read_run_log
+
+                resolver = PathResolver(context)
+                accepted = None
+                if (
+                    features_panel_state(
+                        resolver, trial_slug=slug, axes_by_metric=axes_by_metric
+                    )
+                    == "green"
+                ):
+                    accepted = read_run_log(
+                        features_derivatives_log_path(resolver, trial_slug=slug)
+                    )["params"]
+                payload["features"]["execution"] = execution_snapshot(
+                    context, slug, metric_keys, self._config_store, accepted=accepted
+                )
+        return payload
 
     def _normalize_features_config_import_payload(
         self,
