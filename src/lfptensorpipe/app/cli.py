@@ -438,7 +438,7 @@ def prepare_features_config(
         times = normalize_feature_axis_rows(
             source["times"], min_start=0.0, max_end=limit, allow_duplicate_names=True
         )
-        for key in (("times",) if auto else ("times", "bands")):
+        for key in ("times",) if auto else ("times", "bands"):
             normalized = times if key == "times" else bands
             raw = source[key]
             if (
@@ -477,7 +477,12 @@ def prepare_features_config(
 
 
 def _run_features(
-    context: RecordContext, node: dict[str, Any], trial: str, config_store: Any
+    context: RecordContext,
+    node: dict[str, Any],
+    trial: str,
+    config_store: Any,
+    *,
+    reuse_from: PathResolver | None = None,
 ) -> str:
     from .alignment.epoch_view import load_alignment_epoch_picks
     from .alignment.generation import (
@@ -504,6 +509,7 @@ def _run_features(
             config_store=config_store,
             axes_by_metric=snapshot["axes_by_metric"],
             **({"execution": node["execution"]} if "execution" in node else {}),
+            **({"reuse_from": reuse_from} if reuse_from is not None else {}),
         )
     )
     _patch_state(context, ("features", "trial_params_by_slug", trial), snapshot)

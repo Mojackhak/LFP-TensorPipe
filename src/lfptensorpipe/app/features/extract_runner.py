@@ -6,6 +6,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 import multiprocessing
 from pathlib import Path
+import shutil
 from typing import Any
 
 import pandas as pd
@@ -710,6 +711,7 @@ def run_extract_features(
     reducer_by_metric: dict[str, str] | None = None,
     selected_metrics: list[str] | tuple[str, ...] | None = None,
     execution: dict[str, Any] | None = None,
+    reuse_from: PathResolver | None = None,
 ) -> tuple[bool, str]:
     """Run Extract-Features over alignment raw-table inputs for one selected trial."""
     from . import service as svc
@@ -761,7 +763,12 @@ def run_extract_features(
                 actual = value_definition(
                     context, slug, metric, spec["outputs"], spec["reducers"]
                 )
-                if any(spec.get(key) != value for key, value in actual.items()):
+                # A plan may select fewer outputs from an exported definition.
+                if spec["value_policy"] != actual["value_policy"] or any(
+                    key not in spec[field] or spec[field][key] != value
+                    for field in ("units", "output_domains")
+                    for key, value in actual[field].items()
+                ):
                     raise ValueError(
                         f"The numerical domain or units of {metric} differ from the exported definition."
                     )
@@ -778,6 +785,11 @@ def run_extract_features(
 
     deriv_root = svc.features_derivatives_root(resolver, trial_slug=slug, create=True)
     log_path = svc.features_derivatives_log_path(resolver, trial_slug=slug)
+    prior_log_path = (
+        svc.features_derivatives_log_path(reuse_from, trial_slug=slug)
+        if reuse_from
+        else log_path
+    )
     saved = 0
     total_targets = 0
     errors: list[str] = []
@@ -827,11 +839,12 @@ def run_extract_features(
                 "Accepted Alignment or Tensor inputs are no longer current."
             )
         try:
-            prior_log_payload = read_run_log(log_path)
+            prior_log_payload = read_run_log(prior_log_path)
         except Exception:
             prior_log_payload = None
         prior_log_is_accepted = (
-            isinstance(prior_log_payload, dict)
+            reuse_from is None
+            and isinstance(prior_log_payload, dict)
             and prior_log_payload.get("completed") is True
         )
         planned_axes = {
@@ -866,6 +879,7 @@ def run_extract_features(
             settings=settings,
             input_generations=input_generations,
             duration=duration,
+            source_root=prior_log_path.parent if reuse_from else None,
         )
         all_paths = {
             p for paths in final_paths_by_metric.values() for p in paths.values()
@@ -905,7 +919,7 @@ def run_extract_features(
         axes_signature_by_metric.update(planned_axes)
         saved = len(keep) + len(relabel)
         with AtomicOutputSet(
-            [*sorted(all_paths - keep), log_path],
+            [*sorted(all_paths if reuse_from else all_paths - keep), log_path],
             cleanup_stale_residues=True,
         ) as output_set:
             staged_paths_by_metric = {
@@ -917,9 +931,15 @@ def run_extract_features(
                 for metric_key, paths_by_stem in final_paths_by_metric.items()
             }
 
+            if reuse_from:
+                for path in keep:
+                    shutil.copy2(
+                        prior_log_path.parent / path.relative_to(deriv_root),
+                        output_set.staged_path(path),
+                    )
             for path in sorted(relabel):
                 axes = planned_axes[path.parent.name]
-                table = load_pkl(path)
+                table = load_pkl(prior_log_path.parent / path.relative_to(deriv_root))
                 table.attrs["phase_windows"] = {
                     "time_unit": axes.get("time_unit", "percent"),
                     "time_origin": "epoch_start",
@@ -1054,7 +1074,7 @@ def run_extract_features(
                 result_generation_id=(
                     prior_log_payload["params"]["result_generation_id"]
                     if not compute_paths
-                    and planned_axes != previous_axes
+                    and (reuse_from is not None or planned_axes != previous_axes)
                     and (
                         prior_log_payload["params"]["outputs_by_metric"]
                         == outputs_by_metric
@@ -1085,14 +1105,14 @@ def run_extract_features(
                     "was running."
                 )
             if keep or relabel:
-                latest = read_run_log(log_path) or {}
+                latest = read_run_log(prior_log_path) or {}
                 before = prior_log_payload["params"]
                 after = latest.get("params", {})
                 if not latest.get("completed") or any(
                     before.get(k) != after.get(k)
                     for k in ("result_generation_id", "axes_by_metric")
                 ):
-                    preserve_prior_log = True
+                    preserve_prior_log = prior_log_is_accepted
                     raise _FeatureInputGenerationChanged(
                         "Accepted Features changed while updating phase windows."
                     )

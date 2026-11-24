@@ -345,14 +345,21 @@ def _spectral_burst_grid_is_current(
 
 
 @cache_in_run_log_read_snapshot(
-    lambda resolver, metric_key: (resolver.context, metric_key)
+    lambda resolver, metric_key, *, finish_resolver=None: (
+        resolver.context,
+        metric_key,
+        (finish_resolver or resolver).context,
+    )
 )
 def tensor_metric_lineage_is_current(
     resolver: PathResolver,
     metric_key: str,
+    *,
+    finish_resolver: PathResolver | None = None,
 ) -> bool:
-    """Return whether one persisted Tensor metric matches current Finish."""
-    if not preproc_step_lineage_is_current(resolver, "finish"):
+    """Check the stored metric against the Finish that will consume it."""
+    finish_resolver = finish_resolver or resolver
+    if not preproc_step_lineage_is_current(finish_resolver, "finish"):
         return False
     log_path = tensor_metric_log_path(resolver, metric_key, create=False)
     payload = _read_payload(log_path)
@@ -365,7 +372,7 @@ def tensor_metric_lineage_is_current(
         )
     ):
         return False
-    finish_payload = _read_payload(_finish_log_path(resolver))
+    finish_payload = _read_payload(_finish_log_path(finish_resolver))
     receipt = next(
         (
             candidate

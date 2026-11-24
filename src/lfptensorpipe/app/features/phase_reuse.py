@@ -61,6 +61,7 @@ def reusable_axis_outputs(
     settings,
     input_generations,
     duration,
+    source_root=None,
 ):
     """Retain or relabel only outputs whose numerical inputs match their receipt."""
     keep = set()
@@ -90,10 +91,9 @@ def reusable_axis_outputs(
         old, new = previous[metric], axes[metric]
         same_time = same_phase_windows(old, new, duration)
         for stem, path in paths.items():
-            if (
-                Path(metric, path.name) not in manifest.get(metric, ())
-                or not path.is_file()
-            ):
+            relative = Path(metric, path.name)
+            source = source_root / relative if source_root is not None else path
+            if relative not in manifest.get(metric, ()) or not source.is_file():
                 continue
             refs = [finish_ref]
             if generation._native_feature_tensor_dependencies(

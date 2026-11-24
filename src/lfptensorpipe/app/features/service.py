@@ -315,6 +315,7 @@ def run_extract_features(
     reducer_by_metric: dict[str, str] | None = None,
     selected_metrics: list[str] | tuple[str, ...] | None = None,
     execution: dict[str, Any] | None = None,
+    reuse_from: PathResolver | None = None,
 ) -> tuple[bool, str]:
     return _run_extract_features_impl(
         context,
@@ -325,6 +326,7 @@ def run_extract_features(
         reducer_by_metric=reducer_by_metric,
         selected_metrics=selected_metrics,
         **({"execution": execution} if execution is not None else {}),
+        **({"reuse_from": reuse_from} if reuse_from is not None else {}),
     )
 
 

@@ -281,15 +281,19 @@ def _reuse_tensor_metrics(source, target, snapshot):
             metric not in prior["selected_metrics"]
             or prior["metric_params"][metric] != snapshot["metric_params"][metric]
             or not tensor_metric_lineage_is_current(source, metric)
+            or (
+                metric == "burst"
+                and not tensor_metric_lineage_is_current(
+                    source, metric, finish_resolver=target
+                )
+            )
         ):
             continue
         for key in tensor_output_metric_keys([metric]):
             shutil.copytree(
                 source.tensor_metric_dir(key), target.tensor_metric_dir(key)
             )
-        # Burst also reads the baseline annotations specific to that metric.
-        if tensor_metric_lineage_is_current(target, metric):
-            keep.add(metric)
+        keep.add(metric)
     return keep
 
 
@@ -415,7 +419,7 @@ def _record_run(
     reuse,
     sensitivity,
     differences,
-    configuration_error,
+    setup_failure,
     store,
 ):
     from .alignment.generation import latest_alignment_step_entry
@@ -471,8 +475,9 @@ def _record_run(
     save()
     stage = "configuration"
     try:
-        if configuration_error:
-            raise ConfigError(configuration_error)
+        if setup_failure:
+            stage, message = setup_failure
+            raise RunFailed(message)
         stage = "raw"
         _copy_raw(frozen, resolver)
         _copy_localize(frozen, resolver)
@@ -566,82 +571,57 @@ def _record_run(
             )
         manifest["effective"][stage] = export_page(context, "alignment", trial)[stage]
         stage = "features"
-        prior_features = None
-        if "build_raw_table" in retained_alignment:
-            shutil.copytree(
-                reference.features_root / trial, resolver.features_root / trial
-            )
-            prior_features = accepted_result_generation_id(
-                read_run_log(features_derivatives_log_path(reference, trial_slug=trial))
-            )
+        from .cli import _run_features
+        from .tensor.paths import tensor_output_metric_keys
+
         features_node = configs[stage]
-        if manifest.get("excluded_selections") and "execution" in features_node:
-            from .alignment.generation import accepted_alignment_metrics
-
-            remaining = accepted_alignment_metrics(
-                resolver, trial_slug=trial, stage="finish"
-            )
-            features_node = deepcopy(features_node)
-            definitions = features_node["execution"]["metrics"]
-            features_node["execution"]["metrics"] = {
-                m: definitions[m] for m in remaining if m in definitions
-            }
-        keep_features = False
-        if prior_features:
-            from .cli import _patch_state, prepare_features_config
-            from .features.execution import (
-                execution_snapshot,
-                normalized_execution_metadata,
-            )
-
-            seed = export_page(context, stage, trial)[stage]
-            keys = list(seed["axes_by_metric"])
-            requested = prepare_features_config(
-                context, features_node, keys, trial=trial
-            )
-            numerical = normalized_execution_metadata(features_node.get("execution"))
-            if numerical is None:
-                numerical = execution_snapshot(context, trial, keys, store)
-            keep_features = (
-                requested["axes_by_metric"] == seed["axes_by_metric"]
-                and numerical == seed["execution"]
-            )
-            if keep_features:
-                _patch_state(
-                    context, ("features", "trial_params_by_slug", trial), requested
-                )
-        if not keep_features:
-            run_page(
-                context,
-                page=stage,
-                node=features_node,
-                version=versions[stage],
-                trial=trial,
-                config_store=store,
-            )
+        execution = features_node.get("execution")
+        base_metrics = base["tensor"].get("selected_metrics")
+        if (
+            isinstance(execution, dict)
+            and isinstance(execution.get("metrics"), dict)
+            and isinstance(base_metrics, list)
+        ):
+            remaining = tensor_output_metric_keys(metrics)
+            removed = set(tensor_output_metric_keys(base_metrics)).difference(remaining)
+            if removed:
+                definitions = {
+                    k: v for k, v in execution["metrics"].items() if k not in removed
+                }
+                features_node = {
+                    **features_node,
+                    "execution": {**execution, "metrics": definitions},
+                }
+                if features_node.get("active_metric") in removed:
+                    features_node["active_metric"] = remaining[0]
+        reuse_from = reference if "build_raw_table" in retained_alignment else None
+        _run_features(context, features_node, trial, store, reuse_from=reuse_from)
         log = features_derivatives_log_path(resolver, trial_slug=trial)
         accepted = read_run_log(log)
+        work = accepted["params"]["output_work"]
+        prior_features = (
+            accepted_result_generation_id(
+                read_run_log(
+                    features_derivatives_log_path(reuse_from, trial_slug=trial)
+                )
+            )
+            if reuse_from
+            else None
+        )
         receipt(
             stage,
-            (
-                "reused"
-                if prior_features
-                and prior_features == accepted_result_generation_id(accepted)
-                else "computed"
-            ),
+            "reused"
+            if prior_features
+            and prior_features == accepted_result_generation_id(accepted)
+            else "computed",
             log,
             accepted,
         )
-        if keep_features:
-            manifest["stages"][stage]["output_work"] = {
-                "retained": [
-                    p
-                    for paths in accepted["params"]["outputs_by_metric"].values()
-                    for p in paths
-                ]
-            }
-        else:
-            manifest["stages"][stage]["output_work"] = accepted["params"]["output_work"]
+        manifest["stages"][stage]["output_work"] = work
+        if reuse_from and (work["retained"] or work["relabeled"]):
+            manifest["stages"][stage]["source_run"] = str(
+                reuse_from.context.project_root
+            )
         manifest["effective"][stage] = export_page(context, stage, trial)[stage]
         manifest["status"] = "completed"
     except (OSError, ValueError, RuntimeError) as exc:
@@ -733,9 +713,24 @@ def run_plan(context, trial, plan, parent, root):
                     if index and changed and not previous_selection
                     else "exact"
                 )
+            setup_failure = ("configuration", error) if error else None
+            if (
+                not setup_failure
+                and index
+                and decisions is None
+                and align.get("epoch_match") in ("common", "exact")
+                and "epoch_selection" not in align
+            ):
+                setup_failure = (
+                    "epoch_selection",
+                    "The baseline did not produce the accepted epoch selection required by this variant.",
+                )
             directory = _next_directory(root / name, "run")
             use_prefix = bool(
-                index and not repetition and configs != base and reference
+                index
+                and not repetition
+                and plan["variants"][index].get("overrides")
+                and reference
             )
             child, manifest = _record_run(
                 directory,
@@ -750,10 +745,16 @@ def run_plan(context, trial, plan, parent, root):
                 reuse=use_prefix,
                 sensitivity=bool(index and changed),
                 differences=config_changes(base, configs),
-                configuration_error=error,
+                setup_failure=setup_failure,
                 store=store,
             )
             paths.append(directory)
+            if not index and decisions is None:
+                decisions = (
+                    manifest.get("effective", {})
+                    .get("alignment", {})
+                    .get("epoch_selection")
+                )
             if manifest["status"] != "completed":
                 failures.append(
                     f"{directory}: {manifest['failed_stage']}: {manifest['error']}"

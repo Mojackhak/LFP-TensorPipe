@@ -223,8 +223,9 @@ def execution_configs(execution, metrics):
             or (key == "burst" and set(kinds) - {"raw", "scalar"})
         ):
             raise ValueError(f"Invalid reducers or output types for {key}.")
-        if not isinstance(definition.get("value_policy"), dict) or not isinstance(
-            definition.get("units"), dict
+        if any(
+            not isinstance(definition.get(field), dict)
+            for field in ("value_policy", "units", "output_domains")
         ):
             raise ValueError(f"Invalid numerical domain or units for {key}.")
         outputs[key] = {k: k in kinds for k in KINDS}
