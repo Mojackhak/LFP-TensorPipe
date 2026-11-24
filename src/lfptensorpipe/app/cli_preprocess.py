@@ -43,6 +43,21 @@ def _normalized_annotation_rows(rows):
     return normalized
 
 
+def _recipe_filter_advance(value):
+    from lfptensorpipe.preproc.notch import effective_notch_model
+
+    # Older Model Notch exports have a null conventional width.
+    if isinstance(value, dict) and value.get("notch_widths") is None:
+        value = {k: v for k, v in value.items() if k != "notch_widths"}
+    ok, advance, message = svc.normalize_filter_advance_params(value)
+    if not ok:
+        raise ConfigError(message)
+    advance["notch_model"] = effective_notch_model(advance["notch_model"])
+    if advance["notch_model"]["enabled"]:
+        advance.pop("notch_widths")
+    return advance
+
+
 def recipe_steps(recipe):
     """Resolve paths, optional routing and numerical defaults at the recipe boundary."""
     from lfptensorpipe.preproc.signal_repair import normalize_signal_repair_params
@@ -75,22 +90,20 @@ def recipe_steps(recipe):
             result[step] = {"action": "skip"}
             continue
         spec = dict(spec)
+        if step in ("ecg_artifact_removal", "annotations"):
+            if type(spec.setdefault("mark_filter_edges", False)) is not bool:
+                raise ConfigError(f"{step}.mark_filter_edges must be true or false.")
         if step == "signal_repair":
             spec["settings"] = normalize_signal_repair_params(spec.get("settings", {}))
         elif step == "filter":
-            ok, advance, message = svc.normalize_filter_advance_params(
-                spec.get("advance")
-            )
-            if not ok:
-                raise ConfigError(message)
-            from lfptensorpipe.preproc.notch import effective_notch_model
             from .preproc.steps.filter import normalize_filter_runtime_params
 
+            advance = _recipe_filter_advance(spec.get("advance"))
             ok, basic, message = normalize_filter_runtime_params(
                 notches=spec.get("notches"),
                 l_freq=spec.get("low_freq"),
                 h_freq=spec.get("high_freq"),
-                notch_model=effective_notch_model(advance["notch_model"]),
+                notch_model=advance["notch_model"],
             )
             if not ok:
                 raise ConfigError(message)
@@ -116,7 +129,6 @@ def recipe_steps(recipe):
             spec.update(
                 method=method,
                 method_kwargs=kwargs,
-                mark_filter_edges=spec.get("mark_filter_edges", False),
             )
             if (
                 "picks" in spec
@@ -128,7 +140,6 @@ def recipe_steps(recipe):
             ):
                 raise ConfigError("ECG picks must contain channel names.")
         elif step == "annotations":
-            spec.setdefault("mark_filter_edges", False)
             if ("csv" in spec) == ("rows" in spec):
                 raise ConfigError("Annotations requires either rows or a CSV.")
             if "csv" in spec:
@@ -177,6 +188,16 @@ def _validate_historical_review(review, steps, step, resolver):
         ):
             raise ConfigError(f"Invalid saved review for {step}.")
         prefix = review["steps"]
+        if isinstance(prefix, dict) and isinstance(prefix.get("filter"), dict):
+            filt = prefix["filter"]
+            if "advance" in filt:
+                prefix = {
+                    **prefix,
+                    "filter": {
+                        **filt,
+                        "advance": _recipe_filter_advance(filt["advance"]),
+                    },
+                }
         if isinstance(prefix, dict) and isinstance(prefix.get("annotations"), dict):
             annotations = prefix["annotations"]
             if "rows" in annotations:
@@ -212,9 +233,9 @@ def _applied_spec(resolver, step, prior):
             low_freq=params.get("low_freq"),
             high_freq=params.get("high_freq"),
             notches=params["notches"],
-            advance={
-                k: params[k] for k in default_filter_advance_params() if k in params
-            },
+            advance=_recipe_filter_advance(
+                {k: params[k] for k in default_filter_advance_params() if k in params}
+            ),
             review=params.get("review_edits", "detected"),
         )
     elif step == "ecg_artifact_removal":

@@ -77,9 +77,15 @@ def default_filter_advance_params() -> dict[str, Any]:
     }
 
 
+def _filter_number(value: Any, field_name: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be numeric.")
+    return float(value)
+
+
 def _normalize_notch_widths(value: Any) -> float | list[float]:
     if isinstance(value, (int, float)):
-        parsed = float(value)
+        parsed = _filter_number(value, "notch_widths")
         if not math.isfinite(parsed) or parsed <= 0.0:
             raise ValueError("notch_widths must contain positive finite values.")
         return parsed
@@ -87,7 +93,7 @@ def _normalize_notch_widths(value: Any) -> float | list[float]:
     if isinstance(value, (list, tuple)):
         if not value:
             raise ValueError("notch_widths cannot be empty.")
-        parsed_list = [float(item) for item in value]
+        parsed_list = [_filter_number(item, "notch_widths") for item in value]
         if any(not math.isfinite(item) or item <= 0.0 for item in parsed_list):
             raise ValueError("notch_widths must contain positive finite values.")
         return parsed_list if len(parsed_list) > 1 else parsed_list[0]
@@ -98,7 +104,7 @@ def _normalize_notch_widths(value: Any) -> float | list[float]:
 def _optional_float(value: Any, *, field_name: str) -> float | None:
     if value is None or (isinstance(value, str) and not value.strip()):
         return None
-    parsed = float(value)
+    parsed = _filter_number(value, field_name)
     if not math.isfinite(parsed):
         raise ValueError(f"{field_name} must be finite when provided.")
     return parsed
@@ -128,7 +134,7 @@ def normalize_filter_runtime_params(
                 float(item.strip()) for item in notches.split(",") if item.strip()
             ]
         elif isinstance(notches, (list, tuple)):
-            parsed_notches = [float(item) for item in notches]
+            parsed_notches = [_filter_number(item, "notches") for item in notches]
         else:
             raise ValueError("notches must be empty or a number list when provided.")
     except Exception as exc:  # noqa: BLE001
@@ -227,9 +233,11 @@ def normalize_filter_advance_params(
             if notch_model["enabled"]
             else _normalize_notch_widths(merged["notch_widths"])
         )
-        epoch_dur = float(merged["epoch_dur"])
+        epoch_dur = _filter_number(merged["epoch_dur"], "epoch_dur")
         p2p_raw = merged["p2p_thresh"]
-        autoreject_correct_factor = float(merged["autoreject_correct_factor"])
+        autoreject_correct_factor = _filter_number(
+            merged["autoreject_correct_factor"], "autoreject_correct_factor"
+        )
     except Exception as exc:  # noqa: BLE001
         return False, defaults, str(exc)
 
@@ -253,8 +261,8 @@ def normalize_filter_advance_params(
                 "p2p_thresh must be empty or contain exactly two numbers.",
             )
         try:
-            p2p_min = float(p2p_raw[0])
-            p2p_max = float(p2p_raw[1])
+            p2p_min = _filter_number(p2p_raw[0], "p2p_thresh")
+            p2p_max = _filter_number(p2p_raw[1], "p2p_thresh")
         except Exception:  # noqa: BLE001
             return False, defaults, "p2p_thresh must contain valid numbers."
         if not math.isfinite(p2p_min):
