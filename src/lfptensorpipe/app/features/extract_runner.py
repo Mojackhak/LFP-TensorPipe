@@ -759,9 +759,14 @@ def run_extract_features(
         reducer_rule_by_method = svc._load_reducer_rule_by_method(config_store)
         collapse_base_cfg = svc._load_collapse_base_cfg(config_store)
     else:
-        from .execution import execution_configs, value_definition
+        from .execution import (
+            execution_configs,
+            normalized_execution_metadata,
+            value_definition,
+        )
 
         try:
+            execution = normalized_execution_metadata(execution)
             derive_param_cfg, reducer_cfg, collapse_base_cfg = execution_configs(
                 execution, [metric for metric, _ in raw_tables]
             )

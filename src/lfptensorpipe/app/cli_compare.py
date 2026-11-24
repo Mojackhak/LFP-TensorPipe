@@ -18,6 +18,7 @@ from lfptensorpipe.utils.transforms import VALUE_TRANSFORM_POLICY_KEY
 from .alignment.epoch_view import epoch_key
 from .alignment.paths import alignment_trial_raw_table_path
 from .cli import RunFailed
+from .features.execution import normalized_execution_metadata
 from .features.generation import (
     accepted_feature_artifact_paths,
     features_derivatives_log_path,
@@ -94,6 +95,8 @@ def _open_run(folder):
         != run["stages"]["features"]["generation"]
     ):
         raise RunFailed(f"Features have changed since the run was published: {folder}")
+    features = run["effective"]["features"]
+    features["execution"] = normalized_execution_metadata(features["execution"])
     return run, resolver, paths
 
 
@@ -154,11 +157,11 @@ def _feature_values(run, paths, seconds):
         frame = load_pkl(path)
         reducer, kind = path.stem.rsplit("-", 1)
         axes = feature["axes_by_metric"][metric]
+        spec = feature["execution"]["metrics"][metric]
         policy = frame.attrs.get(
-            VALUE_TRANSFORM_POLICY_KEY,
-            feature["execution"]["metrics"][metric]["value_policy"],
+            VALUE_TRANSFORM_POLICY_KEY, spec["output_domains"][path.stem]
         )
-        unit_map = feature["execution"]["metrics"][metric]["units"]
+        unit_map = spec["units"]
         common = _common_definition(effective, metric)
         for row in frame.to_dict("records"):
             source = row.get("SourceEpoch")

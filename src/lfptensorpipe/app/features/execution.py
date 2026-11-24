@@ -6,7 +6,10 @@ from lfptensorpipe.app.alignment.paths import alignment_trial_raw_table_path
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.io.pkl_io import load_pkl
 from lfptensorpipe.tabular.grid import GridResultColumns, ReducerKind
-from lfptensorpipe.utils.transforms import transform_policy_metadata
+from lfptensorpipe.utils.transforms import (
+    get_transform_policy,
+    transform_policy_metadata,
+)
 from .derive_defaults import DEFAULT_COLLAPSE_BASE_CFG, _load_collapse_base_cfg
 from .phase_reuse import collapse_settings
 
@@ -47,7 +50,7 @@ def measurement_units(metric, reducers, *, raw_output, power_unit=None):
         if metric == "burst"
         else {
             "count": "segments",
-            "occupation": "%",
+            "occupation": "proportion",
             "rate": "per reduced-axis unit",
             "duration": "reduced-axis units",
         }
@@ -57,8 +60,7 @@ def measurement_units(metric, reducers, *, raw_output, power_unit=None):
 
 
 def value_definition(context, trial, metric, kinds, reducers):
-    from .extract_runner import _feature_storage_policy
-    from lfptensorpipe.utils.transforms import get_transform_policy
+    from .extract_runner import _feature_storage_policy, _METRIC_VALUE_REDUCERS
 
     table = load_pkl(
         alignment_trial_raw_table_path(
@@ -73,11 +75,11 @@ def value_definition(context, trial, metric, kinds, reducers):
     )
     domains = {}
     for kind in kinds:
-        for reducer in (["na"] if kind == "raw" else reducers):
+        for reducer in ["na"] if kind == "raw" else reducers:
             domains[f"{reducer}-{kind}"] = (
-                transform_policy_metadata(get_transform_policy("none"))
-                if metric == "burst" and kind == "scalar" and reducer != "mean"
-                else policy
+                policy
+                if kind == "raw" or reducer in _METRIC_VALUE_REDUCERS
+                else transform_policy_metadata(get_transform_policy("none"))
             )
     return {
         "value_policy": policy,
@@ -86,6 +88,32 @@ def value_definition(context, trial, metric, kinds, reducers):
         ),
         "output_domains": domains,
     }
+
+
+def normalized_execution_metadata(execution):
+    """Read the two historical non-Burst labels in their stored numerical domain."""
+    if not isinstance(execution, dict) or not isinstance(
+        execution.get("metrics"), dict
+    ):
+        return execution
+    metrics = dict(execution["metrics"])
+    for metric, spec in metrics.items():
+        if metric == "burst" or not isinstance(spec, dict):
+            continue
+        units, domains = spec.get("units"), spec.get("output_domains")
+        if not isinstance(units, dict) or not isinstance(domains, dict):
+            continue
+        if units.get("occupation") == "%":
+            units = {**units, "occupation": "proportion"}
+        domains = {
+            stem: transform_policy_metadata(get_transform_policy("none"))
+            if stem.partition("-")[0] in {"count", "occupation", "rate", "duration"}
+            and policy == spec.get("value_policy")
+            else policy
+            for stem, policy in domains.items()
+        }
+        metrics[metric] = {**spec, "units": units, "output_domains": domains}
+    return {**execution, "metrics": metrics}
 
 
 def execution_snapshot(context, trial, metrics, store, *, accepted=None):

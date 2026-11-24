@@ -589,14 +589,17 @@ def _record_run(
         keep_features = False
         if prior_features:
             from .cli import _patch_state, prepare_features_config
-            from .features.execution import execution_snapshot
+            from .features.execution import (
+                execution_snapshot,
+                normalized_execution_metadata,
+            )
 
             seed = export_page(context, stage, trial)[stage]
             keys = list(seed["axes_by_metric"])
             requested = prepare_features_config(
                 context, features_node, keys, trial=trial
             )
-            numerical = features_node.get("execution")
+            numerical = normalized_execution_metadata(features_node.get("execution"))
             if numerical is None:
                 numerical = execution_snapshot(context, trial, keys, store)
             keep_features = (

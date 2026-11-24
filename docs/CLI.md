@@ -148,6 +148,8 @@ For Localize, supply `"source": "user_labels"` and `"labels_csv": "labels.csv"` 
 
 An Align configuration accepts `epoch_selection` as an exported decision file, an embedded selection or the word `accepted` for the latest accepted Finish of this record and trial. The reference is read before rerunning. Matching uses labels, original event coordinates and source intervals. Ambiguous matches prevent Finish. Exact replay also requires matching candidate sets. Sensitivity variants can report missing and extra candidates and finish the uniquely matched included epochs. Features exports include `execution` with actual output types, reducers, reduction settings and numerical domains when available.
 
+For non-Burst metrics, `occupation` is a proportion from 0 to 1. Burst `occupancy` is a percentage from 0 to 100. Each exported output domain follows the stored PKL. Raw, mean and median use their metric's transform policy. Count, occupation, rate, duration and Burst occupancy use the identity transform. Replay and comparison interpret older exports using these same reducer definitions.
+
 ## Running named variants
 
 The following plan uses the ordinary page JSON files. The baseline preprocessing recipe applies ECG correction.
