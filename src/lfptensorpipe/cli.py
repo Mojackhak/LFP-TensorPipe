@@ -98,9 +98,15 @@ def resolve_references(page, node, parent):
         owner, key = node.get("annotations"), "csv"
     elif page == "localize":
         owner, key = node, "labels_csv"
+    elif page == "alignment":
+        owner, key = node, "epoch_selection"
     else:
         return
-    if isinstance(owner, dict) and isinstance(owner.get(key), str):
+    if (
+        isinstance(owner, dict)
+        and isinstance(owner.get(key), str)
+        and not (key == "epoch_selection" and owner[key] == "accepted")
+    ):
         owner[key] = str((parent / Path(owner[key]).expanduser()).resolve())
 
 

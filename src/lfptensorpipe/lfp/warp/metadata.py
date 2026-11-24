@@ -28,6 +28,7 @@ from lfptensorpipe.utils.transforms import VALUE_TRANSFORM_POLICY_KEY
 from .event_anchored_linear import LinearEpoch
 from .stack import StackEpoch
 
+
 def _epoch_label(ep: Any, fallback: str) -> str:
     """Extract a label for an epoch from warp metadata."""
     if hasattr(ep, "label"):
@@ -86,6 +87,31 @@ def _infer_epoch_duration_s(ep: Any) -> tuple[str, float]:
             return "pad", float(np.nan)
 
     return "unknown", float(np.nan)
+
+
+def source_epoch_metadata(meta_epochs):
+    """Describe the original event timeline shared by Align, review and replay."""
+    warp_events = []
+    for i, ep in enumerate(meta_epochs):
+        events_t = getattr(ep, "events_t", None)
+        kind, dur_s = _infer_epoch_duration_s(ep)
+        item = {
+            "epoch_index": int(i),
+            "label": _epoch_label(ep, fallback=f"epoch_{i:04d}"),
+            "start_t": float(getattr(ep, "start_t", np.nan)),
+            "end_t": float(getattr(ep, "end_t", np.nan)),
+            "events_t": events_t if isinstance(events_t, dict) else None,
+            "kind": kind,
+            "duration_s": float(dur_s) if np.isfinite(dur_s) else np.nan,
+        }
+        if hasattr(ep, "side"):
+            item["side"] = str(getattr(ep, "side"))
+        if getattr(ep, "sample_span_s", None) is not None:
+            item["sample_span_s"] = ep.sample_span_s
+        if hasattr(ep, "intervals_s"):
+            item["intervals_s"] = list(getattr(ep, "intervals_s"))
+        warp_events.append(item)
+    return warp_events
 
 
 def _robust_duration_s(meta_epochs: Sequence[Any]) -> tuple[str, float, np.ndarray]:
@@ -217,27 +243,7 @@ def build_warped_tensor_metadata(
         dtype=object,
     )
 
-    # Serialize per-epoch metadata with a conservative schema.
-    warp_events = []
-    for i, ep in enumerate(meta_epochs):
-        events_t = getattr(ep, "events_t", None)
-        kind, dur_s = _infer_epoch_duration_s(ep)
-        item = {
-            "epoch_index": int(i),
-            "label": _epoch_label(ep, fallback=f"epoch_{i:04d}"),
-            "start_t": float(getattr(ep, "start_t", np.nan)),
-            "end_t": float(getattr(ep, "end_t", np.nan)),
-            "events_t": events_t if isinstance(events_t, dict) else None,
-            "kind": kind,
-            "duration_s": float(dur_s) if np.isfinite(dur_s) else np.nan,
-        }
-        if hasattr(ep, "side"):
-            item["side"] = str(getattr(ep, "side"))
-        if getattr(ep, "sample_span_s", None) is not None:
-            item["sample_span_s"] = ep.sample_span_s
-        if hasattr(ep, "intervals_s"):
-            item["intervals_s"] = list(getattr(ep, "intervals_s"))
-        warp_events.append(item)
+    warp_events = source_epoch_metadata(meta_epochs)
 
     axes: Dict[str, Any] = dict(
         epoch=epoch_labels,

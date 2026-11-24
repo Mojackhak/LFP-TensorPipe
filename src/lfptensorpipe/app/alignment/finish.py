@@ -34,7 +34,7 @@ from lfptensorpipe.app.shared.generation_lineage import (
 from lfptensorpipe.utils.transforms import VALUE_TRANSFORM_POLICY_KEY
 
 from . import service as svc
-from .epoch_view import finish_review_snapshot
+from .epoch_view import epoch_key, finish_review_snapshot
 from .trial_config import epoch_time_axes
 
 
@@ -225,6 +225,10 @@ def finish_alignment_epochs(
                 if epochs is None:
                     epochs = [{"label": str(label)} for label in axis_values["epoch"]]
                 review = finish_review_snapshot(context, slug, picked, epochs)
+                picked_sources = [
+                    epoch_key(row) if row["source_intervals_s"] else None
+                    for row in (review["decisions"][i] for i in picked)
+                ]
             tensor_keep = tensor[picked, ...]
             epochs_keep = [axis_values["epoch"][idx] for idx in picked]
             time_axis = _finish_time_axis_values(
@@ -249,6 +253,9 @@ def finish_alignment_epochs(
             frame["Record"] = context.record
             frame["Trial"] = slug
             frame["Metric"] = metric_key
+            frame["SourceEpoch"] = np.repeat(
+                picked_sources, len(axis_values["channel"])
+            )
             if merge_location_info_ready:
                 frame, merge_warning = _merge_representative_coords_for_metric(
                     frame,

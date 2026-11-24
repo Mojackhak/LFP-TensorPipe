@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from copy import deepcopy
+import json
+from math import isfinite
 from typing import Any
 
 import numpy as np
@@ -262,6 +264,36 @@ def save_epoch_review(context, slug, patch, *, run_index=None):
     state["epoch_inspector"] = inspector
     _write_updated_run_log_state(path, {**payload, "state": state}, {})
     return True
+
+
+def epoch_key(row):
+    intervals = row.get("source_intervals_s")
+    events = row.get("source_events", {})
+    if (
+        not isinstance(row.get("epoch"), str)
+        or not row["epoch"]
+        or not isinstance(intervals, list)
+        or not intervals
+    ):
+        raise ValueError(
+            "An epoch decision needs its label and original source intervals."
+        )
+    if not isinstance(events, dict):
+        raise ValueError("Invalid source events.")
+    bounds = []
+    for pair in intervals:
+        if not isinstance(pair, (tuple, list)) or len(pair) != 2:
+            raise ValueError("Invalid source interval.")
+        start, stop = map(float, pair)
+        if not isfinite(start) or not isfinite(stop) or stop < start:
+            raise ValueError("Invalid source interval bounds.")
+        bounds.append([start, stop])
+    return json.dumps(
+        [row["epoch"], bounds, {k: float(v) for k, v in events.items()}],
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
 
 
 def finish_review_snapshot(context, slug, picked, epochs):

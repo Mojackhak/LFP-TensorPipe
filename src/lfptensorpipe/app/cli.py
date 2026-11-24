@@ -258,6 +258,18 @@ def _run_alignment(
     if not svc._completed_tensor_metrics(PathResolver(context)):
         raise RunFailed("No current Tensor metrics are available for Align Epochs.")
     existing = _trial_config(context, trial, allow_missing=True)
+    reference = None
+    if "epoch_selection" in node:
+        from .cli_epochs import selection_reference
+
+        reference = selection_reference(node["epoch_selection"], context, trial)
+    replay_mode = node.get("epoch_match", "exact")
+    if replay_mode not in ("exact", "common") or (
+        "epoch_match" in node and reference is None
+    ):
+        raise ConfigError(
+            "epoch_match requires an epoch selection and exact or common matching."
+        )
     _require_fields(node, ("method", "method_params"), "alignment")
     method, params = node["method"], node["method_params"]
     if not isinstance(method, str) or method not in svc.ALIGNMENT_METHODS_BY_KEY:
@@ -307,6 +319,22 @@ def _run_alignment(
         requested_labels = list(anchors.values())
     else:
         requested_labels = params["annotations"]
+    if (
+        reference
+        and replay_mode == "common"
+        and method != "linear_warper"
+        and isinstance(requested_labels, list)
+    ):
+        reviewed_labels = {r["epoch"] for r in reference["decisions"]}
+        # A previously reviewed label may disappear from Finish in a preprocessing variant.
+        retained = [
+            label
+            for label in requested_labels
+            if label in labels or label not in reviewed_labels
+        ]
+        if retained != requested_labels:
+            params = {**params, "annotations": retained}
+            requested_labels = retained
     if not explicit and (
         not isinstance(requested_labels, list)
         or not requested_labels
@@ -347,17 +375,26 @@ def _run_alignment(
     )
     _checked_result((ok, message))
     picks = [row["epoch_index"] for row in rows]
+    if reference is not None:
+        from .cli_epochs import replay_picks
+
+        picks = replay_picks(context, trial, reference, replay_mode)
     if not svc.persist_alignment_epoch_picks(
         context, paradigm_slug=trial, picked_epoch_indices=picks
     ):
-        raise RunFailed("Could not save the all-epoch selection after Align Run.")
+        raise RunFailed("Could not save the epoch selection after Align Run.")
     _select_trial_state(context, config, picks)
     finish_message = _checked_result(
         svc.finish_alignment_epochs(
             context, paradigm_slug=trial, picked_epoch_indices=picks
         )
     )
-    return f"Epochs: {len(picks)} (all generated epochs)\n{message}\n{finish_message}"
+    scope = (
+        "all generated epochs"
+        if reference is None
+        else f"{replay_mode} source-event replay"
+    )
+    return f"Epochs: {len(picks)} ({scope})\n{message}\n{finish_message}"
 
 
 def prepare_features_config(
