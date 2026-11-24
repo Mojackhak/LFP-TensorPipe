@@ -244,7 +244,15 @@ def analysis_command(command, argv):
                 rtol=args.rtol,
             )
             print(args.output.resolve())
+            if not passed and args.mode == "sensitivity":
+                print(
+                    "No finite paired feature values. See summary.json and unmatched.csv in the report directory.",
+                    file=sys.stderr,
+                )
             return 0 if passed else 1
+    except KeyboardInterrupt:
+        print(f"{command} interrupted.", file=sys.stderr)
+        return 130
     except ValueError as exc:
         print(f"Invalid input: {exc}", file=sys.stderr)
         return 2

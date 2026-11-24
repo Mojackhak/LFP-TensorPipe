@@ -190,6 +190,8 @@ Phase comparisons use the accepted epoch duration to convert between percent and
 
 The Tensor setting `mask_edge_effects` is part of each output definition. Changing it sends the affected values to `unmatched.csv` as `different_definition`. The coverage report still describes the observed support in both runs.
 
+Native Burst scalar tables always identify observations by `Band`, `Phase` and `Value`. Comparison reads those columns even when the same run assigns custom output column names to other metrics. A sensitivity comparison with zero finite pairs saves its reports, explains the failure on standard error and exits with code 1. Interrupting an export or comparison returns code 130.
+
 ## Failures and Interruption
 
 | Exit code | Meaning |

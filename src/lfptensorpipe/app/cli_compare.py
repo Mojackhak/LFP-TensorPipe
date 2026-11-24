@@ -170,14 +170,17 @@ def _common_definition(effective, metric):
 def _feature_values(run, paths, seconds):
     effective = run["effective"]
     feature = effective["features"]
-    columns = feature["execution"]["collapse"].get(
-        "out_cols", {"band": "Band", "phase": "Phase", "value": "Value"}
-    )
+    native_columns = {"band": "Band", "phase": "Phase", "value": "Value"}
     values = defaultdict(list)
     definitions = {}
     for metric, path in paths:
         frame = load_pkl(path)
         reducer, kind = path.stem.rsplit("-", 1)
+        columns = (
+            native_columns
+            if kind == "raw" or metric == "burst"
+            else feature["execution"]["collapse"].get("out_cols", native_columns)
+        )
         axes = feature["axes_by_metric"][metric]
         spec = feature["execution"]["metrics"][metric]
         policy = frame.attrs.get(
