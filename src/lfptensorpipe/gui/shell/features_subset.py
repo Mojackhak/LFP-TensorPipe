@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from lfptensorpipe.app.path_resolver import PathResolver
+from lfptensorpipe.app.features.phase_time import elapsed_plot_frame
+
 from lfptensorpipe.gui.shell.common import (
     Any,
     FEATURE_DERIVED_TYPES,
@@ -13,6 +18,16 @@ from lfptensorpipe.gui.shell.common import (
 
 
 class MainWindowFeaturesSubsetMixin:
+    def _read_features_plot_payload(self, selected):
+        frame = self._load_pickle(Path(selected["path"]))
+        context = self._record_context()
+        slug = self._current_features_paradigm_slug()
+        if isinstance(frame, pd.DataFrame) and context is not None and slug:
+            frame = elapsed_plot_frame(
+                frame, selected.get("derived_type"), PathResolver(context), slug
+            )
+        return frame
+
     def _selected_features_file(self) -> dict[str, Any] | None:
         if self._features_available_table is None:
             return None
@@ -157,7 +172,7 @@ class MainWindowFeaturesSubsetMixin:
         if selected is None:
             return None
         try:
-            payload = self._load_pickle(selected["path"])
+            payload = self._read_features_plot_payload(selected)
         except Exception:
             return None
         if not isinstance(payload, pd.DataFrame):

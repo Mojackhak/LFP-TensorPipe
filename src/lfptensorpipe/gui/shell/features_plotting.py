@@ -239,7 +239,7 @@ class MainWindowFeaturesPlottingMixin:
             return
         derived_type = str(selected.get("derived_type", "")).strip().lower()
         try:
-            payload = self._load_pickle(Path(selected["path"]))
+            payload = self._read_features_plot_payload(selected)
             if not isinstance(payload, pd.DataFrame):
                 raise ValueError("Selected feature payload is not a DataFrame.")
         except Exception as exc:  # noqa: BLE001
@@ -346,7 +346,7 @@ class MainWindowFeaturesPlottingMixin:
             return
         path = Path(selected["path"])
         try:
-            payload = self._load_pickle(path)
+            payload = self._read_features_plot_payload(selected)
             if not isinstance(payload, pd.DataFrame):
                 raise ValueError("Selected file is not a DataFrame payload.")
             if "Value" not in payload.columns:

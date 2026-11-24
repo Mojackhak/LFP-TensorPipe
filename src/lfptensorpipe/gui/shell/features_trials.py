@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from lfptensorpipe.app.shared.runlog_store import run_log_read_snapshot
 
 from lfptensorpipe.app.alignment.generation import accepted_alignment_artifact_paths
@@ -63,7 +65,7 @@ class MainWindowFeaturesTrialsMixin:
         source = node if isinstance(node, dict) else {}
         metric_keys = self._features_metric_keys_for_trial_slug(trial_slug)
         raw_axes_by_metric = source.get("axes_by_metric")
-        normalized_axes: dict[str, dict[str, list[dict[str, Any]]]] = {}
+        normalized_axes: dict[str, dict[str, Any]] = {}
         if isinstance(raw_axes_by_metric, dict):
             for raw_metric_key, raw_axis_node in raw_axes_by_metric.items():
                 metric_key = str(raw_metric_key).strip()
@@ -88,11 +90,18 @@ class MainWindowFeaturesTrialsMixin:
                     for item in self._normalize_feature_axis_rows(
                         raw_axis_node.get("times"),
                         min_start=0.0,
-                        max_end=100.0,
+                        max_end=(
+                            None if raw_axis_node.get("time_unit") == "s" else 100.0
+                        ),
                         allow_duplicate_names=True,
                     )
                 ]
                 normalized_axes[metric_key] = {
+                    **(
+                        {"time_unit": raw_axis_node["time_unit"]}
+                        if "time_unit" in raw_axis_node
+                        else {}
+                    ),
                     "bands": bands,
                     "times": times,
                 }
@@ -202,20 +211,9 @@ class MainWindowFeaturesTrialsMixin:
         node = {
             "active_metric": active_metric,
             "axes_by_metric": {
-                metric_key: {
-                    "bands": [
-                        dict(item)
-                        for item in self._normalized_features_axes_for_metric(
-                            metric_key
-                        )["bands"]
-                    ],
-                    "times": [
-                        dict(item)
-                        for item in self._normalized_features_axes_for_metric(
-                            metric_key
-                        )["times"]
-                    ],
-                }
+                metric_key: deepcopy(
+                    self._normalized_features_axes_for_metric(metric_key)
+                )
                 for metric_key in stored_metric_keys
             },
             "selected_relative_stem": (
@@ -303,6 +301,11 @@ class MainWindowFeaturesTrialsMixin:
         ):
             self._features_axes_by_metric = {
                 str(metric_key): {
+                    **(
+                        {"time_unit": axis_node["time_unit"]}
+                        if "time_unit" in axis_node
+                        else {}
+                    ),
                     "bands": [dict(item) for item in axis_node.get("bands", [])],
                     "times": [dict(item) for item in axis_node.get("times", [])],
                 }

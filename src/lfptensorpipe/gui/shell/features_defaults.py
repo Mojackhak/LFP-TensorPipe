@@ -168,6 +168,7 @@ class MainWindowFeaturesDefaultsMixin:
         *,
         metric_key: str,
         axis_key: str,
+        time_unit: str = "percent",
     ) -> list[dict[str, Any]]:
         if axis_key == "bands" and self._features_metric_uses_auto_bands(metric_key):
             return []
@@ -181,6 +182,8 @@ class MainWindowFeaturesDefaultsMixin:
         if not isinstance(node, dict):
             node = {}
         bucket_name = "bands_by_metric" if axis_key == "bands" else "times_by_metric"
+        if axis_key == "times" and time_unit == "s":
+            bucket_name = "times_seconds_by_metric"
         bucket = node.get(bucket_name, {})
         if not isinstance(bucket, dict):
             bucket = {}
@@ -190,7 +193,7 @@ class MainWindowFeaturesDefaultsMixin:
         normalized = self._normalize_feature_axis_rows(
             raw_rows,
             min_start=0.0,
-            max_end=(100.0 if axis_key == "times" else None),
+            max_end=(100.0 if axis_key == "times" and time_unit == "percent" else None),
             allow_duplicate_names=(axis_key == "times"),
         )
         return [dict(item) for item in normalized]
@@ -201,13 +204,14 @@ class MainWindowFeaturesDefaultsMixin:
         metric_key: str,
         axis_key: str,
         rows: list[dict[str, Any]],
+        time_unit: str = "percent",
     ) -> None:
         if axis_key == "bands" and self._features_metric_uses_auto_bands(metric_key):
             return
         normalized = self._normalize_feature_axis_rows(
             rows,
             min_start=0.0,
-            max_end=(100.0 if axis_key == "times" else None),
+            max_end=(100.0 if axis_key == "times" and time_unit == "percent" else None),
             allow_duplicate_names=(axis_key == "times"),
         )
         if not normalized:
@@ -222,6 +226,8 @@ class MainWindowFeaturesDefaultsMixin:
         if not isinstance(node, dict):
             node = {}
         bucket_name = "bands_by_metric" if axis_key == "bands" else "times_by_metric"
+        if axis_key == "times" and time_unit == "s":
+            bucket_name = "times_seconds_by_metric"
         bucket = node.get(bucket_name, {})
         if not isinstance(bucket, dict):
             bucket = {}

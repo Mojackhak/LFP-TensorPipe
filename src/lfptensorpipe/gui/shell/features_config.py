@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.features.phase_time import phase_limit, validate_phase_bounds
+
 import json
 
 from lfptensorpipe.app.shared.page_config import json_value, page_config_node
@@ -55,6 +57,7 @@ class MainWindowFeaturesConfigMixin:
         for metric_key in metric_keys:
             axes = self._normalized_features_axes_for_metric(metric_key)
             axes_by_metric[metric_key] = {
+                "time_unit": axes.get("time_unit", "percent"),
                 "bands": (
                     []
                     if self._features_metric_uses_auto_bands(metric_key)
@@ -89,7 +92,8 @@ class MainWindowFeaturesConfigMixin:
         available_set = set(available_metrics)
         ignored_metrics: list[str] = []
         auto_band_metrics: list[str] = []
-        normalized_axes: dict[str, dict[str, list[dict[str, Any]]]] = {}
+        duration = None
+        normalized_axes: dict[str, dict[str, Any]] = {}
         for metric_key_raw, axes_node in axes_by_metric.items():
             metric_key = str(metric_key_raw).strip()
             if not metric_key:
@@ -136,12 +140,18 @@ class MainWindowFeaturesConfigMixin:
                     )
                     warnings.append(f"{category}: {metric_key}.bands.")
             raw_times = axes_node.get("times")
+            unit = axes_node.get("time_unit", "percent")
+            if unit == "s" and duration is None:
+                duration = self._features_seconds_duration()
+            limit = phase_limit(unit, duration)
+            if unit == "s" and isinstance(raw_times, list):
+                validate_phase_bounds(raw_times, unit, duration)
             times = [
                 dict(item)
                 for item in self._normalize_feature_axis_rows(
                     raw_times,
                     min_start=0.0,
-                    max_end=100.0,
+                    max_end=limit,
                     allow_duplicate_names=True,
                 )
             ]
@@ -151,12 +161,14 @@ class MainWindowFeaturesConfigMixin:
                 defaults = self._load_features_axis_defaults(
                     metric_key=metric_key,
                     axis_key="times",
+                    time_unit=unit,
                 )
                 if not defaults:
                     raise ValueError(
                         f"{metric_key} phase selection is required and has no safe automatic default."
                     )
                 times = [dict(item) for item in defaults]
+                validate_phase_bounds(times, unit, duration)
                 category = (
                     "Missing default restored"
                     if "times" not in axes_node
@@ -164,6 +176,7 @@ class MainWindowFeaturesConfigMixin:
                 )
                 warnings.append(f"{category}: {metric_key}.times.")
             normalized_axes[metric_key] = {
+                **({"time_unit": unit} if "time_unit" in axes_node else {}),
                 "bands": bands,
                 "times": times,
             }
@@ -337,15 +350,12 @@ class MainWindowFeaturesConfigMixin:
             self.statusBar().showMessage("Features config import cancelled.")
             return
 
-        imported_axes = {
-            str(key): {
-                "bands": [dict(item) for item in value.get("bands", [])],
-                "times": [dict(item) for item in value.get("times", [])],
+        self._features_axes_by_metric.update(
+            {
+                key: {"time_unit": "percent", **axes}
+                for key, axes in features_snapshot["axes_by_metric"].items()
             }
-            for key, value in features_snapshot["axes_by_metric"].items()
-            if isinstance(value, dict)
-        }
-        self._features_axes_by_metric.update(imported_axes)
+        )
         self._refresh_features_axis_metric_combo()
         combo = self._features_axis_metric_combo
         if combo is not None:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.features.phase_time import convert_phase_rows, phase_limit
+
 from .common import *  # noqa: F403
 
 
@@ -21,6 +23,10 @@ class FeatureAxisConfigureDialog(QDialog):
         min_start: float,
         max_end: float | None,
         allow_duplicate_names: bool = False,
+        time_unit: str = "percent",
+        duration_s: float | None = None,
+        phase_defaults: dict | None = None,
+        save_phase_default: Callable | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -36,13 +42,39 @@ class FeatureAxisConfigureDialog(QDialog):
         self._selected_action: str | None = None
         self._set_default_callback = set_default_callback
         token = item_label.strip().lower()
-        self._range_unit = "Hz" if token == "band" else "%"
+        self.time_unit = time_unit
+        self._duration_s = duration_s
+        self._phase_defaults = dict(phase_defaults or {"percent": default_rows})
+        self._save_phase_default = save_phase_default
+        self._range_unit = (
+            "Hz" if token == "band" else ("s" if time_unit == "s" else "%")
+        )
+        if time_unit == "s":
+            self._max_end = duration_s
         start_text = f"Start ({self._range_unit})"
         end_text = f"End ({self._range_unit})"
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(8)
+        self._time_unit_combo = None
+        if token == "phase":
+            units = QHBoxLayout()
+            units.addStretch(1)
+            units.addWidget(QLabel("Time unit"))
+            combo = QComboBox()
+            combo.addItem("Percentage (%)", "percent")
+            combo.addItem("Absolute time (s)", "s")
+            combo.model().item(1).setEnabled(duration_s is not None)
+            if duration_s is None:
+                combo.model().item(1).setToolTip(
+                    "This trial has no accepted seconds axis."
+                )
+            combo.setToolTip("Seconds from the start of the aligned epoch.")
+            combo.setCurrentIndex(combo.findData(time_unit))
+            units.addWidget(combo)
+            root.addLayout(units)
+            self._time_unit_combo = combo
 
         self._table = QTableWidget(0, 5)
         self._table.setHorizontalHeaderLabels(
@@ -88,9 +120,11 @@ class FeatureAxisConfigureDialog(QDialog):
         add_button.setToolTip(f"Add the draft {self._item_label.lower()} row.")
         draft_layout.addWidget(QLabel(item_label))
         draft_layout.addWidget(self._draft_name_edit, stretch=1)
-        draft_layout.addWidget(QLabel(start_text))
+        self._start_label = QLabel(start_text)
+        draft_layout.addWidget(self._start_label)
         draft_layout.addWidget(self._draft_start_edit)
-        draft_layout.addWidget(QLabel(end_text))
+        self._end_label = QLabel(end_text)
+        draft_layout.addWidget(self._end_label)
         draft_layout.addWidget(self._draft_end_edit)
         draft_layout.addWidget(add_button)
         root.addWidget(draft_row)
@@ -102,6 +136,7 @@ class FeatureAxisConfigureDialog(QDialog):
         clear_all_button = QPushButton("Clear All")
         set_default_button = QPushButton("Set as Default")
         restore_default_button = QPushButton("Restore Default")
+        self._restore_default_button = restore_default_button
         cancel_button = QPushButton("Cancel")
         save_button = QPushButton("Save")
         clear_all_button.clicked.connect(self._on_clear_all)
@@ -134,6 +169,40 @@ class FeatureAxisConfigureDialog(QDialog):
 
         self._apply_default_rows(default_rows)
         self._apply_initial_rows(current_rows)
+        if self._time_unit_combo is not None:
+            self._time_unit_combo.currentIndexChanged.connect(self._change_time_unit)
+            self._restore_default_button.setEnabled(
+                bool(self._phase_defaults.get(self.time_unit))
+            )
+
+    def _change_time_unit(self):
+        unit = self._time_unit_combo.currentData()
+        self._rows = convert_phase_rows(
+            self._rows, self.time_unit, unit, self._duration_s
+        )
+        old_limit = phase_limit(self.time_unit, self._duration_s)
+        new_limit = phase_limit(unit, self._duration_s)
+        for edit in (self._draft_start_edit, self._draft_end_edit):
+            try:
+                value = float(edit.text())
+            except ValueError:
+                continue
+            edit.setText(str(value / old_limit * new_limit))
+        self.time_unit = unit
+        self._range_unit = "s" if unit == "s" else "%"
+        self._max_end = new_limit
+        for column, title, label, edit in (
+            (2, "Start", self._start_label, self._draft_start_edit),
+            (3, "End", self._end_label, self._draft_end_edit),
+        ):
+            title = f"{title} ({self._range_unit})"
+            self._table.horizontalHeaderItem(column).setText(title)
+            label.setText(title)
+            edit.setPlaceholderText(title)
+            edit.setToolTip(title)
+        self._restore_default_button.setEnabled(bool(self._phase_defaults.get(unit)))
+        self._render_table()
+        self._validate_draft_controls()
 
     @property
     def selected_rows(self) -> tuple[dict[str, float | str], ...]:
@@ -175,7 +244,7 @@ class FeatureAxisConfigureDialog(QDialog):
                 continue
             parsed.append({"name": name, "start": start, "end": end})
         valid, normalized, _ = self._validate_rows(parsed)
-        self._rows = normalized if valid else []
+        self._rows = normalized if valid else (parsed if self.time_unit == "s" else [])
         self._render_table()
 
     def _render_table(self) -> None:
@@ -196,14 +265,13 @@ class FeatureAxisConfigureDialog(QDialog):
                     tool_tip=f"Delete this {self._item_label.lower()}.",
                 ),
             )
-        set_control_validation_error(
-            self._table,
-            (
-                None
-                if self._rows
-                else f"At least one {self._item_label.lower()} is required."
-            ),
-        )
+        error = None
+        if not self._rows:
+            error = f"At least one {self._item_label.lower()} is required."
+        elif self._time_unit_combo is not None:
+            _, _, message = self._validate_rows(self._rows)
+            error = message or None
+        set_control_validation_error(self._table, error)
 
     def _validate_draft_controls(self) -> None:
         name = self._draft_name_edit.text().strip()
@@ -260,7 +328,7 @@ class FeatureAxisConfigureDialog(QDialog):
                 return (
                     False,
                     [],
-                    f"End must be <= {self._max_end:g}.",
+                    f"{name}: end {end:g} must be <= {self._max_end:g} {self._range_unit}.",
                 )
             if end <= start:
                 return False, [], "Each row must satisfy End > Start."
@@ -319,6 +387,13 @@ class FeatureAxisConfigureDialog(QDialog):
         self._render_table()
 
     def _on_restore_default(self) -> None:
+        if self._time_unit_combo is not None:
+            rows = [dict(row) for row in self._phase_defaults.get(self.time_unit, ())]
+            valid, normalized, message = self._validate_rows(rows)
+            if not valid:
+                QMessageBox.warning(self, self.windowTitle(), message)
+                return
+            self._default_rows = normalized
         self._rows = [dict(item) for item in self._default_rows]
         self._render_table()
 
@@ -342,15 +417,25 @@ class FeatureAxisConfigureDialog(QDialog):
             return
         self._rows = normalized
         if action == "set_default":
-            if self._set_default_callback is not None:
+            if (
+                self._set_default_callback is not None
+                or self._save_phase_default is not None
+            ):
                 try:
-                    self._set_default_callback(tuple(dict(item) for item in self._rows))
+                    rows = tuple(dict(item) for item in self._rows)
+                    if self._save_phase_default is not None:
+                        self._save_phase_default(self.time_unit, rows)
+                    else:
+                        self._set_default_callback(rows)
                 except Exception as exc:  # noqa: BLE001
                     QMessageBox.warning(
                         self, self.windowTitle(), f"Set as default failed:\n{exc}"
                     )
                     return
             self._default_rows = [dict(item) for item in self._rows]
+            if self._time_unit_combo is not None:
+                self._phase_defaults[self.time_unit] = self._default_rows
+                self._restore_default_button.setEnabled(True)
             self._selected_action = action
             return
         self._selected_action = action

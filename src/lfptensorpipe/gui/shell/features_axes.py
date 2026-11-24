@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from lfptensorpipe.app.alignment.generation import accepted_alignment_artifact_paths
 from lfptensorpipe.app.features.derive_axes import feature_band_support_error
+from lfptensorpipe.app.features.phase_time import (
+    trial_seconds_duration,
+    validate_phase_bounds,
+)
 from lfptensorpipe.gui.shell.common import (
     FEATURE_AUTO_BAND_METRICS,
     Any,
@@ -17,6 +21,13 @@ from lfptensorpipe.gui.shell.common import (
 
 
 class MainWindowFeaturesAxesMixin:
+    def _features_seconds_duration(self):
+        context = self._record_context()
+        slug = self._current_features_paradigm_slug()
+        if context is None or not slug:
+            return None
+        return trial_seconds_duration(PathResolver(context), slug)
+
     @staticmethod
     def _features_metric_uses_auto_bands(metric_key: str) -> bool:
         return metric_key.strip().lower() in FEATURE_AUTO_BAND_METRICS
@@ -110,14 +121,13 @@ class MainWindowFeaturesAxesMixin:
             return ""
         return feature_band_support_error(metric_key, bands, support)
 
-    def _normalized_features_axes_for_metric(
-        self, metric_key: str
-    ) -> dict[str, list[dict[str, Any]]]:
+    def _normalized_features_axes_for_metric(self, metric_key: str) -> dict[str, Any]:
         node = self._features_axes_by_metric.get(metric_key, {})
         if not isinstance(node, dict):
             node = {}
         raw_bands: Any = node.get("bands")
         raw_times: Any = node.get("times")
+        unit = node.get("time_unit", "percent")
         if self._features_metric_uses_auto_bands(metric_key):
             raw_bands = []
         elif not isinstance(raw_bands, list):
@@ -129,6 +139,7 @@ class MainWindowFeaturesAxesMixin:
             raw_times = self._load_features_axis_defaults(
                 metric_key=metric_key,
                 axis_key="times",
+                time_unit=unit,
             )
         bands = self._normalize_feature_axis_rows(
             raw_bands,
@@ -139,12 +150,13 @@ class MainWindowFeaturesAxesMixin:
         times = self._normalize_feature_axis_rows(
             raw_times,
             min_start=0.0,
-            max_end=100.0,
+            max_end=100.0 if unit == "percent" else None,
             allow_duplicate_names=True,
         )
         normalized = {
             "bands": [dict(item) for item in bands],
             "times": [dict(item) for item in times],
+            **({"time_unit": unit} if "time_unit" in node else {}),
         }
         self._features_axes_by_metric[metric_key] = normalized
         return normalized
@@ -305,18 +317,32 @@ class MainWindowFeaturesAxesMixin:
         if metric_key is None:
             return
         axes = self._normalized_features_axes_for_metric(metric_key)
-        default_rows = self._load_features_axis_defaults(
-            metric_key=metric_key,
-            axis_key="times",
-        )
+        duration = self._features_seconds_duration()
+        unit = axes.get("time_unit", "percent")
+        rows = axes["times"]
+        if unit == "s" and duration is None:
+            self._show_warning(
+                "Phases Configure",
+                "This trial uses a percentage axis. Configure percentage windows for this trial.",
+            )
+            rows, unit = [], "percent"
+        defaults = {
+            u: self._load_features_axis_defaults(
+                metric_key=metric_key, axis_key="times", time_unit=u
+            )
+            for u in (("percent", "s") if duration is not None else ("percent",))
+        }
         dialog = self._create_feature_axis_configure_dialog(
             title=f"{metric_key} Phases",
             item_label="Phase",
-            current_rows=tuple(dict(item) for item in axes["times"]),
-            default_rows=tuple(dict(item) for item in default_rows),
-            set_default_callback=lambda rows: self._save_features_axis_defaults(
+            current_rows=tuple(dict(item) for item in rows),
+            duration_s=duration,
+            time_unit=unit,
+            phase_defaults=defaults,
+            save_phase_default=lambda time_unit, rows: self._save_features_axis_defaults(
                 metric_key=metric_key,
                 axis_key="times",
+                time_unit=time_unit,
                 rows=[dict(item) for item in rows],
             ),
             min_start=0.0,
@@ -327,6 +353,7 @@ class MainWindowFeaturesAxesMixin:
         if dialog.exec() != QDialog.Accepted:
             return
         axes["times"] = [dict(item) for item in dialog.selected_rows]
+        axes["time_unit"] = dialog.time_unit
         self._features_axes_by_metric[metric_key] = axes
         if dialog.selected_action == "set_default":
             self.statusBar().showMessage(f"{metric_key} phases defaults saved.")
@@ -350,6 +377,7 @@ class MainWindowFeaturesAxesMixin:
             elif target_uses_auto_bands:
                 target_axes["bands"] = []
             target_axes["times"] = [dict(item) for item in source_axes["times"]]
+            target_axes["time_unit"] = source_axes.get("time_unit", "percent")
             self._features_axes_by_metric[target_metric] = target_axes
         self._mark_record_param_dirty("features.axes")
         self._refresh_features_axis_buttons()
@@ -362,6 +390,7 @@ class MainWindowFeaturesAxesMixin:
         self,
         metric_keys: list[str],
     ) -> tuple[bool, str]:
+        duration = None
         for metric_key in metric_keys:
             axes = self._normalized_features_axes_for_metric(metric_key)
             if self._features_metric_uses_auto_bands(metric_key):
@@ -381,6 +410,13 @@ class MainWindowFeaturesAxesMixin:
                     return False, support_error
             if not axes["times"]:
                 return False, f"{metric_key}: configure at least one phase interval."
+            if axes.get("time_unit") == "s":
+                try:
+                    if duration is None:
+                        duration = self._features_seconds_duration()
+                    validate_phase_bounds(axes["times"], "s", duration)
+                except ValueError as exc:
+                    return False, f"{metric_key}: {exc}"
         return True, ""
 
     def _collect_features_axes_for_run(self, metric_keys: list[str]) -> dict[str, Any]:
@@ -393,6 +429,7 @@ class MainWindowFeaturesAxesMixin:
                 else [dict(item) for item in axes["bands"]]
             )
             out[metric_key] = {
+                "time_unit": axes.get("time_unit", "percent"),
                 "bands": bands,
                 "times": [dict(item) for item in axes["times"]],
             }
