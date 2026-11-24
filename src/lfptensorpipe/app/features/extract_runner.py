@@ -190,6 +190,7 @@ def _convert_payload_domain(
     *,
     source_domain: TransformDomain,
     target_domain: TransformDomain,
+    value_col: str = "Value",
 ) -> pd.DataFrame:
     """Convert nested Feature values between declared transform domains."""
 
@@ -197,6 +198,7 @@ def _convert_payload_domain(
         return payload.copy()
     return transform_df(
         payload,
+        value_col=value_col,
         mode=policy.mode,
         inverse=source_domain == "transformed",
     )
@@ -232,6 +234,7 @@ def _finalize_reduced_payload(
     policy: TransformPolicy,
     *,
     reducer: ReducerKind | str,
+    value_col: str = "Value",
 ) -> pd.DataFrame:
     reducer_kind = (
         reducer
@@ -245,6 +248,7 @@ def _finalize_reduced_payload(
         policy,
         source_domain=policy.reduction_domain,
         target_domain=policy.feature_storage_domain,
+        value_col=value_col,
     )
     return _attach_policy_attrs(converted, policy)
 
@@ -548,13 +552,13 @@ def _extract_metric_outputs(
         and any(outputs.get(name, False) for name in ("spectral", "scalar"))
         and (only_stems is None or bool({"mean-scalar", "mean-spectral"} & only_stems))
     )
+    out_cols = collapse_base_cfg.get("out_cols", GridResultColumns())
     if uses_piecewise_native_mean:
         try:
             if resolver is None or not trial_slug:
                 raise ValueError("Clip/Stitch mean extraction requires record context.")
             if not time_axis:
                 raise ValueError("times axis is required for piecewise mean outputs.")
-            out_cols = collapse_base_cfg.get("out_cols", GridResultColumns())
             if not isinstance(out_cols, GridResultColumns):
                 raise ValueError("Feature output-column configuration is invalid.")
             piecewise_mean_outputs = build_piecewise_mean_outputs(
@@ -679,6 +683,7 @@ def _extract_metric_outputs(
                     derived,
                     transform_policy,
                     reducer=reducer,
+                    value_col=out_cols.value,
                 )
                 if enabled_output in {"spectral", "scalar"}:
                     derived.attrs["phase_windows"] = phase_windows

@@ -2133,6 +2133,8 @@ metric transform remains in mean/median Feature metadata. Plot-time transforms
 selected through `Advance` affect only plotting and export data; they do not
 rewrite the source Feature files.
 
+In CLI configurations with custom Feature output columns, domain conversion writes the final reduced values to the configured value column. Raw and native Burst tables retain their standard column names.
+
 Burst is handled specially. The aligned Burst raw table is a display artifact,
 and its sampling rate does not define Burst scalar features. For all four
 Alignment methods, percentage phases are mapped back to the original
