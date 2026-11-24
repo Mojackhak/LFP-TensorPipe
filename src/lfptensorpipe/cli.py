@@ -30,7 +30,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="lfptp run")
     target_arguments(parser)
     parser.add_argument(
-        "--config", required=True, type=Path, help="Page configuration JSON."
+        "--config", required=True, type=Path, help="Page or variant plan JSON."
+    )
+    parser.add_argument(
+        "--output-root", type=Path, help="Output directory for a named variant plan."
     )
     return parser.parse_args(argv)
 
@@ -77,6 +80,8 @@ def read_page(config_path):
     if not isinstance(payload, dict):
         raise ValueError("The JSON configuration must be an object.")
     schema = payload.get("schema")
+    if schema is None and {"base", "variants"} <= payload.keys():
+        return "plan", payload, None
     if schema == "lfptensorpipe.preprocess-config":
         page = "preprocess"
         node = payload.get(page)
@@ -114,7 +119,7 @@ def check_trial(context, page, trial):
     from lfptensorpipe.app.path_resolver import PathResolver
 
     record_path = PathResolver(context).lfp_root
-    if page in {"alignment", "features", "epoch-selection"}:
+    if page in {"alignment", "features", "epoch-selection", "plan"}:
         if not trial:
             raise ValueError(f"--trial is required for {page}.")
         from lfptensorpipe.app.alignment.param_normalizers import _normalize_slug
@@ -139,6 +144,8 @@ def load_request(args: argparse.Namespace):
     if path.suffix.lower() != ".json":
         raise ValueError("--config must be a JSON file.")
     page, node, version = read_page(path)
+    if (page == "plan") != (getattr(args, "output_root", None) is not None):
+        raise ValueError("Specify --output-root for a variant plan only.")
     if not (PathResolver(context).preproc_root / "raw" / "raw.fif").is_file() and (
         page not in {"localize", "preprocess"}
         or not rawdata_input_fif_path(context).is_file()
@@ -159,6 +166,18 @@ def main(argv: list[str] | None = None) -> int:
     from lfptensorpipe.app.cli import ConfigError, RunFailed, run_page
 
     try:
+        if page == "plan":
+            from lfptensorpipe.app.cli_variants import run_plan
+
+            results = run_plan(
+                context,
+                args.trial,
+                node,
+                args.config.resolve().parent,
+                args.output_root.expanduser().resolve(),
+            )
+            print("\n".join(str(path) for path in results))
+            return 0
         message = run_page(
             context, page=page, node=node, version=version, trial=args.trial
         )

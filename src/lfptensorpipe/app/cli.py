@@ -154,28 +154,31 @@ def prepare_tensor_config(
 
 def _run_tensor(context: RecordContext, node: dict[str, Any], version: int) -> str:
     from .tensor.lineage import capture_tensor_input_generation
-    from .tensor.worker import run_tensor_subprocess
 
     if capture_tensor_input_generation(PathResolver(context)) is None:
         raise RunFailed(
             "Preprocess Finish must be current before Build Tensor can run."
         )
     snapshot = prepare_tensor_config(context, node, version)
-    _patch_state(context, ("tensor",), snapshot)
+    return execute_tensor_metrics(context, snapshot, snapshot["selected_metrics"])
 
+
+def execute_tensor_metrics(context, snapshot, metrics):
+    from .tensor.worker import run_tensor_subprocess
+
+    _patch_state(context, ("tensor",), snapshot)
+    if not metrics:
+        return "Using accepted Tensor metrics."
     message = _checked_result(
         run_tensor_subprocess(
             context,
-            selected_metrics=snapshot["selected_metrics"],
-            metric_params_map={
-                key: snapshot["metric_params"][key]
-                for key in snapshot["selected_metrics"]
-            },
+            selected_metrics=metrics,
+            metric_params_map={key: snapshot["metric_params"][key] for key in metrics},
             mask_edge_effects=snapshot["mask_edge_effects"],
             cpu_percent=snapshot["cpu_percent"],
         )
     )
-    return f"Metrics: {', '.join(snapshot['selected_metrics'])}\n{message}"
+    return f"Metrics: {', '.join(metrics)}\n{message}"
 
 
 def _trial_config(
