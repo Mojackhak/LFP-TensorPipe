@@ -204,26 +204,47 @@ def main(argv: list[str] | None = None) -> int:
 def analysis_command(command, argv):
     parser = argparse.ArgumentParser(prog=f"lfptp {command}")
     parser.add_argument("--output", required=True, type=Path)
-    target_arguments(parser)
-    parser.add_argument(
-        "--page",
-        required=True,
-        choices=("preprocess", "epoch-selection", "alignment", "features"),
-    )
+    if command == "export":
+        target_arguments(parser)
+        parser.add_argument(
+            "--page",
+            required=True,
+            choices=("preprocess", "epoch-selection", "alignment", "features"),
+        )
+    else:
+        parser.add_argument("--reference", required=True, type=Path)
+        parser.add_argument("--candidate", required=True, type=Path)
+        parser.add_argument("--mode", choices=("repeat", "sensitivity"), required=True)
+        parser.add_argument("--atol", type=float, default=0.0)
+        parser.add_argument("--rtol", type=float, default=0.0)
     args = parser.parse_args(argv)
     from .app.cli import RunFailed
 
     try:
-        from .app.cli_export import export_page
-        from .io.atomic_file import write_json_atomically
+        if command == "export":
+            from .app.cli_export import export_page
+            from .io.atomic_file import write_json_atomically
 
-        context = record_context(args)
-        check_trial(context, args.page, args.trial)
-        if args.output.exists():
-            raise ValueError("Choose a new export file.")
-        payload = export_page(context, args.page, args.trial)
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        write_json_atomically(args.output, payload)
+            context = record_context(args)
+            check_trial(context, args.page, args.trial)
+            if args.output.exists():
+                raise ValueError("Choose a new export file.")
+            payload = export_page(context, args.page, args.trial)
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            write_json_atomically(args.output, payload)
+        else:
+            from .app.cli_compare import compare_runs
+
+            passed = compare_runs(
+                args.reference,
+                args.candidate,
+                args.output,
+                mode=args.mode,
+                atol=args.atol,
+                rtol=args.rtol,
+            )
+            print(args.output.resolve())
+            return 0 if passed else 1
     except ValueError as exc:
         print(f"Invalid input: {exc}", file=sys.stderr)
         return 2

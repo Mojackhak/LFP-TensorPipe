@@ -35,7 +35,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         prog="lfptensorpipe",
-        epilog="Analysis commands: lfptp run, lfptp export. Use --help with any command.",
+        epilog="Analysis commands: lfptp run, lfptp export, lfptp compare-features. Use --help with any command.",
     )
     parser.add_argument(
         "--auto-close-ms",
@@ -198,7 +198,7 @@ def main(
 
         return cli_main(argv_list[1:])
 
-    if argv_list and argv_list[0] == "export":
+    if argv_list and argv_list[0] in {"export", "compare-features"}:
         from lfptensorpipe.cli import analysis_command
 
         return analysis_command(argv_list[0], argv_list[1:])
