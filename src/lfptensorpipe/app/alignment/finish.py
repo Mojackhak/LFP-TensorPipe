@@ -35,6 +35,7 @@ from lfptensorpipe.utils.transforms import VALUE_TRANSFORM_POLICY_KEY
 
 from . import service as svc
 from .epoch_view import finish_review_snapshot
+from .trial_config import epoch_time_axes
 
 
 def finish_alignment_epochs(
@@ -193,6 +194,7 @@ def finish_alignment_epochs(
             axes = meta.get("axes")
             if not isinstance(axes, dict):
                 raise ValueError(f"Warped axes are invalid for: {metric_key}")
+            axes = epoch_time_axes(axes)
 
             axis_values: dict[str, list[object]] = {}
             for axis_name, expected_length in zip(
@@ -267,9 +269,12 @@ def finish_alignment_epochs(
                 frame.attrs[VALUE_TRANSFORM_POLICY_KEY] = dict(transform_policy)
             if "time_support_s" in axes and (
                 finish_method in {"pad_warper", "concat_warper"}
-                or axes.get("time_coordinate") == "cue_response_aligned_seconds"
+                or axes.get("time_coordinate") == "epoch_seconds"
             ):
                 frame.attrs["time_support_s"] = list(map(float, axes["time_support_s"]))
+                frame.attrs["time_coordinate"] = "epoch_seconds"
+                if "event_anchors_s" in axes:
+                    frame.attrs["event_anchors_s"] = dict(axes["event_anchors_s"])
             frames[metric_key] = frame
 
         with AtomicOutputSet(

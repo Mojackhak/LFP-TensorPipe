@@ -193,6 +193,25 @@ def normalize_scheme(config):
     return {"rules": rules, "expression": " ".join(tokens(expression))}
 
 
+def epoch_start_rule(rule, pre_cue_s):
+    """Translate positions in a historical cue-relative rule, retaining lengths."""
+    if pre_cue_s is None or rule.get("axis") != "cue_seconds":
+        return rule
+    converted = {**rule, "axis": "epoch_seconds"}
+    if rule["time"] != "All":
+        converted["time"] = [t + pre_cue_s for t in rule["time"]]
+    return converted
+
+
+def epoch_start_scheme(config, pre_cue_s):
+    if not config or pre_cue_s is None:
+        return config
+    return {
+        **config,
+        "rules": [epoch_start_rule(r, pre_cue_s) for r in config["rules"]],
+    }
+
+
 def effective_program(config):
     """Resolve letter references to rule values, independent of unused rules."""
     stack = []

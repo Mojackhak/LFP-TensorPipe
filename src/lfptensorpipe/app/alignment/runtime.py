@@ -279,14 +279,9 @@ def run_align_epochs(
                 method_params=method_params,
                 epochs_by_label=epochs_by_label,
             )
-            if uses_current_clip_stitch_geometry
+            if uses_current_clip_stitch_geometry or cue_response_config is not None
             else None
         )
-        if cue_response_config is not None:
-            target_duration_s = sum(
-                cue_response_config[k]
-                for k in ("pre_cue_s", "response_target_s", "post_response_s")
-            )
         log_path = alignment_paradigm_log_path(resolver, slug)
         with AtomicOutputSet(
             [warp_fn_path, warp_labels_path, *metric_output_paths.values(), log_path],
@@ -393,15 +388,14 @@ def run_align_epochs(
                     aligned_axes = meta_warped["axes"]
                     pre = cue_response_config["pre_cue_s"]
                     aligned_axes["time"] = (
-                        np.arange(n_samples) * target_duration_s / n_samples - pre
+                        np.arange(n_samples) * target_duration_s / n_samples
                     )
-                    aligned_axes["time_support_s"] = np.array(
-                        [-pre, target_duration_s - pre]
-                    )
-                    aligned_axes["time_coordinate"] = "cue_response_aligned_seconds"
+                    aligned_axes["time_support_s"] = np.array([0.0, target_duration_s])
+                    aligned_axes["time_support_interval"] = "half_open"
+                    aligned_axes["time_coordinate"] = "epoch_seconds"
                     aligned_axes["event_anchors_s"] = {
-                        "cue": 0.0,
-                        "response": cue_response_config["response_target_s"],
+                        "cue": pre,
+                        "response": pre + cue_response_config["response_target_s"],
                     }
                     aligned_axes["requested_sample_rate_hz"] = sample_rate
                     meta_warped["cue_response"] = cue_response_config
@@ -422,6 +416,7 @@ def run_align_epochs(
                     )
                 if uses_current_clip_stitch_geometry:
                     meta_warped[CLIP_STITCH_GEOMETRY_KEY] = CLIP_STITCH_GEOMETRY
+                    meta_warped["axes"]["time_coordinate"] = "epoch_seconds"
                 if uses_current_zero_duration_alignment:
                     meta_warped[ZERO_DURATION_ALIGNMENT_KEY] = ZERO_DURATION_ALIGNMENT
                 out_path = metric_output_paths[metric_key]
@@ -445,6 +440,8 @@ def run_align_epochs(
                 result_generation_id=new_result_generation_id(),
                 input_generations=input_generations,
             )
+            if target_duration_s is not None:
+                run_params["target_duration_s"] = float(target_duration_s)
             if uses_current_linear_warp_geometry:
                 run_params[LINEAR_WARP_GEOMETRY_KEY] = LINEAR_WARP_GEOMETRY
             if uses_current_linear_event_pairing:

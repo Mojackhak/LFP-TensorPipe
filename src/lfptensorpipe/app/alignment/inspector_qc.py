@@ -408,6 +408,9 @@ def metric_scores(data, metric, channel, rule, window):
 
 
 def run_qc(data, config):
+    from .inspector_config import epoch_start_scheme
+
+    config = epoch_start_scheme(config, getattr(data, "pre_cue_s", None))
     program = expression_program(config["expression"], len(config["rules"]))
     outcomes = [{} for _ in data.epochs]
     resolved = {}

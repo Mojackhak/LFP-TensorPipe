@@ -20,6 +20,7 @@ from lfptensorpipe.lfp.burst.timeline import WarpSegment, build_warp_segments
 from lfptensorpipe.lfp.warp.event_anchored_linear import cue_response_anchors
 
 from .inspector_config import SIGNAL
+from .trial_config import epoch_time_axes
 
 
 def runs(mask):
@@ -92,19 +93,14 @@ class InspectorData:
         self.axis = "percent"
         self.bounds = (0.0, 100.0)
         params = self.params
-        if "cue_response" in params:
-            cue = params["cue_response"]
-            self.axis = "cue_seconds"
-            self.bounds = (
-                -cue["pre_cue_s"],
-                cue["response_target_s"] + cue["post_response_s"],
-            )
+        self.pre_cue_s = params.get("cue_response", {}).get("pre_cue_s")
+        if self.pre_cue_s is not None:
             params = {
                 **params,
                 "linear_warp": True,
-                "anchors_percent": cue_response_anchors(cue),
+                "anchors_percent": cue_response_anchors(params["cue_response"]),
             }
-        elif self.method in ("pad_warper", "concat_warper"):
+        if self.pre_cue_s is not None or self.method in ("pad_warper", "concat_warper"):
             self.axis = "epoch_seconds"
             self.bounds = (
                 0.0,
@@ -149,7 +145,7 @@ class InspectorData:
             raise ValueError(f"Metric unavailable in this Run: {metric}")
         payload = load_pkl(self.paths[metric])
         meta = payload["meta"]
-        axes = meta["axes"]
+        axes = epoch_time_axes(meta["axes"])
         source = meta.get("source") or {}
         src = source.get("params", {})
         freq = np.asarray(axes["freq"])

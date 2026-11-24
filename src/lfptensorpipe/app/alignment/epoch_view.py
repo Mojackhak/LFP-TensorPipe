@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from copy import deepcopy
 from typing import Any
 
 import numpy as np
@@ -12,6 +13,7 @@ from lfptensorpipe.app.shared.runlog_store import _write_updated_run_log_state
 
 from . import service as svc
 from .generation import _history_entries
+from .inspector_config import epoch_start_rule, epoch_start_scheme
 
 
 def _normalize_pick_list(value: Any) -> list[int] | None:
@@ -172,8 +174,50 @@ def persist_alignment_epoch_picks(
     )
 
 
+def _epoch_start_report(report, pre):
+    """Read both Run reports and exclusion snapshots on the current epoch axis."""
+    legacy = [
+        key
+        for key, node in report.get("resolved", {}).items()
+        if node.get("axis") == "cue_seconds"
+    ]
+    if not legacy:
+        return report
+    report = deepcopy(report)
+    report["config"] = epoch_start_scheme(report["config"], pre)
+    for key in legacy:
+        node = report["resolved"][key]
+        node["axis"] = "epoch_seconds"
+        node["time"] = [t + pre for t in node["time"]]
+        node["rule"] = epoch_start_rule(node["rule"], pre)
+        for epoch in report.get("epochs", [report.get("result")]):
+            for hit in epoch["rules"][key]["evidence"]:
+                hit["time"] = [t + pre for t in hit["time"]]
+                if "missing_time" in hit:
+                    hit["missing_time"] = [
+                        [lo + pre, hi + pre] for lo, hi in hit["missing_time"]
+                    ]
+    return report
+
+
 def _current_review_state(payload):
     review = (payload.get("state") or {}).get("epoch_inspector") or {}
+    history = _history_entries(payload)
+    owner = next(_successful_run_indices(history), None)
+    if owner is not None:
+        params = history[owner].get("params", {}).get("method_params", {})
+        pre = params.get("cue_response", {}).get("pre_cue_s")
+        if pre is not None:
+            review = dict(review)
+            if review.get("qc_config"):
+                review["qc_config"] = epoch_start_scheme(review["qc_config"], pre)
+            if review.get("qc_result"):
+                review["qc_result"] = _epoch_start_report(review["qc_result"], pre)
+            if review.get("exclusions"):
+                review["exclusions"] = {
+                    k: _epoch_start_report(v, pre)
+                    for k, v in review["exclusions"].items()
+                }
     report = review.get("qc_result") or {}
     for resolved in report.get("resolved", {}).values():
         bins = resolved.get("frequency_bins", [])

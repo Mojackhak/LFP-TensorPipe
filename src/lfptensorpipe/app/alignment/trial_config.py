@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.app.runlog_store import append_run_log_event, read_run_log
 from lfptensorpipe.app.shared.runlog_store import _merge_dict
@@ -217,13 +219,33 @@ def _load_trial_config_from_log(
     return _extract_trial_config_from_history(payload)
 
 
+def epoch_time_axes(axes: dict[str, Any]) -> dict[str, Any]:
+    """Read a stored cue-relative Run in elapsed epoch seconds."""
+    if axes.get("time_coordinate") != "cue_response_aligned_seconds":
+        return axes
+    times = np.asarray(axes["time"], dtype=float)
+    origin = float(axes.get("time_support_s", times)[0])
+    updated = {**axes, "time": times - origin, "time_coordinate": "epoch_seconds"}
+    if "time_support_s" in axes:
+        updated["time_support_s"] = np.asarray(axes["time_support_s"]) - origin
+    elif len(times) > 1:
+        step = (times[-1] - times[0]) / (len(times) - 1)
+        updated["time_support_s"] = [0.0, times[-1] - origin + step]
+    if "event_anchors_s" in axes:
+        updated["event_anchors_s"] = {
+            key: value - origin for key, value in axes["event_anchors_s"].items()
+        }
+    return updated
+
+
 def _finish_time_axis_values(
     axes: dict[str, Any],
     *,
     method_key: str,
     n_time: int,
 ) -> list[Any]:
-    if axes.get("time_coordinate") == "cue_response_aligned_seconds":
+    axes = epoch_time_axes(axes)
+    if axes.get("time_coordinate") == "epoch_seconds":
         candidate = axes.get("time")
     elif method_key in {"linear_warper", "stack_warper"}:
         candidate = axes.get("percent")

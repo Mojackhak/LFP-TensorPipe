@@ -541,7 +541,8 @@ class AlignmentMethodParamsDialog(QDialog):
                 count = int(round(total * normalized["sample_rate"]))
                 self._cue_summary_label.setText(
                     f"{len(cue['event_pairs'])} pairs; aligned support "
-                    f"[-{cue['pre_cue_s']:g}, {cue['response_target_s'] + cue['post_response_s']:g}) s; "
+                    f"[0, {total:g}) s; cue {cue['pre_cue_s']:g} s, "
+                    f"response {cue['pre_cue_s'] + cue['response_target_s']:g} s; "
                     f"{count} samples. Only the reaction interval is normalized."
                 )
             else:

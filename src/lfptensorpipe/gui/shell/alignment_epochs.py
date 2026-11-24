@@ -15,6 +15,7 @@ from lfptensorpipe.app.alignment.epoch_view import load_epoch_review, save_epoch
 from lfptensorpipe.app.alignment.inspector_config import (
     SIGNAL,
     effective_program,
+    epoch_start_scheme,
     factory_scheme,
     normalize_scheme,
 )
@@ -269,7 +270,10 @@ class MainWindowAlignmentEpochsMixin:
 
     def _qc_default(self):
         settings = self._config_store.read_yaml("alignment_preview.yml", default={})
-        return normalize_scheme(settings.get("qc_default", factory_scheme()))
+        scheme = normalize_scheme(settings.get("qc_default", factory_scheme()))
+        if any(rule.get("axis") == "cue_seconds" for rule in scheme["rules"]):
+            return epoch_start_scheme(scheme, self._inspector_data().pre_cue_s)
+        return scheme
 
     def _save_qc_default(self, config):
         if not self._epoch_review.get("qc_config"):
@@ -291,7 +295,7 @@ class MainWindowAlignmentEpochsMixin:
             dialog = EpochQCDialog(
                 self,
                 data,
-                imported or current,
+                epoch_start_scheme(imported or current, data.pre_cue_s),
                 self._load_tensor_bands_defaults(),
                 self._qc_default,
                 self._save_qc_default,
@@ -356,7 +360,8 @@ class MainWindowAlignmentEpochsMixin:
             config = self._qc_scheme()
             result = self._run_with_busy("Run QC", lambda: run_qc(data, config))
             self._save_review(
-                {"qc_config": config, "qc_result": result}, owner=data.run_index
+                {"qc_config": result["config"], "qc_result": result},
+                owner=data.run_index,
             )
         except (OSError, ValueError) as exc:
             self._show_warning("Run QC", str(exc))

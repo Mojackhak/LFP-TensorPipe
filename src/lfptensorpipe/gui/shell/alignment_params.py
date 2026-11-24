@@ -76,7 +76,7 @@ class MainWindowAlignmentParamsMixin:
         ):
             description = (
                 "Cue-response: explicitly paired events; only the reaction interval "
-                "is normalized. The time axis uses aligned seconds."
+                "is normalized. The time axis starts at zero at the beginning of the epoch."
             )
         self._alignment_method_combo.setToolTip(description)
 
