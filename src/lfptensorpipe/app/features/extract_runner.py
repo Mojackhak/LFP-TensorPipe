@@ -167,6 +167,13 @@ def _should_export_xlsx(derived_type: str) -> bool:
     return derived_type == "scalar"
 
 
+def _workbook_is_newer_than_table(table: Path) -> bool:
+    try:
+        return table.with_suffix(".xlsx").stat().st_mtime_ns > table.stat().st_mtime_ns
+    except OSError:
+        return False
+
+
 def _attach_policy_attrs(
     frame: pd.DataFrame,
     policy: TransformPolicy,
@@ -873,6 +880,30 @@ def run_extract_features(
             p for paths in final_paths_by_metric.values() for p in paths.values()
         }
         compute_paths = all_paths - keep - relabel
+        prior_export_warnings = (
+            (prior_log_payload or {}).get("params", {}).get("xlsx_warnings", [])
+        )
+        failed_exports = {
+            warning.partition(":")[0] for warning in prior_export_warnings
+        }
+        workbook_exports = {
+            f"{metric}/{stem}"
+            for metric, paths in final_paths_by_metric.items()
+            for stem, path in paths.items()
+            if stem.endswith("-scalar")
+            and (
+                path not in keep
+                or f"{metric}/{stem}" in failed_exports
+                or not _workbook_is_newer_than_table(path)
+            )
+        }
+        # Missing workbooks already request an export on the next Extract.
+        # Mark existing targets before replacing them so an interruption is visible.
+        pending_exports = [
+            name
+            for name in sorted(workbook_exports)
+            if name in failed_exports or (deriv_root / f"{name}.xlsx").is_file()
+        ]
         compute_items = [
             (metric, src)
             for metric, src in metric_items
@@ -1009,7 +1040,9 @@ def run_extract_features(
                 "saved_outputs": saved,
                 "errors": [],
                 "warnings": warnings,
-                "xlsx_warnings": [],
+                "xlsx_warnings": [
+                    f"{name}: Workbook export pending." for name in pending_exports
+                ],
                 "axes_by_metric": axes_signature_by_metric,
                 "collapse_settings": settings,
                 NUMERIC_MEAN_SEMANTICS_KEY: NUMERIC_MEAN_SEMANTICS,
@@ -1108,8 +1141,6 @@ def run_extract_features(
         for stem, path in paths_by_stem.items():
             derived_type = stem.rsplit("-", 1)[-1].strip().lower()
             xlsx_path = path.with_suffix(".xlsx")
-            if path in keep and xlsx_path.exists() and derived_type == "scalar":
-                continue
             if derived_type != "scalar":
                 try:
                     _remove_stale_xlsx(xlsx_path)
@@ -1117,6 +1148,8 @@ def run_extract_features(
                     xlsx_warnings.append(
                         f"{metric_key}/{stem}: stale XLSX cleanup failed ({exc})"
                     )
+                continue
+            if f"{metric_key}/{stem}" not in workbook_exports:
                 continue
             try:
                 payload = load_pkl(path)
@@ -1145,10 +1178,15 @@ def run_extract_features(
             except Exception as exc:  # noqa: BLE001
                 xlsx_warnings.append(f"burst: legacy occupation cleanup failed ({exc})")
 
-    if xlsx_warnings:
+    if pending_exports or xlsx_warnings:
         params_payload["xlsx_warnings"] = xlsx_warnings
         try:
-            write_run_log(log_path, success_record)
+            current = (read_run_log(log_path) or {}).get("params", {})
+            if all(
+                current.get(key) == params_payload[key]
+                for key in ("result_generation_id", "axes_by_metric")
+            ):
+                write_run_log(log_path, success_record)
         except Exception as exc:  # noqa: BLE001
             xlsx_warnings.append(f"Feature warning-log update failed ({exc})")
     message = f"Extract Features completed. Saved {saved} table(s)."

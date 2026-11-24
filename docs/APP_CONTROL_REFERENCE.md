@@ -2205,7 +2205,8 @@ changing the Tensor timestamps or detected values.
 - `Start` and `End` define analysis windows that later combine with named bands to form feature values.
 - Phase names become part of the exported feature labels, so they should describe the window meaning rather than only its numeric bounds.
 - A second-based trial accepts endpoints through its complete duration, including the right boundary after the last sample. Percentage and seconds on the same trial select equivalent data. Across trials a saved seconds interval keeps its length, and a percentage interval scales with the target duration.
-- Phase-dependent PKLs carry the named intervals and their unit in `phase_windows`. Scalar Excel workbooks include a `Phases` sheet. Extract reuses accepted numerical outputs with matching inputs, reducer settings and effective intervals; an equivalent unit change updates their window descriptions.
+- Phase-dependent PKLs carry the named intervals and their unit in `phase_windows`. Scalar Excel workbooks include a `Phases` sheet. Extract reuses accepted numerical outputs with matching inputs, reducer settings and effective intervals. An equivalent unit change updates their window descriptions.
+- If a scalar workbook export fails, the log identifies the affected output. Close the workbook and run Extract again to write it from the accepted PKL. Extract also refreshes a missing workbook or one that predates the PKL. A successful export clears its warning.
 
 ### 9.5 Plot Advance
 
