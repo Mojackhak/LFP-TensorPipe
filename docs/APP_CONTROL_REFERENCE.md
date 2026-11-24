@@ -368,6 +368,8 @@ The table below uses the current field names.
 
 ## 4. Localize
 
+User Labels trims the region name before the CSV column suffix `_in`. Each region must have a unique name after trimming. For midpoint coordinates, an invalid Lead-DBS normalization-method or preoperative-image JSON object is reported in the Localize controls. The record and its other stages remain accessible.
+
 Localize publishes anatomical information for a record from either Lead-DBS
 atlas mapping or user-assigned channel regions. The Source selection is a
 draft. Active names the source last successfully applied.

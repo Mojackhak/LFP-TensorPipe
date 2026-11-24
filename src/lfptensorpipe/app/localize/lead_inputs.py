@@ -38,6 +38,13 @@ def _file_times(files):
     return {str(p): p.stat().st_mtime_ns for p in sorted(files) if p.is_file()}
 
 
+def _json_object(path):
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"Expected a JSON object in {path.name}.")
+    return value
+
+
 def lead_inputs(
     project: Path,
     subject: str,
@@ -60,7 +67,12 @@ def lead_inputs(
         base = reco.parent.parent
         method_path = base / "normalization" / "log" / f"{subject}_desc-normmethod.json"
         if method_path.is_file():
-            method = str(json.loads(method_path.read_text())["method"]).strip().lower()
+            name = _json_object(method_path).get("method")
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError(
+                    f"Expected a normalization method in {method_path.name}."
+                )
+            method = name.strip().lower()
         transforms = base / "normalization" / "transformations"
         prefix = f"{subject}_from-{space}_to-anchorNative_desc-"
         if "fsl" in method or "fnirt" in method:
@@ -68,9 +80,10 @@ def lead_inputs(
             files.append(paths.leaddbs_dir / "templates" / "space" / space / "t2.nii")
             raw_images = base / "prefs" / f"{subject}_desc-rawimages.json"
             if raw_images.is_file():
-                reference_images = (
-                    json.loads(raw_images.read_text()).get("preop", {}).get("anat")
-                )
+                preop = _json_object(raw_images).get("preop", {})
+                if not isinstance(preop, dict):
+                    raise ValueError(f"Expected a preop object in {raw_images.name}.")
+                reference_images = preop.get("anat")
             selected_anchor = saved.get("geometry_inputs", {}).get("anchor_file")
             if selected_anchor:
                 files.append(Path(selected_anchor))

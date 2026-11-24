@@ -60,13 +60,17 @@ def read_labels(
     with path.open(encoding="utf-8-sig", newline="") as stream:
         reader = csv.reader(stream, strict=True)
         header = [v.strip() for v in next(reader, [])]
+        header = [
+            name[:-3].strip() + "_in" if name.endswith("_in") else name
+            for name in header
+        ]
         if "channel" not in header or len(set(header)) != len(header):
             raise ValueError("CSV needs a channel column and unique column names.")
         region_columns = []
         for index, name in enumerate(header):
             if name in ("channel", "assignment_method"):
                 continue
-            if not name.endswith("_in") or not name[:-3].strip():
+            if not name.endswith("_in") or not name[:-3]:
                 raise ValueError(
                     "Use channel, optional assignment_method, and <region>_in columns."
                 )
