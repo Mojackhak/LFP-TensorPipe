@@ -1872,6 +1872,7 @@ dialog draft and does not modify the saved app default.
 ### 8.2 Epoch Inspector
 
 Each successful Align Run starts with all epochs included and none selected for viewing.
+For Line Up Key Events with automatic anchors, QC and Preview map 0% and 100% to the start and end stored in each accepted epoch. Existing Runs can be inspected with their original event times.
 The five columns are `Include`, `Epoch`, `Duration`, `View`, and `Notes`. Duration is in seconds.
 Double-click Epoch or Duration to inspect the native Preprocessed Signal. Double-click Notes for an optional multiline note.
 

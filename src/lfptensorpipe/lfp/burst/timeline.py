@@ -152,7 +152,13 @@ def build_warp_segments(
     if method_key == "linear_warper":
         from ..warp.event_anchored_linear import _resolve_linear_anchor_config
 
-        if not bool(method_params.get("linear_warp", True)):
+        # Automatic linear alignment uses only the two endpoints of each epoch.
+        auto_endpoints = (
+            method_params.get("anchors_percent", {}) == {}
+            and "event_groups" not in method_params
+            and "cue_response" not in method_params
+        )
+        if auto_endpoints or not method_params.get("linear_warp", True):
             return [
                 _validated_segment(
                     0.0,
