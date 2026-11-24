@@ -316,6 +316,21 @@ def _matches_applied(resolver, step, steps):
     for value in (desired, saved):
         if not value.get("review_edits"):
             value.pop("review_edits", None)
+    field = "review" if step == "filter" else "review_edits"
+    if isinstance(desired.get(field), dict):
+        # The recording and upstream recipe were checked before running any step.
+        wanted = desired.pop(field)["accepted_state"]
+        recorded = saved.pop(field, None)
+        if desired != saved:
+            return False
+        if isinstance(recorded, dict):
+            return recorded["accepted_state"] == wanted
+        import mne
+
+        with mne.io.read_raw_fif(
+            preproc_step_raw_path(resolver, step), preload=False, verbose="ERROR"
+        ) as raw:
+            return current_state(raw) == wanted
     return desired == saved
 
 

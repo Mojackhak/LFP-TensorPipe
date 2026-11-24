@@ -23,10 +23,27 @@ from .shared.runlog_store import read_run_log, read_ui_state
 PAGES = ("preprocess", "tensor", "alignment", "features")
 
 
+def _notch_params_by_method(model, method):
+    """Put compact receipt parameters under their owning method before merging."""
+    if "params" not in model:
+        return model
+    draft = dict(model)
+    methods = draft.get("params_by_method", {})
+    if isinstance(methods, dict) and isinstance(method, str):
+        draft["params_by_method"] = {**methods, method: draft.pop("params")}
+    return draft
+
+
 def merged(base, changes):
     result = deepcopy(base)
     for key, value in changes.items():
         if isinstance(value, dict) and isinstance(result.get(key), dict):
+            if key == "notch_model" and ("params" in result[key] or "params" in value):
+                from lfptensorpipe.preproc.notch import default_notch_model
+
+                method = result[key].get("method", default_notch_model()["method"])
+                result[key] = _notch_params_by_method(result[key], method)
+                value = _notch_params_by_method(value, value.get("method", method))
             result[key] = merged(result[key], value)
         else:
             result[key] = deepcopy(value)

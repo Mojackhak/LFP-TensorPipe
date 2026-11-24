@@ -130,6 +130,8 @@ Signal Repair, ECG and Annotations publish the reviewed FIF, settings and run lo
 
 Filter replay compares the active notch method and its effective settings. Model Notch exports omit the conventional notch width. A variant that disables Model uses the conventional default width of 2 Hz unless it supplies a width. This also applies to older exports with a null width. Applied ECG and Annotations steps require a JSON boolean for `mark_filter_edges`. Boolean values in active numeric Filter fields are configuration errors and are reported before the recipe starts.
 
+For a recording-bound review, replay checks the saved Raw and preprocessing prefix, then compares the accepted annotations and bad channels. An equivalent historical review reuses the current step. In variant plans, a partial override of Model Notch parameters changes the specified fields for that method and preserves the other settings for that method.
+
 For example, this recipe applies SVD ECG correction to two named channels, retains the behavioral events on Raw, and runs Finish.
 
 ```json
