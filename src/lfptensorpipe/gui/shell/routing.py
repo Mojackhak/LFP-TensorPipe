@@ -88,7 +88,13 @@ def route_to_stage(
     for key, stage_button in window._stage_buttons.items():
         stage_button.setChecked(key == stage_key)
     route_key = next(spec.route_key for spec in stage_specs if spec.key == stage_key)
-    window.statusBar().showMessage(f"Route: {route_key}")
+    task_status = getattr(window, "_tensor_task_status", None)
+    if task_status is not None:
+        task_status.route(stage_key == "tensor")
+    if stage_key == "tensor" and task_status is not None:
+        window.statusBar().clearMessage()
+    else:
+        window.statusBar().showMessage(f"Route: {route_key}")
 
 
 def page_title(text: str) -> QLabel:

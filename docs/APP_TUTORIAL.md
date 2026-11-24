@@ -887,6 +887,12 @@ tooltips; no excluded-channel names from the previous record remain visible.
 
 Switch to `Build Tensor`.
 
+Check the task summary at the bottom of the window after selecting metrics.
+Use **Details…** to compare each metric's channels or pairs, output grid and
+work before running. The M6 reference time gives a common comparison across
+machines. During the build, the same bar shows computation progress, saved
+selections and the actual elapsed time.
+
 ![Build Tensor page.](assets/app-tutorial/figure-23-build-tensor-page.png)
 
 Import the tutorial config:

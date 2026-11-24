@@ -505,6 +505,7 @@ class MainWindow(
             self.statusBar().showMessage(shutdown_message)
             return
         try:
+            self._tensor_task_status.shutdown()
             _window_shutdown.close_auxiliary_windows(self)
         finally:
             try:

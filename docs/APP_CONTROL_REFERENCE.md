@@ -1229,6 +1229,43 @@ and the execution of tensor generation.
 
 ### 7.1 Metrics Selection
 
+The Build Tensor status bar summarizes the checked metrics, the union of
+their usable channels, distinct directed and undirected pairs, and estimated
+numeric array data in decimal MB. Open **Details…** to inspect each output
+grid, planned work and share of the computation. The periodic spectrum and
+the estimated aperiodic parameter array both contribute to size. Their
+successful publication counts as one saved SpecParam selection. Array sizes
+exclude file metadata, reports, temporary storage and working memory.
+
+**M6 reference runtime** describes the selected job on the reference Apple
+M6 Mac mini. All installations use the bundled measurements. The reference
+budget is the requested CPU percentage applied to 12 logical cores with a
+minimum of one slot. A valid task shows a reference duration labelled
+`Estimated`. Matched combinations use the median of their measured runs.
+Other combinations use the component timings, measured parallel overlap
+and overhead at the reference slot budget. Timing estimates and progress
+weights only affect the display.
+
+For example, the 60-second M6 benchmark at 500 Hz uses eight channels, six
+pairs, 5–45 Hz in 1 Hz steps, 0.5 s Morlet resolution and a 0.1 s hop. Raw
+power, fixed-mode SpecParam, Coherence and PSI together produce about 4.5 MB
+of numeric arrays. At 75% CPU their measured reference time is about 10 s.
+Hover over an output grid or weight in Details to see the corresponding
+array size or reference work units. One unit uses the single-channel,
+1 s Morlet Raw power measurement at the 60-second reference length.
+The reference covers 10- and 60-second measurements and supplemental
+resolution measurements. For connectivity, each frequency group contributes
+its own valid windows and the frequencies actually computed in that group.
+Positive weights below 0.1% are shown as `<0.1%`.
+
+Running freezes the selection. One progress bar accumulates completed work
+across all checked metrics. A shared connectivity block advances all its
+owners together and contributes its weight once. SpecParam reports completed
+fitting batches. The saved count tracks committed metric outputs. The last
+percent is released when the worker succeeds and all selected outputs are
+saved. Elapsed time always comes from the current run. Stopping or failing
+shows the retained publications for that run and the outcome in Details.
+
 | Control | What it does | What it affects | Availability / blocking rule |
 | --- | --- | --- | --- |
 | Metric indicators | Show readiness for each metric under the current settings. A completed log whose metric signature is missing or malformed is yellow rather than current. | User feedback only. | Read-only. |

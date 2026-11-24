@@ -31,6 +31,17 @@ def build_ui(
 
     self.setCentralWidget(root)
     self.setStatusBar(QStatusBar(self))
+    from lfptensorpipe.gui.stages.tensor_task_status import TensorTaskStatus
+
+    self._tensor_task_status = TensorTaskStatus(self)
+    self.statusBar().addPermanentWidget(self._tensor_task_status, 1)
+    self._tensor_task_status.hide()
+    self._tensor_cpu_percent_edit.editingFinished.connect(
+        self._tensor_task_status.queue_preview
+    )
+    self._tensor_mask_edge_checkbox.toggled.connect(
+        self._tensor_task_status.queue_preview
+    )
     self._build_menu_bar()
     self._apply_panel_title_style()
     self._enforce_button_text_fit()

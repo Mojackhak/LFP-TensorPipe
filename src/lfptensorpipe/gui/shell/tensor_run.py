@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from uuid import uuid4
@@ -31,6 +32,7 @@ from lfptensorpipe.app.tensor.process_tree import (
 from lfptensorpipe.app.tensor.transaction_manifest import (
     recover_tensor_run_transactions,
 )
+from lfptensorpipe.app.tensor.task_progress import PROGRESS_DIR_ENV, RunProgress
 from lfptensorpipe.app.tensor.worker import (
     TENSOR_RUN_COOPERATIVE_TIMEOUT_S,
     TENSOR_RUN_DESCENDANT_DRAIN_TIMEOUT_S,
@@ -102,6 +104,27 @@ class MainWindowTensorRunMixin:
         _ = context
         self._commit_active_tensor_panel_to_params()
         self._sync_tensor_selector_maps_into_metric_params()
+        return self._tensor_selected_params(selected_metrics)
+
+    def _tensor_preview_params(self, selected_metrics):
+        params = self._tensor_selected_params(selected_metrics)
+        key = self._tensor_active_metric_key
+        if key in params:
+            draft = self._active_tensor_panel_indicator_params()
+            # A numeric control and its stored value describe the same task.
+            for field in self._tensor_basic_param_widgets:
+                value = draft.get(field)
+                if isinstance(value, str) and isinstance(
+                    params[key].get(field), (int, float)
+                ):
+                    try:
+                        draft[field] = float(value)
+                    except ValueError:
+                        pass  # Keep the invalid draft available to the preview.
+            params[key].update(draft)
+        return params
+
+    def _tensor_selected_params(self, selected_metrics):
         metric_params_map: dict[str, dict[str, Any]] = {}
         for metric_key in selected_metrics:
             params = dict(self._tensor_metric_params.get(metric_key, {}))
@@ -242,6 +265,8 @@ class MainWindowTensorRunMixin:
         self._busy_label = label
         self._busy_suffix = str(suffix).strip() if suffix else None
         self._busy_frame_idx = 0
+        if getattr(self, "_tensor_task_status", None) is not None:
+            return
         self._busy_timer.start()
         self._render_busy_message()
         app = QApplication.instance()
@@ -275,6 +300,8 @@ class MainWindowTensorRunMixin:
     def _cleanup_tensor_run_files(self, state: dict[str, Any] | None) -> None:
         if not isinstance(state, dict):
             return
+        if state.get("progress_files") is not None:
+            state["progress_files"].cleanup()
         for key in ("request_path", "result_path", "cancel_path"):
             path = state.get(key)
             if not isinstance(path, Path):
@@ -308,7 +335,14 @@ class MainWindowTensorRunMixin:
         )
         process = None
         process_tree = None
+        progress_files = None
+        started_at = time.monotonic()
         try:
+            progress_files = tempfile.TemporaryDirectory(
+                prefix="lfptensorpipe_tensor_progress_"
+            )
+            env = self._tensor_worker_env()
+            env[PROGRESS_DIR_ENV] = progress_files.name
             process = subprocess.Popen(
                 build_worker_command(
                     module_name=TENSOR_WORKER_MODULE,
@@ -322,7 +356,7 @@ class MainWindowTensorRunMixin:
                     python_exec=sys.executable,
                 ),
                 cwd=str(Path.cwd()),
-                env=self._tensor_worker_env(),
+                env=env,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -340,6 +374,8 @@ class MainWindowTensorRunMixin:
                     process.wait(timeout=TENSOR_RUN_TERMINATE_TIMEOUT_S)
                 except Exception:  # noqa: BLE001
                     pass
+            if progress_files is not None:
+                progress_files.cleanup()
             request_path.unlink(missing_ok=True)
             result_path.unlink(missing_ok=True)
             cancel_path.unlink(missing_ok=True)
@@ -347,6 +383,9 @@ class MainWindowTensorRunMixin:
 
         self._tensor_run_state = {
             "process": process,
+            "started_at": started_at,
+            "progress_files": progress_files,
+            "task_progress": RunProgress(selected_metrics),
             "process_tree": process_tree,
             "request_path": request_path,
             "result_path": result_path,
@@ -363,6 +402,9 @@ class MainWindowTensorRunMixin:
             "cancelled_by_user": False,
             "stop_message": BUILD_TENSOR_CANCELLED_MESSAGE,
         }
+        task_status = getattr(self, "_tensor_task_status", None)
+        if task_status is not None:
+            task_status.started(self._tensor_run_state)
         self._set_tensor_run_ui_lock(True)
         self._start_tensor_run_busy(
             TENSOR_RUN_SUCCESS_LABEL,
@@ -380,6 +422,9 @@ class MainWindowTensorRunMixin:
     ) -> None:
         state = self._tensor_run_state
         self._tensor_run_poll_timer.stop()
+        task_status = getattr(self, "_tensor_task_status", None)
+        if task_status is not None and state and "task_progress" in state:
+            task_status.finished(state, ok, cancelled, message)
         self._tensor_run_state = None
         self._cleanup_tensor_run_files(state)
         if isinstance(state, dict):
@@ -393,7 +438,10 @@ class MainWindowTensorRunMixin:
         prefix = "Build Tensor cancelled" if cancelled else "Build Tensor OK"
         if not cancelled and not ok:
             prefix = "Build Tensor failed"
-        self.statusBar().showMessage(f"{prefix}: {message}")
+        if task_status is None or task_status.isHidden():
+            self.statusBar().showMessage(f"{prefix}: {message}")
+        else:
+            self.statusBar().clearMessage()
         self._post_step_action_sync(reason="tensor_run")
 
     def _request_stop_tensor_run(self) -> None:
@@ -521,6 +569,9 @@ class MainWindowTensorRunMixin:
                 cancelled=False,
             )
             return
+        task_status = getattr(self, "_tensor_task_status", None)
+        if task_status is not None and "task_progress" in state:
+            task_status.poll(state)
         if state.get("recovery_error"):
             return
 
@@ -742,11 +793,16 @@ class MainWindowTensorRunMixin:
 
         if "trgc" in selected_metrics:
             try:
-                trgc_group_count = preview_trgc_frequency_group_count(
-                    context,
-                    metric_params=dict(metric_params_map.get("trgc", {})),
-                    mask_edge_effects=mask_edge_effects,
+                task_status = getattr(self, "_tensor_task_status", None)
+                trgc_group_count = (
+                    task_status.trgc_group_count() if task_status else None
                 )
+                if trgc_group_count is None:
+                    trgc_group_count = preview_trgc_frequency_group_count(
+                        context,
+                        metric_params=dict(metric_params_map.get("trgc", {})),
+                        mask_edge_effects=mask_edge_effects,
+                    )
             except Exception as exc:  # noqa: BLE001
                 self.statusBar().showMessage(
                     "TRGC grouping preview unavailable; Build Tensor will "

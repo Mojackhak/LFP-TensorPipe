@@ -67,12 +67,18 @@ class MainWindowTensorStateRefreshMixin:
         self._sync_tensor_time_resolution_label()
         context = self._record_context()
         self._refresh_tensor_metric_indicators(context)
+        task_status = getattr(self, "_tensor_task_status", None)
+        if task_status is not None:
+            task_status.queue_preview()
 
     def _refresh_tensor_controls(self) -> None:
         context = self._record_context()
         self._refresh_tensor_channel_state(context)
         self._apply_active_tensor_params_to_panel()
         self._refresh_tensor_metric_indicators(context)
+        task_status = getattr(self, "_tensor_task_status", None)
+        if task_status is not None:
+            task_status.queue_preview()
         if self._tensor_run_is_active():
             self._refresh_tensor_controls_for_active_run()
             return
