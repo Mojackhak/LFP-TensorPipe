@@ -1210,9 +1210,10 @@ a new Align Run, finish the new epoch selection before extracting features.
 Use `Bands Configure...` to define the frequency bands of interest and
 `Phases Configure...` to define the time windows of interest. The software
 computes feature values for the combinations of those configured bands and time
-windows for each selected metric. Phase `Start (%)` and `End (%)` values use an
-explicit 0-to-100 percentage scale: `1` means 1% of the aligned time span, not
-the full span. The next two figures show the tutorial's saved band and phase
+windows for each selected metric. New phases use percentages from 0 to 100.
+For Clip, Stitch or cue-response, select Absolute time (s) to enter seconds from
+epoch start. Switching units keeps existing windows on the same data. Set as
+Default saves the current unit's template. Restore Default loads it into the draft. The next two figures show the tutorial's saved band and phase
 definitions.
 
 These axis settings are a per-trial draft. An upstream rerun can make Extract

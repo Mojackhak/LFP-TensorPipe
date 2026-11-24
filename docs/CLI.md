@@ -67,6 +67,8 @@ paths and Features output/reducer settings are read from application
 configuration. Reproduction therefore requires the same relevant source data,
 page parameters, and application settings.
 
+Features configurations can set `time_unit` to `percent` or `s` alongside each metric's `times` list. Seconds use the accepted Clip, Stitch or cue-response epoch start as zero and may extend to the full aligned duration. A standard GUI configuration without a unit uses percentages.
+
 ## Trials and Epochs
 
 Align updates the named trial or creates that exact canonical slug after
