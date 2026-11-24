@@ -1,6 +1,6 @@
 # Command-line Workflow
 
-Use `lfptp run` or `lfptensorpipe run` to execute one exported page configuration
+Use `lfptp run` or `lfptensorpipe run` to execute a page configuration or a named preprocessing comparison plan
 without opening the GUI. These commands are available in a source installation
 in the `lfptp` Conda environment. Running either command without arguments opens
 the desktop application.
@@ -19,20 +19,21 @@ conda run -n lfptp lfptp run \
 |---|---|
 | `--subject-path` | Required. An existing `<project>/derivatives/lfptensorpipe/<subject>` directory. The project and subject are resolved from this layout. |
 | `--record` | Required. The name of an imported record. |
-| `--config` | Required. A JSON file saved by a page's `Export Configs...` action. Its `schema` selects the action. |
-| `--trial` | Required for Align Epochs and Extract Features; rejected for Localize and Build Tensor. Use the canonical trial slug, such as `cycle-l`, rather than a directory path. |
+| `--config` | Required. Accepts a page JSON, a preprocessing recipe, or a named variant plan. |
+| `--trial` | Required for Align, Features and variant plans. Use the exact trial slug, such as `cycle-l`. |
+| `--output-root` | Required for a named variant plan. Select the directory for all of its independent run results. |
 
-Relative paths are resolved from the working directory; `~` expands to the home
-directory. `lfptp run --help` displays help without opening the GUI or initializing
+Shell arguments resolve relative to the working directory. Paths inside JSON files resolve relative to the file that declares them. `lfptp run --help` displays help without opening the GUI or initializing
 MATLAB or scientific computation.
 
 ## Supported Actions
 
 | Exported schema | Action | Required input |
 |---|---|---|
-| `lfptensorpipe.localize-config` | Apply Localize | Imported channels, matching reconstruction and transforms, configured runtime paths |
+| `lfptensorpipe.preprocess-config` | Execute the four optional preprocessing steps and Finish | Imported or accepted Raw |
+| `lfptensorpipe.localize-config` | Apply an atlas or User Labels | Imported channels and a label CSV for User Labels, or the atlas runtime and matching reconstruction |
 | `lfptensorpipe.tensor-config` | Build selected Tensor metrics | Current Preprocess Finish |
-| `lfptensorpipe.alignment-config` | Align Run, then Finish with every generated epoch | Current Tensor metrics |
+| `lfptensorpipe.alignment-config` | Align Run, then Finish with all generated epochs or an explicit source-matched selection | Current Tensor metrics |
 | `lfptensorpipe.features-config` | Extract Features for the selected trial | Current Align Finish |
 
 Localize reads channel names from the canonical Rawdata FIF as soon as a record
@@ -40,9 +41,7 @@ has been imported, including channels marked bad. Existing records with only a
 Preprocess Raw FIF use that channel inventory. The other pages require their
 upstream processing results.
 
-Each invocation processes one record and, when required, one trial. Record
-import, Preprocess Signal, batch traversal, and manual epoch selection are GUI
-workflows. A command requires its upstream results to be ready.
+Each invocation processes one record and, when required, one trial. The source record is imported through the GUI. Preprocess recipes and confirmed epoch selections can be replayed from the command line. A command requires its upstream results to be ready.
 
 For cue-response alignment, the record labels are the cue and response in each
 event pair. The generated window anchors describe the target timeline. Explicit
@@ -62,9 +61,7 @@ parameters. Unsupported Tensor parameter names, missing required fields, and
 invalid or incompatible values are errors. Optional values use their defined
 service defaults. SpecParam accepts its exported unlimited peak-count setting.
 
-The page JSON does not replace global application settings. Localize runtime
-paths and Features output/reducer settings are read from application
-configuration. Reproduction therefore requires the same relevant source data,
+Atlas runtime paths are read from application configuration. Features uses the explicit execution settings in the page export when supplied. Older page files use local Features defaults. Reproduction therefore requires the same relevant source data,
 page parameters, and application settings.
 
 Features configurations can set `time_unit` to `percent` or `s` alongside each metric's `times` list. Seconds use the accepted Clip, Stitch or cue-response epoch start as zero and may extend to the full aligned duration. A standard GUI configuration without a unit uses percentages.
@@ -88,8 +85,7 @@ Align Finish uses the same record-level localization readiness as the GUI.
 When Ready, it joins the last applied source (Lead-DBS atlas or User Labels)
 for every requested metric and records the source and result ID in the trial log.
 When Not ready, every output omits localization. Both paths retain the selected
-signals, including channels with unknown region membership. The Localize JSON
-action applies the atlas configuration. It validates the external configuration's
+signals, including channels with unknown region membership. The atlas Localize JSON action applies the atlas configuration. It validates the external configuration's
 lead signature before using or generating atlas results. A signature verified
 against the current reconstruction and electrode model can be reused. When
 verification is required, missing model contact names or a resolver failure
@@ -123,6 +119,64 @@ processing scope.
 Run and Finish use shared trial generations, so their dependencies are scoped
 to the trial. Localization is shared by the record's trial finishes. Changes
 do not invalidate unrelated projects or records.
+
+## Replaying an accepted analysis
+
+`lfptp export` reads accepted results. It accepts the same `--subject-path` and `--record` as `run`, plus `--page preprocess|epoch-selection|alignment|features` and `--output FILE`. Supply `--trial` for the last three pages. Preprocess starts from the accepted Raw, including its annotations and bad channels. A fresh import can bootstrap Raw for a standalone preprocessing run.
+
+A preprocessing JSON has `"schema": "lfptensorpipe.preprocess-config"` and a `preprocess` object. Give each of `signal_repair`, `filter`, `ecg_artifact_removal` and `annotations` an `action` of `apply` or `skip`. Raw and Finish are implicit. Applied repair takes `settings` and optional source-matched interval decisions. Filter takes `low_freq`, `high_freq`, `notches`, `advance` and a review policy. Use `"review": "detected"` to finalize the newly detected annotations and bad channels, or use exported review decisions. ECG takes `method`, `picks`, `method_kwargs` and `mark_filter_edges`. Annotations takes `rows` or `csv` and `mark_filter_edges`. Relative file references inside configurations are resolved against their containing JSON file. Older accepted reviews that only retain their final annotations and bad channels export a recording-bound snapshot. The snapshot is replayable against the same accepted Raw and preceding preprocessing choices. A changed prefix requires new review decisions, or explicit acceptance of the new detection.
+
+For example, this recipe applies SVD ECG correction to two named channels, retains the behavioral events on Raw, and runs Finish.
+
+```json
+{
+  "schema": "lfptensorpipe.preprocess-config",
+  "preprocess": {
+    "signal_repair": {"action": "skip"},
+    "filter": {"action": "skip"},
+    "ecg_artifact_removal": {"action": "apply", "method": "svd", "picks": ["C1", "C2"]},
+    "annotations": {"action": "skip"}
+  }
+}
+```
+
+To export a confirmed selection, run `lfptp export --subject-path /study/derivatives/lfptensorpipe/sub-001 --record gait --trial cycle-l --page epoch-selection --output decisions/include.json`. An alignment page export also embeds the confirmed selection. A plan's explicit `base.epoch_selection` takes precedence over that embedded selection. Each replay writes the decision matches, retained indices, missing and additional candidates to the trial's `epoch_replay.json`.
+
+For Localize, supply `"source": "user_labels"` and `"labels_csv": "labels.csv"` inside the usual Localize page. The CSV is a complete label table with `channel`, optional `assignment_method` and `<region>_in` columns. All-zero rows are assessed outside those regions. All-blank or omitted rows are unassessed. This action requires at least one region and assessed channel.
+
+An Align configuration accepts `epoch_selection` as an exported decision file, an embedded selection or the word `accepted` for the latest accepted Finish of this record and trial. The reference is read before rerunning. Matching uses labels, original event coordinates and source intervals. Ambiguous matches prevent Finish. Exact replay also requires matching candidate sets. Sensitivity variants can report missing and extra candidates and finish the uniquely matched included epochs. Features exports include `execution` with actual output types, reducers, reduction settings and numerical domains when available.
+
+## Running named variants
+
+The following plan uses the ordinary page JSON files. The baseline preprocessing recipe applies ECG correction.
+
+```json
+{
+  "base": {
+    "preprocess": "configs/preprocess.json",
+    "tensor": "configs/tensor.json",
+    "alignment": "configs/align.json",
+    "features": "configs/features.json",
+    "epoch_selection": "decisions/include.json"
+  },
+  "variants": [
+    {"name": "baseline", "repeats": 2},
+    {"name": "skip_ecg", "overrides": {"preprocess": {"ecg_artifact_removal": {"action": "skip"}}}}
+  ]
+}
+```
+
+Run it with `lfptp run --subject-path /study/derivatives/lfptensorpipe/sub-001 --record gait --trial cycle-l --config plan.json --output-root /results/gait_ecg`. The output root holds a fixed input snapshot and separate `baseline/run-01`, `baseline/run-02` and `skip_ecg/run-01` projects. Further invocations allocate new run directories. Each repetition starts from the frozen Raw. Each run records its effective configurations, input and software identity, stage outcomes and accepted output receipts in `run.json`. Ready anatomical labels can be shared as a frozen input. The original project is read only during a plan.
+
+The first listed variant defines the baseline. Independent repetitions compute the numerical stages from Raw. For a changed variant the runner can use accepted preprocessing steps through the first changed choice. A Tensor metric can also be reused when its numerical settings and the Finish inputs it consumes match. Burst additionally checks its baseline annotations. Align uses the trial's input generations and source-event selection. Features retains the applicable prior results when only selected phase outputs change. Reused stages identify the originating run. The Features log records which numerical outputs were computed, retained or relabeled. A failed variant keeps its stage and error in `run.json` and the remaining variants continue. All variant projects contain their own derivative files.
+
+## Comparing published Features
+
+Run `lfptp compare-features --reference /results/gait_ecg/baseline/run-01 --candidate /results/gait_ecg/baseline/run-02 --mode repeat --atol 1e-9 --rtol 1e-7 --output /results/repeat`. For a preprocessing comparison use `--mode sensitivity` and the variant run as the candidate. `paired.csv` reports values and candidate minus reference in the recorded domain. `unmatched.csv` lists unmatched or ambiguous keys. `coverage.csv` reports per-event coverage and common valid support. `summary.json` records the configurations, retention, missingness and numerical agreement. Repeat mode requires equivalent inputs and settings, matching decisions and missingness, and values within tolerance. Sensitivity mode reports measured differences. Choose a study-specific threshold for any scientific claim.
+
+Values are joined by subject, record, trial, original event, channel or ordered pair, metric, output type, reducer, band and phase. Spectra and traces also use frequency and time coordinates. Different numerical definitions are listed in `unmatched.csv`. The signed difference is the candidate value minus the reference value. Repeat mode checks `abs(difference) <= atol + rtol * abs(reference)` with both tolerances defaulting to zero. It requires at least one finite pair. Tolerance failures return exit code 1 and preserve the report.
+
+Coverage counts finite aligned time–frequency cells in each configured band and phase, plus the times with at least one finite frequency. Duration sums the left-edge support of those selected time points within the phase, in seconds or normalized epoch percent. Common duration requires matching time grids and finite data at a common frequency. Different grids retain common-coordinate counts. Native Burst and other native-source reducers may have different integration support from the aligned display. Choose a fresh report directory or export filename for each comparison.
 
 ## Failures and Interruption
 
