@@ -24,7 +24,7 @@ def build_periodic_aperiodic_paths(
     output_path = svc.tensor_metric_tensor_path(resolver, METRIC_KEY, create=create)
     return PeriodicAperiodicPaths(
         resolver=resolver,
-        input_path=svc.preproc_step_raw_path(resolver, "finish"),
+        input_path=svc.preproc_step_raw_path(resolver, "finish", create=False),
         output_path=output_path,
         aperiodic_output_path=svc.tensor_metric_tensor_path(
             resolver,

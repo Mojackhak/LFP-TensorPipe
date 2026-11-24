@@ -253,7 +253,7 @@ class TensorTaskStatus(QWidget):
             cpu = None
         generation = None
         if ctx and keys:
-            path = preproc_step_raw_path(PathResolver(ctx), "finish")
+            path = preproc_step_raw_path(PathResolver(ctx), "finish", create=False)
             try:
                 generation = path.stat().st_mtime_ns
             except OSError:

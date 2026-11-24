@@ -84,6 +84,7 @@ because it has no canonical Rawdata input.
 Browsing a record, switching away, or closing an unchanged record leaves its
 existing storage scopes intact. Running a processing action or saving an
 edited record draft can create its Derivatives output.
+Build Tensor task previews and size estimates also leave the record directory tree intact when Preprocess Finish is missing.
 
 Record Rename updates the record column in Localize CSV tables and preserves
 the original text of the other identifiers, including leading zeros and the

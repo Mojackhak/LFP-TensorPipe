@@ -160,7 +160,7 @@ def build_task_summary(context: RecordContext, params, mask_edge_effects, cpu_pe
 
     summary = selection_summary(params, cpu_percent)
     resolver = PathResolver(context)
-    path = svc.preproc_step_raw_path(resolver, "finish")
+    path = svc.preproc_step_raw_path(resolver, "finish", create=False)
     with mne.io.read_raw_fif(path, preload=False, verbose="ERROR") as raw:
         inventory = svc._tensor_channel_inventory_from_raw(raw)
         sfreq = summary.sfreq = float(raw.info["sfreq"])
