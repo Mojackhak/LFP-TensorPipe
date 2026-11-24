@@ -78,6 +78,15 @@ def selection_reference(value, context, trial):
     return value
 
 
+def epoch_match_mode(node, reference):
+    mode = node.get("epoch_match", "exact")
+    if mode not in ("exact", "common") or ("epoch_match" in node and reference is None):
+        raise ConfigError(
+            "epoch_match requires an epoch selection and exact or common matching."
+        )
+    return mode
+
+
 def _missing_evidence(resolver, trial, missing):
     """Report observed annotation support without attributing an unexplained loss."""
     import mne

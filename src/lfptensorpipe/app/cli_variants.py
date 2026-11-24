@@ -208,7 +208,7 @@ def software_identity():
 
     packages = {}
     for name in (
-        "lfptensorpipe",
+        "lfp-tensorpipe",
         "numpy",
         "scipy",
         "mne",
@@ -301,7 +301,7 @@ def _adopt_alignment(source, target, trial, align, baseline, metrics):
         capture_alignment_run_input_generations,
     )
     from .cli import _checked_result, _select_trial_state, _trial_config
-    from .cli_epochs import accepted_selection, replay_picks
+    from .cli_epochs import accepted_selection, epoch_match_mode, replay_picks
     from .shared.generation_lineage import input_generation_receipts_match
     from .tensor.paths import tensor_output_metric_keys
 
@@ -322,16 +322,17 @@ def _adopt_alignment(source, target, trial, align, baseline, metrics):
     if not expected or not input_generation_receipts_match(prior[1], expected=expected):
         return ()
     old = accepted_selection(source.context, trial)
+    reference = align.get("epoch_selection")
+    mode = epoch_match_mode(align, reference)
     shutil.copytree(
         source.alignment_paradigm_dir(trial), target.alignment_paradigm_dir(trial)
     )
     ctx = target.context
     config = _trial_config(ctx, trial, allow_missing=False)
-    reference = align.get("epoch_selection")
     if reference is None:
         picks = list(range(len(old["decisions"])))
     else:
-        picks = replay_picks(ctx, trial, reference, align.get("epoch_match", "exact"))
+        picks = replay_picks(ctx, trial, reference, mode)
     _select_trial_state(ctx, config, picks, submitted=True)
     old_picks = [i for i, r in enumerate(old["decisions"]) if r["include"]]
     if picks == old_picks and (
@@ -712,18 +713,19 @@ def run_plan(context, trial, plan, parent, root):
         for repetition in range(count):
             settings = deepcopy(configs)
             changed = configs["preprocess"] != base["preprocess"]
-            if previous_selection:
-                settings["alignment"]["epoch_selection"] = previous_selection
-            elif decisions and "epoch_selection" not in settings["alignment"]:
-                settings["alignment"]["epoch_selection"] = decisions
+            align = settings["alignment"]
+            if previous_selection and "epoch_match" not in align:
+                align["epoch_selection"] = previous_selection
+            elif decisions and "epoch_selection" not in align:
+                align["epoch_selection"] = decisions
             if (
                 reference_features
                 and "execution" not in settings["features"]
                 and settings["tensor"] == base["tensor"]
             ):
                 settings["features"]["execution"] = reference_features
-            if "epoch_selection" in settings["alignment"]:
-                settings["alignment"]["epoch_match"] = (
+            if "epoch_selection" in align and "epoch_match" not in align:
+                align["epoch_match"] = (
                     "common"
                     if index and changed and not previous_selection
                     else "exact"

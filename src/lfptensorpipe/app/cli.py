@@ -257,22 +257,15 @@ def _run_alignment(
     context: RecordContext, node: dict[str, Any], trial: str, config_store: Any
 ) -> str:
     from .alignment import service as svc
+    from .cli_epochs import epoch_match_mode, selection_reference
 
     if not svc._completed_tensor_metrics(PathResolver(context)):
         raise RunFailed("No current Tensor metrics are available for Align Epochs.")
     existing = _trial_config(context, trial, allow_missing=True)
     reference = None
     if "epoch_selection" in node:
-        from .cli_epochs import selection_reference
-
         reference = selection_reference(node["epoch_selection"], context, trial)
-    replay_mode = node.get("epoch_match", "exact")
-    if replay_mode not in ("exact", "common") or (
-        "epoch_match" in node and reference is None
-    ):
-        raise ConfigError(
-            "epoch_match requires an epoch selection and exact or common matching."
-        )
+    replay_mode = epoch_match_mode(node, reference)
     _require_fields(node, ("method", "method_params"), "alignment")
     method, params = node["method"], node["method_params"]
     if not isinstance(method, str) or method not in svc.ALIGNMENT_METHODS_BY_KEY:
