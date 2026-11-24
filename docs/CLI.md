@@ -184,6 +184,10 @@ Values are joined by subject, record, trial, original event, channel or ordered 
 
 Coverage counts finite aligned time–frequency cells in each configured band and phase, plus the times with at least one finite frequency. Duration sums the left-edge support of those selected time points within the phase, in seconds or normalized epoch percent. Common duration requires matching time grids and finite data at a common frequency. Different grids retain common-coordinate counts. Native Burst and other native-source reducers may have different integration support from the aligned display. Choose a fresh report directory or export filename for each comparison.
 
+Phase comparisons use the accepted epoch duration to convert between percent and seconds. Pairing and coverage use the extraction tolerance for floating-point window endpoints, independently of the value tolerances `--atol` and `--rtol`. For a legacy phase table without `time_unit`, coverage follows the accepted reduction settings, including absolute seconds on physical-time epochs. Burst phase windows without a unit use percent.
+
+The Tensor setting `mask_edge_effects` is part of each output definition. Changing it sends the affected values to `unmatched.csv` as `different_definition`. The coverage report still describes the observed support in both runs.
+
 ## Failures and Interruption
 
 | Exit code | Meaning |

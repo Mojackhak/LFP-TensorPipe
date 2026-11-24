@@ -23,7 +23,15 @@ from .features.generation import (
     accepted_feature_artifact_paths,
     features_derivatives_log_path,
 )
-from .features.phase_time import aligned_phase_support
+from .features.phase_time import (
+    aligned_phase_support,
+    convert_phase_rows,
+    effective_phase_windows,
+    same_phase_boundary,
+    same_phase_windows,
+    snap_phase_boundary,
+    trial_seconds_duration,
+)
 from .path_resolver import PathResolver
 from .shared.atomic_outputs import AtomicOutputSet
 from .shared.generation_lineage import accepted_result_generation_id
@@ -120,8 +128,19 @@ def _cells(v, kind):
         yield "", "", v
 
 
-def _window(axes, field, name):
-    return sorted((r["start"], r["end"]) for r in axes[field] if r["name"] == name)
+def _window(rows, name):
+    return sorted((r["start"], r["end"]) for r in rows if r["name"] == name)
+
+
+def _same_definition(left, right):
+    if left.keys() != right.keys() or any(
+        left[k] != right[k] for k in left if k != "phase_windows"
+    ):
+        return False
+    a, b = left.get("phase_windows", ()), right.get("phase_windows", ())
+    return len(a) == len(b) and all(
+        same_phase_boundary(x, y) for p, q in zip(a, b) for x, y in zip(p, q)
+    )
 
 
 def _common_definition(effective, metric):
@@ -130,9 +149,12 @@ def _common_definition(effective, metric):
     params = tensor["metric_params"].get(owner, {})
     return {
         "tensor": {
-            k: v
-            for k, v in params.items()
-            if k not in {"selected_channels", "selected_pairs"}
+            **{
+                k: v
+                for k, v in params.items()
+                if k not in {"selected_channels", "selected_pairs"}
+            },
+            "mask_edge_effects": tensor["mask_edge_effects"],
         },
         "alignment": {
             "method": effective["alignment"]["method"],
@@ -163,6 +185,20 @@ def _feature_values(run, paths, seconds):
         )
         unit_map = spec["units"]
         common = _common_definition(effective, metric)
+        unit_time = "s" if seconds is not None else "percent"
+        collapse = feature["execution"]["collapse"]
+        if kind in {"scalar", "spectral"}:
+            windows = frame.attrs.get("phase_windows")
+            if windows is None:
+                windows = effective_phase_windows(
+                    axes,
+                    metric,
+                    collapse["time_interval_mode"],
+                    (0.0, seconds) if seconds is not None else None,
+                )
+            phase_rows = convert_phase_rows(
+                windows["times"], windows["time_unit"], unit_time, seconds
+            )
         for row in frame.to_dict("records"):
             source = row.get("SourceEpoch")
             if not isinstance(source, str):
@@ -176,24 +212,19 @@ def _feature_values(run, paths, seconds):
                 definition = {**common, "value_policy": policy, "unit": unit}
                 if kind != "raw":
                     definition["reduction"] = {
-                        k: v
-                        for k, v in feature["execution"]["collapse"].items()
-                        if k
-                        in ("inclusive", "freq_interval_mode", "time_interval_mode")
+                        "inclusive": collapse["inclusive"],
+                        "freq_interval_mode": collapse["freq_interval_mode"],
+                        "time_interval_mode": "absolute"
+                        if unit_time == "s"
+                        else "percent",
                     }
                 if band:
-                    definition["band_hz"] = _window(axes, "bands", band)
-                if phase:
-                    windows = frame.attrs.get("phase_windows", axes)
-                    unit_time = windows.get("time_unit", "percent")
-                    bounds = _window(windows, "times", phase)
-                    if seconds is not None and unit_time == "percent":
-                        bounds = [
-                            (a * seconds / 100, b * seconds / 100) for a, b in bounds
-                        ]
-                        unit_time = "s"
-                    definition.update(phase_windows=bounds, time_unit=unit_time)
-                definitions[spec_key] = encoded(definition)
+                    definition["band_hz"] = _window(axes["bands"], band)
+                if phase and kind in {"scalar", "spectral"}:
+                    definition.update(
+                        phase_windows=_window(phase_rows, phase), time_unit=unit_time
+                    )
+                definitions[spec_key] = definition
             prefix = (
                 run["subject"],
                 run["record"],
@@ -207,18 +238,16 @@ def _feature_values(run, paths, seconds):
                 phase,
             )
             v = row.get(columns["value"], row.get("Value"))
-            values[prefix].append(
-                (v, definitions[spec_key], unit, policy["feature_storage_domain"])
-            )
+            values[prefix].append((v, spec_key, unit, policy["feature_storage_domain"]))
     return values, definitions
 
 
 def _row_values(rows, kind):
     samples = defaultdict(list)
-    for value, definition, unit, domain in rows:
+    for value, _, unit, domain in rows:
         for freq, time, number in _cells(value, kind):
             n = float(number) if number is not None and number is not pd.NA else np.nan
-            samples[(freq, time)].append((n, definition, unit, domain))
+            samples[(freq, time)].append((n, unit, domain))
     return samples
 
 
@@ -231,6 +260,7 @@ def _paired_coordinates(
     ]
     for artifact in sorted(sides[0].keys() | sides[1].keys()):
         tables = []
+        artifact_definitions = []
         for run, side, definitions, seconds in zip(
             (left, right), sides, (defs_left, defs_right), durations
         ):
@@ -238,22 +268,36 @@ def _paired_coordinates(
                 run, [side[artifact]] if artifact in side else [], seconds
             )
             definitions.update(defs)
+            artifact_definitions.append(defs)
             tables.append(rows)
+        lhs, rhs = artifact_definitions
+        matching = {
+            k for k in lhs.keys() & rhs.keys() if _same_definition(lhs[k], rhs[k])
+        }
         for prefix in sorted(tables[0].keys() | tables[1].keys()):
-            a, b = [_row_values(table.get(prefix, []), prefix[6]) for table in tables]
-            duplicate = any(len(table.get(prefix, [])) > 1 for table in tables)
+            left_rows, right_rows = (table.get(prefix, []) for table in tables)
+            duplicate = len(left_rows) > 1 or len(right_rows) > 1
+            same_definition = bool(
+                left_rows
+                and right_rows
+                and left_rows[0][1] == right_rows[0][1]
+                and left_rows[0][1] in matching
+            )
+            a, b = (_row_values(rows, prefix[6]) for rows in (left_rows, right_rows))
             for coords in sorted(a.keys() | b.keys()):
-                yield (*prefix, *coords), a.get(coords, []), b.get(
-                    coords, []
-                ), duplicate
+                yield (
+                    (*prefix, *coords),
+                    a.get(coords, []),
+                    b.get(coords, []),
+                    duplicate,
+                    same_definition,
+                )
 
 
-def _phase_ranges(axes, duration, unit):
+def _phase_ranges(rows, centers):
     windows = defaultdict(list)
-    for row in axes["times"]:
-        start, end = row["start"], row["end"]
-        if unit == "s" and axes.get("time_unit", "percent") == "percent":
-            start, end = start * duration / 100, end * duration / 100
+    for row in rows:
+        start, end = (snap_phase_boundary(row[k], centers) for k in ("start", "end"))
         windows[row["name"]].append((start, end))
     from lfptensorpipe.tabular.grid import _merge_intervals
 
@@ -267,7 +311,7 @@ def _coverage(run, resolver, metric):
     method = run["effective"]["alignment"]["method"]
     axes = config["axes_by_metric"].get(metric)
     if axes is None:
-        return result
+        return result, None
     frame = load_pkl(
         alignment_trial_raw_table_path(
             resolver, trial_slug=run["trial"], metric_key=metric
@@ -276,14 +320,28 @@ def _coverage(run, resolver, metric):
     support = aligned_phase_support(frame, method)
     unit = "s" if support is not None else "percent"
     duration = support[1] - support[0] if support else 100.0
-    windows = _phase_ranges(axes, duration, unit)
     collapse = config["execution"]["collapse"]
+    phases = effective_phase_windows(
+        axes, metric, collapse["time_interval_mode"], support
+    )
+    rows = convert_phase_rows(phases["times"], phases["time_unit"], unit, duration)
+    resolved_axes = {"bands": axes["bands"], "times": rows, "time_unit": unit}
+    if frame.empty:
+        return result, resolved_axes
+    ts = np.asarray(frame["Value"].iloc[0].columns, dtype=float)
+    if support:
+        ts = ts - support[0]
+    # Legacy absolute windows were applied literally to the stored coordinates.
+    converted = support and (
+        "time_unit" in axes
+        or collapse["time_interval_mode"] == "percent"
+        or metric == "burst"
+    )
+    windows = _phase_ranges(rows, ts if converted else ())
+    edges = np.append(ts[1:], duration)
     inclusive = collapse["inclusive"]
     for row in frame.to_dict("records"):
         v = row["Value"]
-        ts = np.asarray(v.columns, dtype=float)
-        if support:
-            ts = ts - support[0]
         band_coords = {}
         if axes["bands"]:
             from lfptensorpipe.tabular.grid import resolve_intervals
@@ -327,7 +385,6 @@ def _coverage(run, resolver, metric):
                     )
                     for i in indices
                 }
-                edges = np.append(ts[1:], duration)
                 widths = {
                     float(t): sum(
                         max(0.0, min(end, hi) - max(t, lo)) for lo, hi in ranges
@@ -336,7 +393,7 @@ def _coverage(run, resolver, metric):
                     if any(lo <= t <= hi for lo, hi in ranges)
                 }
                 result[key] = None if key in result else (cells, widths)
-    return result
+    return result, resolved_axes
 
 
 def _csv_writer(stack, path, columns):
@@ -352,11 +409,19 @@ def _write_coverage(left, right, left_resolver, right_resolver, writer):
         | right["effective"]["features"]["axes_by_metric"].keys()
     )
     same = True
+    same_axes = True
     for metric in sorted(metrics):
-        a, b = _coverage(left, left_resolver, metric), _coverage(
-            right, right_resolver, metric
+        (a, left_axes), (b, right_axes) = (
+            _coverage(left, left_resolver, metric),
+            _coverage(right, right_resolver, metric),
         )
-        same &= a == b
+        same_axes &= bool(
+            left_axes
+            and right_axes
+            and left_axes["bands"] == right_axes["bands"]
+            and same_phase_windows(left_axes, right_axes, None)
+        )
+        same &= a.keys() == b.keys()
         for key in sorted(a.keys() | b.keys()):
             row = dict(zip(COVER_KEY, key))
             if (key in a and a[key] is None) or (key in b and b[key] is None):
@@ -364,6 +429,11 @@ def _write_coverage(left, right, left_resolver, right_resolver, writer):
                 same = False
                 continue
             (x, x_width), (y, y_width) = a.get(key, ({}, {})), b.get(key, ({}, {}))
+            # Compare the right edges in epoch coordinates, including partial cells.
+            same_widths = x_width.keys() == y_width.keys() and all(
+                same_phase_boundary(t + x_width[t], t + y_width[t]) for t in x_width
+            )
+            same &= x == y and same_widths
             common = x.keys() & y.keys()
             valid_common = {k for k in common if x[k] and y[k]}
             xt = {t for (_, t), finite in x.items() if finite}
@@ -385,11 +455,11 @@ def _write_coverage(left, right, left_resolver, right_resolver, writer):
                     "reference_valid_duration": sum(x_width[t] for t in xt),
                     "candidate_valid_duration": sum(y_width[t] for t in yt),
                     "common_valid_duration": (
-                        sum(x_width[t] for t in ct) if x_width == y_width else None
+                        sum(x_width[t] for t in ct) if same_widths else None
                     ),
                 }
             )
-    return same
+    return same, same_axes
 
 
 def _decision_set(run):
@@ -505,8 +575,6 @@ def _report(
     atol,
     rtol,
 ):
-    from .features.phase_time import trial_seconds_duration
-
     durations = [
         trial_seconds_duration(resolver, run["trial"])
         for resolver, run in ((lr, left), (rr, right))
@@ -514,7 +582,7 @@ def _report(
     defs_a, defs_b = {}, {}
     stats = defaultdict(list)
     n_paired = n_unmatched = n_valid = n_changed_missing = n_outside = 0
-    for key, av, bv, duplicate in _paired_coordinates(
+    for key, av, bv, duplicate, same_definition in _paired_coordinates(
         left, right, lp, rp, defs_a, defs_b, durations
     ):
         record = dict(zip(KEY, key))
@@ -524,7 +592,7 @@ def _report(
                 if duplicate or len(av) > 1 or len(bv) > 1
                 else ("reference_only" if av else "candidate_only")
             )
-        elif av[0][1] != bv[0][1]:
+        elif not same_definition:
             reason = "different_definition"
         else:
             reason = None
@@ -539,7 +607,7 @@ def _report(
                 }
             )
             continue
-        x, _, unit, domain = av[0]
+        x, unit, domain = av[0]
         y = bv[0][0]
         valid = np.isfinite(x) and np.isfinite(y)
         delta = within = None
@@ -565,27 +633,25 @@ def _report(
                 "within_tolerance": within,
             }
         )
-    same_coverage = _write_coverage(left, right, lr, rr, coverage_writer)
+    same_coverage, same_axes = _write_coverage(left, right, lr, rr, coverage_writer)
     da, db = _decision_set(left), _decision_set(right)
     left_settings, right_settings = (_numerical_settings(run) for run in (left, right))
-    from .features.phase_time import same_phase_windows
-
-    a_axes = left_settings["features"]["axes_by_metric"]
-    b_axes = right_settings["features"]["axes_by_metric"]
+    # The resolved phase rows already account for time_interval_mode, including
+    # explicit units which override that default.
+    execution = [s["features"]["execution"] for s in (left_settings, right_settings)]
+    collapse = [
+        {k: v for k, v in e["collapse"].items() if k != "time_interval_mode"}
+        for e in execution
+    ]
     same_settings = (
         all(
             left_settings[k] == right_settings[k]
             for k in ("preprocess", "tensor", "alignment")
         )
-        and left_settings["features"]["execution"]
-        == right_settings["features"]["execution"]
+        and execution[0]["metrics"] == execution[1]["metrics"]
+        and collapse[0] == collapse[1]
         and durations[0] == durations[1]
-        and a_axes.keys() == b_axes.keys()
-        and all(
-            a_axes[m]["bands"] == b_axes[m]["bands"]
-            and same_phase_windows(a_axes[m], b_axes[m], durations[0])
-            for m in a_axes
-        )
+        and same_axes
     )
     independent = all(
         left["stages"][s]["generation"] != right["stages"][s]["generation"]
@@ -663,7 +729,7 @@ def _report(
                     "reducer": k[2],
                     "band": k[3],
                     "phase": k[4],
-                    **json.loads(val),
+                    **val,
                 }
                 for k, val in defs.items()
             ]

@@ -68,6 +68,7 @@ from .phase_reuse import collapse_settings, reusable_axis_outputs
 from .phase_time import (
     aligned_phase_support,
     convert_phase_rows,
+    effective_phase_windows,
     elapsed_feature_frame,
     elapsed_intervals,
     trial_seconds_duration,
@@ -506,24 +507,13 @@ def _extract_metric_outputs(
     else:
         freqs_axis = svc._rows_to_interval_mapping(bands_rows)
     unit = axis_payload.get("time_unit")
-    calc_rows = times_rows
-    export_unit = unit or "percent"
-    export_rows = times_rows
+    phase_windows = effective_phase_windows(
+        axes_signature, metric_key, collapse_base_cfg.get("time_interval_mode"), support
+    )
+    calc_rows = phase_windows["times"]
     if unit is not None:
         calc_rows = convert_phase_rows(times_rows, unit, "percent", duration)
         collapse_base_cfg = {**collapse_base_cfg, "time_interval_mode": "percent"}
-    elif (
-        metric_key != "burst"
-        and collapse_base_cfg.get("time_interval_mode") == "absolute"
-        and support
-    ):
-        export_unit = "s"
-        if support[0] < 0:
-            calc_rows = [
-                {**r, "start": r["start"] - support[0], "end": r["end"] - support[0]}
-                for r in times_rows
-            ]
-            export_rows = calc_rows
     time_axis = svc._rows_to_interval_mapping(calc_rows)
 
     metric_out_dir = deriv_root / metric_key
@@ -690,11 +680,7 @@ def _extract_metric_outputs(
                     reducer=reducer,
                 )
                 if enabled_output in {"spectral", "scalar"}:
-                    derived.attrs["phase_windows"] = {
-                        "time_unit": export_unit,
-                        "time_origin": "epoch_start",
-                        "times": export_rows,
-                    }
+                    derived.attrs["phase_windows"] = phase_windows
                 save_pkl(derived, out_pkl)
                 if export_xlsx and _should_export_xlsx(enabled_output):
                     xlsx_ok, xlsx_message = svc._save_table_xlsx(derived, out_xlsx)

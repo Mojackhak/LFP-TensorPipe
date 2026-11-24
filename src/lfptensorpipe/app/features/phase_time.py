@@ -86,7 +86,24 @@ def convert_phase_rows(
     ]
 
 
-def _same_boundary(a, b):
+def effective_phase_windows(axes, metric, interval_mode, support):
+    """Interpret saved phase rows in the coordinate system used by extraction."""
+    rows = axes["times"]
+    unit = axes.get("time_unit")
+    if unit is None:
+        unit = "percent"
+        if metric != "burst" and interval_mode == "absolute" and support is not None:
+            unit = "s"
+            origin = support[0]
+            if origin < 0:
+                rows = [
+                    {**row, "start": row["start"] - origin, "end": row["end"] - origin}
+                    for row in rows
+                ]
+    return {"time_unit": unit, "time_origin": "epoch_start", "times": rows}
+
+
+def same_phase_boundary(a, b):
     return abs(a - b) <= 4 * max(ulp(a), ulp(b))
 
 
@@ -101,9 +118,18 @@ def same_phase_windows(a, b, duration: float | None) -> bool:
         left = convert_phase_rows(left, left_unit, right_unit, duration)
     return all(
         x["name"] == y["name"]
-        and all(_same_boundary(x[k], y[k]) for k in ("start", "end"))
+        and all(same_phase_boundary(x[k], y[k]) for k in ("start", "end"))
         for x, y in zip(left, right)
     )
+
+
+def snap_phase_boundary(value, centers):
+    """Use the exact sample coordinate when a converted window ends on a center."""
+    index = bisect_left(centers, value)
+    for center in centers[max(index - 1, 0) : index + 1]:
+        if same_phase_boundary(float(center), value):
+            return float(center)
+    return value
 
 
 def elapsed_intervals(intervals, duration, frame):
@@ -111,17 +137,11 @@ def elapsed_intervals(intervals, duration, frame):
     centers = next(
         (cell.columns for cell in frame["Value"] if isinstance(cell, pd.DataFrame)), ()
     )
-
-    def endpoint(percent):
-        seconds = duration * percent / 100.0
-        index = bisect_left(centers, seconds)
-        for center in centers[max(index - 1, 0) : index + 1]:
-            if _same_boundary(float(center), seconds):
-                return float(center)
-        return seconds
-
     return {
-        name: [[endpoint(lo), endpoint(hi)] for lo, hi in ranges]
+        name: [
+            [snap_phase_boundary(duration * p / 100.0, centers) for p in interval]
+            for interval in ranges
+        ]
         for name, ranges in intervals.items()
     }
 
