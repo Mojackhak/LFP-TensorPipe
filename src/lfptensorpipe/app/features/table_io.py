@@ -33,7 +33,7 @@ def _flatten_value_for_xlsx(value: Any) -> str:
 
 
 def _save_table_xlsx(df: pd.DataFrame, out_path: Path) -> tuple[bool, str]:
-    """Save one table as `.xlsx` single sheet."""
+    """Save the result table and any associated phase definitions."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     xlsx_df = df.copy()
     if "Value" in xlsx_df.columns:
@@ -47,7 +47,16 @@ def _save_table_xlsx(df: pd.DataFrame, out_path: Path) -> tuple[bool, str]:
         except Exception:
             pass
     try:
-        xlsx_df.to_excel(tmp_path, index=False)
+        phases = df.attrs.get("phase_windows")
+        if phases:
+            definitions = pd.DataFrame(phases["times"]).assign(
+                time_unit=phases["time_unit"], time_origin=phases["time_origin"]
+            )
+            with pd.ExcelWriter(tmp_path) as writer:
+                xlsx_df.to_excel(writer, sheet_name="Sheet1", index=False)
+                definitions.to_excel(writer, sheet_name="Phases", index=False)
+        else:
+            xlsx_df.to_excel(tmp_path, index=False)
         with zipfile.ZipFile(tmp_path, mode="r") as archive:
             names = set(archive.namelist())
         if "[Content_Types].xml" not in names or "xl/workbook.xml" not in names:

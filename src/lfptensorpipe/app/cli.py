@@ -361,19 +361,29 @@ def _run_alignment(
 
 
 def prepare_features_config(
-    context: RecordContext, node: dict[str, Any], metrics: list[str]
+    context: RecordContext,
+    node: dict[str, Any],
+    metrics: list[str],
+    *,
+    trial: str | None = None,
 ) -> dict[str, Any]:
     from .features.derive_axes import (
         feature_band_support_error,
         normalize_feature_axis_rows,
     )
     from .features.derive_defaults import _metric_uses_auto_bands
+    from .features.phase_time import (
+        phase_limit,
+        trial_seconds_duration,
+        validate_phase_bounds,
+    )
     from .shared.runlog_store import read_run_log
     from .tensor.paths import tensor_metric_log_path
 
     _require_fields(node, ("axes_by_metric",), "features")
     _require_fields(node["axes_by_metric"], metrics, "features.axes_by_metric")
     axes = {}
+    duration = None
     for metric in metrics:
         source = node["axes_by_metric"][metric]
         auto = _metric_uses_auto_bands(metric)
@@ -385,8 +395,15 @@ def prepare_features_config(
         bands = (
             [] if auto else normalize_feature_axis_rows(source["bands"], min_start=0.0)
         )
+        unit = source.get("time_unit", "percent")
+        try:
+            if unit == "s" and duration is None and trial:
+                duration = trial_seconds_duration(PathResolver(context), trial)
+            limit = phase_limit(unit, duration)
+        except ValueError as exc:
+            raise ConfigError(f"{metric}: {exc}") from exc
         times = normalize_feature_axis_rows(
-            source["times"], min_start=0.0, max_end=100.0, allow_duplicate_names=True
+            source["times"], min_start=0.0, max_end=limit, allow_duplicate_names=True
         )
         for key in (("times",) if auto else ("times", "bands")):
             normalized = times if key == "times" else bands
@@ -396,6 +413,11 @@ def prepare_features_config(
                 or not normalized
                 or len(raw) != len(normalized)
             ):
+                if key == "times" and unit == "s" and isinstance(raw, list):
+                    try:
+                        validate_phase_bounds(raw, unit, duration)
+                    except ValueError as exc:
+                        raise ConfigError(f"{metric}: {exc}") from exc
                 raise ConfigError(
                     f"features.axes_by_metric.{metric}.{key} contains missing, invalid, or duplicate rows."
                 )
@@ -413,7 +435,11 @@ def prepare_features_config(
                 )
                 if message:
                     raise ConfigError(message)
-        axes[metric] = {"bands": bands, "times": times}
+        axes[metric] = {
+            "bands": bands,
+            "times": times,
+            **({"time_unit": unit} if "time_unit" in source else {}),
+        }
     return {"active_metric": node.get("active_metric", ""), "axes_by_metric": axes}
 
 
@@ -437,7 +463,7 @@ def _run_features(
     metrics = accepted_alignment_metrics(resolver, trial_slug=trial, stage="finish")
     if not metrics:
         raise RunFailed("The selected trial must have a current Align Finish.")
-    snapshot = prepare_features_config(context, node, metrics)
+    snapshot = prepare_features_config(context, node, metrics, trial=trial)
     _patch_state(context, ("features", "trial_params_by_slug", trial), snapshot)
     _select_trial_state(
         context, config, load_alignment_epoch_picks(context, paradigm_slug=trial)
@@ -559,9 +585,11 @@ def _run_localize(
                 selected_regions=regions,
                 paths=paths,
                 channels=channels,
-                load_reconstruction_contacts_fn=(lambda *_: (True, "", reconstruction))
-                if reconstruction is not None
-                else None,
+                load_reconstruction_contacts_fn=(
+                    (lambda *_: (True, "", reconstruction))
+                    if reconstruction is not None
+                    else None
+                ),
             )
         )
     finally:

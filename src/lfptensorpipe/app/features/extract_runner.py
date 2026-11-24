@@ -63,6 +63,16 @@ from .generation import (
     NUMERIC_MEAN_SEMANTICS_KEY,
 )
 from .piecewise_native import build_piecewise_mean_outputs
+from .indicator import _normalize_axes_node
+from .phase_reuse import collapse_settings, reusable_axis_outputs
+from .phase_time import (
+    aligned_phase_support,
+    convert_phase_rows,
+    elapsed_feature_frame,
+    elapsed_intervals,
+    trial_seconds_duration,
+    validate_phase_bounds,
+)
 
 
 @dataclass(frozen=True)
@@ -70,7 +80,7 @@ class _MetricExtractResult:
     """Result payload for one metric-level Extract Features task."""
 
     metric_key: str
-    axes_signature: dict[str, list[dict[str, Any]]] | None
+    axes_signature: dict[str, Any] | None
     saved: int
     total_targets: int
     errors: tuple[str, ...]
@@ -241,28 +251,6 @@ def _feature_storage_policy(metadata: Any) -> TransformPolicy:
     )
 
 
-def _aligned_phase_support(
-    payload: pd.DataFrame, method: str
-) -> tuple[float, float] | None:
-    """Read the physical interval used to place percent phase boundaries."""
-    support = payload.attrs.get("time_support_s")
-    if support is not None:
-        start, stop = support
-        return float(start), float(stop)
-    if method not in {"pad_warper", "concat_warper", "linear_warper"}:
-        return None
-    # Older Finish tables retain all N evenly spaced centers. Clip and Stitch
-    # start at zero; cue-response starts at -pre_cue_s. Other Linear tables
-    # use the endpoint-inclusive 0..100 percent axis.
-    for value in payload.get("Value", ()):
-        if isinstance(value, pd.DataFrame) and len(value.columns) >= 2:
-            start, last = float(value.columns[0]), float(value.columns[-1])
-            if method == "linear_warper" and start >= 0:
-                return None
-            return start, last + (last - start) / (len(value.columns) - 1)
-    return None
-
-
 def _extract_burst_outputs(
     *,
     payload: pd.DataFrame,
@@ -271,7 +259,7 @@ def _extract_burst_outputs(
     outputs: dict[str, bool],
     reducers: list[str],
     time_axis: dict[str, list[list[float]]],
-    axes_signature: dict[str, list[dict[str, Any]]],
+    axes_signature: dict[str, Any],
     resolver: PathResolver | None,
     trial_slug: str,
     output_paths_by_stem: dict[str, Path] | None = None,
@@ -337,6 +325,12 @@ def _extract_burst_outputs(
                 phases=time_axis,
                 reducers=requested_reducers,
             )
+            for table in scalar_tables.values():
+                table.attrs["phase_windows"] = {
+                    "time_unit": axes_signature.get("time_unit", "percent"),
+                    "time_origin": "epoch_start",
+                    "times": axes_signature["times"],
+                }
         authoritative_outputs: list[tuple[Path, Any]] = []
         if outputs.get("raw", False):
             raw_payload = _raw_feature_payload(payload, transform_policy)
@@ -424,6 +418,7 @@ def _extract_metric_outputs(
     trial_slug: str = "",
     output_paths_by_stem: dict[str, Path] | None = None,
     export_xlsx: bool = True,
+    only_stems: set[str] | None = None,
 ) -> _MetricExtractResult:
     """Build every enabled output for one metric under its own subtree."""
     from . import service as svc
@@ -441,6 +436,10 @@ def _extract_metric_outputs(
             errors=(f"{metric_key}: load failed ({exc})",),
             xlsx_warnings=(),
         )
+    support = aligned_phase_support(payload, alignment_method)
+    duration = support[1] - support[0] if support is not None else None
+    if support is not None and support[0] < 0:
+        payload = elapsed_feature_frame(payload, support[0], duration)
     transform_policy = _feature_storage_policy(payload.attrs)
     reduction_payload = _reduction_payload(payload, transform_policy)
 
@@ -454,6 +453,15 @@ def _extract_metric_outputs(
             override_outputs=override_outputs,
             reducer_override=reducer_override,
         )
+        if only_stems is not None:
+            kinds = {s.rsplit("-", 1)[1] for s in only_stems}
+            outputs = {k: active and k in kinds for k, active in outputs.items()}
+            if metric_key == "burst":
+                reducers = [
+                    r
+                    for r in normalize_burst_reducers(reducers)
+                    if f"{r}-scalar" in only_stems
+                ]
     except Exception as exc:  # noqa: BLE001
         return _MetricExtractResult(
             metric_key=metric_key,
@@ -474,6 +482,11 @@ def _extract_metric_outputs(
         allow_duplicate_names=True,
     )
     axes_signature = {
+        **(
+            {"time_unit": axis_payload["time_unit"]}
+            if "time_unit" in axis_payload
+            else {}
+        ),
         "bands": (
             []
             if svc._metric_uses_auto_bands(metric_key)
@@ -485,7 +498,26 @@ def _extract_metric_outputs(
         freqs_axis = svc._bands_from_raw_value_index(payload)
     else:
         freqs_axis = svc._rows_to_interval_mapping(bands_rows)
-    time_axis = svc._rows_to_interval_mapping(times_rows)
+    unit = axis_payload.get("time_unit")
+    calc_rows = times_rows
+    export_unit = unit or "percent"
+    export_rows = times_rows
+    if unit is not None:
+        calc_rows = convert_phase_rows(times_rows, unit, "percent", duration)
+        collapse_base_cfg = {**collapse_base_cfg, "time_interval_mode": "percent"}
+    elif (
+        metric_key != "burst"
+        and collapse_base_cfg.get("time_interval_mode") == "absolute"
+        and support
+    ):
+        export_unit = "s"
+        if support[0] < 0:
+            calc_rows = [
+                {**r, "start": r["start"] - support[0], "end": r["end"] - support[0]}
+                for r in times_rows
+            ]
+            export_rows = calc_rows
+    time_axis = svc._rows_to_interval_mapping(calc_rows)
 
     metric_out_dir = deriv_root / metric_key
     metric_out_dir.mkdir(parents=True, exist_ok=True)
@@ -516,6 +548,7 @@ def _extract_metric_outputs(
         alignment_method in {"pad_warper", "concat_warper"}
         and "mean" in reducers
         and any(outputs.get(name, False) for name in ("spectral", "scalar"))
+        and (only_stems is None or bool({"mean-scalar", "mean-spectral"} & only_stems))
     )
     if uses_piecewise_native_mean:
         try:
@@ -534,8 +567,10 @@ def _extract_metric_outputs(
                 phases=time_axis,
                 bands=freqs_axis,
                 transform_policy=transform_policy,
-                include_spectral=bool(outputs.get("spectral", False)),
-                include_scalar=bool(outputs.get("scalar", False)),
+                include_spectral=bool(outputs.get("spectral", False))
+                and (only_stems is None or "mean-spectral" in only_stems),
+                include_scalar=bool(outputs.get("scalar", False))
+                and (only_stems is None or "mean-scalar" in only_stems),
                 time_interval_mode=str(
                     collapse_base_cfg.get("time_interval_mode", "percent")
                 ),
@@ -558,16 +593,8 @@ def _extract_metric_outputs(
             reducer != "mean" or not uses_piecewise_native_mean for reducer in reducers
         )
     ):
-        support = _aligned_phase_support(payload, alignment_method)
         if support is not None:
-            start, stop = support
-            time_axis = {
-                name: [
-                    [start + (stop - start) * p / 100.0 for p in interval]
-                    for interval in intervals
-                ]
-                for name, intervals in time_axis.items()
-            }
+            time_axis = elapsed_intervals(time_axis, duration, payload)
             collapse_base_cfg = {**collapse_base_cfg, "time_interval_mode": "absolute"}
 
     if outputs.get("raw", False):
@@ -592,8 +619,10 @@ def _extract_metric_outputs(
         for enabled_output in ("spectral", "trace", "scalar"):
             if not outputs.get(enabled_output, False):
                 continue
-            total_targets += 1
             stem = f"{reducer}-{enabled_output}"
+            if only_stems is not None and stem not in only_stems:
+                continue
+            total_targets += 1
             out_pkl = (
                 output_paths_by_stem.get(stem)
                 if output_paths_by_stem is not None
@@ -653,6 +682,12 @@ def _extract_metric_outputs(
                     transform_policy,
                     reducer=reducer,
                 )
+                if enabled_output in {"spectral", "scalar"}:
+                    derived.attrs["phase_windows"] = {
+                        "time_unit": export_unit,
+                        "time_origin": "epoch_start",
+                        "times": export_rows,
+                    }
                 save_pkl(derived, out_pkl)
                 if export_xlsx and _should_export_xlsx(enabled_output):
                     xlsx_ok, xlsx_message = svc._save_table_xlsx(derived, out_xlsx)
@@ -720,7 +755,7 @@ def run_extract_features(
         enabled_outputs_by_metric if isinstance(enabled_outputs_by_metric, dict) else {}
     )
     metric_reducers = reducer_by_metric if isinstance(reducer_by_metric, dict) else {}
-    axes_signature_by_metric: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    axes_signature_by_metric: dict[str, dict[str, Any]] = {}
 
     deriv_root = svc.features_derivatives_root(resolver, trial_slug=slug, create=True)
     log_path = svc.features_derivatives_log_path(resolver, trial_slug=slug)
@@ -762,11 +797,6 @@ def run_extract_features(
         if total_targets == 0:
             raise ValueError("no enabled derivation targets")
 
-        authoritative_paths = [
-            path
-            for paths_by_stem in final_paths_by_metric.values()
-            for path in paths_by_stem.values()
-        ]
         input_generations = feature_generation.capture_feature_input_generations(
             resolver,
             trial_slug=slug,
@@ -785,21 +815,78 @@ def run_extract_features(
             isinstance(prior_log_payload, dict)
             and prior_log_payload.get("completed") is True
         )
+        planned_axes = {
+            metric: _normalize_axes_node(metric, metric_axes.get(metric, {}))
+            for metric, _ in metric_items
+        }
+        if any(value is None for value in planned_axes.values()):
+            raise ValueError("Invalid Features axes or phase unit for this trial.")
+        settings = collapse_settings(collapse_base_cfg)
+        previous_axes = (
+            (prior_log_payload or {}).get("params", {}).get("axes_by_metric", {})
+        )
+        duration = None
+        if any(
+            "s"
+            in (axes.get("time_unit"), previous_axes.get(metric, {}).get("time_unit"))
+            for metric, axes in planned_axes.items()
+        ):
+            duration = trial_seconds_duration(resolver, slug)
+        for metric, _ in metric_items:
+            request = metric_axes.get(metric, {})
+            if "time_unit" in request:
+                validate_phase_bounds(
+                    request.get("times", []), request["time_unit"], duration
+                )
+        keep, relabel = reusable_axis_outputs(
+            prior_log_payload,
+            slug=slug,
+            alignment_method=alignment_method,
+            paths_by_metric=final_paths_by_metric,
+            axes=planned_axes,
+            settings=settings,
+            input_generations=input_generations,
+            duration=duration,
+        )
+        all_paths = {
+            p for paths in final_paths_by_metric.values() for p in paths.values()
+        }
+        compute_paths = all_paths - keep - relabel
+        compute_items = [
+            (metric, src)
+            for metric, src in metric_items
+            if any(
+                path in compute_paths for path in final_paths_by_metric[metric].values()
+            )
+        ]
+        axes_signature_by_metric.update(planned_axes)
+        saved = len(keep) + len(relabel)
         with AtomicOutputSet(
-            [*authoritative_paths, log_path],
+            [*sorted(all_paths - keep), log_path],
             cleanup_stale_residues=True,
         ) as output_set:
             staged_paths_by_metric = {
                 metric_key: {
                     stem: output_set.staged_path(path)
                     for stem, path in paths_by_stem.items()
+                    if path in compute_paths
                 }
                 for metric_key, paths_by_stem in final_paths_by_metric.items()
             }
 
-            if len(metric_items) >= 2:
+            for path in sorted(relabel):
+                axes = planned_axes[path.parent.name]
+                table = load_pkl(path)
+                table.attrs["phase_windows"] = {
+                    "time_unit": axes.get("time_unit", "percent"),
+                    "time_origin": "epoch_start",
+                    "times": axes["times"],
+                }
+                save_pkl(table, output_set.staged_path(path))
+
+            if len(compute_items) >= 2:
                 with ProcessPoolExecutor(
-                    max_workers=len(metric_items),
+                    max_workers=len(compute_items),
                     mp_context=multiprocessing.get_context("spawn"),
                 ) as executor:
                     future_to_metric = {
@@ -822,8 +909,13 @@ def run_extract_features(
                             trial_slug=slug,
                             output_paths_by_stem=staged_paths_by_metric[metric_key],
                             export_xlsx=False,
+                            only_stems=(
+                                set(staged_paths_by_metric[metric_key])
+                                if keep or relabel
+                                else None
+                            ),
                         ): metric_key
-                        for metric_key, src_path in metric_items
+                        for metric_key, src_path in compute_items
                     }
                     for future in as_completed(future_to_metric):
                         metric_key = future_to_metric[future]
@@ -839,7 +931,7 @@ def run_extract_features(
                                 xlsx_warnings=(),
                             )
             else:
-                for metric_key, src_path in metric_items:
+                for metric_key, src_path in compute_items:
                     metric_results_by_key[metric_key] = _extract_metric_outputs(
                         metric_key=metric_key,
                         src_path=src_path,
@@ -858,9 +950,14 @@ def run_extract_features(
                         trial_slug=slug,
                         output_paths_by_stem=staged_paths_by_metric[metric_key],
                         export_xlsx=False,
+                        only_stems=(
+                            set(staged_paths_by_metric[metric_key])
+                            if keep or relabel
+                            else None
+                        ),
                     )
 
-            for metric_key, _src_path in metric_items:
+            for metric_key, _src_path in compute_items:
                 result = metric_results_by_key[metric_key]
                 if result.axes_signature is not None:
                     axes_signature_by_metric[metric_key] = result.axes_signature
@@ -885,6 +982,7 @@ def run_extract_features(
                 "warnings": warnings,
                 "xlsx_warnings": [],
                 "axes_by_metric": axes_signature_by_metric,
+                "collapse_settings": settings,
                 NUMERIC_MEAN_SEMANTICS_KEY: NUMERIC_MEAN_SEMANTICS,
             }
             if any(metric == "burst" for metric, _path in raw_tables):
@@ -900,7 +998,16 @@ def run_extract_features(
                 params_payload[CLIP_STITCH_MEAN_SUPPORT_KEY] = CLIP_STITCH_MEAN_SUPPORT
             params_payload = params_with_generation_lineage(
                 params_payload,
-                result_generation_id=new_result_generation_id(),
+                result_generation_id=(
+                    prior_log_payload["params"]["result_generation_id"]
+                    if not compute_paths
+                    and planned_axes != previous_axes
+                    and (
+                        prior_log_payload["params"]["outputs_by_metric"]
+                        == outputs_by_metric
+                    )
+                    else new_result_generation_id()
+                ),
                 input_generations=input_generations,
             )
             success_record = RunLogRecord(
@@ -924,6 +1031,18 @@ def run_extract_features(
                     "Accepted input generation changed while Extract Features "
                     "was running."
                 )
+            if keep or relabel:
+                latest = read_run_log(log_path) or {}
+                before = prior_log_payload["params"]
+                after = latest.get("params", {})
+                if not latest.get("completed") or any(
+                    before.get(k) != after.get(k)
+                    for k in ("result_generation_id", "axes_by_metric")
+                ):
+                    preserve_prior_log = True
+                    raise _FeatureInputGenerationChanged(
+                        "Accepted Features changed while updating phase windows."
+                    )
             output_set.commit()
     except Exception as exc:  # noqa: BLE001
         failure_errors = errors or [str(exc)]
@@ -960,6 +1079,8 @@ def run_extract_features(
         for stem, path in paths_by_stem.items():
             derived_type = stem.rsplit("-", 1)[-1].strip().lower()
             xlsx_path = path.with_suffix(".xlsx")
+            if path in keep and xlsx_path.exists() and derived_type == "scalar":
+                continue
             if derived_type != "scalar":
                 try:
                     _remove_stale_xlsx(xlsx_path)

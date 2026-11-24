@@ -10,6 +10,7 @@ from lfptensorpipe.app.runlog_store import indicator_from_log, read_run_log
 
 from .derive_axes import _normalize_axis_rows
 from .derive_defaults import _metric_uses_auto_bands
+from .phase_time import same_phase_windows, trial_seconds_duration
 
 
 def _normalize_slug(value: str) -> str:
@@ -42,10 +43,10 @@ def _read_payload(path: Path) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def _normalize_axes_node(
-    metric_key: str, value: Any
-) -> dict[str, list[dict[str, float | str]]] | None:
+def _normalize_axes_node(metric_key: str, value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
+        return None
+    if value.get("time_unit", "percent") not in ("percent", "s"):
         return None
     bands = (
         []
@@ -62,15 +63,16 @@ def _normalize_axes_node(
     return {
         "bands": [dict(item) for item in bands],
         "times": [dict(item) for item in times],
+        **({"time_unit": value["time_unit"]} if "time_unit" in value else {}),
     }
 
 
 def _normalize_axes_by_metric(
     value: Any,
-) -> dict[str, dict[str, list[dict[str, float | str]]]] | None:
+) -> dict[str, dict[str, Any]] | None:
     if not isinstance(value, dict):
         return None
-    normalized: dict[str, dict[str, list[dict[str, float | str]]]] = {}
+    normalized: dict[str, dict[str, Any]] = {}
     for raw_metric_key in sorted(value.keys(), key=lambda item: str(item).strip()):
         metric_key = str(raw_metric_key).strip()
         if not metric_key:
@@ -241,7 +243,27 @@ def features_panel_state(
     current_axes = _normalize_axes_by_metric(axes_by_metric)
     if current_axes is None:
         return "yellow"
-    return "green" if current_axes == logged_axes else "yellow"
+    if current_axes.keys() != logged_axes.keys():
+        return "yellow"
+    duration = None
+    outputs = params.get("outputs_by_metric", {})
+    for metric, axes in current_axes.items():
+        prior = logged_axes[metric]
+        kinds = {Path(path).stem.rsplit("-", 1)[-1] for path in outputs.get(metric, ())}
+        if kinds.intersection({"trace", "scalar"}) and axes["bands"] != prior["bands"]:
+            return "yellow"
+        if not kinds.intersection({"scalar", "spectral"}):
+            continue
+        if ("time_unit" in axes) != ("time_unit" in prior) and params.get(
+            "collapse_settings", {}
+        ).get("time_interval_mode") == "absolute":
+            return "yellow"
+        if axes.get("time_unit", "percent") != prior.get("time_unit", "percent"):
+            if duration is None:
+                duration = trial_seconds_duration(resolver, trial_slug or paradigm_slug)
+        if not same_phase_windows(axes, prior, duration):
+            return "yellow"
+    return "green"
 
 
 def normalization_indicator_state(
