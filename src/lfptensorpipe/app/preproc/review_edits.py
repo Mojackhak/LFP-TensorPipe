@@ -3,6 +3,8 @@
 from collections import Counter
 import json
 from math import isfinite
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 
 def review_state(annotations, bads, first_time):
@@ -44,6 +46,8 @@ def apply_edits(raw, edits):
     from lfptensorpipe.preproc.filter import _set_annotations_from_attached_frame
 
     state = current_state(raw)
+    if isinstance(edits, dict):
+        edits = [review_delta(state, edits["accepted_state"])]
     if not isinstance(edits, list):
         raise ValueError("Review edits must be a list of changes.")
     for change in edits:
@@ -93,6 +97,77 @@ def apply_edits(raw, edits):
     )
     _set_annotations_from_attached_frame(raw, annotations)
     raw.info["bads"] = sorted(set(state["bads"]))
+    return edits
+
+
+class ReviewReplayError(ValueError):
+    """A saved review cannot be applied to the generated candidate."""
+
+
+def write_reviewed_fif(
+    path,
+    write_candidate,
+    review,
+    *,
+    resolver,
+    step,
+    source_step,
+    mark_filter_edges=False,
+):
+    """Replay exported edits on the FIF as the reviewer saw it, before publication."""
+    if not review:
+        write_candidate(path)
+        return {}
+
+    import mne
+    from ..shared.generation_lineage import accepted_result_generation_id
+    from ..shared.runlog_store import read_run_log
+    from .lineage import PreprocInputGenerationChanged
+    from .paths import preproc_step_log_path
+    from .steps.annotations import prepare_annotations_plot_review
+    from .steps.ecg import prepare_ecg_plot_review
+
+    log_path = preproc_step_log_path(resolver, step, create=False)
+    previous = accepted_result_generation_id(read_run_log(log_path))
+    # FIF round-trips annotation timing. Keep the candidate's split files
+    # separate from the reviewed set that the step will promote.
+    with TemporaryDirectory(dir=path.parent) as folder:
+        candidate = Path(folder) / path.name
+        write_candidate(candidate)
+        with mne.io.read_raw_fif(candidate, preload=True, verbose="ERROR") as raw:
+            try:
+                edits = apply_edits(raw, review)
+                prepare = {
+                    "ecg_artifact_removal": prepare_ecg_plot_review,
+                    "annotations": prepare_annotations_plot_review,
+                }.get(step)
+                output = (
+                    prepare(
+                        resolver,
+                        raw,
+                        source_step=source_step,
+                        mark_filter_edges=mark_filter_edges,
+                    )
+                    if prepare
+                    else raw
+                )
+            except ValueError as exc:
+                raise ReviewReplayError(str(exc)) from exc
+            try:
+                output.save(
+                    path,
+                    fmt="double" if step == "signal_repair" else "single",
+                    overwrite=True,
+                    verbose="ERROR",
+                )
+            finally:
+                if output is not raw:
+                    output.close()
+    if previous != accepted_result_generation_id(read_run_log(log_path)):
+        raise PreprocInputGenerationChanged(
+            f"The reviewed {step} changed during replay."
+        )
+    return {"review_edits": edits}
 
 
 def plot_edits(raw_path, reviewed, step, prior, updates):

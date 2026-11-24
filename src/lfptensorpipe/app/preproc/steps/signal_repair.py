@@ -14,6 +14,7 @@ from lfptensorpipe.app.shared.generation_lineage import (
 )
 from lfptensorpipe.preproc.signal_repair import repair_signal
 
+from ..review_edits import write_reviewed_fif
 from ..lineage import (
     PreprocInputGenerationChanged,
     capture_preproc_input_generation,
@@ -33,6 +34,7 @@ def apply_signal_repair_step(
     params: dict[str, Any],
     mark_preproc_step_fn,
     decisions=None,
+    review_edits=None,
 ):
     """Repair from Raw and immediately accept the result without review gating."""
     resolver = PathResolver(context)
@@ -56,7 +58,14 @@ def apply_signal_repair_step(
         with AtomicOutputSet(
             [dst, config, log], cleanup_stale_residues=True
         ) as outputs:
-            output.save(str(outputs.staged_path(dst)), fmt="double", overwrite=True)
+            review_params = write_reviewed_fif(
+                outputs.staged_path(dst),
+                lambda path: output.save(str(path), fmt="double", overwrite=True),
+                review_edits,
+                resolver=resolver,
+                step="signal_repair",
+                source_step=source_step,
+            )
             write_preproc_step_config(
                 resolver=resolver,
                 step="signal_repair",
@@ -68,7 +77,12 @@ def apply_signal_repair_step(
                 step="signal_repair",
                 completed=True,
                 params=params_with_generation_lineage(
-                    {"source_step": source_step, "settings": params, **report},
+                    {
+                        "source_step": source_step,
+                        "settings": params,
+                        **report,
+                        **review_params,
+                    },
                     result_generation_id=new_result_generation_id(),
                     input_generations=input_generations,
                 ),

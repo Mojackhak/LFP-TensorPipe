@@ -22,6 +22,7 @@ from ..paths import (
     preproc_step_raw_path,
     write_preproc_step_config,
 )
+from ..review_edits import ReviewReplayError, write_reviewed_fif
 from ..lineage import (
     PreprocInputGenerationChanged,
     capture_preproc_input_generation,
@@ -240,6 +241,7 @@ def apply_annotations_step(
     source: tuple[str, Path] | None,
     rows: list[dict[str, Any]],
     mark_filter_edges: bool = False,
+    review_edits=None,
     mark_preproc_step_fn: MarkStepFn,
     invalidate_downstream_fn: InvalidateFn,
     read_raw_fif_fn: Callable[..., Any] | None = None,
@@ -357,7 +359,15 @@ def apply_annotations_step(
                 if callable(close):
                     close()
 
-            raw.save(str(staged_raw), overwrite=True)
+            replay_params = write_reviewed_fif(
+                staged_raw,
+                lambda path: raw.save(str(path), overwrite=True),
+                review_edits,
+                resolver=resolver,
+                step="annotations",
+                source_step=source_step,
+                mark_filter_edges=mark_filter_edges,
+            )
 
             with output_set.staged_path(csv_path).open(
                 "w",
@@ -403,6 +413,7 @@ def apply_annotations_step(
                         "clipped_row_count": clipped_count,
                         "omitted_row_count": omitted_count,
                         "source_step": source_step,
+                        **replay_params,
                         **edge_params,
                         _ANNOTATION_SUPPORT_SEMANTICS_KEY: (
                             ANNOTATION_SUPPORT_SEMANTICS
@@ -426,17 +437,20 @@ def apply_annotations_step(
                     "Annotations source changed during execution."
                 )
             output_set.commit()
+    except ReviewReplayError:
+        raise
     except PreprocInputGenerationChanged as exc:
         return False, f"Annotations step failed: {exc}"
     except Exception as exc:
-        mark_preproc_step_fn(
-            resolver=resolver,
-            step="annotations",
-            completed=False,
-            input_path=str(src),
-            output_path=str(dst),
-            message=f"Annotations step failed: {exc}",
-        )
+        if not review_edits:
+            mark_preproc_step_fn(
+                resolver=resolver,
+                step="annotations",
+                completed=False,
+                input_path=str(src),
+                output_path=str(dst),
+                message=f"Annotations step failed: {exc}",
+            )
         return False, f"Annotations step failed: {exc}"
 
     invalidate_downstream_fn(context, "annotations")

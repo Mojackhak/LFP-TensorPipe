@@ -21,6 +21,7 @@ from ..paths import (
     preproc_step_raw_path,
     write_preproc_step_config,
 )
+from ..review_edits import ReviewReplayError, write_reviewed_fif
 from ..lineage import (
     PreprocInputGenerationChanged,
     capture_preproc_input_generation,
@@ -415,6 +416,7 @@ def apply_ecg_step(
     picks: list[str] | tuple[str, ...] | None,
     method_kwargs: dict[str, Any] | None = None,
     mark_filter_edges: bool = False,
+    review_edits=None,
     ecg_methods: tuple[str, ...],
     mark_preproc_step_fn: MarkStepFn,
     invalidate_downstream_fn: InvalidateFn,
@@ -492,7 +494,15 @@ def apply_ecg_step(
                 [dst, config_path, log_path],
                 cleanup_stale_residues=True,
             ) as output_set:
-                _copy_raw_fif_set(src, output_set.staged_path(dst), copy2_fn=copy2_fn)
+                replay_params = write_reviewed_fif(
+                    output_set.staged_path(dst),
+                    lambda path: _copy_raw_fif_set(src, path, copy2_fn=copy2_fn),
+                    review_edits,
+                    resolver=resolver,
+                    step="ecg_artifact_removal",
+                    source_step=source_step,
+                    mark_filter_edges=mark_filter_edges,
+                )
                 write_preproc_step_config(
                     resolver=resolver,
                     step="ecg_artifact_removal",
@@ -517,6 +527,7 @@ def apply_ecg_step(
                             "method_kwargs": persisted_kwargs,
                             **review_params,
                             "source_step": source_step,
+                            **replay_params,
                         },
                         result_generation_id=result_generation_id,
                         input_generations=input_generations,
@@ -569,7 +580,15 @@ def apply_ecg_step(
             [dst, config_path, log_path],
             cleanup_stale_residues=True,
         ) as output_set:
-            raw_clean.save(str(output_set.staged_path(dst)), overwrite=True)
+            replay_params = write_reviewed_fif(
+                output_set.staged_path(dst),
+                lambda path: raw_clean.save(str(path), overwrite=True),
+                review_edits,
+                resolver=resolver,
+                step="ecg_artifact_removal",
+                source_step=source_step,
+                mark_filter_edges=mark_filter_edges,
+            )
             write_preproc_step_config(
                 resolver=resolver,
                 step="ecg_artifact_removal",
@@ -593,6 +612,7 @@ def apply_ecg_step(
                         "method_kwargs": persisted_kwargs,
                         **review_params,
                         "source_step": source_step,
+                        **replay_params,
                         **ecg_diagnostics,
                     },
                     result_generation_id=result_generation_id,
@@ -617,17 +637,20 @@ def apply_ecg_step(
                 )
             output_set.commit()
         invalidate_downstream_fn(context, "ecg_artifact_removal")
+    except ReviewReplayError:
+        raise
     except PreprocInputGenerationChanged as exc:
         return False, f"ECG step failed: {exc}"
     except Exception as exc:
-        mark_preproc_step_fn(
-            resolver=resolver,
-            step="ecg_artifact_removal",
-            completed=False,
-            input_path=str(src),
-            output_path=str(dst),
-            message=f"ECG step failed: {exc}",
-        )
+        if not review_edits:
+            mark_preproc_step_fn(
+                resolver=resolver,
+                step="ecg_artifact_removal",
+                completed=False,
+                input_path=str(src),
+                output_path=str(dst),
+                message=f"ECG step failed: {exc}",
+            )
         return False, f"ECG step failed: {exc}"
 
     return True, "ECG step completed."

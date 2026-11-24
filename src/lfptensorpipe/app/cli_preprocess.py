@@ -9,7 +9,6 @@ from .preproc.lineage import (
     capture_preproc_input_generation,
     preproc_step_is_skipped,
     preproc_step_lineage_is_current,
-    preproc_input_generation_matches,
 )
 from .preproc.paths import (
     preproc_step_raw_path,
@@ -17,13 +16,8 @@ from .preproc.paths import (
     preproc_filter_preview_raw_path,
     write_preproc_step_routing,
 )
-from .preproc.review_edits import apply_edits, current_state, review_delta
-from .shared.atomic_outputs import AtomicOutputSet
-from .shared.generation_lineage import (
-    accepted_result_generation_id,
-    params_with_generation_lineage,
-    new_result_generation_id,
-)
+from .preproc.review_edits import apply_edits, current_state
+from .shared.generation_lineage import accepted_result_generation_id
 from .shared.runlog_store import read_run_log
 
 STEPS = ("signal_repair", "filter", "ecg_artifact_removal", "annotations")
@@ -38,6 +32,15 @@ def annotation_rows(path):
     if not ok:
         raise ConfigError(message)
     return rows
+
+
+def _normalized_annotation_rows(rows):
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise ConfigError("Annotations rows must be a list of objects.")
+    normalized, invalid = svc._normalize_annotation_rows(rows)
+    if invalid:
+        raise ConfigError(f"Invalid annotation rows: {invalid}")
+    return normalized
 
 
 def recipe_steps(recipe):
@@ -130,10 +133,7 @@ def recipe_steps(recipe):
                 raise ConfigError("Annotations requires either rows or a CSV.")
             if "csv" in spec:
                 spec["rows"] = annotation_rows(spec.pop("csv"))
-            if not isinstance(spec["rows"], list) or any(
-                not isinstance(r, dict) for r in spec["rows"]
-            ):
-                raise ConfigError("Annotations rows must be a list of objects.")
+            spec["rows"] = _normalized_annotation_rows(spec["rows"])
         result[step] = spec
     return result
 
@@ -176,18 +176,23 @@ def _validate_historical_review(review, steps, step, resolver):
             or set(review["accepted_state"]) != {"annotations", "bads"}
         ):
             raise ConfigError(f"Invalid saved review for {step}.")
+        prefix = review["steps"]
+        if isinstance(prefix, dict) and isinstance(prefix.get("annotations"), dict):
+            annotations = prefix["annotations"]
+            if "rows" in annotations:
+                prefix = {
+                    **prefix,
+                    "annotations": {
+                        **annotations,
+                        "rows": _normalized_annotation_rows(annotations["rows"]),
+                    },
+                }
         if review["raw_generation"] != accepted_result_generation_id(
             step_entry(resolver, "raw")
-        ) or review["steps"] != _review_inputs(steps, step):
+        ) or prefix != _review_inputs(steps, step):
             raise ConfigError(
                 f"The historical {step} review belongs to a different Raw or preprocessing prefix. Supply decisions for this input."
             )
-
-
-def _review_changes(raw, review):
-    if isinstance(review, dict):
-        return [review_delta(current_state(raw), review["accepted_state"])]
-    return review
 
 
 def _applied_spec(resolver, step, prior):
@@ -276,76 +281,21 @@ def _matches_applied(resolver, step, steps):
                 preproc_step_raw_path(resolver, source)
             ).all_channels
         )
+    if step == "annotations" and desired["rows"] != saved["rows"]:
+        import mne
+        from .preproc.steps.annotations import _clip_annotation_rows_to_raw_support
+
+        # The accepted CSV contains effective rows after clipping to this recording.
+        with mne.io.read_raw_fif(
+            preproc_step_raw_path(resolver, step), preload=False, verbose="ERROR"
+        ) as raw:
+            desired["rows"], _, _ = _clip_annotation_rows_to_raw_support(
+                desired["rows"], raw
+            )
     for value in (desired, saved):
         if not value.get("review_edits"):
             value.pop("review_edits", None)
     return desired == saved
-
-
-def _review_output(context, step, review):
-    import mne
-    from .preproc.steps.ecg import prepare_ecg_plot_review
-    from .preproc.steps.annotations import prepare_annotations_plot_review
-
-    resolver = PathResolver(context)
-    path = preproc_step_raw_path(resolver, step)
-    log = preproc_step_log_path(resolver, step)
-    entry = step_entry(resolver, step)
-    params = entry["params"]
-    source, inputs = capture_preproc_input_generation(resolver, step)
-    with mne.io.read_raw_fif(path, preload=True, verbose="ERROR") as raw:
-        edits = _review_changes(raw, review)
-        apply_edits(raw, edits)
-        prepare = {
-            "ecg_artifact_removal": prepare_ecg_plot_review,
-            "annotations": prepare_annotations_plot_review,
-        }.get(step)
-        output = (
-            prepare(
-                resolver,
-                raw,
-                source_step=source,
-                mark_filter_edges=params.get("mark_filter_edges", False),
-            )
-            if prepare
-            else raw
-        )
-        try:
-            with AtomicOutputSet([path, log], cleanup_stale_residues=True) as staged:
-                output.save(
-                    staged.staged_path(path),
-                    fmt="double" if step == "signal_repair" else "single",
-                    overwrite=True,
-                    verbose="ERROR",
-                )
-                svc.mark_preproc_step(
-                    resolver=resolver,
-                    step=step,
-                    completed=True,
-                    params=params_with_generation_lineage(
-                        {**params, "review_edits": edits},
-                        result_generation_id=new_result_generation_id(),
-                        input_generations=inputs,
-                    ),
-                    input_path=entry["input_path"],
-                    output_path=str(path),
-                    log_path=staged.staged_path(log),
-                    message="Replayed manual review edits.",
-                )
-                if not preproc_input_generation_matches(
-                    resolver, step, source_step=source, input_generations=inputs
-                ) or accepted_result_generation_id(
-                    entry
-                ) != accepted_result_generation_id(
-                    step_entry(resolver, step)
-                ):
-                    raise RunFailed(
-                        f"The reviewed {step} generation changed during replay."
-                    )
-                staged.commit()
-        finally:
-            if output is not raw:
-                output.close()
 
 
 def run_preprocess(context, recipe, *, reused=(), report=None):
@@ -390,6 +340,7 @@ def run_preprocess(context, recipe, *, reused=(), report=None):
                         context,
                         params=spec["settings"],
                         decisions=spec.get("decisions"),
+                        review_edits=spec.get("review_edits"),
                     )
                 )
             elif step == "filter":
@@ -408,10 +359,7 @@ def run_preprocess(context, recipe, *, reused=(), report=None):
                     verbose="ERROR",
                 ) as preview:
                     if spec["review"] != "detected":
-                        apply_edits(
-                            preview,
-                            _review_changes(preview, spec["review"]),
-                        )
+                        apply_edits(preview, spec["review"])
                     _checked_result(
                         svc.finalize_filter_review(
                             context,
@@ -430,6 +378,7 @@ def run_preprocess(context, recipe, *, reused=(), report=None):
                                 "picks",
                                 "method_kwargs",
                                 "mark_filter_edges",
+                                "review_edits",
                             )
                             if k in spec
                         },
@@ -440,11 +389,10 @@ def run_preprocess(context, recipe, *, reused=(), report=None):
                     svc.apply_annotations_step(
                         context,
                         rows=spec["rows"],
+                        review_edits=spec.get("review_edits"),
                         mark_filter_edges=spec.get("mark_filter_edges", False),
                     )
                 )
-            if spec.get("review_edits"):
-                _review_output(context, step, spec["review_edits"])
             status = "computed"
         if report:
             report(step, status)

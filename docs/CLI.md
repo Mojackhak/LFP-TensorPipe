@@ -126,6 +126,8 @@ do not invalidate unrelated projects or records.
 
 A preprocessing JSON has `"schema": "lfptensorpipe.preprocess-config"` and a `preprocess` object. Give each of `signal_repair`, `filter`, `ecg_artifact_removal` and `annotations` an `action` of `apply` or `skip`. Raw and Finish are implicit. Applied repair takes `settings` and optional source-matched interval decisions. Filter takes `low_freq`, `high_freq`, `notches`, `advance` and a review policy. Use `"review": "detected"` to finalize the newly detected annotations and bad channels, or use exported review decisions. ECG takes `method`, `picks`, `method_kwargs` and `mark_filter_edges`. Annotations takes `rows` or `csv` and `mark_filter_edges`. Relative file references inside configurations are resolved against their containing JSON file. Older accepted reviews that only retain their final annotations and bad channels export a recording-bound snapshot. The snapshot is replayable against the same accepted Raw and preceding preprocessing choices. A changed prefix requires new review decisions, or explicit acceptance of the new detection.
 
+Signal Repair, ECG and Annotations publish the reviewed FIF, settings and run log together. If a saved edit cannot match the candidate, the command reports the mismatch and preserves that step's previous accepted output and dependent results. Replaying equivalent annotation rows from JSON or CSV reuses the accepted Annotations and Finish. Numeric strings and numbers represent the same onset and duration.
+
 For example, this recipe applies SVD ECG correction to two named channels, retains the behavioral events on Raw, and runs Finish.
 
 ```json

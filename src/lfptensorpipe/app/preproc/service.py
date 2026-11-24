@@ -511,6 +511,7 @@ def apply_ecg_step(
     picks: list[str] | tuple[str, ...] | None = None,
     method_kwargs: dict[str, Any] | None = None,
     mark_filter_edges: bool = False,
+    review_edits=None,
     read_raw_fif_fn: Any | None = None,
     raw_call_ecgremover_fn: Any | None = None,
 ) -> tuple[bool, str]:
@@ -521,6 +522,7 @@ def apply_ecg_step(
         picks=picks,
         method_kwargs=method_kwargs,
         mark_filter_edges=mark_filter_edges,
+        review_edits=review_edits,
         ecg_methods=ECG_METHODS,
         mark_preproc_step_fn=mark_preproc_step,
         invalidate_downstream_fn=invalidate_downstream_preproc_steps,
@@ -547,6 +549,7 @@ def apply_annotations_step(
     *,
     rows: list[dict[str, Any]],
     mark_filter_edges: bool = False,
+    review_edits=None,
     read_raw_fif_fn: Any | None = None,
     copy2_fn: Any | None = None,
 ) -> tuple[bool, str]:
@@ -555,6 +558,7 @@ def apply_annotations_step(
         source=resolve_preproc_step_source(context, "annotations"),
         rows=rows,
         mark_filter_edges=mark_filter_edges,
+        review_edits=review_edits,
         mark_preproc_step_fn=mark_preproc_step,
         invalidate_downstream_fn=invalidate_downstream_preproc_steps,
         read_raw_fif_fn=read_raw_fif_fn,
@@ -617,7 +621,7 @@ def preproc_ecg_panel_state(
 
 
 def apply_signal_repair_step(
-    context: RecordContext, *, params: dict[str, Any], decisions=None
+    context: RecordContext, *, params: dict[str, Any], decisions=None, review_edits=None
 ) -> tuple[bool, str]:
     """Accept Repair and invalidate dependent generations only after success."""
     from .steps.signal_repair import apply_signal_repair_step as apply
@@ -627,6 +631,7 @@ def apply_signal_repair_step(
         params=params,
         mark_preproc_step_fn=mark_preproc_step,
         decisions=decisions,
+        review_edits=review_edits,
     )
     if ok:
         _clear_preproc_step_skip(context, "signal_repair")
