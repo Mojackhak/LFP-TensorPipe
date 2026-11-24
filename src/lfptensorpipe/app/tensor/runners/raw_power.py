@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..task_progress import publish_metric
+
 from typing import Any
 
 import numpy as np
@@ -341,7 +343,9 @@ def run_raw_power_metric(
                 outer_n_jobs=int(outer_n_jobs),
             ),
         }
-        _write_outputs_atomically(
+        publish_metric(
+            metric_key,
+            _write_outputs_atomically,
             [
                 (
                     output_path,
@@ -360,7 +364,7 @@ def run_raw_power_metric(
                         message=success_message,
                     ),
                 ),
-            ]
+            ],
         )
         return (
             True,

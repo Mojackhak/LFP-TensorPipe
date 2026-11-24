@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..task_progress import publish_metric
+
 from copy import deepcopy
 from itertools import permutations
 import os
@@ -1161,7 +1163,9 @@ def run_trgc_finalize_metric(
                 outer_n_jobs=int(outer_n_jobs),
             ),
         }
-        _write_outputs_atomically(
+        publish_metric(
+            metric_key,
+            _write_outputs_atomically,
             [
                 (
                     output_path,
@@ -1186,7 +1190,7 @@ def run_trgc_finalize_metric(
                         message=success_message,
                     ),
                 ),
-            ]
+            ],
         )
         return (
             True,

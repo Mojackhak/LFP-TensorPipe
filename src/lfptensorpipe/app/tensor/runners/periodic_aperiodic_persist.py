@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..task_progress import publish_metric
+
 import numpy as np
 
 from .. import service as svc
@@ -266,7 +268,9 @@ def write_periodic_aperiodic_success(
             outer_n_jobs=int(options.outer_n_jobs),
         ),
     }
-    svc._write_outputs_atomically(
+    publish_metric(
+        METRIC_KEY,
+        svc._write_outputs_atomically,
         [
             (
                 paths.output_path,
@@ -396,7 +400,7 @@ def write_periodic_aperiodic_success(
                     ),
                 ),
             ),
-        ]
+        ],
     )
     success_message = (
         "Periodic/APeriodic tensor computed with reproducible local residual notch imputation."

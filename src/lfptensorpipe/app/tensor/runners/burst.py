@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..task_progress import publish_metric
+
 from typing import Any
 
 import numpy as np
@@ -536,9 +538,14 @@ def run_burst_metric(
                         "Burst baseline annotations changed during computation."
                     )
 
-            _write_outputs_atomically(outputs, precommit_check=check_burst_inputs)
+            publish_metric(
+                metric_key,
+                _write_outputs_atomically,
+                outputs,
+                precommit_check=check_burst_inputs,
+            )
         else:
-            _write_outputs_atomically(outputs)
+            publish_metric(metric_key, _write_outputs_atomically, outputs)
         return True, f"{metric_label} tensor computed."
     except _BurstBaselineChanged as exc:
         return False, str(exc)

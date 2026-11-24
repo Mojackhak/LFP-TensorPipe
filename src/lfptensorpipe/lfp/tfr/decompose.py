@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -321,6 +322,7 @@ def decompose(
     save_prefix: str = "specparam",
     verbose: bool = False,
     valid_time_mask: np.ndarray | None = None,
+    on_fit_batch: Callable[[int, int], None] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
     """Decompose a TFR tensor using SpecParam and return components + aperiodic params tensor.
 
@@ -352,6 +354,8 @@ def decompose(
         Prefix for saved reports.
     verbose
         Verbosity passed to SpecParam.
+    on_fit_batch
+        Optional observer of completed spectrum counts per epoch-channel batch.
     valid_time_mask
         Optional boolean mask selecting time columns to fit. It may have shape
         ``(n_times,)`` for a shared mask or ``(n_channels, n_times)`` for a
@@ -460,6 +464,8 @@ def decompose(
             )  # (n_freqs, n_times)
             tasks.append((e, c, psd_ft, fitted_time_indices))
 
+    total_fits = sum(indices.size for _, _, _, indices in tasks) if on_fit_batch else 0
+
     def _job(
         e: int,
         c: int,
@@ -478,6 +484,8 @@ def decompose(
             original_time_indices=fitted_time_indices,
             original_times_s=time_axis,
         )
+        if on_fit_batch is not None:
+            on_fit_batch(fitted_time_indices.size, total_fits)
         return e, c, fitted_time_indices, ap, per, full, df
 
     # Infer parameter columns from the first result.

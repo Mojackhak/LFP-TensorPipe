@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from concurrent.futures import Future, ProcessPoolExecutor, as_completed
 from copy import deepcopy
 import json
@@ -18,6 +19,7 @@ from .cancellation import (
     BuildTensorCancellationRequested,
     raise_if_tensor_cancellation_requested,
 )
+from . import task_progress
 from .connectivity_pool import (
     ConnectivityChunk,
     build_connectivity_chunks,
@@ -765,6 +767,23 @@ def run_connectivity_coordinator(
     task_cpu_s = 0.0
     task_wall_start_ns: int | None = None
     task_wall_end_ns: int | None = None
+    progress_owners = {
+        c["cohort_id"]: [p.plan_key for p in c["plans"]] for c in cohorts
+    }
+    progress_owners.update(
+        {"trgc:gc": ["trgc"], "trgc:gc_tr": ["trgc"], "psi": ["psi"]}
+    )
+    progress_totals: dict[tuple[str, ...], float] = {}
+    report_progress = task_progress.enabled()
+    if report_progress:
+        for chunk in chunks:
+            keys = tuple(progress_owners[chunk.owner_id])
+            progress_totals[keys] = progress_totals.get(keys, 0.0) + chunk.weight
+
+    def report_block(future, keys, share):
+        if not future.cancelled() and future.exception() is None:
+            task_progress.emit("advance", keys, share)
+
     if chunks:
         raise_if_tensor_cancellation_requested()
         executor_cls = executor_factory or ProcessPoolExecutor
@@ -796,6 +815,15 @@ def run_connectivity_coordinator(
                     raise
                 if slot_gate is not None:
                     future.add_done_callback(lambda _future: slot_gate.release())
+                if report_progress:
+                    keys = tuple(progress_owners[chunk.owner_id])
+                    future.add_done_callback(
+                        partial(
+                            report_block,
+                            keys=keys,
+                            share=chunk.weight / progress_totals[keys],
+                        )
+                    )
                 future_to_chunk[future] = chunk
 
             for future in as_completed(future_to_chunk):

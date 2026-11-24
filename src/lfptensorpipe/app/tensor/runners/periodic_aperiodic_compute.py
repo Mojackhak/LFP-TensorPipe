@@ -18,6 +18,7 @@ from lfptensorpipe.utils.transforms import (
 )
 
 from .. import service as svc
+from .. import task_progress
 from .periodic_aperiodic_models import (
     MASK_SUPPORT_SEMANTICS,
     NOTCH_INTERPOLATION_METHOD,
@@ -393,6 +394,39 @@ def _run_tfr_grid(
     )
 
 
+def spectrum_skip_mask(raw, channel_meta, times_meta, annotation_skip_radius_s):
+    """Apply the same global or channel-local exclusion to fits and their preview."""
+    if annotation_skip_radius_s is not None:
+        has_channel_specific_mask = has_channel_specific_mask_annotations(raw)
+        if has_channel_specific_mask:
+            skip_time_mask, _ = output_time_mask_by_annotations(
+                raw,
+                times_s=times_meta,
+                output_channels=[(str(channel),) for channel in channel_meta],
+                keep=("bad", "edge"),
+                mode="substring",
+                pad_s=annotation_skip_radius_s,
+                clip_to_raw=True,
+                require_match=False,
+            )
+        else:
+            shared_skip_time_mask = build_annotation_skip_time_mask(
+                raw,
+                times_s=times_meta,
+                radius_s=annotation_skip_radius_s,
+            )
+            skip_time_mask = np.broadcast_to(
+                shared_skip_time_mask[None, :],
+                (len(channel_meta), times_meta.size),
+            ).copy()
+    else:
+        skip_time_mask = np.zeros(
+            (len(channel_meta), times_meta.size),
+            dtype=bool,
+        )
+    return skip_time_mask
+
+
 def _run_decomposition(
     power_tensor: np.ndarray,
     metadata: dict[str, Any],
@@ -420,36 +454,10 @@ def _run_decomposition(
 
     freqs_meta, times_meta, channel_meta = _axes_from_metadata(metadata, power_tensor)
     annotation_support = _periodic_annotation_support(prepared, options, metadata)
-    if options.mask_edge_effects:
-        annotation_skip_radius_s = float(annotation_support["annotation_skip_radius_s"])
-        has_channel_specific_mask = has_channel_specific_mask_annotations(prepared.raw)
-        if has_channel_specific_mask:
-            skip_time_mask, _ = output_time_mask_by_annotations(
-                prepared.raw,
-                times_s=times_meta,
-                output_channels=[(str(channel),) for channel in channel_meta],
-                keep=("bad", "edge"),
-                mode="substring",
-                pad_s=annotation_skip_radius_s,
-                clip_to_raw=True,
-                require_match=False,
-            )
-        else:
-            shared_skip_time_mask = build_annotation_skip_time_mask(
-                prepared.raw,
-                times_s=times_meta,
-                radius_s=annotation_skip_radius_s,
-            )
-            skip_time_mask = np.broadcast_to(
-                shared_skip_time_mask[None, :],
-                (len(channel_meta), times_meta.size),
-            ).copy()
-    else:
-        annotation_skip_radius_s = None
-        skip_time_mask = np.zeros(
-            (len(channel_meta), times_meta.size),
-            dtype=bool,
-        )
+    annotation_skip_radius_s = annotation_support["annotation_skip_radius_s"]
+    skip_time_mask = spectrum_skip_mask(
+        prepared.raw, channel_meta, times_meta, annotation_skip_radius_s
+    )
     finite_times = np.isfinite(times_meta)
     valid_time_mask = finite_times[None, :] & ~skip_time_mask
     unsupported_retained = unsupported_spectrum_mask & valid_time_mask[None, :, :]
@@ -498,6 +506,11 @@ def _run_decomposition(
         report_dir=report_dir,
         verbose=False,
         valid_time_mask=valid_time_mask_for_decompose,
+        **(
+            {"on_fit_batch": task_progress.fit_batch_finished}
+            if task_progress.enabled()
+            else {}
+        ),
     )
     tensor = np.asarray(tfr_periodic, dtype=float)
     if tensor.ndim != 4:

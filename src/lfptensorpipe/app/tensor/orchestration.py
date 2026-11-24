@@ -27,6 +27,7 @@ from .lineage import (
     serialize_tensor_input_lineage,
 )
 from .paths import tensor_output_metric_keys
+from . import task_progress
 
 
 def _service_with_overrides(service_overrides: Mapping[str, Any] | None) -> Any:
@@ -137,6 +138,7 @@ def run_build_tensor(
     if installed_run_id:
         os.environ[TENSOR_RUN_ID_ENV] = uuid4().hex
     try:
+        task_progress.emit("running")
         runtime_results = execute_runtime_plans(
             svc,
             resolver,
