@@ -43,6 +43,8 @@ intentionally excluded.
 
 ### `paper/pd/preproc/core.py`
 
+Native Burst `occupancy-scalar` tables contain percentages. The PD preprocessing defaults preserve those values, including zero, and the scalar plot labels them as burst occupancy (%). Historical `occupation-scalar` tables retain their stored values and original label.
+
 - Responsibility: backend for the four-stage preprocessing pipeline: summary,
   transform, normalize, and cycle shift.
 - Inputs: merged tables under `{project}/summary/table/{name}/...`, transform

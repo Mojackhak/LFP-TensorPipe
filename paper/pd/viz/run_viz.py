@@ -47,6 +47,7 @@ PREFIX_PARAM_MAP = {
     ("raw_power", "mean"): "raw-mean",
     ("burst", "rate"): "burst-rate",
     ("burst", "duration"): "burst-duration",
+    ("burst", "occupancy"): "burst-occupancy",
     ("burst", "occupation"): "burst-occupation",
     ("burst", "mean"): "burst-mean",
     ("aperiodic", "na"): "aperiod-mean",

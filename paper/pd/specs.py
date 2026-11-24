@@ -29,6 +29,7 @@ DEFAULT_TRANSFORM_MODE_CFG: dict[str, dict[str, str]] = {
     },
     "burst": {
         "rate": "asinh",
+        "occupancy": "none",
         "occupation": "none",
         "default": "log10",
     },

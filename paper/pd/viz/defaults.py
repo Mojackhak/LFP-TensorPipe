@@ -87,6 +87,7 @@ RAW_YLABEL_TPL: Final[dict[str, str]] = {
     "burst-rate": r"{prefix}$\operatorname{{arcsinh}}$ {key}burst rate (Hz)",
     "burst-duration": r"{prefix}$\log_{{10}}$ {key}burst duration (s)",
     # "burst-duration": r"{prefix}$\operatorname{{ln}}$ {key}burst duration (s)",
+    "burst-occupancy": "{prefix}{key}burst occupancy (%)",
     "burst-occupation": "{prefix}{key}burst occupation",
     "burst-mean": r"{prefix}$\log_{{10}}$ {key}burst amplitude (V)",
     # "burst-mean": r"{prefix}$\operatorname{{ln}}$ {key}burst amplitude (V)",
