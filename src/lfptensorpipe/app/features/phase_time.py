@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from bisect import bisect_left
 from math import isfinite, ulp
+from pickle import UnpicklingError
 from typing import Any
 
 import pandas as pd
@@ -16,6 +17,30 @@ from lfptensorpipe.app.alignment.paths import (
 from lfptensorpipe.app.alignment.warper_builder import _resolve_target_duration_s
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.io.pkl_io import load_pkl
+
+
+class PhaseSupportError(ValueError):
+    """An accepted alignment artifact cannot supply its phase time support."""
+
+
+def _read_phase_support(path, decode):
+    try:
+        return decode(load_pkl(path))
+    except (
+        OSError,
+        EOFError,
+        UnpicklingError,
+        AttributeError,
+        TypeError,
+        ValueError,
+        KeyError,
+        IndexError,
+        ImportError,
+        OverflowError,
+    ) as exc:
+        raise PhaseSupportError(
+            f"Cannot read phase time support from {path}: {exc}"
+        ) from exc
 
 
 def trial_seconds_duration(resolver: PathResolver, slug: str) -> float | None:
@@ -37,17 +62,30 @@ def _run_seconds_duration(resolver, slug, params):
         method == "linear_warper" and "cue_response" in options
     ):
         return None
-    if "target_duration_s" in params:
-        return float(params["target_duration_s"])
-    labels = {}
-    if method == "concat_warper":
-        path = alignment_warp_labels_path(resolver, slug)
-        if not path.is_file():
-            return None
-        labels = load_pkl(path)
-    return _resolve_target_duration_s(
-        method=method, method_params=options, epochs_by_label=labels
-    )
+    source = "the Align Run"
+    if "target_duration_s" not in params and method == "concat_warper":
+        source = alignment_warp_labels_path(resolver, slug)
+        duration = _read_phase_support(
+            source,
+            lambda labels: _resolve_target_duration_s(
+                method=method, method_params=options, epochs_by_label=labels
+            ),
+        )
+    else:
+        try:
+            if "target_duration_s" in params:
+                duration = float(params["target_duration_s"])
+            else:
+                duration = _resolve_target_duration_s(
+                    method=method, method_params=options, epochs_by_label={}
+                )
+        except (ValueError, TypeError, KeyError, OverflowError) as exc:
+            raise PhaseSupportError(
+                "Invalid target duration in the Align Run."
+            ) from exc
+    if not isfinite(duration) or duration <= 0:
+        raise PhaseSupportError(f"Invalid target duration in {source}.")
+    return duration
 
 
 def phase_limit(unit: str, duration: float | None) -> float:
@@ -113,17 +151,28 @@ def effective_phase_windows(axes, metric, interval_mode, support):
     return {"time_unit": unit, "time_origin": "epoch_start", "times": rows}
 
 
-def resolve_stored_phase_axes(resolver, slug, metric, axes, interval_mode):
+def resolve_stored_phase_axes(
+    resolver, slug, metric, axes, interval_mode=None, *, config_store=None
+):
     """Resolve unitless absolute windows using the Finish timeline that owned them."""
     if (
         "time_unit" in axes
-        or interval_mode != "absolute"
         or metric == "burst"
         or not slug
     ):
         return axes
+    if interval_mode is None:
+        from .derive_defaults import _load_collapse_base_cfg
+
+        interval_mode = _load_collapse_base_cfg(config_store)["time_interval_mode"]
+    if interval_mode != "absolute":
+        return axes
     run = latest_alignment_step_entry(resolver, trial_slug=slug, step="run_align_epochs")
     if run is None or not run[1].get("completed"):
+        if axes.get("times"):
+            raise PhaseSupportError(
+                "A successful Align Run is required to interpret unitless absolute phase windows."
+            )
         return axes
     params = run[1]["params"]
     duration = _run_seconds_duration(resolver, slug, params)
@@ -135,11 +184,19 @@ def resolve_stored_phase_axes(resolver, slug, metric, axes, interval_mode):
             resolver, trial_slug=slug, metric_key=metric
         )
         if path.is_file():
-            support = aligned_phase_support(load_pkl(path), "linear_warper") or support
+            support = (
+                _read_phase_support(
+                    path, lambda frame: aligned_phase_support(frame, "linear_warper")
+                )
+                or support
+            )
+    if not isinstance(axes.get("times"), list):
+        raise ValueError("Feature phase windows must be a list.")
     try:
         windows = effective_phase_windows(axes, metric, interval_mode, support)
-    except (KeyError, TypeError) as exc:
+    except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("Invalid stored phase window.") from exc
+    validate_phase_bounds(windows["times"], "s", duration)
     return {**axes, "time_unit": windows["time_unit"], "times": windows["times"]}
 
 
@@ -192,7 +249,10 @@ def aligned_phase_support(frame, method):
         return None
     support = frame.attrs.get("time_support_s")
     if support is not None:
-        return tuple(map(float, support))
+        low, high = map(float, support)
+        if not (isfinite(low) and isfinite(high) and low < high):
+            raise ValueError("Invalid aligned time_support_s bounds.")
+        return low, high
     for value in frame.get("Value", ()):
         if isinstance(value, pd.DataFrame) and len(value.columns) >= 2:
             start, last = float(value.columns[0]), float(value.columns[-1])

@@ -1264,6 +1264,13 @@ and spectral tables from earlier absolute-window runs for incorrect percent
 labels. It rewrites affected phase metadata and scalar workbooks while
 preserving their numerical values.
 
+For a unitless legacy definition, a saved collapse time mode takes precedence
+over the current Features setting. When the saved mode is absent, config
+import, trial restore, the phase editor and Run use the configured collapse
+time mode. Burst's unitless windows use percent. If the source of a physical
+time axis is unreadable, the GUI shows the affected phase as unavailable and
+keeps its draft. CLI errors identify the metric and the affected file.
+
 ### Feature value transformations
 
 Feature processing distinguishes between two numerical domains:

@@ -407,6 +407,7 @@ def prepare_features_config(
     )
     from .features.derive_defaults import _metric_uses_auto_bands
     from .features.phase_time import (
+        PhaseSupportError,
         phase_limit,
         resolve_stored_phase_axes,
         trial_seconds_duration,
@@ -433,16 +434,21 @@ def prepare_features_config(
         bands = (
             [] if auto else normalize_feature_axis_rows(source["bands"], min_start=0.0)
         )
-        if "time_unit" not in source and metric != "burst" and trial:
-            if interval_mode is None:
-                from .features.derive_defaults import _load_collapse_base_cfg
-                interval_mode = _load_collapse_base_cfg(config_store)["time_interval_mode"]
-            source = resolve_stored_phase_axes(PathResolver(context), trial, metric, source, interval_mode)
-        unit = source.get("time_unit", "percent")
         try:
+            source = resolve_stored_phase_axes(
+                PathResolver(context),
+                trial,
+                metric,
+                source,
+                interval_mode,
+                config_store=config_store,
+            )
+            unit = source.get("time_unit", "percent")
             if unit == "s" and duration is None and trial:
                 duration = trial_seconds_duration(PathResolver(context), trial)
             limit = phase_limit(unit, duration)
+        except PhaseSupportError as exc:
+            raise RunFailed(f"{metric}: {exc}") from exc
         except ValueError as exc:
             raise ConfigError(f"{metric}: {exc}") from exc
         times = normalize_feature_axis_rows(

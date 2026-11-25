@@ -143,12 +143,14 @@ def features_panel_state(
     trial_slug: str | None = None,
     paradigm_slug: str | None = None,
     axes_by_metric: dict[str, dict[str, Any]] | None = None,
+    config_store: AppConfigStore | None = None,
 ) -> str:
     return _features_panel_state_impl(
         resolver,
         trial_slug=trial_slug,
         paradigm_slug=paradigm_slug,
         axes_by_metric=axes_by_metric,
+        config_store=config_store,
     )
 
 

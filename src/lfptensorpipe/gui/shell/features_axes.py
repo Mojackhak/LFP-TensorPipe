@@ -5,6 +5,7 @@ from __future__ import annotations
 from lfptensorpipe.app.alignment.generation import accepted_alignment_artifact_paths
 from lfptensorpipe.app.features.derive_axes import feature_band_support_error
 from lfptensorpipe.app.features.phase_time import (
+    resolve_stored_phase_axes,
     trial_seconds_duration,
     validate_phase_bounds,
 )
@@ -21,6 +22,23 @@ from lfptensorpipe.gui.shell.common import (
 
 
 class MainWindowFeaturesAxesMixin:
+
+    def _resolve_features_phase_draft(self, slug, metric, node, interval_mode=None):
+        if "time_unit" in node or metric == "burst" or not slug:
+            return node
+        context = self._record_context()
+        if context is None:
+            return node
+        resolver = PathResolver(context)
+        if interval_mode is None:
+            prior = self._read_completed_log_params(
+                resolver.features_root / slug / "lfptensorpipe_log.json"
+            )
+            interval_mode = prior.get("collapse_settings", {}).get("time_interval_mode")
+        return resolve_stored_phase_axes(
+            resolver, slug, metric, node, interval_mode, config_store=self._config_store
+        )
+
     def _features_seconds_duration(self):
         context = self._record_context()
         slug = self._current_features_paradigm_slug()
@@ -121,13 +139,30 @@ class MainWindowFeaturesAxesMixin:
             return ""
         return feature_band_support_error(metric_key, bands, support)
 
-    def _normalized_features_axes_for_metric(self, metric_key: str) -> dict[str, Any]:
+    def _normalized_features_axes_for_metric(
+        self, metric_key: str, *, trial_slug: str | None = None
+    ) -> dict[str, Any]:
         node = self._features_axes_by_metric.get(metric_key, {})
         if not isinstance(node, dict):
             node = {}
         raw_bands: Any = node.get("bands")
         raw_times: Any = node.get("times")
-        unit = node.get("time_unit", "percent")
+        try:
+            resolved = self._resolve_features_phase_draft(
+                trial_slug or self._current_features_paradigm_slug(),
+                metric_key,
+                {"times": [], **node},
+            )
+        except ValueError as exc:
+            # Leave the stored draft in its original coordinate system for recovery.
+            return {
+                "bands": self._normalize_feature_axis_rows(raw_bands, min_start=0.0),
+                "times": [],
+                "phase_error": str(exc),
+            }
+        unit = resolved.get("time_unit", "percent")
+        if "times" in node:
+            raw_times = resolved["times"]
         if self._features_metric_uses_auto_bands(metric_key):
             raw_bands = []
         elif not isinstance(raw_bands, list):
@@ -156,7 +191,7 @@ class MainWindowFeaturesAxesMixin:
         normalized = {
             "bands": [dict(item) for item in bands],
             "times": [dict(item) for item in times],
-            **({"time_unit": unit} if "time_unit" in node else {}),
+            "time_unit": unit,
         }
         self._features_axes_by_metric[metric_key] = normalized
         return normalized
@@ -246,8 +281,8 @@ class MainWindowFeaturesAxesMixin:
                 else {}
             )
             times = axes.get("times", [])
-            error = None
-            if has_metric and not times:
+            error = axes.get("phase_error")
+            if has_metric and not times and not error:
                 error = "At least one phase is required."
             elif axes.get("time_unit") == "s":
                 try:
@@ -288,6 +323,9 @@ class MainWindowFeaturesAxesMixin:
             )
             return
         axes = self._normalized_features_axes_for_metric(metric_key)
+        if axes.get("phase_error"):
+            self._show_warning("Bands Configure", axes["phase_error"])
+            return
         default_rows = self._load_features_axis_defaults(
             metric_key=metric_key,
             axis_key="bands",
@@ -322,8 +360,21 @@ class MainWindowFeaturesAxesMixin:
         if metric_key is None:
             return
         axes = self._normalized_features_axes_for_metric(metric_key)
-        duration = self._features_seconds_duration()
-        unit = axes.get("time_unit", "percent")
+        try:
+            duration = self._features_seconds_duration()
+            if axes.get("phase_error"):
+                # Replacing malformed rows is possible when the time coordinate is readable.
+                empty = {
+                    **self._features_axes_by_metric.get(metric_key, {}),
+                    "times": [],
+                }
+                axes = self._resolve_features_phase_draft(
+                    self._current_features_paradigm_slug(), metric_key, empty
+                )
+            unit = axes.get("time_unit", "percent")
+        except ValueError as exc:
+            self._show_warning("Phases Configure", str(exc))
+            return
         rows = axes["times"]
         if unit == "s" and duration is None:
             self._show_warning(
@@ -373,6 +424,9 @@ class MainWindowFeaturesAxesMixin:
         if metric_key is None:
             return
         source_axes = self._normalized_features_axes_for_metric(metric_key)
+        if source_axes.get("phase_error"):
+            self._show_warning("Apply Axes", source_axes["phase_error"])
+            return
         source_uses_auto_bands = self._features_metric_uses_auto_bands(metric_key)
         for target_metric in self._features_metric_keys_for_selected_trial():
             target_axes = self._normalized_features_axes_for_metric(target_metric)
@@ -385,6 +439,7 @@ class MainWindowFeaturesAxesMixin:
                 target_axes["bands"] = []
             target_axes["times"] = [dict(item) for item in source_axes["times"]]
             target_axes["time_unit"] = source_axes.get("time_unit", "percent")
+            target_axes.pop("phase_error", None)
             self._features_axes_by_metric[target_metric] = target_axes
         self._mark_record_param_dirty("features.axes")
         self._refresh_features_axis_buttons()
@@ -400,6 +455,8 @@ class MainWindowFeaturesAxesMixin:
         duration = None
         for metric_key in metric_keys:
             axes = self._normalized_features_axes_for_metric(metric_key)
+            if axes.get("phase_error"):
+                return False, f"{metric_key}: {axes['phase_error']}"
             if self._features_metric_uses_auto_bands(metric_key):
                 if not self._features_auto_band_names_from_alignment_raw(metric_key):
                     return (
@@ -430,6 +487,8 @@ class MainWindowFeaturesAxesMixin:
         out: dict[str, Any] = {}
         for metric_key in metric_keys:
             axes = self._normalized_features_axes_for_metric(metric_key)
+            if axes.get("phase_error"):
+                raise ValueError(f"{metric_key}: {axes['phase_error']}")
             bands = (
                 []
                 if self._features_metric_uses_auto_bands(metric_key)

@@ -10,8 +10,11 @@ from lfptensorpipe.app.runlog_store import indicator_from_log, read_run_log
 
 from .derive_axes import _normalize_axis_rows
 from .derive_defaults import _metric_uses_auto_bands
-from .phase_time import same_phase_windows, trial_seconds_duration
-
+from .phase_time import (
+    resolve_stored_phase_axes,
+    same_phase_windows,
+    trial_seconds_duration,
+)
 
 def _normalize_slug(value: str) -> str:
     token = "".join(
@@ -69,6 +72,8 @@ def _normalize_axes_node(metric_key: str, value: Any) -> dict[str, Any] | None:
 
 def _normalize_axes_by_metric(
     value: Any,
+    *,
+    phase_metrics=(),
 ) -> dict[str, dict[str, Any]] | None:
     if not isinstance(value, dict):
         return None
@@ -77,8 +82,14 @@ def _normalize_axes_by_metric(
         metric_key = str(raw_metric_key).strip()
         if not metric_key:
             continue
-        axis_node = _normalize_axes_node(metric_key, value.get(raw_metric_key))
+        source = value[raw_metric_key]
+        axis_node = _normalize_axes_node(metric_key, source)
         if axis_node is None:
+            return None
+        if metric_key in phase_metrics and (
+            not isinstance(source.get("times"), list)
+            or len(axis_node["times"]) != len(source["times"])
+        ):
             return None
         normalized[metric_key] = axis_node
     return normalized
@@ -201,6 +212,7 @@ def features_panel_state(
     trial_slug: str | None = None,
     paradigm_slug: str | None = None,
     axes_by_metric: dict[str, dict[str, Any]] | None = None,
+    config_store=None,
 ) -> str:
     """Return `gray|yellow|green` for the inline editable Features panel light."""
     log_path = features_derivatives_log_path(
@@ -235,36 +247,57 @@ def features_panel_state(
     ):
         return "yellow"
     params = payload.get("params")
-    logged_axes = None
-    if isinstance(params, dict):
-        logged_axes = _normalize_axes_by_metric(params.get("axes_by_metric"))
-    if logged_axes is None:
+    if not isinstance(params, dict) or "axes_by_metric" not in params:
         return "green"
-    current_axes = _normalize_axes_by_metric(axes_by_metric)
-    if current_axes is None:
+    kinds_by_metric = {
+        metric: {Path(path).stem.rsplit("-", 1)[-1] for path in paths}
+        for metric, paths in params.get("outputs_by_metric", {}).items()
+    }
+    phase_metrics = {
+        metric
+        for metric, kinds in kinds_by_metric.items()
+        if kinds.intersection({"scalar", "spectral"})
+    }
+    logged_axes = _normalize_axes_by_metric(
+        params["axes_by_metric"], phase_metrics=phase_metrics
+    )
+    current_axes = _normalize_axes_by_metric(
+        axes_by_metric, phase_metrics=phase_metrics
+    )
+    if logged_axes is None or current_axes is None:
         return "yellow"
     if current_axes.keys() != logged_axes.keys():
         return "yellow"
     duration = None
-    outputs = params.get("outputs_by_metric", {})
+    slug = trial_slug or paradigm_slug
+    mode = params.get("collapse_settings", {}).get("time_interval_mode")
     for metric, axes in current_axes.items():
         prior = logged_axes[metric]
-        kinds = {Path(path).stem.rsplit("-", 1)[-1] for path in outputs.get(metric, ())}
+        kinds = kinds_by_metric.get(metric, set())
         if kinds.intersection({"trace", "scalar"}) and axes["bands"] != prior["bands"]:
             return "yellow"
-        if not kinds.intersection({"scalar", "spectral"}):
+        if metric not in phase_metrics:
             continue
-        if ("time_unit" in axes) != ("time_unit" in prior):
-            from .phase_time import resolve_stored_phase_axes
-
-            mode = params.get("collapse_settings", {}).get("time_interval_mode")
-            slug = trial_slug or paradigm_slug
-            axes = resolve_stored_phase_axes(resolver, slug, metric, axes, mode)
-            prior = resolve_stored_phase_axes(resolver, slug, metric, prior, mode)
-        if axes.get("time_unit", "percent") != prior.get("time_unit", "percent"):
-            if duration is None:
-                duration = trial_seconds_duration(resolver, trial_slug or paradigm_slug)
-        if not same_phase_windows(axes, prior, duration):
+        try:
+            identical = axes == prior
+            prior = resolve_stored_phase_axes(
+                resolver, slug, metric, prior, mode, config_store=config_store
+            )
+            axes = (
+                prior
+                if identical
+                else resolve_stored_phase_axes(
+                    resolver, slug, metric, axes, mode, config_store=config_store
+                )
+            )
+            if (
+                axes.get("time_unit", "percent") != prior.get("time_unit", "percent")
+                and duration is None
+            ):
+                duration = trial_seconds_duration(resolver, slug)
+            if not same_phase_windows(axes, prior, duration):
+                return "yellow"
+        except ValueError:
             return "yellow"
     return "green"
 

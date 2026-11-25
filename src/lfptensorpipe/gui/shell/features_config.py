@@ -99,7 +99,10 @@ class MainWindowFeaturesConfigMixin:
                 accepted = None
                 if (
                     features_panel_state(
-                        resolver, trial_slug=slug, axes_by_metric=axes_by_metric
+                        resolver,
+                        trial_slug=slug,
+                        axes_by_metric=axes_by_metric,
+                        config_store=self._config_store,
                     )
                     == "green"
                 ):
@@ -146,8 +149,8 @@ class MainWindowFeaturesConfigMixin:
             if not isinstance(axes_node, dict):
                 axes_node = {}
             if (
-                interval_mode == "absolute"
-                and "time_unit" not in axes_node
+                "time_unit" not in axes_node
+                and metric_key != "burst"
                 and axes_node.get("times")
             ):
                 from lfptensorpipe.app.features.phase_time import (
@@ -162,6 +165,7 @@ class MainWindowFeaturesConfigMixin:
                         metric_key,
                         axes_node,
                         interval_mode,
+                        config_store=self._config_store,
                     )
             raw_bands = axes_node.get("bands")
             if self._features_metric_uses_auto_bands(metric_key):

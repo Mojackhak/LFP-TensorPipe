@@ -81,29 +81,14 @@ class MainWindowFeaturesTrialsMixin:
                     and trial_slug
                     and raw_axis_node.get("times")
                 ):
-                    from lfptensorpipe.app.features.phase_time import (
-                        resolve_stored_phase_axes,
-                    )
-
-                    context = self._record_context()
-                    if context is not None:
-                        resolver = PathResolver(context)
-                        if interval_mode is None:
-                            prior = self._read_completed_log_params(
-                                resolver.features_root
-                                / trial_slug
-                                / "lfptensorpipe_log.json"
-                            )
-                            interval_mode = prior.get("collapse_settings", {}).get(
-                                "time_interval_mode", "percent"
-                            )
-                        raw_axis_node = resolve_stored_phase_axes(
-                            resolver,
-                            trial_slug,
-                            metric_key,
-                            raw_axis_node,
-                            interval_mode,
+                    try:
+                        raw_axis_node = self._resolve_features_phase_draft(
+                            trial_slug, metric_key, raw_axis_node, interval_mode
                         )
+                    except ValueError:
+                        # Keep unresolved rows for the editor and the next restore.
+                        normalized_axes[metric_key] = deepcopy(raw_axis_node)
+                        continue
                 if self._features_metric_uses_auto_bands(metric_key):
                     bands: list[dict[str, Any]] = []
                 else:
@@ -239,12 +224,12 @@ class MainWindowFeaturesTrialsMixin:
             if isinstance(cached, dict)
             else {"band": "", "channel": "", "region": ""}
         )
+        for metric_key in stored_metric_keys:
+            self._normalized_features_axes_for_metric(metric_key, trial_slug=slug)
         node = {
             "active_metric": active_metric,
             "axes_by_metric": {
-                metric_key: deepcopy(
-                    self._normalized_features_axes_for_metric(metric_key)
-                )
+                metric_key: deepcopy(self._features_axes_by_metric.get(metric_key, {}))
                 for metric_key in stored_metric_keys
             },
             "selected_relative_stem": (
@@ -313,9 +298,7 @@ class MainWindowFeaturesTrialsMixin:
         return self._normalize_features_trial_params(
             trial_slug.strip(),
             {"axes_by_metric": axes_by_metric},
-            interval_mode=params.get("collapse_settings", {}).get(
-                "time_interval_mode", "percent"
-            ),
+            interval_mode=params.get("collapse_settings", {}).get("time_interval_mode"),
         )
 
     def _apply_features_trial_params_to_ui(
@@ -334,15 +317,7 @@ class MainWindowFeaturesTrialsMixin:
             respect_dirty_keys and "features.axes" in self._record_param_dirty_keys
         ):
             self._features_axes_by_metric = {
-                str(metric_key): {
-                    **(
-                        {"time_unit": axis_node["time_unit"]}
-                        if "time_unit" in axis_node
-                        else {}
-                    ),
-                    "bands": [dict(item) for item in axis_node.get("bands", [])],
-                    "times": [dict(item) for item in axis_node.get("times", [])],
-                }
+                str(metric_key): deepcopy(axis_node)
                 for metric_key, axis_node in params.get("axes_by_metric", {}).items()
                 if isinstance(metric_key, str) and isinstance(axis_node, dict)
             }
@@ -621,15 +596,20 @@ class MainWindowFeaturesTrialsMixin:
         context = self._record_context()
         slug = self._current_features_paradigm_slug()
         extract_state = "gray"
+        phase_error = ""
         if context is not None and slug is not None:
             resolver = PathResolver(context)
             metric_keys = self._features_metric_keys_for_selected_trial()
-            axes_by_metric = self._collect_features_axes_for_run(metric_keys)
-            extract_state = self._features_panel_state_runtime(
-                resolver,
-                paradigm_slug=slug,
-                axes_by_metric=axes_by_metric,
-            )
+            try:
+                axes_by_metric = self._collect_features_axes_for_run(metric_keys)
+                extract_state = self._features_panel_state_runtime(
+                    resolver,
+                    paradigm_slug=slug,
+                    axes_by_metric=axes_by_metric,
+                    config_store=self._config_store,
+                )
+            except ValueError as exc:
+                extract_state, phase_error = "yellow", str(exc)
         if self._features_extract_indicator is not None:
             self._set_indicator_color(self._features_extract_indicator, extract_state)
             tooltip = (
@@ -643,7 +623,9 @@ class MainWindowFeaturesTrialsMixin:
                 )
                 if rerun_message is not None:
                     tooltip = f"{tooltip} {rerun_message}"
-            self._features_extract_indicator.setToolTip(tooltip)
+            self._features_extract_indicator.setToolTip(
+                f"{tooltip} {phase_error}".strip()
+            )
 
     def _features_metric_keys_for_selected_trial(self) -> list[str]:
         return self._features_metric_keys_for_trial_slug(
