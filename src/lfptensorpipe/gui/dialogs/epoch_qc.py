@@ -382,5 +382,9 @@ class EpochQCDialog(QDialog):
         self.message.setText("Default saved.")
 
     def _restore(self):
-        self.scheme = deepcopy(self.load_default())
+        try:
+            self.scheme = deepcopy(self.load_default())
+        except (OSError, ValueError) as exc:
+            self.message.setText(str(exc))
+            return
         self._restore_ui()

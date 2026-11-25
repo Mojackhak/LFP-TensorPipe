@@ -38,6 +38,7 @@ class SignalSpan:
     segment: WarpSegment
     boundaries: tuple = ()
     sample_time: np.ndarray | None = None
+    sample_end: np.ndarray | None = None
 
 
 @dataclass
@@ -217,7 +218,7 @@ class InspectorData:
                         stop += 1
                     sample_indices = np.arange(start, stop)
                     times = sample_indices / sf
-                    source = np.maximum(times, s.source_start)
+                    source = np.clip(times, s.source_start, s.source_end)
                     end = np.minimum(times + 1 / sf, s.source_end)
                     values = (
                         raw.get_data(start=start, stop=stop) * 1e6
@@ -233,7 +234,8 @@ class InspectorData:
                     scale = (s.source_end - s.source_start) / (
                         s.target_end - s.target_start
                     )
-                    sample_time = s.target_start + (source - s.source_start) / scale
+                    sample_time = np.minimum(s.target_end, s.target_start + (source - s.source_start) / scale)
+                    sample_end = None
                     if self.method == "stack_warper":
                         first = max(0, round(s.source_start * sf))
                         last = min(raw.n_times, round(s.source_end * sf)) - 1
@@ -243,6 +245,11 @@ class InspectorData:
                         sample_time[
                             (sample_indices < first) | (sample_indices > last)
                         ] = np.nan
+                        sample_time[sample_indices == last] = s.target_end if last > first else s.target_start
+                        sample_end = np.minimum(
+                            s.target_end,
+                            sample_time + (s.target_end - s.target_start) / max(1, last - first),
+                        )
                     else:
                         # Reading starts at the overlapping cell for coverage. Its
                         # waveform center belongs to exactly one adjoining segment.
@@ -257,6 +264,7 @@ class InspectorData:
                             s,
                             cuts,
                             sample_time,
+                            sample_end,
                         )
                     )
                 result.append(spans)

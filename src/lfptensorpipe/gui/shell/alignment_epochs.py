@@ -300,7 +300,9 @@ class MainWindowAlignmentEpochsMixin:
                 self._qc_default,
                 self._save_qc_default,
             )
-            if dialog.exec() != QDialog.Accepted:
+            accepted = dialog.exec() == QDialog.Accepted
+            dialog.deleteLater()
+            if not accepted:
                 return
             patch = {"qc_config": dialog.scheme}
             result = self._epoch_review.get("qc_result")
@@ -385,7 +387,9 @@ class MainWindowAlignmentEpochsMixin:
             editor.setOption(QInputDialog.UsePlainTextEditForTextInput)
             editor.setTextValue(notes.get(key, ""))
             editor.setOkButtonText("Save")
-            if editor.exec() == QDialog.Accepted:
+            accepted = editor.exec() == QDialog.Accepted
+            editor.deleteLater()
+            if accepted:
                 note = editor.textValue()
                 if note:
                     notes[key] = note
@@ -436,5 +440,6 @@ class MainWindowAlignmentEpochsMixin:
                 style_for_metric=self._load_alignment_preview_plot_params,
             )
             dialog.exec()
+            dialog.deleteLater()
         except (OSError, ValueError) as exc:
             self._show_warning("Preview", str(exc))

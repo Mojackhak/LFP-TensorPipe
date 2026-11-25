@@ -166,12 +166,18 @@ class EpochPreview(QDialog):
         self._draw()
 
     def _draw(self):
+        try:
+            self._draw_selection()
+        except (ValueError, OSError) as exc:
+            self.axis_note.setText(str(exc))
+
+    def _draw_selection(self):
         key = self.metric_combo.currentData()
         selected = self.channels.values()
         frequency = self.frequency.value()
         self.prefs["metric"] = key
         self.prefs.setdefault("metrics", {})[key] = {
-            "channels": selected,
+            "channels": "All" if self.channels.all_mode else selected,
             "frequency": frequency,
         }
         names = self.data.channels(key)
@@ -348,7 +354,10 @@ class EpochPreview(QDialog):
         channels = self.channels.values()
         metric = self.metric_combo.currentData()
         if metric == SIGNAL and channels:
-            self._open_wave(row)
+            try:
+                self._open_wave(row)
+            except (ValueError, OSError) as exc:
+                self.axis_note.setText(str(exc))
             return
 
         dialog = QDialog(self)
@@ -400,6 +409,7 @@ class EpochPreview(QDialog):
 
 
 def show_waveform(parent, data, row, result, *, channels=None):
+    spans = data.read_signal([row])[0]
     dialog = QDialog(parent)
     epoch = data.epochs[row]
     dialog.setWindowTitle(f"Preprocessed Signal · {row+1} · {epoch.label}")
@@ -407,7 +417,6 @@ def show_waveform(parent, data, row, result, *, channels=None):
     layout = QVBoxLayout(dialog)
     fig = Figure(layout="constrained")
     layout.addWidget(FigureCanvasQTAgg(fig))
-    spans = data.read_signal([row])[0]
     names = data.signal_channels if channels is None else channels
     axes = fig.subplots(len(names), 1, sharex=True, squeeze=False)[:, 0]
     hits = [e for r in (result or {}).get("rules", {}).values() for e in r["evidence"]]
@@ -448,3 +457,4 @@ def show_waveform(parent, data, row, result, *, channels=None):
                 break
     axes[-1].set(xlabel=f"Epoch time ({data.unit})", xlim=data.bounds)
     dialog.exec()
+    dialog.deleteLater()

@@ -165,6 +165,7 @@ class AlignmentMethodParamsDialog(QDialog):
         self._duration_min_edit = QLineEdit()
         self._duration_max_edit = QLineEdit()
         self._linear_warp_check = QCheckBox("linear warp")
+        self._linear_warp_check.toggled.connect(self._refresh_active_validation)
         self._percent_tolerance_edit = QLineEdit()
         self._pad_s_edit = QLineEdit()
 
@@ -439,13 +440,7 @@ class AlignmentMethodParamsDialog(QDialog):
         ):
             if edit is None or edit.property("lfptpValidationConnected"):
                 continue
-            if (
-                edit is self._sample_rate_edit
-                or edit in self._cue_duration_edits.values()
-            ):
-                edit.textChanged.connect(self._refresh_active_validation)
-            else:
-                edit.editingFinished.connect(self._refresh_active_validation)
+            edit.textChanged.connect(self._refresh_active_validation)
             edit.setProperty("lfptpValidationConnected", True)
         self._refresh_active_validation()
 
@@ -464,6 +459,7 @@ class AlignmentMethodParamsDialog(QDialog):
     def _set_anchor_rows(self, rows: list[tuple[str, float]]) -> None:
         _set_anchor_rows_impl(self, rows)
         self._validate_all_table_cells()
+        self._refresh_active_validation()
 
     def _anchor_rows_from_table(self) -> list[tuple[str, float]]:
         return _anchor_rows_from_table_impl(self)
@@ -624,6 +620,7 @@ class AlignmentMethodParamsDialog(QDialog):
 
     def _on_anchors_item_changed(self, item: QTableWidgetItem) -> None:
         _on_anchors_item_changed_impl(self, item)
+        self._refresh_active_validation()
 
     def _on_anchors_table_clicked(self, row: int, column: int) -> None:
         if column != 2:

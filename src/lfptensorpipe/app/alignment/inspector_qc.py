@@ -48,7 +48,8 @@ def signal_blocks(spans, channel, baseline=0.0):
             observed = span.time if span.sample_time is None else span.sample_time
             keep = np.isfinite(observed[start:stop])
             blocks[-1][1].append(observed[start:stop][keep])
-            blocks[-1][2].append(span.end[start:stop][keep])
+            ends = span.end if span.sample_end is None else span.sample_end
+            blocks[-1][2].append(ends[start:stop][keep])
             blocks[-1][3].append(span.values[channel, start:stop][keep])
     result = []
     for _, xs, ends, ys in blocks:
@@ -88,12 +89,22 @@ def evidence(data, epoch, channel, start, end, **extra):
     }
 
 
-def missing_intervals(left, right, invalid, window):
+def missing_intervals(left, right, invalid, window, *, include_outside=False):
     low, high = window
-    return [
+    if high <= low:
+        return []
+    gaps = [
         [float(max(low, left[a])), float(min(high, right[b - 1]))]
         for a, b in runs(invalid & (right > low) & (left < high))
     ]
+    if include_outside:
+        if not len(left):
+            return [[low, high]]
+        if left[0] > low:
+            gaps.insert(0, [low, min(high, float(left[0]))])
+        if right[-1] < high:
+            gaps.append([max(low, float(right[-1])), high])
+    return gaps
 
 
 def clip_padding(data, epoch, window):
@@ -166,7 +177,9 @@ def signal_scores(data, signal, channel, rule, window):
                     gap
                     for span in spans
                     for gap in missing_intervals(
-                        span.time, span.end, ~np.isfinite(span.values[channel]), window
+                        span.time, span.end, ~np.isfinite(span.values[channel]),
+                        (max(lo, span.segment.target_start), min(hi, span.segment.target_end)),
+                        include_outside=getattr(data, "pre_cue_s", None) is not None,
                     )
                 ]
             scores.append((outcome, details))
@@ -280,7 +293,7 @@ def frequency_support(grid, selection, *, log_scale=False):
     if log_scale and lo.size == 1 and lo[0] == hi[0]:
         return chosen.astype(float), groups
     widths = _frequency_width(lo, hi, log_scale)
-    intervals = union_intervals(grid.notches) if log_scale else grid.notches
+    intervals = union_intervals(grid.notches)
     for a, b in intervals:
         widths -= _frequency_width(np.maximum(lo, a), np.minimum(hi, b), log_scale)
     for _, end in grid.notches:
@@ -320,7 +333,8 @@ def burst_coverage(data, epoch, channel, grid, freq_weights, window, missing=Non
             ]
             invalid = (~np.isfinite(tensor[c, bands_selected, i:j])).any(axis=0)
             gap_bounds = missing_intervals(
-                edges[i:j], edges[i + 1 : j + 1], invalid, (src_lo, src_hi)
+                edges[i:j], edges[i + 1 : j + 1], invalid, (src_lo, src_hi),
+                include_outside=getattr(data, "pre_cue_s", None) is not None,
             )
             missing.extend(
                 [
@@ -396,7 +410,8 @@ def metric_scores(data, metric, channel, rule, window):
         time_groups = np.zeros(len(grid.time), int)
         for seg in data.mappings[i][1:]:
             if seg.occurrence != data.mappings[i][0].occurrence:
-                time_groups += grid.time >= seg.target_start
+                tolerance = 64 * np.finfo(float).eps * max(1., data.bounds[1] - data.bounds[0])
+                time_groups += grid.time + tolerance >= seg.target_start
         for group in np.unique(fgroups[fw > 0]):
             for part in np.unique(time_groups):
                 domain = valid & (fgroups == group)[:, None] & (time_groups == part)
