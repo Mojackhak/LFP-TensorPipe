@@ -97,11 +97,8 @@ def _open_run(folder):
     entry = read_run_log(
         features_derivatives_log_path(resolver, trial_slug=run["trial"])
     )
-    if (
-        not paths
-        or accepted_result_generation_id(entry)
-        != run["stages"]["features"]["generation"]
-    ):
+    published = run.get("stages", {}).get("features", {}).get("generation")
+    if not paths or not published or accepted_result_generation_id(entry) != published:
         raise RunFailed(f"Features have changed since the run was published: {folder}")
     features = run["effective"]["features"]
     features["execution"] = normalized_execution_metadata(features["execution"])
@@ -482,6 +479,20 @@ def _numerical_settings(run):
     }
 
 
+def _numerical_generations(run):
+    effective = run["effective"]
+    required = {"finish", "run_align_epochs", "build_raw_table", "features"}
+    required.update(
+        step
+        for step, spec in effective["preprocess"].items()
+        if spec["action"] == "apply"
+    )
+    required.update(
+        f"tensor/{metric}" for metric in effective["tensor"]["selected_metrics"]
+    )
+    return {step: run["stages"].get(step, {}).get("generation") for step in required}
+
+
 def compare_runs(reference, candidate, output, *, mode, atol, rtol):
     reference, candidate, output = (
         p.expanduser().resolve() for p in (reference, candidate, output)
@@ -656,12 +667,10 @@ def _report(
         and durations[0] == durations[1]
         and same_axes
     )
+    left_ids, right_ids = _numerical_generations(left), _numerical_generations(right)
     independent = all(
-        left["stages"][s]["generation"] != right["stages"][s]["generation"]
-        for s in left["stages"].keys() & right["stages"].keys()
-        if s != "raw"
-        and left["stages"][s].get("generation")
-        and right["stages"][s].get("generation")
+        left_ids[s] and right_ids[s] and left_ids[s] != right_ids[s]
+        for s in left_ids.keys() & right_ids.keys()
     )
 
     def retention(d):
