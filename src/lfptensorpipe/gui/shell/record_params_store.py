@@ -34,6 +34,9 @@ class MainWindowRecordParamsStoreMixin:
         params: dict[str, Any],
         reason: str,
     ) -> bool:
+        readonly = self._demo_data_source_readonly
+        if readonly is not None and context.project_root.resolve() == readonly.resolve():
+            return False
         resolver = PathResolver(context)
         if (
             reason in {"app_close", "record_context_switch", "record_rename"}

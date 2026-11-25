@@ -23,10 +23,12 @@ DeletePathFn = Callable[[Path], None]
 _JSON_CONTRACT_PATTERNS = (
     "**/lfptensorpipe_log.json",
     "**/*_backend_log.json",
+    "preproc/filter/qc/preview_log.json",
 )
 _YAML_CONTRACT_PATTERNS = (
     "**/config.yml",
     "**/config.yaml",
+    "preproc/filter/qc/preview_config.yml",
 )
 _LOCALIZE_TABLE_BASENAMES = (
     "channel_representative_coords",

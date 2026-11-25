@@ -18,7 +18,7 @@ def _on_preproc_raw_plot(self) -> None:
         )
         return
     resolver = PathResolver(context)
-    raw_path = preproc_step_raw_path(resolver, "raw")
+    raw_path = preproc_step_raw_path(resolver, "raw", create=False)
     if preproc_step_indicator_state(resolver, "raw") == "green":
         self._refresh_stage_states_from_context()
         self._refresh_preproc_controls()
@@ -75,7 +75,7 @@ def _open_step_plot(
             f"{title_prefix} Plot unavailable: select project/subject/record."
         )
         return
-    raw_path = preproc_step_raw_path(PathResolver(context), step)
+    raw_path = preproc_step_raw_path(PathResolver(context), step, create=False)
     if not raw_path.exists():
         self.statusBar().showMessage(missing_message)
         self._refresh_preproc_controls()
@@ -96,7 +96,7 @@ def _on_preproc_filter_plot(self) -> None:
     if self._preproc_filter_review_required_runtime(resolver):
         raw_path = self._preproc_filter_preview_raw_path_runtime(resolver)
     else:
-        raw_path = preproc_step_raw_path(resolver, "filter")
+        raw_path = preproc_step_raw_path(resolver, "filter", create=False)
     if not raw_path.exists():
         self.statusBar().showMessage(
             "Filter Plot unavailable: no review Preview or accepted Filter result exists."
