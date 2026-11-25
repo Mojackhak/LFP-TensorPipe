@@ -157,7 +157,9 @@ def _prepare_lead_table(
         return summary
 
     expected = match.get("lead_signature")
-    if (expected is not None or saved.get("lead_signature")) and "lead_signature" not in params:
+    if (
+        expected is not None or saved.get("lead_signature")
+    ) and "lead_signature" not in params:
         reconstruction = load_contacts()
     if expected is not None and expected != params.get("lead_signature"):
         raise ValueError(

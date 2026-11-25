@@ -20,10 +20,17 @@ if TYPE_CHECKING:
 def record_channel_fif(context):
     """Locate the acquired channels in an imported record or an isolated derivative."""
     from lfptensorpipe.app.path_resolver import PathResolver
-    from lfptensorpipe.app.preproc.paths import rawdata_input_fif_path, preproc_step_raw_path
+    from lfptensorpipe.app.preproc.paths import (
+        rawdata_input_fif_path,
+        preproc_step_raw_path,
+    )
 
     path = rawdata_input_fif_path(context)
-    return path if path.is_file() else preproc_step_raw_path(PathResolver(context), "raw", create=False)
+    return (
+        path
+        if path.is_file()
+        else preproc_step_raw_path(PathResolver(context), "raw", create=False)
+    )
 
 
 def normalize_localize_path_payload(payload: Any) -> tuple[dict[str, Any], bool]:
@@ -336,14 +343,6 @@ def localize_selected_regions_signature(value: Any) -> list[str] | None:
     return out
 
 
-def _read_localize_payload(path: Path) -> dict[str, Any] | None:
-    try:
-        payload = read_run_log(path)
-    except Exception:
-        return None
-    return payload if isinstance(payload, dict) else None
-
-
 def _normalized_atlas(value: Any) -> str | None:
     atlas = str(value).strip()
     return atlas or None
@@ -361,10 +360,12 @@ def localize_panel_state(
     label_signature: dict | None = None,
 ) -> str:
     """Return `gray|yellow|green` for the inline editable Localize panel light."""
-    path = localize_log_path(project_root, subject, record)
-    payload = _read_localize_payload(path)
+    try:
+        payload = read_run_log(localize_log_path(project_root, subject, record))
+    except (OSError, ValueError):
+        return "yellow"
     if payload is None:
-        return "yellow" if path.is_file() else "gray"
+        return "gray"
     completed = payload.get("completed")
     if completed is False:
         return "yellow"

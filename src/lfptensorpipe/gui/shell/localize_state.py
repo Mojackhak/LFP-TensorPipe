@@ -14,7 +14,10 @@ from lfptensorpipe.app.localize.paths import (
     source_files_ready,
     source_results,
 )
-from lfptensorpipe.app.localize.lead_inputs import cached_lead_signature, compare_lead_inputs
+from lfptensorpipe.app.localize.lead_inputs import (
+    cached_lead_signature,
+    compare_lead_inputs,
+)
 from lfptensorpipe.app.localize.config import moved_representative_channels
 from lfptensorpipe.app.localize.user_labels import UserLabels, read_labels, save_labels
 from lfptensorpipe.app.runlog_store import read_run_log
@@ -449,8 +452,12 @@ class MainWindowLocalizeStateMixin:
             atlas_path and (atlas_path / "atlas_index.mat").is_file()
         )
         lead_ready = bool(
-            configured_paths and self._localize_reconstruction_exists and space
-            and matched and atlas_index_ready and regions
+            configured_paths
+            and self._localize_reconstruction_exists
+            and space
+            and matched
+            and atlas_index_ready
+            and regions
         )
         reasons = []
         if not writable:
@@ -615,16 +622,26 @@ class MainWindowLocalizeStateMixin:
                     )
                     reusable = same_geometry and same_masks
                     expected = self._localize_match_payload.get("lead_signature")
-                    if reusable and (expected is not None or saved.get("lead_signature")):
+                    if reusable and (
+                        expected is not None or saved.get("lead_signature")
+                    ):
                         signature = cached_lead_signature(
-                            saved, reconstruction_mat_path(context.project_root, context.subject), self._localize_paths
+                            saved,
+                            reconstruction_mat_path(
+                                context.project_root, context.subject
+                            ),
+                            self._localize_paths,
                         )
-                        reusable = signature is not None and (expected is None or expected == signature)
+                        reusable = signature is not None and (
+                            expected is None or expected == signature
+                        )
                 except (OSError, ValueError, KeyError, RuntimeError) as exc:
                     selected_ready = False
                     lead_reason = str(exc)
         current = reusable and active == selected
-        self._localize_apply_button.setEnabled(bool(writable and selected_ready and not current))
+        self._localize_apply_button.setEnabled(
+            bool(writable and selected_ready and not current)
+        )
         if current:
             tip = "Up to date."
         elif reusable:
