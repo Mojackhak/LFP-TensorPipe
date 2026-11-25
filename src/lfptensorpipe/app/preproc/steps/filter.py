@@ -685,28 +685,6 @@ def finalize_filter_review(
         }
         import mne
 
-        if replayed_edits is not None:
-            final_params["review_edits"] = replayed_edits
-        elif isinstance(reviewed_annotations, mne.Annotations) and isinstance(
-            raw, mne.io.BaseRaw
-        ):
-            from ..review_edits import current_state, review_delta, review_state
-
-            with mne.io.read_raw_fif(
-                preview if pending_preview else dst, preload=False, verbose="ERROR"
-            ) as opened:
-                delta = review_delta(
-                    current_state(opened),
-                    review_state(
-                        reviewed_annotations, reviewed_bads, opened.first_time
-                    ),
-                    step="filter",
-                )
-            if pending_preview or "review_edits" in params:
-                final_params["review_edits"] = [
-                    *params.get("review_edits", []),
-                    *([delta] if delta else []),
-                ]
         final_config = {
             **config,
             "bad_samples_policy": (
@@ -769,6 +747,23 @@ def finalize_filter_review(
             if qc_plot in targets:
                 copyfile(candidate_plot, output_set.staged_path(qc_plot))
             finalized.save(str(output_set.staged_path(dst)), overwrite=True)
+            if replayed_edits is not None:
+                final_params["review_edits"] = replayed_edits
+            elif (
+                (pending_preview or "review_edits" in params)
+                and isinstance(reviewed_annotations, mne.Annotations)
+                and isinstance(raw, mne.io.BaseRaw)
+            ):
+                from ..review_edits import stored_plot_edits
+
+                final_params["review_edits"] = stored_plot_edits(
+                    preview if pending_preview else dst,
+                    output_set.staged_path(dst),
+                    finalized,
+                    "filter",
+                    params,
+                    {},
+                )
             write_preproc_step_config(
                 resolver=resolver,
                 step="filter",

@@ -20,6 +20,7 @@ from .preproc.paths import (
 from .preproc.review_edits import (
     apply_edits,
     current_state,
+    has_unrecorded_plot_edits,
     user_review_changes,
     validate_review_changes,
 )
@@ -273,10 +274,10 @@ def _applied_spec(resolver, step, prior):
     if step == "filter" and "review_edits" not in params:
         spec["review"] = _historical_review(resolver, step, result)
     if step != "filter":
-        if "review_edits" in params:
-            spec["review_edits"] = params["review_edits"]
-        elif "plot" in str(entry.get("message", "")).lower():
+        if has_unrecorded_plot_edits(entry):
             spec["review_edits"] = _historical_review(resolver, step, result)
+        elif "review_edits" in params:
+            spec["review_edits"] = params["review_edits"]
     return spec
 
 

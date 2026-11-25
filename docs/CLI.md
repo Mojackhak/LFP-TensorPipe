@@ -159,6 +159,13 @@ publishes the accepted data and QC together. A rejected edit preserves the prior
 Filter, routing choice and pending GUI preview. Review replay recognizes the
 annotation onset and end as serialized in FIF across successive edits. Each
 step regenerates its own filter-edge markers after applying the human changes.
+New plot edits record the precise times supplied to the FIF writer and compare
+them with the reopened file. This also captures timing changes from saving an
+annotation again during a later review. For
+older six-decimal edits, a removal must identify a single annotation within the
+precision of the stored onset and end, with matching description, channels and
+extras. An incomplete historical review continues to export its recording-bound
+final state after another GUI edit.
 
 ## Running named variants
 

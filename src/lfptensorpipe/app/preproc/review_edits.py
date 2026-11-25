@@ -8,13 +8,16 @@ from tempfile import TemporaryDirectory
 
 import numpy as np
 
-def review_state(annotations, bads, first_time):
+
+def review_state(annotations, bads, first_time, *, precise=False):
     rows = []
     for ann in annotations:
+        onset = float(ann["onset"]) - first_time
+        duration = float(ann["duration"])
         rows.append(
             [
-                round(float(ann["onset"]) - first_time, 6),
-                round(float(ann["duration"]), 6),
+                onset if precise else round(onset, 6),
+                duration if precise else round(duration, 6),
                 str(ann["description"]),
                 list(ann.get("ch_names", ())),
                 dict(ann.get("extras") or {}),
@@ -23,8 +26,10 @@ def review_state(annotations, bads, first_time):
     return {"annotations": rows, "bads": sorted(bads)}
 
 
-def current_state(raw):
-    return review_state(raw.annotations, raw.info["bads"], raw.first_time)
+def current_state(raw, *, precise=False):
+    return review_state(
+        raw.annotations, raw.info["bads"], raw.first_time, precise=precise
+    )
 
 
 def _without_owned_edges(rows, step):
@@ -42,32 +47,104 @@ def _without_owned_edges(rows, step):
     return [row for row in rows if row[2] != owned]
 
 
-def review_delta(before, after, *, step=None):
+def _review_counts(state, field, step):
+    rows = state[field]
+    if field == "annotations" and step:
+        rows = _without_owned_edges(rows, step)
+    return Counter(json.dumps(row, sort_keys=True) for row in rows)
+
+
+def review_delta(before, after, *, step=None, persisted=None):
     change = {}
     for field in ("annotations", "bads"):
-        left, right = [
-            Counter(
-                json.dumps(x, sort_keys=True)
-                for x in (
-                    _without_owned_edges(state[field], step)
-                    if field == "annotations" and step
-                    else state[field]
-                )
-            )
-            for state in (before, after)
-        ]
-        for action, counts in (("add", right - left), ("remove", left - right)):
-            if counts:
+        left = _review_counts(before, field, step)
+        right = _review_counts(after, field, step)
+        unchanged = left & right
+        if persisted is not None:
+            # Even a retained row can move on its next FIF save. Reapply its
+            # exact writer inputs if the saved observation changed.
+            unchanged &= _review_counts(persisted, field, step)
+        for action, difference in (
+            ("add", right - unchanged),
+            ("remove", left - unchanged),
+        ):
+            if difference:
                 change[f"{action}_{field}"] = [
-                    json.loads(s) for s in sorted(counts.elements())
+                    json.loads(s) for s in sorted(difference.elements())
                 ]
     return change
 
 
-def _fif_times(row, first_time):
-    onset = np.float32(row[0] + first_time)
-    end = np.float32(row[0] + first_time + row[1])
-    return round(float(onset) - first_time, 6), round(float(end - onset), 6)
+def _fif_grid_bounds(low, high):
+    """First and last representable float32 within a closed interval."""
+    first, last = np.float32(low), np.float32(high)
+    if float(first) < low:
+        first = np.nextafter(first, np.float32(np.inf))
+    if float(last) > high:
+        last = np.nextafter(last, np.float32(-np.inf))
+    return first, last
+
+
+def _matches_fif_removal(candidate, observed, first_time):
+    """Project a candidate onto the precision of a later FIF observation."""
+    if candidate[2:] != observed[2:]:
+        return False
+    onset, duration = candidate[:2]
+    wanted_onset, wanted_duration = observed[:2]
+    if (round(onset, 6), round(duration, 6)) == (wanted_onset, wanted_duration):
+        return True
+
+    # Old change lists rounded each original value to six decimal places.
+    half_us = 0.5e-6
+    onset_error = half_us if onset == round(onset, 6) else 0.0
+    duration_error = half_us if duration == round(duration, 6) else 0.0
+    start = first_time + onset
+    start_low = float(np.float32(start - onset_error))
+    start_high = float(np.float32(start + onset_error))
+    end_low = float(
+        np.float32(start - onset_error + max(0.0, duration - duration_error))
+    )
+    end_high = float(np.float32(start + onset_error + duration + duration_error))
+
+    # MNE dates the onset to a microsecond on reopening. A legacy observer
+    # may also round it after subtracting a fractional first-sample time.
+    observed_error = half_us + (
+        half_us if wanted_onset == round(wanted_onset, 6) else 0.0
+    )
+    start_low, start_high = _fif_grid_bounds(
+        max(start_low, first_time + wanted_onset - observed_error),
+        min(start_high, first_time + wanted_onset + observed_error),
+    )
+    if start_low > start_high:
+        return False
+    # The reader subtracts two stored float32 endpoints in float32. Invert
+    # that rounding to check whether an admissible end lies on the FIF grid.
+    observed_error = half_us if wanted_duration == round(wanted_duration, 6) else 0.0
+    dmin, dmax = _fif_grid_bounds(
+        wanted_duration - observed_error, wanted_duration + observed_error
+    )
+    if dmin > dmax:
+        return False
+    min_diff = (float(np.nextafter(dmin, np.float32(-np.inf))) + float(dmin)) / 2
+    max_diff = (float(np.nextafter(dmax, np.float32(np.inf))) + float(dmax)) / 2
+    end_low, end_high = _fif_grid_bounds(
+        max(end_low, float(start_low) + min_diff),
+        min(end_high, float(start_high) + max_diff),
+    )
+    return end_low <= end_high
+
+
+def has_unrecorded_plot_edits(entry):
+    """A plot cannot reconstruct edits missing from an earlier manual review."""
+    for event in reversed(entry.get("history") or [entry]):
+        if (
+            not event.get("completed")
+            or "plot" not in str(event.get("message", "")).lower()
+        ):
+            break
+        if "review_edits" not in event.get("params", {}):
+            return True
+    return False
 
 
 def validate_review_changes(edits):
@@ -124,9 +201,9 @@ def apply_edits(raw, edits, *, step=None):
     import mne
     from lfptensorpipe.preproc.filter import _set_annotations_from_attached_frame
 
-    state = current_state(raw)
+    state = current_state(raw, precise=True)
     if isinstance(edits, dict):
-        edits = [review_delta(state, edits["accepted_state"], step=step)]
+        edits = [review_delta(current_state(raw), edits["accepted_state"], step=step)]
     edits = user_review_changes(edits, step)
     for change in edits:
         for key, entries in change.items():
@@ -139,16 +216,19 @@ def apply_edits(raw, edits, *, step=None):
                 change.get(action + field, []) for action in ("remove_", "add_")
             )
             for row in removed:
-                if field == "annotations" and row not in state[field]:
-                    # A later GUI review opens FIF, which stores float32 onset and end.
+                if field == "annotations" and (
+                    row not in state[field] or all(t == round(t, 6) for t in row[:2])
+                ):
                     matches = [
                         r
                         for r in state[field]
-                        if r[2:] == row[2:]
-                        and _fif_times(r, raw.first_time)
-                        == _fif_times(row, raw.first_time)
+                        if r == row or _matches_fif_removal(r, row, raw.first_time)
                     ]
-                    if matches and all(r == matches[0] for r in matches):
+                    if matches:
+                        if any(r != matches[0] for r in matches):
+                            raise ValueError(
+                                f"Ambiguous reviewed annotation removal: {row}"
+                            )
                         row = matches[0]
                 if row not in state[field]:
                     raise ValueError(
@@ -165,7 +245,21 @@ def apply_edits(raw, edits, *, step=None):
         extras=[r[4] for r in rows],
         orig_time=raw.annotations.orig_time,
     )
-    _set_annotations_from_attached_frame(raw, annotations)
+    stop = raw.n_times / raw.info["sfreq"]
+    if all(0 <= row[0] and row[0] + row[1] <= stop for row in rows):
+        # Raw.set_annotations crops via datetime (microseconds). In-bounds
+        # reviewed rows are already in the attached frame, as in the GUI.
+        raw.annotations.delete(np.arange(len(raw.annotations)))
+        if len(annotations):
+            raw.annotations.append(
+                annotations.onset,
+                annotations.duration,
+                annotations.description,
+                ch_names=annotations.ch_names,
+                extras=annotations.extras,
+            )
+    else:
+        _set_annotations_from_attached_frame(raw, annotations)
     raw.info["bads"] = sorted(set(state["bads"]))
     return edits
 
@@ -240,7 +334,7 @@ def write_reviewed_fif(
     return {"review_edits": edits}
 
 
-def plot_edits(raw_path, reviewed, step, prior, updates):
+def plot_edits(raw_path, reviewed, step, prior, updates, *, persisted=None):
     """Isolate annotation edits from reversible repair-interval decisions."""
     import mne
     from lfptensorpipe.preproc.repair_review import repair_decisions, replay_repair
@@ -253,6 +347,24 @@ def plot_edits(raw_path, reviewed, step, prior, updates):
                 original, prior["intervals"], repair_decisions(updates["intervals"])
             )
         delta = review_delta(
-            current_state(original), current_state(reviewed), step=step
+            current_state(original, precise=True),
+            current_state(reviewed, precise=True),
+            step=step,
+            persisted=persisted,
         )
     return [*prior.get("review_edits", []), *([delta] if delta else [])]
+
+
+def stored_plot_edits(original_path, staged_path, reviewed, step, prior, updates):
+    """Capture writer inputs and account for the exact observations on reopening."""
+    import mne
+
+    with mne.io.read_raw_fif(staged_path, preload=False, verbose="ERROR") as accepted:
+        return plot_edits(
+            original_path,
+            reviewed,
+            step,
+            prior,
+            updates,
+            persisted=current_state(accepted, precise=True),
+        )

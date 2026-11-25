@@ -433,22 +433,34 @@ def _promote_edited_preproc_plot_raw(
     input_generations = dict(generation_snapshot["input_generations"])
     result_generation_id = new_result_generation_id()
 
-    if step in {"signal_repair", "ecg_artifact_removal", "annotations"}:
-        import mne
-        from lfptensorpipe.app.preproc.review_edits import plot_edits
-
-        if isinstance(raw, mne.io.BaseRaw):
-            params_updates = dict(params_updates or {})
-            params_updates["review_edits"] = plot_edits(
-                raw_path, raw, step, prior_params, params_updates
-            )
-
     with AtomicOutputSet(
         [raw_path, log_path],
         cleanup_stale_residues=True,
     ) as output_set:
         save_options = {"fmt": "double"} if step in {"raw", "signal_repair"} else {}
         raw.save(str(output_set.staged_path(raw_path)), overwrite=True, **save_options)
+        if step in {"signal_repair", "ecg_artifact_removal", "annotations"}:
+            import mne
+            from lfptensorpipe.app.preproc.review_edits import (
+                has_unrecorded_plot_edits,
+                stored_plot_edits,
+            )
+
+            if has_unrecorded_plot_edits(payload):
+                # The accepted final state still contains the earlier manual edits.
+                prior_params = {
+                    k: v for k, v in prior_params.items() if k != "review_edits"
+                }
+            elif isinstance(raw, mne.io.BaseRaw):
+                params_updates = dict(params_updates or {})
+                params_updates["review_edits"] = stored_plot_edits(
+                    raw_path,
+                    output_set.staged_path(raw_path),
+                    raw,
+                    step,
+                    prior_params,
+                    params_updates,
+                )
         append_run_log_event(
             output_set.staged_path(log_path),
             RunLogRecord(
