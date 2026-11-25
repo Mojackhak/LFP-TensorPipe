@@ -239,6 +239,14 @@ from each `CH` column. Packet indices are optional and may repeat. Rows with
 more fields than the header are rejected to preserve channel alignment. The
 selected CSV supplies the sampling rate ahead of the TXT.
 
+Sample-row imports keep each observed sample on the recording timeline.
+A jump in packet indices inserts slots using the most frequent observed
+packet length (the longer length in a tie). Neighboring `Time (s)` values
+can locate missing sample rows within a packet and in exports without packet
+indices. Time zero is the first observed sample. Each missing interval is
+zero-filled and marked `BAD_gap` for all channels. Tags stay with their
+source samples after the gap.
+
 Legacy CSV, PINS, and Sceneray neural-signal inputs reject positive and negative
 infinity during `Parse`, before canonical Raw construction. Infinity is not
 cleaned, replaced, or partially accepted. Legacy CSV `NaN` missing values and

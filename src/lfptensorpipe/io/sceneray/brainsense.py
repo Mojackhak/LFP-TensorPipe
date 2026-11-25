@@ -5,6 +5,7 @@ import datetime as dt
 import math
 import re
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -389,6 +390,7 @@ def _append_annotations(
     sfreq_hz: float,
     tag_code_ts: np.ndarray,
     gap_specs: list[tuple[float, float]],
+    sample_positions: np.ndarray | None = None,
 ) -> None:
     import mne
 
@@ -396,7 +398,8 @@ def _append_annotations(
 
     idx = np.flatnonzero(tag_code_ts != 0)
     if idx.size > 0:
-        onsets = idx.astype(float) / float(sfreq_hz)
+        tag_samples = idx if sample_positions is None else sample_positions[idx]
+        onsets = tag_samples.astype(float) / float(sfreq_hz)
         durations = np.zeros_like(onsets)
         descriptions = [f"tag_{int(tag_code_ts[i]):X}" for i in idx]
         ann_list.append(
@@ -476,8 +479,83 @@ def _parse_packet_rows(
     return raw
 
 
+def _sample_row_steps(table: pd.DataFrame, clock_hz: float, version: str) -> np.ndarray:
+    """Return the number of acquisition sample slots between observed rows."""
+    steps = np.ones(max(0, len(table) - 1), dtype=np.intp)
+    if not steps.size:
+        return steps
+    if not math.isfinite(clock_hz):
+        raise ParseError(
+            code="PARSE_SCHEMA_INVALID",
+            message=f"sr must be finite and > 0, got {clock_hz}",
+            version=version,
+        )
+    times = pd.to_numeric(table.iloc[:, 0], errors="coerce").to_numpy(dtype=float)
+    delta = np.diff(times)
+    usable_clock = np.isfinite(times).all() and not (delta < 0).any()
+    if usable_clock:
+        # Rounded timestamps may label several consecutive sample rows.
+        starts = np.r_[0, np.flatnonzero(delta > 0) + 1]
+        elapsed = np.diff(times[starts])
+        observed = np.diff(starts)
+        regular = np.rint(elapsed * clock_hz) == observed
+        if (delta == 0).any() and regular.any():
+            # A single printed clock tick can contain different row counts.
+            tick = elapsed[regular].min()
+            regular = np.rint(elapsed / tick) == 1
+        period = (
+            elapsed[regular].sum() / observed[regular].sum()
+            if regular.any()
+            else 1.0 / clock_hz
+        )
+        missing = np.maximum(0, np.rint(elapsed / period).astype(np.intp) - observed)
+        missing[regular] = 0
+        steps[starts[1:] - 1] += missing
+
+    if "Packet Index" in table and table["Packet Index"].notna().all():
+        try:
+            ids = table["Packet Index"].map(Decimal).to_numpy()
+            if any(
+                not value.is_finite() or value != value.to_integral_value()
+                for value in ids
+            ):
+                raise ValueError("Non-integral packet index.")
+        except (TypeError, ValueError, OverflowError, InvalidOperation) as exc:
+            raise ParseError(
+                code="PARSE_SCHEMA_INVALID",
+                message="SceneRay sample-row Packet Index must contain integers.",
+                version=version,
+            ) from exc
+        starts = np.r_[0, np.flatnonzero(ids[1:] != ids[:-1]) + 1]
+        jumps = np.diff(ids[starts])
+        if (jumps > 0).all():
+            skipped = jumps > 1
+            if skipped.any():
+                sizes, counts = np.unique(
+                    np.diff(np.r_[starts, len(table)]), return_counts=True
+                )
+                width = int(sizes[counts == counts.max()][-1])
+                # An identified packet jump has an exact width even when the
+                # displayed clock drifts relative to the nominal sampling rate.
+                steps[starts[1:][skipped] - 1] = 1 + (jumps[skipped] - 1) * width
+            return steps
+
+    if not usable_clock:
+        raise ParseError(
+            code="PARSE_TIMELINE_INVALID",
+            message="SceneRay sample-row times must be finite and nondecreasing to recover the timeline.",
+            version=version,
+        )
+    return steps
+
+
 def _parse_sample_rows(
-    table: pd.DataFrame, channel_tokens: list[str], sfreq_hz: float, version: str
+    table: pd.DataFrame,
+    channel_tokens: list[str],
+    sfreq_hz: float,
+    version: str,
+    *,
+    clock_hz: float,
 ) -> Any:
     if table.empty:
         raise ParseError(
@@ -510,10 +588,32 @@ def _parse_sample_rows(
             version=version,
         ) from exc
     channels.columns = names
+    steps = _sample_row_steps(table, clock_hz, version)
+    gap_edges = np.flatnonzero(steps > 1)
+    positions = None
+    gaps = []
+    if gap_edges.size:
+        positions = np.r_[0, np.cumsum(steps)]
+        channels = channels.set_axis(positions).reindex(
+            pd.RangeIndex(positions[-1] + 1), fill_value=0.0
+        )
+        gaps = [
+            ((positions[i] + 1) / sfreq_hz, (steps[i] - 1) / sfreq_hz)
+            for i in gap_edges
+        ]
     raw = _raw_from_channels(channels, sfreq_hz, version)
-    if "Tag Code" in table:
-        tags = table["Tag Code"].map(_parse_tag_code).to_numpy()
-        _append_annotations(raw, sfreq_hz=sfreq_hz, tag_code_ts=tags, gap_specs=[])
+    tags = (
+        table["Tag Code"].map(_parse_tag_code).to_numpy()
+        if "Tag Code" in table
+        else np.empty(0, dtype=int)
+    )
+    _append_annotations(
+        raw,
+        sfreq_hz=sfreq_hz,
+        tag_code_ts=tags,
+        gap_specs=gaps,
+        sample_positions=positions,
+    )
     return raw
 
 
@@ -601,7 +701,12 @@ def parse(
             )
 
         try:
-            table = pd.read_csv(csv_path, skiprows=header_row, skipinitialspace=True)
+            table = pd.read_csv(
+                csv_path,
+                skiprows=header_row,
+                skipinitialspace=True,
+                dtype={"Packet Index": str} if table_header == "Time (s)" else None,
+            )
         except pd.errors.ParserError as exc:
             if suffix != "_uv_reorg.csv":
                 raise
@@ -612,7 +717,15 @@ def parse(
             ) from exc
         table.columns = [str(c).strip() for c in table.columns]
         if suffix == "_uv_reorg.csv":
-            raw = _parse_sample_rows(table, channel_tokens, sfreq_hz, version)
+            source_rate = sfreq_from_csv or (
+                txt_meta.sample_frequency_hz if txt_meta else None
+            )
+            clock_hz = (
+                source_rate if source_rate and math.isfinite(source_rate) else sfreq_hz
+            )
+            raw = _parse_sample_rows(
+                table, channel_tokens, sfreq_hz, version, clock_hz=clock_hz
+            )
         else:
             raw = _parse_packet_rows(table, channel_tokens, sfreq_hz, version)
 
