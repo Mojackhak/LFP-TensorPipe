@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+from decimal import Decimal
 from typing import Any
 
 import numpy as np
@@ -14,6 +15,20 @@ logger = logging.getLogger(__name__)
 
 class InfiniteSignalValuesError(ValueError):
     """Raised when signal data contains positive or negative infinity."""
+
+
+def parse_packet_integer(value: Any) -> int:
+    """Read an integral packet field without rounding its source spelling."""
+    token = str(value).strip()
+    parsed_float = float(token)
+    parsed_decimal = Decimal(token)
+    if (
+        not math.isfinite(parsed_float)
+        or not parsed_decimal.is_finite()
+        or parsed_decimal != parsed_decimal.to_integral_value()
+    ):
+        raise ValueError("packet field must be a finite integer")
+    return int(parsed_decimal)
 
 
 def _voltage_unit_to_volt_scale(unit: str) -> float:

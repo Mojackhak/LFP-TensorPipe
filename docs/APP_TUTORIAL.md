@@ -102,6 +102,10 @@ Also enable `Advanced` and set the metadata sidecar to:
 Click `Parse` first. The parse summary should report the SceneRay vendor,
 sampling rate, duration, and channel count.
 
+SceneRay reports duplicate normalized electrode names as
+`PARSE_CHANNEL_MAP_INVALID`. A fractional packet index or a nonnumeric packet
+signal is reported as `PARSE_SCHEMA_INVALID`.
+
 Parsing rejects positive or negative infinity in Sceneray neural-signal cells
 before it creates the preview Raw. Correct the source export rather than
 replacing or clipping the value. This check does not change the documented

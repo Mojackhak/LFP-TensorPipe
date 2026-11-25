@@ -13,7 +13,11 @@ import numpy as np
 import pandas as pd
 
 from lfptensorpipe.io.source_metadata import SourceMetadata
-from lfptensorpipe.io.converter import InfiniteSignalValuesError, df2mne
+from lfptensorpipe.io.converter import (
+    InfiniteSignalValuesError,
+    df2mne,
+    parse_packet_integer,
+)
 
 VENDOR_NAME = "Sceneray"
 CANONICAL_CHANNEL_RE = re.compile(r"^\d+[A-Za-z]*_\d+[A-Za-z]*(_[LR])?$")
@@ -108,6 +112,11 @@ def _parse_channel_names(channel_tokens: Sequence[str], n_channels: int) -> list
                 f"Invalid channel names: {invalid}. "
                 "Expected pattern: ^\\d+[A-Za-z]*_\\d+[A-Za-z]*(_[LR])?$"
             ),
+        )
+    if len(names) != len(set(names)):
+        raise ParseError(
+            code="PARSE_CHANNEL_MAP_INVALID",
+            message=f"Duplicate normalized channel names: {names}",
         )
     return names
 
@@ -252,12 +261,15 @@ def _drop_dups_and_fill_packet_index(
         )
 
     df = df.copy()
-    df[packet_col] = pd.to_numeric(df[packet_col], errors="coerce").astype("Int64")
-    if df[packet_col].isna().any():
+    try:
+        df[packet_col] = pd.array(
+            [parse_packet_integer(value) for value in df[packet_col]], dtype="Int64"
+        )
+    except (TypeError, ValueError, ArithmeticError) as exc:
         raise ParseError(
             code="PARSE_SCHEMA_INVALID",
-            message="Packet Index contains non-numeric values.",
-        )
+            message="Packet Index must contain finite integers.",
+        ) from exc
 
     dup_mask = df.duplicated(subset=packet_col, keep=False)
     if dup_mask.any():
@@ -368,11 +380,17 @@ def _build_tag_code_series(
         return out
 
     packet_ms = int(math.ceil(n_blocks * 1000.0 / sfreq_hz))
-    for i in range(n_packets):
-        code = _parse_tag_code(df_packets.loc[i, "Tag Code"])
+    fields = zip(df_packets["Tag Code"], df_packets["Tag Index"])
+    for i, (tag, index_ms) in enumerate(fields):
+        try:
+            tag = pd.to_numeric(tag)
+        except ValueError:
+            # Hexadecimal and vendor text codes use the existing tag parser.
+            pass
+        code = _parse_tag_code(tag)
         if code == 0:
             continue
-        idx_ms = _parse_tag_index_ms(df_packets.loc[i, "Tag Index"])
+        idx_ms = _parse_tag_index_ms(index_ms)
         idx_ms_safe = max(1, idx_ms)
         if 1 <= idx_ms_safe <= packet_ms:
             block_1based = int(math.ceil((idx_ms_safe / 1000.0) * sfreq_hz))
@@ -477,7 +495,14 @@ def _parse_packet_rows(
     n_blocks = len(cols_by_ch[0])
     cube = np.empty((len(packets), n_blocks, n_channels), dtype=float)
     for ch0, cols in enumerate(cols_by_ch):
-        cube[:, :, ch0] = packets[cols].astype(float).to_numpy()
+        try:
+            cube[:, :, ch0] = packets[cols].astype(float).to_numpy()
+        except (TypeError, ValueError) as exc:
+            raise ParseError(
+                code="PARSE_SCHEMA_INVALID",
+                message=f"Invalid CH{ch0 + 1} signal value: {exc}",
+                version=version,
+            ) from exc
     channels = pd.DataFrame(cube.reshape(-1, n_channels), columns=names)
     raw = _raw_from_channels(channels, sfreq_hz, version)
 
@@ -717,7 +742,9 @@ def parse(
                 csv_path,
                 skiprows=header_row,
                 skipinitialspace=True,
-                dtype={"Packet Index": str} if table_header == "Time (s)" else None,
+                dtype=(
+                    object if table_header == "Packet Index" else {"Packet Index": str}
+                ),
             )
         except pd.errors.ParserError as exc:
             if suffix != "_uv_reorg.csv":
