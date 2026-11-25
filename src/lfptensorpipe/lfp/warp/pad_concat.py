@@ -319,6 +319,11 @@ def pad_warper(
 
         if n_samples is None:
             n_out = max(native_lengths)
+            if n_out == 0:
+                raise RuntimeError(
+                    "Selected Clip Around Event windows have no native samples "
+                    "at the supplied sampling rate."
+                )
             out = np.full(
                 (len(warped_list),) + lead_shape + (n_out,),
                 np.nan,

@@ -205,21 +205,23 @@ class InspectorData:
                     stop = int(
                         np.clip(np.ceil(s.source_end * sf - 1e-9), 0, raw.n_times)
                     )
-                    endpoint = (
+                    include_endpoint = (
                         self.method == "linear_warper"
                         and self.axis == "percent"
                         and part == len(self.mappings[index]) - 1
-                    )
-                    if (
-                        endpoint
                         and stop < raw.n_times
                         and abs(stop / sf - s.source_end) < 1e-10
-                    ):
+                    )
+                    if include_endpoint:
                         stop += 1
                     sample_indices = np.arange(start, stop)
                     times = sample_indices / sf
-                    source = np.clip(times, s.source_start, s.source_end)
-                    end = np.minimum(times + 1 / sf, s.source_end)
+                    source_bounds = (s.source_start, s.source_end)
+                    target_bounds = (s.target_start, s.target_end)
+                    cell_start = np.interp(times, source_bounds, target_bounds)
+                    cell_end = np.interp(times + 1 / sf, source_bounds, target_bounds)
+                    if include_endpoint:
+                        cell_start[-1] = cell_end[-1] = s.target_end
                     values = (
                         raw.get_data(start=start, stop=stop) * 1e6
                         if stop > start
@@ -233,9 +235,6 @@ class InspectorData:
                     )
                     scale = (s.source_end - s.source_start) / (
                         s.target_end - s.target_start
-                    )
-                    sample_time = np.minimum(
-                        s.target_end, s.target_start + (source - s.source_start) / scale
                     )
                     sample_end = None
                     if self.method == "stack_warper":
@@ -258,11 +257,12 @@ class InspectorData:
                         # Reading starts at the overlapping cell for coverage. Its
                         # waveform center belongs to exactly one adjoining segment.
                         first = int(np.ceil(s.source_start * sf - 1e-9))
+                        sample_time = cell_start.copy()
                         sample_time[sample_indices < first] = np.nan
                     spans.append(
                         SignalSpan(
-                            s.target_start + (source - s.source_start) / scale,
-                            s.target_start + (end - s.source_start) / scale,
+                            cell_start,
+                            cell_end,
                             values,
                             scale,
                             s,

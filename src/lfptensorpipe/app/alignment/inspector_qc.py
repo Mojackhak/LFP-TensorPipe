@@ -9,7 +9,7 @@ from scipy.ndimage import label, sum_labels
 
 from .inspector_config import LETTERS, SIGNAL, evaluate, expression_program, logic
 from .inspector_data import runs
-from lfptensorpipe.lfp.burst.timeline import sample_cell_edges
+from lfptensorpipe.lfp.burst.timeline import _positive_duration, sample_cell_edges
 from lfptensorpipe.lfp.mask.mask import union_intervals
 
 
@@ -100,9 +100,9 @@ def missing_intervals(left, right, invalid, window, *, include_outside=False):
     if include_outside:
         if not len(left):
             return [[low, high]]
-        if left[0] > low:
+        if _positive_duration(low, min(high, left[0])):
             gaps.insert(0, [low, min(high, float(left[0]))])
-        if right[-1] < high:
+        if _positive_duration(max(low, right[-1]), high):
             gaps.append([max(low, float(right[-1])), high])
     return gaps
 

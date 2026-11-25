@@ -1928,6 +1928,8 @@ Preview transforms power to dB and positive Burst amplitude to log10 before aver
 
 Waveform MAD uses the Stack sample grid through its final center. Valid coverage
 uses elapsed sample support and subtracts the union of overlapping notches.
+The final Linear waveform sample belongs to the exact 100% endpoint. Cue
+coverage lists missing intervals only when they extend beyond rounding precision.
 Stitched metric clusters end at the seam, and cue-window coverage highlights
 time outside the recording. Rerun QC to review earlier decisions that depended
 on these cases. Saved manual Include choices remain available.
@@ -2028,6 +2030,9 @@ a missing value.
   onset stays at `pad left` seconds and offset at
   `pad left + anno left + anno right` seconds on the stitched axis.
   A clipped fragment with no native samples also contributes missing values.
+  The native-sample Python API reports an error if the selected windows yield
+  no output samples at the supplied rate. A requested output grid can still
+  represent a wholly missing epoch.
   Epoch Inspector counts padding as missing for valid coverage. A Burst
   display bin touching padding is missing, and native Features use only
   recorded support. A phase entirely in padding has no valid duration.
