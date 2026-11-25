@@ -38,6 +38,24 @@ def merged(base, changes):
     result = deepcopy(base)
     for key, value in changes.items():
         if isinstance(value, dict) and isinstance(result.get(key), dict):
+            if key in {
+                "anchors_percent",
+                "epoch_selection",
+                "significance_thresholds_by_channel",
+            }:
+                result[key] = deepcopy(value)
+                continue
+            if key == "ecg_artifact_removal" and "method" in value:
+                if str(value["method"]).strip().lower() != str(result[key].get("method", "svd")).strip().lower():
+                    result[key].pop("method_kwargs", None)
+            if key == "method_params":
+                if "cue_response" in value:
+                    result[key].pop("anchors_percent", None)
+                    result[key].pop("event_groups", None)
+                elif "anchors_percent" in value or "event_groups" in value:
+                    result[key].pop("cue_response", None)
+                    if "anchors_percent" in value:
+                        result[key].pop("event_groups", None)
             if key == "notch_model" and ("params" in result[key] or "params" in value):
                 from lfptensorpipe.preproc.notch import default_notch_model
 

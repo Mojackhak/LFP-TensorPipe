@@ -517,7 +517,7 @@ def _extract_metric_outputs(
         axes_signature, metric_key, collapse_base_cfg.get("time_interval_mode"), support
     )
     calc_rows = phase_windows["times"]
-    if unit is not None:
+    if unit is not None and times_rows:
         calc_rows = convert_phase_rows(times_rows, unit, "percent", duration)
         collapse_base_cfg = {**collapse_base_cfg, "time_interval_mode": "percent"}
     time_axis = svc._rows_to_interval_mapping(calc_rows)
@@ -864,14 +864,14 @@ def run_extract_features(
         )
         duration = None
         if any(
-            "s"
-            in (axes.get("time_unit"), previous_axes.get(metric, {}).get("time_unit"))
+            node.get("times") and node.get("time_unit") == "s"
             for metric, axes in planned_axes.items()
+            for node in (axes, previous_axes.get(metric, {}))
         ):
             duration = trial_seconds_duration(resolver, slug)
         for metric, _ in metric_items:
             request = metric_axes.get(metric, {})
-            if "time_unit" in request:
+            if "time_unit" in request and request.get("times"):
                 validate_phase_bounds(
                     request.get("times", []), request["time_unit"], duration
                 )

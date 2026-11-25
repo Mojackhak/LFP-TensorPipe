@@ -405,7 +405,12 @@ def prepare_features_config(
         feature_band_support_error,
         normalize_feature_axis_rows,
     )
-    from .features.derive_defaults import _metric_uses_auto_bands
+    from .features.derive_defaults import (
+        _load_derive_param_cfg,
+        _metric_uses_auto_bands,
+        _resolve_enabled_outputs,
+    )
+    from .features.execution import execution_output_kinds
     from .features.phase_time import (
         PhaseSupportError,
         phase_limit,
@@ -421,11 +426,36 @@ def prepare_features_config(
     axes = {}
     duration = None
     execution = node.get("execution")
+    if execution is None:
+        output_defaults = _load_derive_param_cfg(config_store)
+    elif not isinstance(execution, dict) or not isinstance(
+        execution.get("metrics"), dict
+    ):
+        raise ConfigError("Features execution must define its metrics.")
     collapse = execution.get("collapse") if isinstance(execution, dict) else None
     interval_mode = collapse.get("time_interval_mode") if isinstance(collapse, dict) else None
     for metric in metrics:
         source = node["axes_by_metric"][metric]
         auto = _metric_uses_auto_bands(metric)
+        if execution is None:
+            enabled = {
+                kind
+                for kind, on in _resolve_enabled_outputs(
+                    output_defaults, metric
+                ).items()
+                if on
+            }
+        else:
+            try:
+                enabled = set(
+                    execution_output_kinds(execution["metrics"].get(metric), metric)
+                )
+            except ValueError as exc:
+                raise ConfigError(str(exc)) from exc
+        needs_axis = {
+            "times": bool(enabled & {"spectral", "scalar"}),
+            "bands": bool(enabled & {"trace", "scalar"}),
+        }
         _require_fields(
             source,
             ("times",) if auto else ("bands", "times"),
@@ -444,9 +474,11 @@ def prepare_features_config(
                 config_store=config_store,
             )
             unit = source.get("time_unit", "percent")
-            if unit == "s" and duration is None and trial:
+            if unit == "s" and source["times"] and duration is None and trial:
                 duration = trial_seconds_duration(PathResolver(context), trial)
-            limit = phase_limit(unit, duration)
+            limit = (
+                phase_limit(unit, duration) if source["times"] or unit != "s" else None
+            )
         except PhaseSupportError as exc:
             raise RunFailed(f"{metric}: {exc}") from exc
         except ValueError as exc:
@@ -459,7 +491,7 @@ def prepare_features_config(
             raw = source[key]
             if (
                 not isinstance(raw, list)
-                or not normalized
+                or (needs_axis[key] and not normalized)
                 or len(raw) != len(normalized)
             ):
                 if key == "times" and unit == "s" and isinstance(raw, list):
@@ -470,7 +502,7 @@ def prepare_features_config(
                 raise ConfigError(
                     f"features.axes_by_metric.{metric}.{key} contains missing, invalid, or duplicate rows."
                 )
-        if not auto:
+        if bands:
             log = (
                 read_run_log(tensor_metric_log_path(PathResolver(context), metric))
                 or {}

@@ -164,6 +164,17 @@ def execution_snapshot(context, trial, metrics, store, *, accepted=None):
     return {"metrics": definitions, "collapse": settings}
 
 
+def execution_output_kinds(definition, key):
+    if not isinstance(definition, dict):
+        raise ValueError(f"Invalid execution definition for {key}.")
+    kinds = definition.get("outputs")
+    if not isinstance(kinds, list) or any(
+        not isinstance(k, str) or k not in KINDS for k in kinds
+    ):
+        raise ValueError(f"Invalid outputs for {key}.")
+    return kinds
+
+
 def execution_configs(execution, metrics):
     """Translate a frozen definition into the inputs consumed by native reducers."""
     from .burst_native import BURST_REDUCERS
@@ -208,13 +219,8 @@ def execution_configs(execution, metrics):
         raise ValueError("Invalid Features interval or Boolean reduction settings.")
     outputs, reducers = {}, {}
     for key, definition in execution["metrics"].items():
-        if not isinstance(definition, dict):
-            raise ValueError(f"Invalid execution definition for {key}.")
-        kinds, names = definition.get("outputs"), definition.get("reducers")
-        if not isinstance(kinds, list) or any(
-            not isinstance(k, str) or k not in KINDS for k in kinds
-        ):
-            raise ValueError(f"Invalid outputs for {key}.")
+        kinds = execution_output_kinds(definition, key)
+        names = definition.get("reducers")
         allowed = BURST_REDUCERS if key == "burst" else {r.value for r in ReducerKind}
         if (
             not isinstance(names, list)

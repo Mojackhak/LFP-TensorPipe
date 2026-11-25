@@ -132,6 +132,16 @@ Filter replay compares the active notch method and its effective settings. Model
 
 For a recording-bound review, replay checks the saved Raw and preprocessing prefix, then compares the accepted annotations and bad channels. An equivalent historical review reuses the current step. In variant plans, a partial override of Model Notch parameters changes the specified fields for that method and preserves the other settings for that method.
 
+Changing the ECG method selects the new method's defaults and supplied
+arguments. An override of the anchor table, per-channel CleanLine thresholds,
+or an embedded epoch selection supplies the entire replacement. Switching
+between cue-response and explicit anchor definitions drops the previous
+definition. Supply event groups together with the anchor table to use groups.
+
+Features requires phases for spectral and scalar outputs and numeric bands for
+trace and scalar outputs on metrics with editable bands. An unused axis can be
+an empty list, including in an exported configuration used for replay.
+
 For example, this recipe applies SVD ECG correction to two named channels, retains the behavioral events on Raw, and runs Finish.
 
 ```json
