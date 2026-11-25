@@ -420,6 +420,8 @@ close. If that owned MATLAB session cannot be confirmed stopped within the
 bounded shutdown wait, the main window remains open and reports the shutdown
 failure. A separately launched Contact Viewer or any MATLAB session not owned
 by the main app is outside this close contract and is not terminated.
+When closing auxiliary windows, a dialog may also destroy a related widget.
+Shutdown continues with the remaining open windows in that case.
 
 ### 4.2 Match: Record Channels ↔ Lead-DBS Contacts
 

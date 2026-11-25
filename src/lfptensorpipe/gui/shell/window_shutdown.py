@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from shiboken6 import isValid
+
 from lfptensorpipe.gui.shell.preproc_plotting_backend import (
     active_mne_browser_tracking_tokens,
     active_mne_browser_widget_tokens,
@@ -83,6 +85,7 @@ def _close_qt_top_level_widgets(window: Any, *, excluded_tokens: set[int]) -> No
         if (
             widget is window
             or not isinstance(widget, QWidget)
+            or not isValid(widget)
             or not widget.isVisible()
             or id(widget) in excluded_widget_tokens
         ):
