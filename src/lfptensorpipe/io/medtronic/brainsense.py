@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import re
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -231,6 +232,39 @@ def _normalize_channel_name(value: Any, *, version: str) -> str:
     return out
 
 
+def _check_duplicate_packets(
+    entry: dict[str, Any], channel: str, order: int, version: str
+) -> None:
+    """Reject repeated numeric sequence/tick pairs within this channel entry."""
+    fields = []
+    for name in ("GlobalSequences", "TicksInMses"):
+        values = entry.get(name)
+        if isinstance(values, str):
+            values = values.split(",")
+        if not isinstance(values, list):
+            return
+        fields.append(values)
+
+    seen = set()
+    for sequence, tick in zip(*fields):
+        try:
+            identity = (Decimal(str(sequence)), Decimal(str(tick)))
+        except InvalidOperation:
+            continue
+        if not all(value.is_finite() for value in identity):
+            continue
+        if identity in seen:
+            raise ParseError(
+                code="PARSE_TIMELINE_INVALID",
+                message=(
+                    f"Duplicate packet in {SECTION_NAME}[{order}] for {channel}: "
+                    f"GlobalSequences={identity[0]}, TicksInMses={identity[1]}."
+                ),
+                version=version,
+            )
+        seen.add(identity)
+
+
 def _parse_entries(session: dict[str, Any], *, version: str) -> list[_Entry]:
     section = session.get(SECTION_NAME)
     if not isinstance(section, list) or not section:
@@ -319,6 +353,7 @@ def _parse_entries(session: dict[str, Any], *, version: str) -> list[_Entry]:
                 version=version,
             )
 
+        _check_duplicate_packets(entry, channel, order, version)
         entries.append(
             _Entry(
                 order=order,

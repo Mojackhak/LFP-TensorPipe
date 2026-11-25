@@ -270,6 +270,13 @@ Medtronic `SampleRateInHz` is source metadata, not an editable control. It
 must be finite and strictly positive before Gain is applied. Invalid rates
 block Parse and do not create a record.
 
+When a BrainSense time-domain entry includes packet metadata, repeating the
+same `GlobalSequences` number and `TicksInMses` timestamp within that entry
+stops import with `PARSE_TIMELINE_INVALID`. This also applies to nonadjacent
+duplicates and to copies with different signal values. Reusing a sequence
+number at a later tick or sharing packet identifiers across channels is valid.
+Exports without both identifiers can still be imported.
+
 Both the import dialog and the direct file import API require a channel-only
 Legacy CSV. A `Time` column is rejected. Compressed `.fif.gz` inputs, like
 `.fif` inputs, are saved as the canonical Raw without an extra Sourcedata copy.
