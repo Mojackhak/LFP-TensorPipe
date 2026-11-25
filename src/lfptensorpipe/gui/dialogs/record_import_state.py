@@ -75,6 +75,8 @@ def _update_confirm_button_state(dialog) -> None:
 
 
 def _invalidate_parse_state(dialog) -> None:
+    if dialog._parsed is not None and dialog._parsed.provenance:
+        dialog._previous_acquisition = (dialog._parsed.source_path, dialog._parsed.provenance)
     dialog._parsed = None
     dialog._acquisition_button.setEnabled(False)
     dialog._sync_state = None

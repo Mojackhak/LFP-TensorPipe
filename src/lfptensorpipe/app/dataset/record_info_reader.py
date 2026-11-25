@@ -322,25 +322,18 @@ def read_record_information(context: RecordContext) -> RecordInformation:
             from lfptensorpipe.io.pins import ParseError as PinsError
             from lfptensorpipe.io.csv import ParseError as LegacyCSVError
 
-            kind, source, session = _historical_source(
-                sourcedata_record_raw_dir(root, subject, record), info.source_file
-            )
-            info = RecordProvenance(kind, source.name if source else info.source_file)
-            if source:
-                try:
+            try:
+                kind, source, session = _historical_source(
+                    sourcedata_record_raw_dir(root, subject, record), info.source_file
+                )
+                info = RecordProvenance(kind, source.name if source else info.source_file)
+                if source:
                     _recover(
                         info, source, session, raw if known_timebase else None, sync
                     )
-                except (
-                    OSError,
-                    ValueError,
-                    KeyError,
-                    RuntimeError,
-                    PinsError,
-                    LegacyCSVError,
-                    MedtronicError,
-                ) as exc:
-                    notices.append(f"Original recording details unavailable: {exc}")
+            except (OSError, ValueError, KeyError, RuntimeError, csv.Error,
+                    PinsError, LegacyCSVError, MedtronicError) as exc:
+                notices.append(f"Original recording details unavailable: {exc}")
         names = raw.ch_names if raw is not None else [r.name for r in info.outputs]
         legacy = historical and (info.import_type or "").startswith("Legacy")
         ins, outs = channel_tables(info, names, historical_legacy=legacy)

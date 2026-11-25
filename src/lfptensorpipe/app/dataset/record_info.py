@@ -248,19 +248,6 @@ def channel_tables(
             recording, ref = reference.reference_contact, reference.recording_contact
             operand = _contact_expression(reference)
             expression = f"−({operand})" if operand else f"−{reference.name}"
-        operands = [row for row in (signal, reference) if row is not None]
-        has_operator_roles = any(
-            "operator" in (row.recording_contact_source, row.reference_contact_source)
-            for row in operands
-        )
-        if (
-            info.import_type in VENDORS
-            and not has_operator_roles
-            and (len(operands) < 2 or recording is not None or ref is not None)
-        ):
-            named_recording, named_reference = contact_roles(name)
-            if named_recording is not None:
-                recording, ref = named_recording, named_reference
         out_rows.append(
             ChannelDisplay(name, recording or UNKNOWN, ref or UNKNOWN, expression)
         )

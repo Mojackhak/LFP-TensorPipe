@@ -60,6 +60,11 @@ supplies the effective rate and output channels. New imports store their source
 labels, acquisition contacts and actual software derivations in the adjacent
 `record_info.json`.
 
+Output contact roles follow the saved signal and reference operands, including
+unary inversion. A channel's display name may be renamed freely. When the
+original operation cannot be recovered, Record Information shows `Unknown`.
+Re-parsing the same source retains operator contact edits for matching inputs.
+
 For a historical record, information is read on demand for the selected record.
 For SceneRay, PINS and Medtronic, a recoverable derivation requires a matching
 source and a unique whole-waveform match after the recorded sync shift.

@@ -207,14 +207,9 @@ def _on_parse(dialog) -> None:
         )
 
     provenance = RecordProvenance.from_parsed(import_type, source_path, raw, metadata)
-    old_preview = dialog._parsed
-    if (
-        old_preview
-        and old_preview.provenance
-        and old_preview.source_path == source_path
-        and old_preview.import_type == import_type
-    ):
-        old_inputs = {row.name: row for row in old_preview.provenance.inputs}
+    old = ((dialog._parsed.source_path, dialog._parsed.provenance) if dialog._parsed else dialog._previous_acquisition)
+    if old and old[0] == source_path and old[1] and old[1].import_type == import_type:
+        old_inputs = {row.name: row for row in old[1].inputs}
         for row in provenance.inputs:
             previous = old_inputs.get(row.name)
             if previous and previous.source_label == row.source_label:
@@ -222,6 +217,7 @@ def _on_parse(dialog) -> None:
                     if getattr(previous, field + "_source") == "operator":
                         setattr(row, field, getattr(previous, field))
                         setattr(row, field + "_source", "operator")
+    dialog._previous_acquisition = None
     dialog._parsed = ParsedImportPreview(
         base_raw=raw,
         report=report,

@@ -93,6 +93,7 @@ class RecordImportDialog(QDialog):
         }
         self._existing_records.update(self._occupied_record_paths)
         self._parsed: ParsedImportPreview | None = None
+        self._previous_acquisition = None
         self._sync_state = None
         self._reset_rows: tuple[ResetReferenceRow, ...] = ()
         self._parsed_channel_signature: tuple[str, ...] = ()

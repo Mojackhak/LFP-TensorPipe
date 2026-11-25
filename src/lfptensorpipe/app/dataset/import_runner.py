@@ -317,8 +317,7 @@ def import_record(
             bipolar_names if bipolar_names else None,
         )
         rows = [
-            (a, b, bipolar_names[i] if bipolar_names else f"{a}-{b}")
-            for i, (a, b) in enumerate(bipolar_pairs)
+            (a, b, raw.ch_names[i]) for i, (a, b) in enumerate(bipolar_pairs)
         ]
         info.outputs = imported_outputs((row.name for row in info.inputs), rows)
     except Exception as exc:  # noqa: BLE001
