@@ -532,7 +532,7 @@ def _run_features(
 def _run_localize(
     context: RecordContext, node: dict[str, Any], config_store: Any
 ) -> str:
-    from .localize.paths import LEAD_DBS, USER_LABELS
+    from .localize.paths import LEAD_DBS, USER_LABELS, record_channel_fif
 
     source = node.get("source", LEAD_DBS)
     if source == USER_LABELS:
@@ -540,12 +540,9 @@ def _run_localize(
         from pathlib import Path
         from .localize.user_labels import read_labels
         from .localize.service import run_localize_apply
-        from .preproc.paths import rawdata_input_fif_path
         from .tensor.selectors import load_tensor_channel_inventory
 
-        raw_path = rawdata_input_fif_path(context)
-        if not raw_path.is_file():
-            raw_path = PathResolver(context).preproc_root / "raw/raw.fif"
+        raw_path = record_channel_fif(context)
         channels = tuple(load_tensor_channel_inventory(raw_path).all_channels)
         if (
             not isinstance(node.get("labels_csv"), str)
@@ -595,7 +592,6 @@ def _run_localize(
         source_results,
     )
     from .runlog_store import read_run_log
-    from .preproc.paths import rawdata_input_fif_path
     from .tensor.selectors import load_tensor_channel_inventory
 
     _require_fields(
@@ -637,9 +633,7 @@ def _run_localize(
             )
             _checked_result((ok, message))
             current_signature = build_lead_signature(reconstruction["leads"])
-        raw_path = rawdata_input_fif_path(context)
-        if not raw_path.is_file():
-            raw_path = PathResolver(context).preproc_root / "raw" / "raw.fif"
+        raw_path = record_channel_fif(context)
         channels = load_tensor_channel_inventory(raw_path).all_channels
         try:
             signature = normalize_localize_lead_signature(node["lead_signature"])
@@ -660,17 +654,7 @@ def _run_localize(
             atlas=atlas,
             lead_signature=signature,
         )
-        _patch_state(
-            context,
-            ("localize",),
-            {
-                "atlas": atlas,
-                "selected_regions": regions,
-                "match": match,
-                "selected_source": LEAD_DBS,
-            },
-        )
-        return _checked_result(
+        message = _checked_result(
             svc.run_localize_apply(
                 project_root=context.project_root,
                 subject=context.subject,
@@ -680,6 +664,7 @@ def _run_localize(
                 selected_regions=regions,
                 paths=paths,
                 channels=channels,
+                load_match_payload_fn=lambda *_: match,
                 load_reconstruction_contacts_fn=(
                     (lambda *_: (True, "", reconstruction))
                     if reconstruction is not None
@@ -687,6 +672,10 @@ def _run_localize(
                 ),
             )
         )
+        _patch_state(context, ("localize",), {
+            "atlas": atlas, "selected_regions": regions, "match": match, "selected_source": LEAD_DBS,
+        })
+        return message
     finally:
         if not svc.shutdown_matlab_runtime():
             raise RunFailed("Localize could not shut down its owned MATLAB runtime.")

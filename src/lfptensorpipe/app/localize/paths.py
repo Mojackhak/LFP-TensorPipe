@@ -17,6 +17,15 @@ if TYPE_CHECKING:
     from .service import LocalizePaths
 
 
+def record_channel_fif(context):
+    """Locate the acquired channels in an imported record or an isolated derivative."""
+    from lfptensorpipe.app.path_resolver import PathResolver
+    from lfptensorpipe.app.preproc.paths import rawdata_input_fif_path, preproc_step_raw_path
+
+    path = rawdata_input_fif_path(context)
+    return path if path.is_file() else preproc_step_raw_path(PathResolver(context), "raw", create=False)
+
+
 def normalize_localize_path_payload(payload: Any) -> tuple[dict[str, Any], bool]:
     """Normalize `paths.yml` payload and migrate legacy MATLAB keys."""
     source = payload if isinstance(payload, dict) else {}
@@ -352,9 +361,10 @@ def localize_panel_state(
     label_signature: dict | None = None,
 ) -> str:
     """Return `gray|yellow|green` for the inline editable Localize panel light."""
-    payload = _read_localize_payload(localize_log_path(project_root, subject, record))
+    path = localize_log_path(project_root, subject, record)
+    payload = _read_localize_payload(path)
     if payload is None:
-        return "gray"
+        return "yellow" if path.is_file() else "gray"
     completed = payload.get("completed")
     if completed is False:
         return "yellow"

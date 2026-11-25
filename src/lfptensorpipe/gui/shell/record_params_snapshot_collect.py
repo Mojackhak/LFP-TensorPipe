@@ -247,6 +247,7 @@ class MainWindowRecordParamsSnapshotCollectMixin:
         match = dict(self._localize_match_payload or {})
         match.pop("mapped_count", None)
         return {
+            "selected_source": self._localize_selected_source,
             "atlas": self._localize_selected_atlas,
             "selected_regions": list(self._localize_selected_regions),
             "match": match,

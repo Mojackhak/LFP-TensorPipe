@@ -312,9 +312,14 @@ class MainWindowRecordParamsSnapshotLogsMixin:
     def _merge_localize_logs_into_snapshot(
         self, snapshot: dict[str, Any], resolver: PathResolver
     ) -> None:
-        localize_params = self._read_completed_log_params(
-            resolver.lfp_root / "localize" / "lfptensorpipe_log.json"
-        )
+        from lfptensorpipe.app.localize.paths import LEAD_DBS, source_results
+        try:
+            payload = read_run_log(resolver.lfp_root / "localize" / "lfptensorpipe_log.json")
+        except (OSError, ValueError):
+            return
+        localize_params = source_results(payload).get(LEAD_DBS)
+        if localize_params is None and payload and payload.get("completed") and "source_results" not in (payload.get("state") or {}):
+            localize_params = payload.get("params")
         if not localize_params:
             return
         atlas = localize_params.get("atlas")

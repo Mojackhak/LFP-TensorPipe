@@ -750,6 +750,8 @@ def localize_panel_state(
     atlas: Any,
     selected_regions: Any,
     match_payload: dict[str, Any] | None,
+    source: str | None = None,
+    label_signature: dict | None = None,
 ) -> str:
     return _localize_panel_state_impl(
         project_root,
@@ -758,6 +760,8 @@ def localize_panel_state(
         atlas=atlas,
         selected_regions=selected_regions,
         match_payload=match_payload,
+        source=source,
+        label_signature=label_signature,
     )
 
 

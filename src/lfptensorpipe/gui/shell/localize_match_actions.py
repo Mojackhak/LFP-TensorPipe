@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from lfptensorpipe.gui.shell.common import (
-    QDialog,
-    rawdata_input_fif_path,
-)
+from lfptensorpipe.gui.shell.common import QDialog
+from lfptensorpipe.app.localize.config import build_lead_signature
+from lfptensorpipe.app.localize.paths import record_channel_fif
 
 
 class MainWindowLocalizeMatchActionsMixin:
@@ -13,7 +12,7 @@ class MainWindowLocalizeMatchActionsMixin:
         context = self._record_context()
         if context is None:
             return False, "Select project/subject/record first.", ()
-        fif_path = rawdata_input_fif_path(context)
+        fif_path = record_channel_fif(context)
         if not fif_path.exists():
             return False, f"Missing raw.fif: {fif_path}", ()
         try:
@@ -111,6 +110,7 @@ class MainWindowLocalizeMatchActionsMixin:
                 "record": self._current_record,
                 "space": self._localize_inferred_space,
                 "atlas": self._localize_selected_atlas,
+                "lead_signature": build_lead_signature(summary["leads"]),
             }
         )
         self._save_localize_match_payload(payload)

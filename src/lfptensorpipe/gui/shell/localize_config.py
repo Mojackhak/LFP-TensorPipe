@@ -227,6 +227,9 @@ class MainWindowLocalizeConfigMixin:
         )
         if not ok_signature:
             raise ValueError(message_signature)
+        stored = self._localize_match_payload.get("lead_signature")
+        if stored is not None and stored != lead_signature:
+            raise ValueError("The configured Match differs from the current reconstruction. Configure Match again.")
         match_payload = self._normalize_localize_match_payload(
             self._localize_match_payload,
             expected_channels=channels,

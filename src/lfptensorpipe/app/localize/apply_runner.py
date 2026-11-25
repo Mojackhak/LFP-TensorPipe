@@ -45,6 +45,7 @@ from .paths import (
     localize_record_dir,
     localize_selected_regions_signature,
     reconstruction_mat_path,
+    record_channel_fif,
     source_directory,
     source_files_ready,
     source_results,
@@ -156,15 +157,14 @@ def _prepare_lead_table(
         return summary
 
     expected = match.get("lead_signature")
-    if expected is not None:
-        if "lead_signature" not in params:
-            reconstruction = load_contacts()
-        if expected != params.get("lead_signature"):
-            raise ValueError(
-                "Localize match lead_signature differs from the current reconstruction."
-            )
+    if (expected is not None or saved.get("lead_signature")) and "lead_signature" not in params:
+        reconstruction = load_contacts()
+    if expected is not None and expected != params.get("lead_signature"):
+        raise ValueError(
+            "Localize match lead_signature differs from the current reconstruction."
+        )
     moved = moved_representative_channels(
-        mapping, saved.get("lead_signature"), expected
+        mapping, saved.get("lead_signature"), params.get("lead_signature")
     )
     old_match = saved.get("match_signature", [])
     old_frame = None
@@ -267,6 +267,9 @@ def _prepare_lead_table(
             )
             anchor_file = parts[-1].attrs.get("anchor_file")
             if anchor_file:
+                previous_anchor = geometry["anchor_file"]
+                if previous_anchor and previous_anchor != anchor_file:
+                    geometry["files"].pop(previous_anchor, None)
                 geometry["anchor_file"] = anchor_file
                 geometry["files"][anchor_file] = Path(anchor_file).stat().st_mtime_ns
         if len(parts) > 1:
@@ -326,13 +329,12 @@ def run_localize_apply(
     try:
         if source == USER_LABELS:
             if not channels:
-                from lfptensorpipe.app.preproc.paths import rawdata_input_fif_path
                 from lfptensorpipe.app.tensor.selectors import (
                     load_tensor_channel_inventory,
                 )
 
                 channels = load_tensor_channel_inventory(
-                    rawdata_input_fif_path(context)
+                    record_channel_fif(context)
                 ).all_channels
             labels_path = directory / "input.csv"
             labels = (

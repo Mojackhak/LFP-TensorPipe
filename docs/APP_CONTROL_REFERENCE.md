@@ -425,6 +425,13 @@ Shutdown continues with the remaining open windows in that case.
 
 ### 4.2 Match: Record Channels ↔ Lead-DBS Contacts
 
+Saving Match records the contact names and their order for the resolved leads.
+When the electrode model changes, Apply checks the new contact identity before
+reusing coordinates. A changed model with the same resolved contacts keeps the
+accepted geometry. FSL midpoint results bind to the anchor image used by the
+successful transformation. A read-only record can display its active source
+and readiness; an isolated derivative uses its retained Raw to read channel names.
+
 This dialog binds each record channel to a recording contact, reference contact, and representative
 coordinate mode.
 
