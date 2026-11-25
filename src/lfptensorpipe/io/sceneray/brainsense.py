@@ -168,10 +168,20 @@ def _read_txt_meta(txt_path: Path) -> _TxtMeta:
     )
 
 
-def _find_header_and_meta_rows(csv_path: Path) -> tuple[int, float | None, list[str]]:
-    header_row = -1
+def csv_layout(filename: str) -> tuple[str, str] | None:
+    """Return the vendor filename suffix and the first data-table column."""
+    for suffix, header in (("_uv.csv", "Packet Index"), ("_uv_reorg.csv", "Time (s)")):
+        if filename.endswith(suffix):
+            return suffix, header
+    return None
+
+
+def _find_header_and_meta_rows(
+    csv_path: Path, table_header: str
+) -> tuple[int, float | None, list[str]]:
     sfreq_hz: float | None = None
     channel_tokens: list[str] = []
+    first_column = table_header.lower()
 
     with csv_path.open("r", encoding="utf-8", errors="ignore", newline="") as f:
         reader = csv.reader(f)
@@ -189,16 +199,13 @@ def _find_header_and_meta_rows(csv_path: Path) -> tuple[int, float | None, list[
                 channel_tokens = [
                     str(cell).strip() for cell in row[1:] if str(cell).strip()
                 ]
-            if first == "packet index":
-                header_row = row_idx
-                break
+            if first == first_column:
+                return row_idx, sfreq_hz, channel_tokens
 
-    if header_row < 0:
-        raise ParseError(
-            code="PARSE_SCHEMA_INVALID",
-            message="CSV header row not found: first column 'Packet Index' is missing.",
-        )
-    return header_row, sfreq_hz, channel_tokens
+    raise ParseError(
+        code="PARSE_SCHEMA_INVALID",
+        message=f"CSV header row not found: first column '{table_header}' is missing.",
+    )
 
 
 def _infer_n_channels_from_columns(df: pd.DataFrame) -> int:
@@ -430,6 +437,86 @@ def _set_meas_date_from_bjs(raw: Any, start_time_bjs: dt.datetime | None) -> Non
     raw.set_meas_date(dt_utc)
 
 
+def _raw_from_channels(df: pd.DataFrame, sfreq_hz: float, version: str) -> Any:
+    if not math.isfinite(sfreq_hz):
+        raise ParseError(
+            code="PARSE_SCHEMA_INVALID",
+            message=f"sr must be finite and > 0, got {sfreq_hz}",
+            version=version,
+        )
+    try:
+        return df2mne(df, sr=sfreq_hz, unit="uV")
+    except InfiniteSignalValuesError as exc:
+        raise ParseError(
+            code="PARSE_SCHEMA_INVALID", message=str(exc), version=version
+        ) from exc
+
+
+def _parse_packet_rows(
+    table: pd.DataFrame, channel_tokens: list[str], sfreq_hz: float, version: str
+) -> Any:
+    packets, missing_ranges, first_packet = _drop_dups_and_fill_packet_index(table)
+    n_channels = _infer_n_channels_from_columns(packets)
+    names = _parse_channel_names(channel_tokens, n_channels)
+    cols_by_ch = _collect_channel_block_columns(packets, n_channels)
+    n_blocks = len(cols_by_ch[0])
+    cube = np.empty((len(packets), n_blocks, n_channels), dtype=float)
+    for ch0, cols in enumerate(cols_by_ch):
+        cube[:, :, ch0] = packets[cols].astype(float).to_numpy()
+    channels = pd.DataFrame(cube.reshape(-1, n_channels), columns=names)
+    raw = _raw_from_channels(channels, sfreq_hz, version)
+
+    tags = _build_tag_code_series(packets, n_blocks=n_blocks, sfreq_hz=sfreq_hz)
+    gaps = []
+    for start, end in missing_ranges:
+        onset = (start - first_packet) * n_blocks / sfreq_hz
+        duration = (end - start + 1) * n_blocks / sfreq_hz
+        gaps.append((onset, duration))
+    _append_annotations(raw, sfreq_hz=sfreq_hz, tag_code_ts=tags, gap_specs=gaps)
+    return raw
+
+
+def _parse_sample_rows(
+    table: pd.DataFrame, channel_tokens: list[str], sfreq_hz: float, version: str
+) -> Any:
+    if table.empty:
+        raise ParseError(
+            code="PARSE_SCHEMA_INVALID",
+            message="The SceneRay sample table contains no sample rows.",
+            version=version,
+        )
+    # Pandas uses the leading fields as an index when a row is wider than its header.
+    if not isinstance(table.index, pd.RangeIndex):
+        raise ParseError(
+            code="PARSE_SCHEMA_INVALID",
+            message="The SceneRay sample rows contain more fields than the header.",
+            version=version,
+        )
+    signal_columns = [col for col in table if col.startswith("CH")]
+    ordered_columns = [f"CH{i}" for i in range(1, len(signal_columns) + 1)]
+    if not ordered_columns or set(signal_columns) != set(ordered_columns):
+        raise ParseError(
+            code="PARSE_CHANNEL_MAP_INVALID",
+            message="Expected exactly one sample column per channel, numbered CH1 through CHn.",
+            version=version,
+        )
+    names = _parse_channel_names(channel_tokens, len(ordered_columns))
+    try:
+        channels = table[ordered_columns].astype(float).fillna(0.0)
+    except ValueError as exc:
+        raise ParseError(
+            code="PARSE_SCHEMA_INVALID",
+            message=f"Invalid SceneRay signal value: {exc}",
+            version=version,
+        ) from exc
+    channels.columns = names
+    raw = _raw_from_channels(channels, sfreq_hz, version)
+    if "Tag Code" in table:
+        tags = table["Tag Code"].map(_parse_tag_code).to_numpy()
+        _append_annotations(raw, sfreq_hz=sfreq_hz, tag_code_ts=tags, gap_specs=[])
+    return raw
+
+
 def parse(
     paths: dict[str, str],
     options: dict[str, Any] | None = None,
@@ -440,11 +527,13 @@ def parse(
 
     try:
         csv_path = _require_file(paths, "file_path")
-        if not csv_path.name.endswith("_uv.csv"):
+        layout = csv_layout(csv_path.name)
+        if layout is None:
             raise ParseError(
                 code="PARSE_INPUT_FILE_TYPE_MISMATCH",
-                message=f"Sceneray file must end with '_uv.csv': {csv_path.name}",
+                message=f"Sceneray file must end with '_uv.csv' or '_uv_reorg.csv': {csv_path.name}",
             )
+        suffix, table_header = layout
 
         metadata_raw = paths.get("metadata_path")
         txt_path: Path | None = None
@@ -457,7 +546,7 @@ def parse(
                 )
             txt_path = txt_candidate
         else:
-            inferred = Path(str(csv_path).replace("_uv.csv", ".txt"))
+            inferred = csv_path.with_name(csv_path.name.removesuffix(suffix) + ".txt")
             if inferred.exists() and inferred.is_file():
                 txt_path = inferred
 
@@ -485,7 +574,7 @@ def parse(
                 )
 
         header_row, sfreq_from_csv, channel_tokens = _find_header_and_meta_rows(
-            csv_path
+            csv_path, table_header
         )
         if source_metadata is not None:
             source_metadata.labels.update(
@@ -511,53 +600,21 @@ def parse(
                 version=version,
             )
 
-        df_packets = pd.read_csv(csv_path, skiprows=header_row, skipinitialspace=True)
-        df_packets.columns = [str(c).strip() for c in df_packets.columns]
-        df_packets, missing_ranges, min_packet_idx = _drop_dups_and_fill_packet_index(
-            df_packets
-        )
-
-        n_channels = _infer_n_channels_from_columns(df_packets)
-        channel_names = _parse_channel_names(channel_tokens, n_channels)
-        cols_by_ch = _collect_channel_block_columns(df_packets, n_channels)
-        n_packets = len(df_packets)
-        n_blocks = len(cols_by_ch[0])
-
-        cube = np.empty((n_packets, n_blocks, n_channels), dtype=float)
-        for ch0, cols in enumerate(cols_by_ch):
-            cube[:, :, ch0] = df_packets[cols].astype(float).to_numpy()
-        data2d = cube.reshape(n_packets * n_blocks, n_channels)
-
-        df_channels = pd.DataFrame(data2d, columns=channel_names)
-        if not math.isfinite(float(sfreq_hz)):
-            raise ParseError(
-                code="PARSE_SCHEMA_INVALID",
-                message=f"sr must be finite and > 0, got {sfreq_hz}",
-                version=version,
-            )
         try:
-            raw = df2mne(df_channels, sr=float(sfreq_hz), unit="uV")
-        except InfiniteSignalValuesError as exc:
+            table = pd.read_csv(csv_path, skiprows=header_row, skipinitialspace=True)
+        except pd.errors.ParserError as exc:
+            if suffix != "_uv_reorg.csv":
+                raise
             raise ParseError(
                 code="PARSE_SCHEMA_INVALID",
-                message=str(exc),
+                message=f"Invalid SceneRay sample table: {exc}",
                 version=version,
             ) from exc
-
-        tag_code_ts = _build_tag_code_series(
-            df_packets, n_blocks=n_blocks, sfreq_hz=float(sfreq_hz)
-        )
-        gap_specs: list[tuple[float, float]] = []
-        for start_idx, end_idx in missing_ranges:
-            onset = ((start_idx - min_packet_idx) * n_blocks) / float(sfreq_hz)
-            duration = ((end_idx - start_idx + 1) * n_blocks) / float(sfreq_hz)
-            gap_specs.append((float(onset), float(duration)))
-        _append_annotations(
-            raw,
-            sfreq_hz=float(sfreq_hz),
-            tag_code_ts=tag_code_ts,
-            gap_specs=gap_specs,
-        )
+        table.columns = [str(c).strip() for c in table.columns]
+        if suffix == "_uv_reorg.csv":
+            raw = _parse_sample_rows(table, channel_tokens, sfreq_hz, version)
+        else:
+            raw = _parse_packet_rows(table, channel_tokens, sfreq_hz, version)
 
         _set_meas_date_from_bjs(
             raw,

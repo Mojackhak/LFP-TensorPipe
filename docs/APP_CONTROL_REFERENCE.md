@@ -231,6 +231,14 @@ after a new import starts writing, rollback removes only standard record roots
 created by that import call and preserves pre-existing paths, the caller's source
 file, shared subject directories, and unrelated records.
 
+For `Sceneray`, choose either `*_uv.csv` or `*_uv_reorg.csv` in **Browse**.
+The filename selects the packet or sample-row reader. Both look for the same
+optional `<record>.txt` beside the selected CSV. **Advanced → Metadata** can
+select a different TXT. In a sample-row CSV, each row contributes one sample
+from each `CH` column. Packet indices are optional and may repeat. Rows with
+more fields than the header are rejected to preserve channel alignment. The
+selected CSV supplies the sampling rate ahead of the TXT.
+
 Legacy CSV, PINS, and Sceneray neural-signal inputs reject positive and negative
 infinity during `Parse`, before canonical Raw construction. Infinity is not
 cleaned, replaced, or partially accepted. Legacy CSV `NaN` missing values and

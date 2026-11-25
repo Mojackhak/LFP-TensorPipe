@@ -32,7 +32,7 @@ def _main_file_filter(dialog, import_type: str) -> str:
     if import_type == "PINS":
         return "PINS TXT (EEGRealTime_*.txt);;Text Files (*.txt);;All Files (*.*)"
     if import_type == "Sceneray":
-        return "Sceneray CSV (*_uv.csv);;CSV Files (*.csv);;All Files (*.*)"
+        return "Sceneray CSV (*_uv.csv *_uv_reorg.csv);;CSV Files (*.csv);;All Files (*.*)"
     if import_type == "Legacy (CSV)":
         return "CSV Files (*.csv);;All Files (*.*)"
     ext_tokens = " ".join(f"*{ext}" for ext in MNE_SUPPORTED_RECOMMENDED_EXTENSIONS)

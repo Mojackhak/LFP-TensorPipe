@@ -26,19 +26,22 @@ from .record_info import (
 from .validation import rawdata_record_fif_path, sourcedata_record_raw_dir
 
 
-def _vendor_header(path: Path, vendor: str) -> bool:
+def _vendor_header(
+    path: Path, vendor: str, *, first_column: str = "Packet Index"
+) -> bool:
     """Distinguish vendor exports from user-named Legacy files before recovery."""
     with path.open(encoding="utf-8-sig", errors="replace", newline="") as stream:
         rows = csv.reader(stream)
         if vendor == "PINS":
             header = next(rows, [])
             return {"Packet num", "Packet length"}.issubset(c.strip() for c in header)
+        expected = first_column.lower()
         channel_header = False
         for row in rows:
             if not row or not row[0].strip():
                 continue
             key = row[0].strip().lower()
-            if key == "packet index":
+            if key == expected:
                 return channel_header
             if key == "channel":
                 channel_header = True
@@ -53,6 +56,8 @@ def _historical_source(
 ) -> tuple[str | None, Path | None, dict[str, Any] | None]:
     if not folder.is_dir():
         return None, None, None
+    from lfptensorpipe.io.sceneray.brainsense import csv_layout
+
     files = sorted(
         p for p in folder.iterdir() if p.is_file() and not p.name.startswith(".")
     )
@@ -60,7 +65,8 @@ def _historical_source(
         files = [path for path in files if path.name == known_file]
     identified: list[tuple[str, Path, dict[str, Any] | None]] = []
     for f in files:
-        if f.name.endswith("_uv.csv") and _vendor_header(f, "Sceneray"):
+        layout = csv_layout(f.name)
+        if layout is not None and _vendor_header(f, "Sceneray", first_column=layout[1]):
             identified.append(("Sceneray", f, None))
         elif (
             f.name.startswith("EEGRealTime_")
