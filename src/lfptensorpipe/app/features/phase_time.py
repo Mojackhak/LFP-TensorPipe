@@ -9,7 +9,10 @@ from typing import Any
 import pandas as pd
 
 from lfptensorpipe.app.alignment.generation import latest_alignment_step_entry
-from lfptensorpipe.app.alignment.paths import alignment_trial_raw_table_path, alignment_warp_labels_path
+from lfptensorpipe.app.alignment.paths import (
+    alignment_trial_raw_table_path,
+    alignment_warp_labels_path,
+)
 from lfptensorpipe.app.alignment.warper_builder import _resolve_target_duration_s
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.io.pkl_io import load_pkl
@@ -22,7 +25,10 @@ def trial_seconds_duration(resolver: PathResolver, slug: str) -> float | None:
     )
     if run is None or not run[1].get("completed"):
         return None
-    params = run[1]["params"]
+    return _run_seconds_duration(resolver, slug, run[1]["params"])
+
+
+def _run_seconds_duration(resolver, slug, params):
     method = params.get("method")
     options = params.get("method_params")
     if not isinstance(options, dict):
@@ -97,7 +103,11 @@ def effective_phase_windows(axes, metric, interval_mode, support):
             origin = support[0]
             if origin < 0:
                 rows = [
-                    {**row, "start": row["start"] - origin, "end": row["end"] - origin}
+                    {
+                        **row,
+                        "start": float(row["start"]) - origin,
+                        "end": float(row["end"]) - origin,
+                    }
                     for row in rows
                 ]
     return {"time_unit": unit, "time_origin": "epoch_start", "times": rows}
@@ -105,15 +115,25 @@ def effective_phase_windows(axes, metric, interval_mode, support):
 
 def resolve_stored_phase_axes(resolver, slug, metric, axes, interval_mode):
     """Resolve unitless absolute windows using the Finish timeline that owned them."""
-    if "time_unit" in axes or interval_mode != "absolute" or metric == "burst" or not slug:
+    if (
+        "time_unit" in axes
+        or interval_mode != "absolute"
+        or metric == "burst"
+        or not slug
+    ):
         return axes
-    duration = trial_seconds_duration(resolver, slug)
+    run = latest_alignment_step_entry(resolver, trial_slug=slug, step="run_align_epochs")
+    if run is None or not run[1].get("completed"):
+        return axes
+    params = run[1]["params"]
+    duration = _run_seconds_duration(resolver, slug, params)
     if duration is None:
         return axes
     support = (0.0, duration)
-    run = latest_alignment_step_entry(resolver, trial_slug=slug, step="run_align_epochs")[1]
-    if "cue_response" in run["params"]["method_params"]:
-        path = alignment_trial_raw_table_path(resolver, trial_slug=slug, metric_key=metric)
+    if "cue_response" in params["method_params"]:
+        path = alignment_trial_raw_table_path(
+            resolver, trial_slug=slug, metric_key=metric
+        )
         if path.is_file():
             support = aligned_phase_support(load_pkl(path), "linear_warper") or support
     try:

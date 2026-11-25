@@ -1257,6 +1257,13 @@ missing coverage in Epoch Inspector. Ordinary means and Burst occupancy use
 the available native duration. When a phase contains only padding, both
 measurements are `NaN`.
 
+Historical Feature definitions can omit the phase time unit. On a physical
+epoch axis, an absolute non-Burst window uses seconds. A cue-relative Finish
+table supplies the original cue offset. Extract also checks retained scalar
+and spectral tables from earlier absolute-window runs for incorrect percent
+labels. It rewrites affected phase metadata and scalar workbooks while
+preserving their numerical values.
+
 ### Feature value transformations
 
 Feature processing distinguishes between two numerical domains:

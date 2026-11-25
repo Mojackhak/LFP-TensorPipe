@@ -60,6 +60,8 @@ class MainWindowFeaturesTrialsMixin:
         self,
         trial_slug: str | None,
         node: Any,
+        *,
+        interval_mode: str | None = None,
     ) -> dict[str, Any]:
         defaults = self._default_features_trial_params()
         source = node if isinstance(node, dict) else {}
@@ -73,6 +75,35 @@ class MainWindowFeaturesTrialsMixin:
                     continue
                 if not isinstance(raw_axis_node, dict):
                     continue
+                if (
+                    "time_unit" not in raw_axis_node
+                    and metric_key != "burst"
+                    and trial_slug
+                    and raw_axis_node.get("times")
+                ):
+                    from lfptensorpipe.app.features.phase_time import (
+                        resolve_stored_phase_axes,
+                    )
+
+                    context = self._record_context()
+                    if context is not None:
+                        resolver = PathResolver(context)
+                        if interval_mode is None:
+                            prior = self._read_completed_log_params(
+                                resolver.features_root
+                                / trial_slug
+                                / "lfptensorpipe_log.json"
+                            )
+                            interval_mode = prior.get("collapse_settings", {}).get(
+                                "time_interval_mode", "percent"
+                            )
+                        raw_axis_node = resolve_stored_phase_axes(
+                            resolver,
+                            trial_slug,
+                            metric_key,
+                            raw_axis_node,
+                            interval_mode,
+                        )
                 if self._features_metric_uses_auto_bands(metric_key):
                     bands: list[dict[str, Any]] = []
                 else:
@@ -279,15 +310,12 @@ class MainWindowFeaturesTrialsMixin:
         axes_by_metric = params.get("axes_by_metric")
         if not isinstance(axes_by_metric, dict):
             return None
-        from lfptensorpipe.app.features.phase_time import resolve_stored_phase_axes
-        mode = params.get("collapse_settings", {}).get("time_interval_mode")
-        axes_by_metric = {
-            key: resolve_stored_phase_axes(PathResolver(context), trial_slug, key, axes, mode)
-            for key, axes in axes_by_metric.items() if isinstance(axes, dict)
-        }
         return self._normalize_features_trial_params(
             trial_slug.strip(),
             {"axes_by_metric": axes_by_metric},
+            interval_mode=params.get("collapse_settings", {}).get(
+                "time_interval_mode", "percent"
+            ),
         )
 
     def _apply_features_trial_params_to_ui(

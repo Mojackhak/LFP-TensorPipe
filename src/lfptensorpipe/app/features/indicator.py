@@ -256,6 +256,7 @@ def features_panel_state(
             continue
         if ("time_unit" in axes) != ("time_unit" in prior):
             from .phase_time import resolve_stored_phase_axes
+
             mode = params.get("collapse_settings", {}).get("time_interval_mode")
             slug = trial_slug or paradigm_slug
             axes = resolve_stored_phase_axes(resolver, slug, metric, axes, mode)

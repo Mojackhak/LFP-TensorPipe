@@ -77,7 +77,6 @@ from .phase_time import (
     validate_phase_bounds,
 )
 
-
 @dataclass(frozen=True)
 class _MetricExtractResult:
     """Result payload for one metric-level Extract Features task."""
@@ -858,6 +857,14 @@ def run_extract_features(
         }
         if any(value is None for value in planned_axes.values()):
             raise ValueError("Invalid Features axes or phase unit for this trial.")
+        for metric, axes in planned_axes.items():
+            if (
+                not svc._metric_uses_auto_bands(metric)
+                and not axes["bands"]
+                and "mean-scalar" in final_paths_by_metric[metric]
+                and alignment_method in {"pad_warper", "concat_warper"}
+            ):
+                raise ValueError(f"{metric}: bands axis is required for scalar.")
         settings = collapse_settings(collapse_base_cfg)
         previous_axes = (
             (prior_log_payload or {}).get("params", {}).get("axes_by_metric", {})
@@ -889,6 +896,34 @@ def run_extract_features(
         all_paths = {
             p for paths in final_paths_by_metric.values() for p in paths.values()
         }
+        absolute_axes = {
+            metric: resolve_stored_phase_axes(resolver, slug, metric, axes, "absolute")
+            for metric, axes in planned_axes.items()
+            if settings.get("time_interval_mode") == "absolute"
+            and metric != "burst"
+            and "time_unit" not in axes
+            and any(
+                stem.endswith(("-scalar", "-spectral"))
+                for stem in final_paths_by_metric[metric]
+            )
+        }
+        if (
+            absolute_axes
+            and (prior_log_payload or {}).get("params", {}).get("phase_window_metadata")
+            != "effective"
+        ):
+            for path in tuple(keep):
+                axes = absolute_axes.get(path.parent.name, {})
+                if axes.get("time_unit") != "s" or not path.stem.endswith(
+                    ("-spectral", "-scalar")
+                ):
+                    continue
+                table = load_pkl(prior_log_path.parent / path.relative_to(deriv_root))
+                if table.attrs.get("phase_windows") != effective_phase_windows(
+                    axes, path.parent.name, "absolute", None
+                ):
+                    keep.remove(path)
+                    relabel.add(path)
         compute_paths = all_paths - keep - relabel
         prior_export_warnings = (
             (prior_log_payload or {}).get("params", {}).get("xlsx_warnings", [])
@@ -943,7 +978,7 @@ def run_extract_features(
                         output_set.staged_path(path),
                     )
             relabeled_axes = {
-                key: resolve_stored_phase_axes(resolver, slug, key, planned_axes[key], settings["time_interval_mode"])
+                key: absolute_axes.get(key, planned_axes[key])
                 for key in {path.parent.name for path in relabel}
             }
             for path in sorted(relabel):
@@ -1067,6 +1102,8 @@ def run_extract_features(
                 "collapse_settings": settings,
                 NUMERIC_MEAN_SEMANTICS_KEY: NUMERIC_MEAN_SEMANTICS,
             }
+            if absolute_axes:
+                params_payload["phase_window_metadata"] = "effective"
             if any(metric == "burst" for metric, _path in raw_tables):
                 params_payload[BURST_SAMPLE_SUPPORT_KEY] = BURST_SAMPLE_SUPPORT
             if alignment_method in {"pad_warper", "concat_warper"} and any(
@@ -1083,7 +1120,11 @@ def run_extract_features(
                 result_generation_id=(
                     prior_log_payload["params"]["result_generation_id"]
                     if not compute_paths
-                    and (reuse_from is not None or planned_axes != previous_axes)
+                    and (
+                        reuse_from is not None
+                        or planned_axes != previous_axes
+                        or bool(relabel)
+                    )
                     and (
                         prior_log_payload["params"]["outputs_by_metric"]
                         == outputs_by_metric

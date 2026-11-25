@@ -48,7 +48,9 @@ class MainWindowFeaturesConfigMixin:
     def _build_features_config_export_payload(self) -> dict[str, Any]:
         metric_keys = self._features_metric_keys_for_selected_trial()
         if not metric_keys:
-            raise ValueError("A current Align Finish with at least one metric is required to export Features.")
+            raise ValueError(
+                "A current Align Finish with at least one metric is required to export Features."
+            )
         axes_ok, axes_message = self._validate_features_axes_for_run(metric_keys)
         if not axes_ok:
             raise ValueError(axes_message)
@@ -116,6 +118,11 @@ class MainWindowFeaturesConfigMixin:
         available_metrics: list[str],
     ) -> tuple[dict[str, Any], list[str]]:
         features_node = page_config_node(payload, "features")
+        execution = features_node.get("execution")
+        collapse = execution.get("collapse") if isinstance(execution, dict) else None
+        interval_mode = (
+            collapse.get("time_interval_mode") if isinstance(collapse, dict) else None
+        )
 
         axes_by_metric = features_node.get("axes_by_metric")
         if not isinstance(axes_by_metric, dict):
@@ -138,6 +145,24 @@ class MainWindowFeaturesConfigMixin:
                 continue
             if not isinstance(axes_node, dict):
                 axes_node = {}
+            if (
+                interval_mode == "absolute"
+                and "time_unit" not in axes_node
+                and axes_node.get("times")
+            ):
+                from lfptensorpipe.app.features.phase_time import (
+                    resolve_stored_phase_axes,
+                )
+
+                context = self._record_context()
+                if context is not None:
+                    axes_node = resolve_stored_phase_axes(
+                        PathResolver(context),
+                        self._current_features_paradigm_slug(),
+                        metric_key,
+                        axes_node,
+                        interval_mode,
+                    )
             raw_bands = axes_node.get("bands")
             if self._features_metric_uses_auto_bands(metric_key):
                 if isinstance(raw_bands, list) and raw_bands:
