@@ -8,7 +8,6 @@ from tempfile import TemporaryDirectory
 
 import numpy as np
 
-
 def review_state(annotations, bads, first_time):
     rows = []
     for ann in annotations:
@@ -105,6 +104,22 @@ def validate_review_changes(edits):
                     raise ValueError(f"Invalid review annotation: {item!r}")
 
 
+def user_review_changes(edits, step):
+    """Retain the portable actions taken by the reviewer, in review order."""
+    validate_review_changes(edits)
+    result = []
+    for change in edits:
+        kept = {}
+        for key, rows in change.items():
+            if key.endswith("_annotations") and step:
+                rows = _without_owned_edges(rows, step)
+            if rows:
+                kept[key] = rows
+        if kept:
+            result.append(kept)
+    return result
+
+
 def apply_edits(raw, edits, *, step=None):
     import mne
     from lfptensorpipe.preproc.filter import _set_annotations_from_attached_frame
@@ -112,7 +127,7 @@ def apply_edits(raw, edits, *, step=None):
     state = current_state(raw)
     if isinstance(edits, dict):
         edits = [review_delta(state, edits["accepted_state"], step=step)]
-    validate_review_changes(edits)
+    edits = user_review_changes(edits, step)
     for change in edits:
         for key, entries in change.items():
             for item in entries:
@@ -123,9 +138,6 @@ def apply_edits(raw, edits, *, step=None):
             removed, added = (
                 change.get(action + field, []) for action in ("remove_", "add_")
             )
-            if field == "annotations" and step:
-                removed = _without_owned_edges(removed, step)
-                added = _without_owned_edges(added, step)
             for row in removed:
                 if field == "annotations" and row not in state[field]:
                     # A later GUI review opens FIF, which stores float32 onset and end.

@@ -316,7 +316,9 @@ def apply_filter_step(
     from lfptensorpipe.preproc.filter import BadAnnotationConfig, mark_lfp_bad_segments
 
     resolver = PathResolver(context)
-    preview, preview_config_path, preview_log_path = _preview_paths(resolver, preview_dir)
+    preview, preview_config_path, preview_log_path = _preview_paths(
+        resolver, preview_dir
+    )
     reject_plot_path = (
         resolver.preproc_step_dir("filter", create=True) / "qc" / "reject.png"
     )
@@ -547,13 +549,16 @@ def finalize_filter_review(
     finalize_reviewed_filter_fn: Callable[..., Any] | None = None,
     review_source_is_current_fn: Callable[[], bool] | None = None,
     preview_dir: Path | None = None,
+    replayed_edits: list[dict] | None = None,
 ) -> tuple[bool, str]:
     """Regenerate and atomically accept Filter output from reviewed annotations."""
     from lfptensorpipe.preproc.filter import finalize_reviewed_lfp_filter
 
     resolver = PathResolver(context)
     dst = preproc_step_raw_path(resolver, "filter")
-    preview, preview_config_path, preview_log_path = _preview_paths(resolver, preview_dir)
+    preview, preview_config_path, preview_log_path = _preview_paths(
+        resolver, preview_dir
+    )
     config_path = preproc_step_config_path(resolver, "filter")
     log_path = preproc_step_log_path(resolver, "filter")
     captured = capture_preproc_input_generation(resolver, "filter")
@@ -680,7 +685,9 @@ def finalize_filter_review(
         }
         import mne
 
-        if isinstance(reviewed_annotations, mne.Annotations) and isinstance(
+        if replayed_edits is not None:
+            final_params["review_edits"] = replayed_edits
+        elif isinstance(reviewed_annotations, mne.Annotations) and isinstance(
             raw, mne.io.BaseRaw
         ):
             from ..review_edits import current_state, review_delta, review_state

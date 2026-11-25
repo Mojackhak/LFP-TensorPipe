@@ -17,7 +17,12 @@ from .preproc.paths import (
     preproc_filter_preview_raw_path,
     write_preproc_step_routing,
 )
-from .preproc.review_edits import apply_edits, current_state, validate_review_changes
+from .preproc.review_edits import (
+    apply_edits,
+    current_state,
+    user_review_changes,
+    validate_review_changes,
+)
 from .shared.generation_lineage import accepted_result_generation_id
 from .shared.runlog_store import read_run_log
 
@@ -151,9 +156,13 @@ def recipe_steps(recipe):
             state = review.get("accepted_state")
             if not isinstance(state, dict) or set(state) != {"annotations", "bads"}:
                 raise ConfigError(f"Invalid saved review for {step}.")
-            validate_review_changes([{"add_annotations": state["annotations"], "add_bads": state["bads"]}])
+            validate_review_changes(
+                [{"add_annotations": state["annotations"], "add_bads": state["bads"]}]
+            )
         elif "review_edits" in spec or (step == "filter" and review != "detected"):
-            validate_review_changes(review)
+            spec["review" if step == "filter" else "review_edits"] = (
+                user_review_changes(review, step)
+            )
         result[step] = spec
     return result
 
@@ -406,12 +415,16 @@ def run_preprocess(context, recipe, *, reused=(), report=None):
                         preload=False,
                         verbose="ERROR",
                     ) as preview:
-                        if spec["review"] != "detected":
-                            apply_edits(preview, spec["review"], step="filter")
+                        edits = (
+                            []
+                            if spec["review"] == "detected"
+                            else apply_edits(preview, spec["review"], step="filter")
+                        )
                         _checked_result(
                             svc.finalize_filter_review(
                                 context,
                                 preview_dir=directory,
+                                replayed_edits=edits,
                                 reviewed_annotations=preview.annotations.copy(),
                                 reviewed_bads=list(preview.info["bads"]),
                             )

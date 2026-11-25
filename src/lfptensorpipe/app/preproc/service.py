@@ -491,6 +491,7 @@ def finalize_filter_review(
     finalize_reviewed_filter_fn: Any | None = None,
     review_source_is_current_fn: Any | None = None,
     preview_dir: Path | None = None,
+    replayed_edits: list[dict] | None = None,
 ) -> tuple[bool, str]:
     ok, message = _finalize_filter_review_impl(
         context,
@@ -502,6 +503,7 @@ def finalize_filter_review(
         finalize_reviewed_filter_fn=finalize_reviewed_filter_fn,
         review_source_is_current_fn=review_source_is_current_fn,
         preview_dir=preview_dir,
+        replayed_edits=replayed_edits,
     )
     if ok:
         _clear_preproc_step_skip(context, "filter")
