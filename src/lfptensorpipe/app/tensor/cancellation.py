@@ -111,7 +111,10 @@ def backfill_cancelled_build_tensor_run(
         cancelled_metrics.append(metric_key)
 
     if not cancelled_metrics and CANCELLED_RUN_STATUS in metric_statuses.values():
-        previous = read_run_log(tensor_stage_log_path(resolver))
+        try:
+            previous = read_run_log(tensor_stage_log_path(resolver))
+        except (OSError, ValueError):
+            previous = None
         if (
             _log_run_id(previous) == run_id
             and previous["params"].get("metric_statuses") == metric_statuses
