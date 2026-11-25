@@ -98,8 +98,10 @@ class MainWindowTensorDefaultsMixin:
     def _tensor_load_default_channels(self):
         return _tensor_load_default_channels_impl(self)
 
-    def _tensor_load_default_pairs(self, *, directed: bool):
-        return _tensor_load_default_pairs_impl(self, directed=directed)
+    def _tensor_load_default_pairs(self, *, directed: bool, available_channels=()):
+        return _tensor_load_default_pairs_impl(
+            self, directed=directed, available_channels=available_channels
+        )
 
     def _tensor_save_default_channels(self, channels):
         _tensor_save_default_channels_impl(self, channels)

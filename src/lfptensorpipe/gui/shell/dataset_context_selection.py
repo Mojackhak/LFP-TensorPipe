@@ -168,7 +168,9 @@ class MainWindowDatasetContextSelectionMixin:
             next_subject=None,
             next_record=None,
         )
-        if not project_value:
+        if next_project is None or not next_project.exists():
+            if next_project is not None:
+                self.statusBar().showMessage(f"Missing project path: {next_project}")
             self._current_project = None
             self._current_subject = None
             self._clear_record_rename_recovery_state()
@@ -179,17 +181,7 @@ class MainWindowDatasetContextSelectionMixin:
             self._refresh_dataset_action_state()
             return
 
-        project_root = Path(str(project_value))
-        if not project_root.exists():
-            self.statusBar().showMessage(f"Missing project path: {project_root}")
-            self._current_project = None
-            self._current_subject = None
-            self._clear_record_rename_recovery_state()
-            self._set_empty_record_context()
-            self._refresh_localize_controls()
-            self._refresh_dataset_action_state()
-            return
-
+        project_root = next_project
         self._current_project = project_root
         self._current_subject = None
         self._clear_record_rename_recovery_state()

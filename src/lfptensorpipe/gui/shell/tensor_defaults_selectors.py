@@ -56,7 +56,9 @@ def _tensor_default_selected_pairs_for_metric(
             metric_node.get("selected_pairs"), directed=directed
         )
     else:
-        selector_defaults = self._tensor_load_default_pairs(directed=directed)
+        selector_defaults = self._tensor_load_default_pairs(
+            directed=directed, available_channels=available_channels
+        )
         if selector_defaults is None:
             pairs = ()
         else:
@@ -100,6 +102,7 @@ def _tensor_load_default_pairs(
     self,
     *,
     directed: bool,
+    available_channels: tuple[str, ...] = (),
 ) -> tuple[tuple[str, str], ...] | None:
     selectors = self._tensor_read_selector_defaults_payload()
     key = "directed_pairs" if directed else "undirected_pairs"
@@ -110,7 +113,9 @@ def _tensor_load_default_pairs(
         return ()
     parsed: list[tuple[str, str]] = []
     for token in raw_pairs:
-        pair = self._parse_tensor_pair_token(token)
+        pair = self._parse_tensor_pair_token(
+            token, available_channels=available_channels
+        )
         if pair is None:
             continue
         try:
@@ -151,6 +156,6 @@ def _tensor_save_default_pairs(
     if directed:
         selectors[key] = [f"({source},{target})" for source, target in pairs]
     else:
-        selectors[key] = [f"{source}-{target}" for source, target in pairs]
+        selectors[key] = [list(pair) for pair in pairs]
     payload[TENSOR_SELECTOR_DEFAULTS_KEY] = selectors
     self._config_store.write_yaml("tensor.yml", payload)

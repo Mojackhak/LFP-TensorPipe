@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from .features_plotting import clear_features_plot
 
 from lfptensorpipe.app.shared.runlog_store import run_log_read_snapshot
 
@@ -576,10 +577,7 @@ class MainWindowFeaturesTrialsMixin:
                     self._refresh_alignment_selected_paradigm()
                     if not self._record_param_syncing and previous_slug != slug:
                         restore_slug = slug
-            self._features_last_plot_figure = None
-            self._features_last_plot_data = None
-            self._features_last_plot_name = ""
-            self._features_last_plot_type = ""
+            clear_features_plot(self)
             if restore_slug is not None:
                 self._restore_features_trial_params(
                     restore_slug,

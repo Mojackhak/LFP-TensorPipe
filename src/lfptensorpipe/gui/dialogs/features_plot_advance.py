@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import QSignalBlocker
+
 from .common import *  # noqa: F403
 from .baseline_range import BaselineRangeConfigureDialog
 
@@ -286,8 +288,9 @@ class FeaturesPlotAdvanceDialog(QDialog):
         self._set_combo_value(self._baseline_mode_combo, baseline_mode)
         self._set_baseline_button_text()
         self._set_combo_value(self._colormap_combo, colormap)
-        self._x_log_check.setChecked(bool(self._x_log_raw))
-        self._y_log_check.setChecked(bool(self._y_log_raw))
+        with QSignalBlocker(self._x_log_check), QSignalBlocker(self._y_log_check):
+            self._x_log_check.setChecked(self._x_log_raw is True)
+            self._y_log_check.setChecked(self._y_log_raw is True)
 
     def _set_baseline_button_text(self) -> None:
         if self._baseline_button is None:

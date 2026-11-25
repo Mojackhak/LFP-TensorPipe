@@ -186,9 +186,9 @@ class MainWindowPreprocChannelsMixin:
 
         available_steps = self._available_preproc_viz_steps(context)
         previous_step = self._current_preproc_viz_step()
-        target_step = previous_step if previous_step in available_steps else None
-        if target_step is None and self._preproc_viz_last_step in available_steps:
-            target_step = self._preproc_viz_last_step
+        target_step = self._preproc_viz_last_step
+        if target_step not in available_steps:
+            target_step = previous_step if previous_step in available_steps else None
         if target_step is None and available_steps:
             target_step = available_steps[0]
 

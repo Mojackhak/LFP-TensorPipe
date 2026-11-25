@@ -240,6 +240,7 @@ class MainWindowPreprocStageMixin:
             if self._preproc_ecg_method_combo is not None
             else None
         )
+        self._refresh_preproc_ecg_channel_state(context)
         ecg_panel_state = self._preproc_ecg_panel_state_runtime(
             resolver,
             method=ecg_method,
@@ -392,6 +393,10 @@ class MainWindowPreprocStageMixin:
             self._preproc_ecg_params_by_method.get(str(ecg_method)),
         )
         ecg_editable = filter_route_ready
+        if self._preproc_ecg_channels_button is not None:
+            self._preproc_ecg_channels_button.setEnabled(
+                filter_route_ready and bool(self._preproc_ecg_available_channels)
+            )
         set_control_validation_error(
             self._preproc_ecg_advance_button,
             ecg_message if ecg_editable and not valid_ecg else None,
@@ -428,7 +433,6 @@ class MainWindowPreprocStageMixin:
                 and finish_log_state == "green"
                 and finish_raw_exists
             )
-        self._refresh_preproc_ecg_channel_state(context)
         self._refresh_preproc_visualization_controls(context)
 
     def _refresh_signal_repair_controls(self, context) -> None:

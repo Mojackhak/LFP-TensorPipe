@@ -16,6 +16,13 @@ from lfptensorpipe.gui.shell.common import (
 )
 
 
+def clear_features_plot(window):
+    window._features_last_plot_figure = None
+    window._features_last_plot_data = None
+    window._features_last_plot_name = ""
+    window._features_last_plot_type = ""
+
+
 class MainWindowFeaturesPlottingMixin:
     def _features_plot_advance_capabilities(
         self,

@@ -1,6 +1,7 @@
 """Record-parameter tensor apply MainWindow methods."""
 
 from __future__ import annotations
+from math import isfinite
 
 from copy import deepcopy
 
@@ -8,6 +9,7 @@ from lfptensorpipe.app.tensor.cpu_budget import (
     DEFAULT_TENSOR_CPU_PERCENT,
 )
 from lfptensorpipe.gui.shell.common import (
+    TENSOR_BASIC_PARAM_ROWS_BY_METRIC,
     Any,
     RecordContext,
     TENSOR_CHANNEL_METRIC_KEYS,
@@ -57,6 +59,21 @@ class MainWindowRecordParamsApplyTensorMixin:
                     node = metric_params.get(spec.key)
                     if isinstance(node, dict):
                         normalized_node = dict(node)
+                        for key in TENSOR_BASIC_PARAM_ROWS_BY_METRIC.get(spec.key, ()):
+                            value = normalized_node.get(key)
+                            if isinstance(value, float) and not isfinite(value):
+                                normalized_node[key] = str(value)
+                            elif (
+                                key == "freq_range_hz"
+                                and isinstance(value, list)
+                                and any(
+                                    isinstance(bound, float) and not isfinite(bound)
+                                    for bound in value
+                                )
+                            ):
+                                normalized_node[key] = ",".join(
+                                    str(bound) for bound in value
+                                )
                         legacy_notch_fields = "notch_widths" in normalized_node
                         legacy_notch_radii = normalized_node.pop("notch_widths", None)
                         if legacy_notch_fields and "notch_radii" not in normalized_node:

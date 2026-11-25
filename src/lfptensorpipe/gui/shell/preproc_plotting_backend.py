@@ -728,12 +728,13 @@ def _finalize_app_shutdown(self) -> None:
 
     def _close_main_window() -> None:
         try:
-            self.close()
+            closed = self.close()
         finally:
             _restore_quit_on_last_window_closed(self)
-            app = QApplication.instance()
-            if app is not None:
-                QTimer.singleShot(0, app.quit)
+            self._finalizing_mainwindow_close = False
+        app = QApplication.instance()
+        if closed and app is not None:
+            QTimer.singleShot(0, app.quit)
 
     QTimer.singleShot(0, _close_main_window)
 

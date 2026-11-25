@@ -227,7 +227,9 @@ def tensor_metric_pair_mode(metric_key: str) -> str | None:
     return None
 
 
-def parse_tensor_pair_token(value: Any) -> tuple[str, str] | None:
+def parse_tensor_pair_token(
+    value: Any, *, available_channels=()
+) -> tuple[str, str] | None:
     if isinstance(value, (list, tuple)) and len(value) == 2:
         source = str(value[0]).strip()
         target = str(value[1]).strip()
@@ -246,6 +248,15 @@ def parse_tensor_pair_token(value: Any) -> tuple[str, str] | None:
             return parts[0], parts[1]
         return None
     if "-" in token:
+        if token.count("-") > 1:
+            matches = [
+                (token[:idx].strip(), token[idx + 1 :].strip())
+                for idx, char in enumerate(token)
+                if char == "-"
+                and token[:idx].strip() in available_channels
+                and token[idx + 1 :].strip() in available_channels
+            ]
+            return matches[0] if len(matches) == 1 else None
         source, target = token.split("-", maxsplit=1)
         source = source.strip()
         target = target.strip()

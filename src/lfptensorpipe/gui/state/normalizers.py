@@ -71,9 +71,11 @@ def normalize_filter_notches_config(value: Any) -> list[float]:
         if not parts:
             return []
         parsed = [float(item) for item in parts]
-    elif isinstance(value, (int, float)):
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
         parsed = [float(value)]
     elif isinstance(value, (list, tuple)):
+        if any(isinstance(item, bool) for item in value):
+            raise ValueError("notches must contain positive finite numbers.")
         parsed = [float(item) for item in value]
     else:
         raise ValueError("notches must be a number, list, or comma-separated string.")
@@ -89,6 +91,8 @@ def _normalize_optional_filter_frequency(
 ) -> float | None:
     if value is None or (isinstance(value, str) and not value.strip()):
         return None
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be numeric when provided.")
     parsed = float(value)
     if not math.isfinite(parsed):
         raise ValueError(f"{field_name} must be finite when provided.")

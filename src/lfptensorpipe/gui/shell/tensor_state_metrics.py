@@ -246,7 +246,7 @@ class MainWindowTensorStateMetricsMixin:
             raise ValueError("SpecParam freq range must be two numbers: low,high.")
         low = float(parts[0])
         high = float(parts[1])
-        if high <= low:
+        if not (np.isfinite(low) and np.isfinite(high) and high > low):
             raise ValueError("SpecParam freq range must satisfy high > low.")
         return [float(low), float(high)]
 
@@ -273,8 +273,9 @@ class MainWindowTensorStateMetricsMixin:
                 params[key] = None
                 return
             try:
-                params[key] = float(text)
-            except Exception:
+                value = float(text)
+                params[key] = value if np.isfinite(value) else text
+            except ValueError:
                 params[key] = text
 
         if metric_key in TENSOR_COMMON_BASIC_METRIC_KEYS:

@@ -41,6 +41,10 @@ Throughout this guide:
 
 The Localize block reports `MATLAB: Idle` until an action needs MATLAB. User Labels and reactivation of a verified atlas result do not start the runtime.
 
+Selecting a missing recent project clears the subject and record lists. On
+exit, the app closes MNE browsers first. If a running operation blocks the
+main window from closing, the app stays open and you can retry.
+
 On first launch, open the configs dialog and set the local paths used by
 `Localize`:
 
@@ -528,6 +532,9 @@ Restore the intended decision before closing the browser.
 
 ### 5.3 Step 2: Filter
 
+Filter cutoff and notch frequencies accept finite numbers. Boolean values in
+an imported Filter configuration are invalid.
+
 A pending Filter preview can be skipped, including a preview produced by an
 earlier bad-channel detector. Skipping routes subsequent steps to the preceding
 accepted signal. Reviewing that older preview requires a fresh Filter run.
@@ -741,6 +748,10 @@ annotation with no channel assignment remains global.
 
 
 ### 5.4 Step 3: ECG Artifact Removal
+
+ECG channel selection becomes available when the Filter route is ready and
+the current source has usable channels. Visualization restores the saved step
+for each record when that output is available.
 
 This step is an optional cleanup pass for residual cardiac contamination. It is skipped in the demo, as no such contamination is present.
 
@@ -1112,6 +1123,10 @@ reproducible record-specific assignment. This preserves local variance,
 frequency covariance, and extrema without imposing a deterministic straight
 bridge.
 
+Tensor channel-pair defaults retain each complete channel name, including
+hyphenated bipolar names. Invalid numeric text in an unselected metric stays
+editable when its configuration is exported.
+
 A notch interval wholly outside the SpecParam fitting range is ignored. Any
 interval that intersects the fitting range must remain strictly inside both
 boundaries and must have at least one valid donor side. Periodic/Aperiodic
@@ -1309,6 +1324,10 @@ time axis is unreadable, the GUI shows the affected phase as unavailable and
 keeps its draft. CLI errors identify the metric and the affected file.
 
 ### Feature value transformations
+
+A Features plot and its export data belong to the selected trial. After
+switching trials in either Align Epochs or Features, plot the new trial before
+exporting. Plot Advance requires Boolean values for the log-axis switches.
 
 Feature processing distinguishes between two numerical domains:
 

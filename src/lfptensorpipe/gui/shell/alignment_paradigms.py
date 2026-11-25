@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QListWidgetItem, QMessageBox
 
 from lfptensorpipe.app.shared.runlog_store import run_log_read_snapshot
+from .features_plotting import clear_features_plot
 
 
 class MainWindowAlignmentParadigmsMixin:
@@ -20,6 +21,8 @@ class MainWindowAlignmentParadigmsMixin:
 
     def _set_shared_stage_trial_slug(self, slug: str | None) -> None:
         normalized = str(slug).strip() if isinstance(slug, str) else ""
+        if self._shared_stage_trial_slug_value != (normalized or None):
+            clear_features_plot(self)
         self._shared_stage_trial_slug_value = normalized or None
 
     def _alignment_row_for_slug(self, slug: str | None) -> int:
