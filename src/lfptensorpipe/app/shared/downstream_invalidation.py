@@ -116,6 +116,7 @@ def invalidate_after_preproc_result_change(
     """
     from ..alignment.generation import alignment_stage_lineage_is_current
     from ..tensor.lineage import tensor_metric_lineage_is_current
+    from ..tensor.paths import tensor_build_key_for_log
 
     resolver = PathResolver(context)
     message = f"Invalidated by upstream result change: preproc/{changed_step}."
@@ -128,7 +129,7 @@ def invalidate_after_preproc_result_change(
         if annotation_only:
             tensor_result_kept = True
             continue
-        metric_key = path.parent.name.strip()
+        metric_key = tensor_build_key_for_log(path)
         if after_finish and tensor_metric_lineage_is_current(resolver, metric_key):
             tensor_result_kept = True
             continue

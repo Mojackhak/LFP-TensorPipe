@@ -624,7 +624,7 @@ def _write_plan_failure(
         metric_key,
         completed=False,
         params=svc._sanitize_metric_params_for_logs(plan.runner_kwargs),
-        input_path=str(svc.preproc_step_raw_path(resolver, "finish", create=False)),
+        input_path=str(svc.preproc_step_raw_path(resolver, "finish")),
         output_path=str(svc.tensor_metric_tensor_path(resolver, metric_key)),
         message=f"{plan.metric_label} failed: {message}",
     )
@@ -790,7 +790,7 @@ def run_connectivity_coordinator(
         executor_kwargs: dict[str, Any] = {
             "max_workers": min(max(int(global_compute_slots), 1), len(chunks)),
             "initializer": initialize_connectivity_worker,
-            "initargs": (str(svc.preproc_step_raw_path(resolver, "finish", create=False)),),
+            "initargs": (str(svc.preproc_step_raw_path(resolver, "finish")),),
         }
         if executor_factory is None:
             executor_kwargs["mp_context"] = multiprocessing.get_context("spawn")
@@ -1003,7 +1003,10 @@ def run_connectivity_coordinator(
             plan = backend_plans[backend_method]
             failures = trgc_state["failures"][backend_method]
             task_results = trgc_state["task_results"][backend_method]
-            if failures or not task_results:
+            description = trgc_state["descriptions"][backend_method]
+            if failures or (not task_results and any(
+                len(group["valid_time_indices"]) for group in description["groups"]
+            )):
                 backend_ok = False
                 message = (
                     "TRGC task failed: " + failures[0]
@@ -1014,12 +1017,15 @@ def run_connectivity_coordinator(
                     svc, resolver, plan, message=message
                 )
                 continue
-            backend_start_ns = min(int(item["start_perf_ns"]) for item in task_results)
+            backend_start_ns = min(
+                (int(item["start_perf_ns"]) for item in task_results),
+                default=time.perf_counter_ns(),
+            )
             backend_cpu_s = sum(float(item["worker_cpu_s"]) for item in task_results)
             backend_starts.append(backend_start_ns)
             backend_cpu_total += backend_cpu_s
             assembled = _assemble_blocks(
-                trgc_state["descriptions"][backend_method],
+                description,
                 (backend_method,),
                 task_results,
             )[backend_method]

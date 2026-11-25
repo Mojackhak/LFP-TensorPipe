@@ -38,6 +38,12 @@ def tensor_output_metric_keys(metric_keys: list[str] | tuple[str, ...]) -> list[
     return outputs
 
 
+def tensor_build_key_for_log(path: Path) -> str:
+    """Return the build operation responsible for every output of this log."""
+    storage_key = path.parent.name
+    return "periodic_aperiodic" if storage_key == "periodic" else storage_key
+
+
 def tensor_metric_log_path(
     resolver: PathResolver, metric_key: str, *, create: bool = False
 ) -> Path:

@@ -94,6 +94,7 @@ def backfill_cancelled_build_tensor_run(
             metric_statuses[metric_key] = _finished_status(payload)
             continue
         params = dict(sanitized_metric_params_map.get(metric_key, {}))
+        params["run_id"] = run_id
         params["run_status"] = CANCELLED_RUN_STATUS
         params["cancelled"] = True
         write_metric_log(
@@ -110,6 +111,7 @@ def backfill_cancelled_build_tensor_run(
 
     if cancelled_metrics:
         stage_params = {
+            "run_id": run_id,
             "selected_metrics": list(selected_metrics),
             "mask_edge_effects": bool(mask_edge_effects),
             "metric_params_map": sanitized_metric_params_map,

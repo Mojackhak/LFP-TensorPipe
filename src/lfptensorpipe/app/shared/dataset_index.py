@@ -125,13 +125,14 @@ def _aggregate_tensor_stage_state(
     no metric artifact/log generation is current.
     """
     from lfptensorpipe.app.tensor.lineage import tensor_metric_lineage_is_current
+    from lfptensorpipe.app.tensor.paths import tensor_build_key_for_log
 
     metric_states = []
     for path in tensor_logs:
         state = indicator_from_log(path)
         if state == "green" and not tensor_metric_lineage_is_current(
             resolver,
-            path.parent.name,
+            tensor_build_key_for_log(path),
         ):
             state = "yellow"
         metric_states.append(state)
