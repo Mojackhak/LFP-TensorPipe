@@ -77,6 +77,7 @@ from .phase_time import (
     validate_phase_bounds,
 )
 
+
 @dataclass(frozen=True)
 class _MetricExtractResult:
     """Result payload for one metric-level Extract Features task."""
@@ -1098,6 +1099,11 @@ def run_extract_features(
                 params_payload["phase_window_metadata"] = "effective"
             if any(metric == "burst" for metric, _path in raw_tables):
                 params_payload[BURST_SAMPLE_SUPPORT_KEY] = BURST_SAMPLE_SUPPORT
+                if any(
+                    feature_generation.counts_burst_pieces(alignment_method, stem)
+                    for stem in final_paths_by_metric["burst"]
+                ):
+                    params_payload[feature_generation.BURST_EVENTS_PER_PIECE] = True
             if alignment_method in {"pad_warper", "concat_warper"} and any(
                 metric != "burst"
                 and any(

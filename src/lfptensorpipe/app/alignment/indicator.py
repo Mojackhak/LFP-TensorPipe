@@ -55,10 +55,14 @@ def _latest_step_entry(
     target = str(step).strip()
     if not target:
         return None
-    for idx, item in reversed(entries):
-        if str(item.get("step", "")).strip() == target:
-            return idx, item
-    return None
+    latest = None
+    for idx, item in entries:
+        if str(item.get("step", "")).strip() != target:
+            continue
+        if latest is None and str(item.get("message", "")).startswith("Invalidated by upstream result change:"):
+            continue
+        latest = idx, item
+    return latest
 
 
 def _normalize_run_signature(

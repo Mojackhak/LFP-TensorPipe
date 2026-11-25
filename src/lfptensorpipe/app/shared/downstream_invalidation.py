@@ -27,6 +27,11 @@ def _append_invalidation_event(
         return None
     if payload is None or not path.exists():
         return None
+    if step in {"run_align_epochs", "build_raw_table"}:
+        from ..alignment.indicator import _history_entries, _latest_step_entry
+
+        if _latest_step_entry(_history_entries(payload), step) is None:
+            return None
     try:
         append_run_log_event(
             path,

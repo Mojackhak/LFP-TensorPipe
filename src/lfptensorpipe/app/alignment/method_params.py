@@ -188,6 +188,8 @@ def validate_alignment_method_params(
         )
         if not ok_range:
             return False, defaults, msg_range
+        if epoch_duration_range[1] == 0:
+            return False, defaults, "Maximum epoch duration must be positive."
         tolerance_value = candidate.get(
             "percent_tolerance", defaults["percent_tolerance"]
         )

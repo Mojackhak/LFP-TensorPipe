@@ -1178,6 +1178,11 @@ source-signal position. A target anchor is a discrete output sample only when
 its percentage is representable on that grid; otherwise it remains the exact
 continuous breakpoint between neighboring output samples.
 
+If supplied, the maximum epoch duration must be positive. A point BAD/EDGE
+marker splits the inspected waveform once at its sample, including when an
+intermediate anchor lies between sample centers. QC reports only recorded
+coverage gaps with a measurable duration.
+
 Starts are evaluated chronologically. Each start uses the earliest
 duration-eligible end not already consumed by an accepted group, and accepted
 groups may overlap in time. Once that end is fixed, exactly one complete
@@ -1199,6 +1204,10 @@ Use `View flagged` and open `Preview` to compare flagged epochs with the remaini
 The factory scheme flags a Preprocessed Signal amplitude excursion or valid coverage below 80% (`A OR B`). Use `Advance` to edit QC methods, thresholds and the final expression. `Export Configs` saves the scheme for another trial. Inspect an imported scheme in Advance, then click Save and Run QC.
 
 Click `Finish` to export the included epochs. The Merge Location Info footer indicates whether localization will accompany the export. Reopening the same trial restores its decisions. A new successful Align Run starts a fresh selection.
+
+An unrun trial stays gray when preprocessing or localization changes. A
+preprocessing change can invalidate an existing Align Run. A localization
+change affects an existing Finish and its downstream feature tables.
 
 ## 8. Extract Features and Available Features
 
@@ -1271,6 +1280,12 @@ participate. If a persisted source-fragment boundary lies between native Tensor
 timestamps, the nearest sample owned by that fragment is held constant to the
 exact boundary. Samples from a gap or neighboring fragment are never used, and
 no trapezoid is drawn across a stitched boundary.
+
+Burst rate and mean event duration count events independently in each Clip or
+Stitch piece, including touching and overlapping source windows. A linear
+alignment's intermediate anchors preserve the identity of a continuous source
+burst. Rerun Extract Features for earlier Clip/Stitch rate and duration tables.
+Burst magnitude and occupancy use the same samples as before.
 
 Clip retains eligible trials at the recording boundary. For example, with a 0.5 s
 pre-onset window, an event at recording time 0.2 s has 0.3 s of leading

@@ -43,8 +43,18 @@ NUMERIC_MEAN_RERUN_MESSAGE = (
 )
 BURST_SAMPLE_SUPPORT_RERUN_MESSAGE = (
     "Latest Extract Features result uses legacy Burst native sample-support "
-    "semantics. Rerun Extract Features."
+    "or event-count semantics. Rerun Extract Features."
 )
+BURST_EVENTS_PER_PIECE = "burst_events_per_source_piece"
+
+
+def counts_burst_pieces(method, stem):
+    return method in {"pad_warper", "concat_warper"} and stem in {
+        "rate-scalar",
+        "duration-scalar",
+    }
+
+
 CLIP_STITCH_MEAN_SUPPORT_KEY = "clip_stitch_mean_support"
 CLIP_STITCH_MEAN_SUPPORT = "exact_fragment_segment_local_endpoint_hold"
 CLIP_STITCH_MEAN_SUPPORT_RERUN_MESSAGE = (
@@ -361,9 +371,14 @@ def feature_generation_requires_burst_sample_support_rerun(
     if outputs is None or "burst" not in outputs:
         return False
     params = entry.get("params")
-    return not (
-        isinstance(params, dict)
-        and params.get(BURST_SAMPLE_SUPPORT_KEY) == BURST_SAMPLE_SUPPORT
+    if (
+        not isinstance(params, dict)
+        or params.get(BURST_SAMPLE_SUPPORT_KEY) != BURST_SAMPLE_SUPPORT
+    ):
+        return True
+    return params.get(BURST_EVENTS_PER_PIECE) is not True and any(
+        counts_burst_pieces(params.get("alignment_method"), path.stem)
+        for path in outputs["burst"]
     )
 
 

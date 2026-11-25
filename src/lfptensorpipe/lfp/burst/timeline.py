@@ -362,18 +362,8 @@ def reduce_burst_scalars(
     burst_duration = 0.0
     log_amplitude_integral = 0.0
     identities: set[tuple[int, int]] = set()
-    boundary_identities: list[
-        tuple[float, float, tuple[int, int] | None, tuple[int, int] | None]
-    ] = []
     for fragment in fragments:
-        indices, durations, overlap_starts, overlap_ends = _cell_overlaps(
-            edges, fragment
-        )
-        if indices.size == 0:
-            boundary_identities.append(
-                (fragment.target_start, fragment.target_end, None, None)
-            )
-            continue
+        indices, durations, _, _ = _cell_overlaps(edges, fragment)
         selected_values = data[indices]
         selected_ids = ids[indices]
         finite = np.isfinite(selected_values)
@@ -388,59 +378,10 @@ def reduce_burst_scalars(
             (int(fragment.occurrence), int(event_id)) for event_id in unique_ids
         )
 
-        positive_positions = np.flatnonzero(positive)
-        first_identity = None
-        last_identity = None
-        if positive_positions.size:
-            first_position = int(positive_positions[0])
-            if not _positive_duration(
-                fragment.source_start, overlap_starts[first_position]
-            ):
-                first_identity = (
-                    int(fragment.occurrence),
-                    int(selected_ids[first_position]),
-                )
-            last_position = int(positive_positions[-1])
-            if not _positive_duration(overlap_ends[last_position], fragment.source_end):
-                last_identity = (
-                    int(fragment.occurrence),
-                    int(selected_ids[last_position]),
-                )
-        boundary_identities.append(
-            (
-                fragment.target_start,
-                fragment.target_end,
-                first_identity,
-                last_identity,
-            )
-        )
-
     if not _positive_duration(0.0, valid_duration):
         return BurstScalarResult(*(float("nan"),) * 4, 0.0, 0.0, 0)
 
-    parent = {identity: identity for identity in identities}
-
-    def find(identity: tuple[int, int]) -> tuple[int, int]:
-        while parent[identity] != identity:
-            parent[identity] = parent[parent[identity]]
-            identity = parent[identity]
-        return identity
-
-    def union(left: tuple[int, int], right: tuple[int, int]) -> None:
-        left_root = find(left)
-        right_root = find(right)
-        if left_root != right_root:
-            parent[right_root] = left_root
-
-    for previous, current in zip(boundary_identities, boundary_identities[1:]):
-        if (
-            not _positive_duration(previous[1], current[0])
-            and previous[3] is not None
-            and current[2] is not None
-        ):
-            union(previous[3], current[2])
-
-    event_count = len({find(identity) for identity in identities})
+    event_count = len(identities)
     if event_count == 0:
         return BurstScalarResult(
             float("nan"), 0.0, float("nan"), 0.0, valid_duration, 0.0, 0

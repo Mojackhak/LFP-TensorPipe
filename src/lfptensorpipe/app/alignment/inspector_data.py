@@ -235,10 +235,6 @@ class InspectorData:
                     )
                     values[invalid[:, start:stop]] = np.nan
                     values[~np.isfinite(values)] = np.nan
-                    cuts = tuple(
-                        tuple(p - start for p in points if start <= p < stop)
-                        for points in boundaries
-                    )
                     scale = (s.source_end - s.source_start) / (
                         s.target_end - s.target_start
                     )
@@ -265,6 +261,14 @@ class InspectorData:
                         first = int(np.ceil(s.source_start * sf - 1e-9))
                         sample_time = cell_start.copy()
                         sample_time[sample_indices < first] = np.nan
+                    cuts = tuple(
+                        tuple(
+                            p - start
+                            for p in points
+                            if start <= p < stop and np.isfinite(sample_time[p - start])
+                        )
+                        for points in boundaries
+                    )
                     spans.append(
                         SignalSpan(
                             cell_start,

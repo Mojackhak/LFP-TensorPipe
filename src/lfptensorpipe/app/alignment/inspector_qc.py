@@ -118,11 +118,11 @@ def clip_padding(data, epoch, window):
     for segment in data.mappings[epoch]:
         left = max(cursor, segment.target_start)
         right = min(end, segment.target_end)
-        if left < right:
-            if cursor < left:
+        if _positive_duration(left, right):
+            if _positive_duration(cursor, left):
                 missing.append([cursor, left])
             cursor = right
-    if cursor < end:
+    if _positive_duration(cursor, end):
         missing.append([cursor, end])
     return missing
 

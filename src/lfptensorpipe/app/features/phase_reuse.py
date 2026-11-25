@@ -23,7 +23,12 @@ def _reduction_options(metric, stem, axes, settings, semantics, method):
     if kind == "raw":
         return {}
     if metric == "burst":
-        return {"burst_support": semantics.get(generation.BURST_SAMPLE_SUPPORT_KEY)}
+        options = {"burst_support": semantics.get(generation.BURST_SAMPLE_SUPPORT_KEY)}
+        if generation.counts_burst_pieces(method, stem):
+            options["events_per_piece"] = semantics.get(
+                generation.BURST_EVENTS_PER_PIECE
+            )
+        return options
     options = {
         key: settings.get(key)
         for key in (
@@ -86,6 +91,7 @@ def reusable_axis_outputs(
         generation.NUMERIC_MEAN_SEMANTICS_KEY: generation.NUMERIC_MEAN_SEMANTICS,
         generation.CLIP_STITCH_MEAN_SUPPORT_KEY: generation.CLIP_STITCH_MEAN_SUPPORT,
         generation.BURST_SAMPLE_SUPPORT_KEY: generation.BURST_SAMPLE_SUPPORT,
+        generation.BURST_EVENTS_PER_PIECE: True,
     }
     finish_ref = generation.alignment_generation_ref(slug, "build_raw_table")
     for metric, paths in paths_by_metric.items():
