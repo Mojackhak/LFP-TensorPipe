@@ -290,7 +290,7 @@ def _prepare_trgc_backend_inputs(
 ) -> dict[str, Any]:
     resolver = PathResolver(context)
     metric_label = TENSOR_METRICS_BY_KEY["trgc"].display_name
-    input_path = preproc_step_raw_path(resolver, "finish")
+    input_path = preproc_step_raw_path(resolver, "finish", create=False)
     inheritance = load_tensor_filter_inheritance(context)
     runtime_notch_payload = build_tensor_metric_notch_payload(
         notches,
@@ -302,7 +302,7 @@ def _prepare_trgc_backend_inputs(
         len(runtime_notches),
     )
 
-    if indicator_from_log(preproc_step_log_path(resolver, "finish")) != "green":
+    if indicator_from_log(preproc_step_log_path(resolver, "finish", create=False)) != "green":
         raise ValueError("Missing green preproc finish log.")
     if not input_path.exists():
         raise ValueError("Missing preproc finish raw input.")
@@ -668,7 +668,7 @@ def _write_trgc_public_failure_log(
                 outer_n_jobs=int(outer_n_jobs),
             ),
         },
-        input_path=str(preproc_step_raw_path(resolver, "finish")),
+        input_path=str(preproc_step_raw_path(resolver, "finish", create=False)),
         output_path=str(tensor_metric_tensor_path(resolver, "trgc", create=True)),
         message=str(message),
     )
@@ -800,7 +800,7 @@ def run_trgc_backend_metric(
     except Exception as exc:  # noqa: BLE001
         if prepared is None:
             resolver = PathResolver(context)
-            input_path = preproc_step_raw_path(resolver, "finish")
+            input_path = preproc_step_raw_path(resolver, "finish", create=False)
             output_path = _trgc_backend_tensor_path(
                 resolver, normalized_backend, create=True
             )
@@ -855,7 +855,7 @@ def run_trgc_finalize_metric(
     resolver = PathResolver(context)
     metric_key = "trgc"
     metric_label = TENSOR_METRICS_BY_KEY[metric_key].display_name
-    input_path = preproc_step_raw_path(resolver, "finish")
+    input_path = preproc_step_raw_path(resolver, "finish", create=False)
     output_path = tensor_metric_tensor_path(resolver, metric_key, create=True)
     config_path = tensor_metric_config_path(resolver, metric_key, create=True)
     log_path = tensor_metric_log_path(resolver, metric_key, create=True)
@@ -997,7 +997,7 @@ def run_trgc_finalize_metric(
         if mask_edge_effects:
             import mne
 
-            if indicator_from_log(preproc_step_log_path(resolver, "finish")) != "green":
+            if indicator_from_log(preproc_step_log_path(resolver, "finish", create=False)) != "green":
                 raise ValueError("Missing green preproc finish log.")
             if not input_path.exists():
                 raise ValueError("Missing preproc finish raw input.")

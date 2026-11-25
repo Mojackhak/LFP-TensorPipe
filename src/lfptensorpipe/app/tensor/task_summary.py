@@ -289,7 +289,10 @@ def build_task_summary(context: RecordContext, params, mask_edge_effects, cpu_pe
                     spectral_step=runner_args.get("step_hz") if spectral else None,
                     spectral_notches=(
                         decimal_notch_intervals(
-                            runner_args["notches"], runner_args["notch_radii"]
+                            runner_args["notches"],
+                            svc._expand_notch_radii(
+                                runner_args["notch_radii"], len(runner_args["notches"])
+                            ),
                         )
                         if spectral
                         else None
@@ -325,11 +328,14 @@ def build_task_summary(context: RecordContext, params, mask_edge_effects, cpu_pe
                     prepared.metric_step,
                 )
                 output_bins = len(grid)
-                compute_bins = len(
-                    svc._cut_frequency_grid_by_intervals(
-                        grid, _notch_intervals(runner_args)
-                    )[0]
+                remaining, removed = svc._cut_frequency_grid_by_intervals(
+                    grid, _notch_intervals(runner_args)
                 )
+                compute_bins = len(remaining)
+                if np.any(removed) and compute_bins < 2:
+                    raise ValueError(
+                        "Notch exclusion removed too many bins; reduce notch radii or widen the frequency range."
+                    )
                 work = n_samples * len(row.channels)
                 row.planned_work = (
                     f"{len(row.channels)} channels × {compute_bins} frequencies"

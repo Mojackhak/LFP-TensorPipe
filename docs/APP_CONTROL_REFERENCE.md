@@ -1243,6 +1243,11 @@ the estimated aperiodic parameter array both contribute to size. Their
 successful publication counts as one saved SpecParam selection. Array sizes
 exclude file metadata, reports, temporary storage and working memory.
 
+The task preview expands shared notch radii for spectral Burst in the same way
+as the estimator. Raw power reports a configuration error when notch removal
+leaves fewer than two frequencies for interpolation. Inspecting missing Finish
+inputs leaves the record directory untouched.
+
 **M6 reference runtime** describes the selected job on the reference Apple
 M6 Mac mini. All installations use the bundled measurements. The reference
 budget is the requested CPU percentage applied to 12 logical cores with a

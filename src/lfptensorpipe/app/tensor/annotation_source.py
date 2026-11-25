@@ -53,7 +53,7 @@ def load_burst_baseline_annotation_labels(
     read_raw_fif_fn: Any | None = None,
 ) -> list[str]:
     resolver = PathResolver(context)
-    finish_raw = preproc_step_raw_path(resolver, "finish")
+    finish_raw = preproc_step_raw_path(resolver, "finish", create=False)
     if not finish_raw.exists():
         return []
     return _load_positive_duration_annotation_labels(

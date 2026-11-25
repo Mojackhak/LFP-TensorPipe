@@ -183,8 +183,8 @@ def _prepare_undirected_cohort(
     first_plan = plans[0]
     kwargs = first_plan.runner_kwargs
     resolver = svc.PathResolver(context)
-    input_path = svc.preproc_step_raw_path(resolver, "finish")
-    if svc.indicator_from_log(svc.preproc_step_log_path(resolver, "finish")) != "green":
+    input_path = svc.preproc_step_raw_path(resolver, "finish", create=False)
+    if svc.indicator_from_log(svc.preproc_step_log_path(resolver, "finish", create=False)) != "green":
         raise ValueError("Missing green preproc finish log.")
     if not input_path.exists():
         raise ValueError("Missing preproc finish raw input.")
@@ -322,13 +322,13 @@ def _prepare_psi(svc: Any, context: RecordContext, plan: Any) -> dict[str, Any]:
     from lfptensorpipe.lfp.psi.grid import _prepare_grid
 
     resolver = svc.PathResolver(context)
-    if svc.indicator_from_log(svc.preproc_step_log_path(resolver, "finish")) != "green":
+    if svc.indicator_from_log(svc.preproc_step_log_path(resolver, "finish", create=False)) != "green":
         raise ValueError("Missing green preproc finish log.")
     import mne
 
     kwargs = plan.runner_kwargs
     raw = mne.io.read_raw_fif(
-        str(svc.preproc_step_raw_path(resolver, "finish")),
+        str(svc.preproc_step_raw_path(resolver, "finish", create=False)),
         preload=False,
         verbose="ERROR",
     )
@@ -624,7 +624,7 @@ def _write_plan_failure(
         metric_key,
         completed=False,
         params=svc._sanitize_metric_params_for_logs(plan.runner_kwargs),
-        input_path=str(svc.preproc_step_raw_path(resolver, "finish")),
+        input_path=str(svc.preproc_step_raw_path(resolver, "finish", create=False)),
         output_path=str(svc.tensor_metric_tensor_path(resolver, metric_key)),
         message=f"{plan.metric_label} failed: {message}",
     )
@@ -790,7 +790,7 @@ def run_connectivity_coordinator(
         executor_kwargs: dict[str, Any] = {
             "max_workers": min(max(int(global_compute_slots), 1), len(chunks)),
             "initializer": initialize_connectivity_worker,
-            "initargs": (str(svc.preproc_step_raw_path(resolver, "finish")),),
+            "initargs": (str(svc.preproc_step_raw_path(resolver, "finish", create=False)),),
         }
         if executor_factory is None:
             executor_kwargs["mp_context"] = multiprocessing.get_context("spawn")
