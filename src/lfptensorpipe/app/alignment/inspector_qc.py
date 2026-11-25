@@ -177,8 +177,13 @@ def signal_scores(data, signal, channel, rule, window):
                     gap
                     for span in spans
                     for gap in missing_intervals(
-                        span.time, span.end, ~np.isfinite(span.values[channel]),
-                        (max(lo, span.segment.target_start), min(hi, span.segment.target_end)),
+                        span.time,
+                        span.end,
+                        ~np.isfinite(span.values[channel]),
+                        (
+                            max(lo, span.segment.target_start),
+                            min(hi, span.segment.target_end),
+                        ),
                         include_outside=getattr(data, "pre_cue_s", None) is not None,
                     )
                 ]
@@ -333,7 +338,10 @@ def burst_coverage(data, epoch, channel, grid, freq_weights, window, missing=Non
             ]
             invalid = (~np.isfinite(tensor[c, bands_selected, i:j])).any(axis=0)
             gap_bounds = missing_intervals(
-                edges[i:j], edges[i + 1 : j + 1], invalid, (src_lo, src_hi),
+                edges[i:j],
+                edges[i + 1 : j + 1],
+                invalid,
+                (src_lo, src_hi),
                 include_outside=getattr(data, "pre_cue_s", None) is not None,
             )
             missing.extend(
@@ -410,7 +418,9 @@ def metric_scores(data, metric, channel, rule, window):
         time_groups = np.zeros(len(grid.time), int)
         for seg in data.mappings[i][1:]:
             if seg.occurrence != data.mappings[i][0].occurrence:
-                tolerance = 64 * np.finfo(float).eps * max(1., data.bounds[1] - data.bounds[0])
+                tolerance = (
+                    64 * np.finfo(float).eps * max(1.0, data.bounds[1] - data.bounds[0])
+                )
                 time_groups += grid.time + tolerance >= seg.target_start
         for group in np.unique(fgroups[fw > 0]):
             for part in np.unique(time_groups):

@@ -1926,6 +1926,12 @@ The single-epoch metric view displays the selected epoch's values using the same
 
 Preview transforms power to dB and positive Burst amplitude to log10 before averaging. Aperiodic parameters use separate common-reference z-scores. Connectivity and signal amplitude retain their arithmetic scales. The group difference uses the displayed group means. Preview selections are saved for the trial independently of QC.
 
+Waveform MAD uses the Stack sample grid through its final center. Valid coverage
+uses elapsed sample support and subtracts the union of overlapping notches.
+Stitched metric clusters end at the seam, and cue-window coverage highlights
+time outside the recording. Rerun QC to review earlier decisions that depended
+on these cases. Saved manual Include choices remain available.
+
 ### 8.3 Line Up Key Events Params
 
 ![Line Up Key Events params.](assets/app-control-reference/controlref-advance-align-line-up-key-events-dialog.png)

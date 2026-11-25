@@ -234,7 +234,9 @@ class InspectorData:
                     scale = (s.source_end - s.source_start) / (
                         s.target_end - s.target_start
                     )
-                    sample_time = np.minimum(s.target_end, s.target_start + (source - s.source_start) / scale)
+                    sample_time = np.minimum(
+                        s.target_end, s.target_start + (source - s.source_start) / scale
+                    )
                     sample_end = None
                     if self.method == "stack_warper":
                         first = max(0, round(s.source_start * sf))
@@ -245,10 +247,12 @@ class InspectorData:
                         sample_time[
                             (sample_indices < first) | (sample_indices > last)
                         ] = np.nan
-                        sample_time[sample_indices == last] = s.target_end if last > first else s.target_start
+                        if last > first:
+                            sample_time[sample_indices == last] = s.target_end
                         sample_end = np.minimum(
                             s.target_end,
-                            sample_time + (s.target_end - s.target_start) / max(1, last - first),
+                            sample_time
+                            + (s.target_end - s.target_start) / max(1, last - first),
                         )
                     else:
                         # Reading starts at the overlapping cell for coverage. Its
