@@ -9,6 +9,7 @@ import numpy as np
 
 from lfptensorpipe.app.alignment.generation import (
     accepted_alignment_artifact_paths,
+    alignment_generation_rerun_message,
     latest_alignment_step_entry,
 )
 from lfptensorpipe.app.alignment.paths import alignment_warp_labels_path
@@ -81,7 +82,12 @@ class InspectorData:
             accepted_alignment_artifact_paths(resolver, trial_slug=slug, stage="run")
         )
         if not self.paths:
-            raise ValueError("Run Align Epochs with the current trial settings first.")
+            raise ValueError(
+                alignment_generation_rerun_message(
+                    resolver, trial_slug=slug, stage="run"
+                )
+                or "Run Align Epochs with the current trial settings first."
+            )
         self.run_index, entry = latest_alignment_step_entry(
             resolver, trial_slug=slug, step="run_align_epochs"
         )

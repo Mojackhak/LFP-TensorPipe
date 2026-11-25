@@ -1934,7 +1934,11 @@ anchors defined by its event pairs and durations.
 Restoring a record applies its selected method, parameters and epoch picks only to the saved trial. If that trial no longer exists, the selected trial keeps its own settings. A method unavailable in this installation is skipped.
 
 Each successful Align Run starts with all epochs included and none selected for viewing.
-Historical Line Up Key Events runs with an empty anchor table inferred their endpoint labels from alphabetical order. QC and Preview can still inspect the stored event times. Verify those endpoints against the intended events before using older results, and configure the labels explicitly for a new run.
+Historical standard Line Up Key Events runs with an empty or omitted anchor
+table inferred endpoint labels from alphabetical order. Configure the 0% and
+100% event labels, rerun Align Epochs and Finish, then extract the affected
+Features again. QC, Preview and Burst mapping require the corrected Run.
+Cue-response trials use their configured event pairs.
 The five columns are `Include`, `Epoch`, `Duration`, `View`, and `Notes`. Duration is in seconds.
 Across adjoining linear warp segments, each native waveform sample belongs to one segment. Coverage can include fractions of the same sample interval on both sides of an anchor. A rolling QC baseline therefore sees ordered waveform times while retaining the full observed duration.
 Double-click Epoch or Duration to inspect the native Preprocessed Signal. Double-click Notes for an optional multiline note.

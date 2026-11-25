@@ -38,6 +38,7 @@ from lfptensorpipe.lfp.burst.semantics import (
 )
 from lfptensorpipe.io.pkl_io import load_pkl
 
+from .method_params import linear_anchor_selection_error
 from .method_specs import (
     BURST_DISPLAY_GRID,
     BURST_DISPLAY_GRID_KEY,
@@ -168,6 +169,9 @@ def _run_semantics_rerun_message(
     if method == "linear_warper":
         if not isinstance(method_params, dict):
             return ALIGNMENT_RUN_MANIFEST_RERUN_MESSAGE
+        anchor_error = linear_anchor_selection_error(method, method_params)
+        if anchor_error:
+            return f"{anchor_error} Rerun Align Epochs and Finish before Extract Features."
         if params.get(LINEAR_EVENT_PAIRING_KEY) != linear_event_pairing_mode(
             method_params
         ):

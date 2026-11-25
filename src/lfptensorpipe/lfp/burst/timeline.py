@@ -150,15 +150,19 @@ def build_warp_segments(
             )
         ]
     if method_key == "linear_warper":
-        from ..warp.event_anchored_linear import _resolve_linear_anchor_config
-
-        # Automatic linear alignment uses only the two endpoints of each epoch.
-        auto_endpoints = (
-            method_params.get("anchors_percent", {}) == {}
-            and "event_groups" not in method_params
-            and "cue_response" not in method_params
+        from ..warp.event_anchored_linear import (
+            _resolve_linear_anchor_config,
+            cue_response_anchors,
         )
-        if auto_endpoints or not method_params.get("linear_warp", True):
+
+        anchors_node = method_params.get("anchors_percent")
+        if not anchors_node and "cue_response" in method_params:
+            anchors_node = cue_response_anchors(method_params["cue_response"])
+        if not isinstance(anchors_node, dict) or not anchors_node:
+            raise ValueError(
+                "Linear Burst mapping requires explicit annotation anchors. Rerun Align Epochs and Finish."
+            )
+        if not method_params.get("linear_warp", True):
             return [
                 _validated_segment(
                     0.0,
@@ -168,9 +172,8 @@ def build_warp_segments(
                     0,
                 )
             ]
-        anchors_node = method_params.get("anchors_percent")
         events_t = getattr(epoch, "events_t", None)
-        if not isinstance(anchors_node, dict) or not isinstance(events_t, dict):
+        if not isinstance(events_t, dict):
             raise ValueError("Linear Burst mapping is missing persisted anchors.")
         target_array, _tokens, event_keys = _resolve_linear_anchor_config(anchors_node)
         target_anchors = target_array.tolist()
