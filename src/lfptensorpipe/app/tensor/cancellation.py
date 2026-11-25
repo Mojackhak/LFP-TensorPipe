@@ -21,6 +21,7 @@ from .paths import (
     tensor_metric_log_path,
     tensor_metric_tensor_path,
     tensor_output_metric_keys,
+    tensor_stage_log_path,
 )
 
 CANCELLED_RUN_STATUS = "cancelled"
@@ -109,7 +110,14 @@ def backfill_cancelled_build_tensor_run(
         metric_statuses[metric_key] = CANCELLED_RUN_STATUS
         cancelled_metrics.append(metric_key)
 
-    if cancelled_metrics:
+    if not cancelled_metrics and CANCELLED_RUN_STATUS in metric_statuses.values():
+        previous = read_run_log(tensor_stage_log_path(resolver))
+        if (
+            _log_run_id(previous) == run_id
+            and previous["params"].get("metric_statuses") == metric_statuses
+        ):
+            return metric_statuses
+    if CANCELLED_RUN_STATUS in metric_statuses.values():
         stage_params = {
             "run_id": run_id,
             "selected_metrics": list(selected_metrics),

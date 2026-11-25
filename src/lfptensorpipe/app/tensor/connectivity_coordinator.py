@@ -184,7 +184,12 @@ def _prepare_undirected_cohort(
     kwargs = first_plan.runner_kwargs
     resolver = svc.PathResolver(context)
     input_path = svc.preproc_step_raw_path(resolver, "finish", create=False)
-    if svc.indicator_from_log(svc.preproc_step_log_path(resolver, "finish", create=False)) != "green":
+    if (
+        svc.indicator_from_log(
+            svc.preproc_step_log_path(resolver, "finish", create=False)
+        )
+        != "green"
+    ):
         raise ValueError("Missing green preproc finish log.")
     if not input_path.exists():
         raise ValueError("Missing preproc finish raw input.")
@@ -322,7 +327,12 @@ def _prepare_psi(svc: Any, context: RecordContext, plan: Any) -> dict[str, Any]:
     from lfptensorpipe.lfp.psi.grid import _prepare_grid
 
     resolver = svc.PathResolver(context)
-    if svc.indicator_from_log(svc.preproc_step_log_path(resolver, "finish", create=False)) != "green":
+    if (
+        svc.indicator_from_log(
+            svc.preproc_step_log_path(resolver, "finish", create=False)
+        )
+        != "green"
+    ):
         raise ValueError("Missing green preproc finish log.")
     import mne
 
@@ -1004,9 +1014,12 @@ def run_connectivity_coordinator(
             failures = trgc_state["failures"][backend_method]
             task_results = trgc_state["task_results"][backend_method]
             description = trgc_state["descriptions"][backend_method]
-            if failures or (not task_results and any(
-                len(group["valid_time_indices"]) for group in description["groups"]
-            )):
+            if failures or (
+                not task_results
+                and any(
+                    len(group["valid_time_indices"]) for group in description["groups"]
+                )
+            ):
                 backend_ok = False
                 message = (
                     "TRGC task failed: " + failures[0]
