@@ -188,12 +188,31 @@ def build_warp_segments(
             for index in range(len(target_anchors) - 1)
         ]
     if method_key == "pad_warper":
-        from ..warp.pad_concat import positive_pad_intervals
+        from ..warp.pad_concat import pad_window_support
 
         events_t = getattr(epoch, "events_t", None)
         if not isinstance(events_t, dict):
             raise ValueError("Pad Burst mapping is missing persisted event bounds.")
-        return _cumulative_segments(positive_pad_intervals(events_t))
+        windows = list(pad_window_support(epoch))
+        nominal = _cumulative_segments((start, end) for start, end, _, _ in windows)
+        segments = []
+        for segment, (start, end, left, right) in zip(nominal, windows):
+            if not _positive_duration(left, right):
+                continue
+            if (left, right) == (start, end):
+                segments.append(segment)
+                continue
+            scale = (segment.target_end - segment.target_start) / (end - start)
+            segments.append(
+                WarpSegment(
+                    segment.target_start + (left - start) * scale,
+                    segment.target_end - (end - right) * scale,
+                    left,
+                    right,
+                    segment.occurrence,
+                )
+            )
+        return segments
     if method_key == "concat_warper":
         intervals = getattr(epoch, "intervals_s", None)
         if not isinstance(intervals, list):
@@ -547,9 +566,12 @@ def warp_burst_for_display(
     for epoch_index, epoch in enumerate(epochs):
         segments = build_warp_segments(method, method_params, epoch)
         for bin_index in range(axis.size):
-            fragments = map_percent_intervals(
-                segments, [(bin_edges[bin_index], bin_edges[bin_index + 1])]
-            )
+            start, end = bin_edges[bin_index : bin_index + 2]
+            fragments = map_percent_intervals(segments, [(start, end)])
+            if getattr(epoch, "requested_intervals_s", None):
+                covered = sum(f.target_end - f.target_start for f in fragments)
+                if _positive_duration(start + covered, end):
+                    continue
             out[epoch_index, :, :, bin_index] = _display_bin_values(
                 flattened,
                 source_edges,

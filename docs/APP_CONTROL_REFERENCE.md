@@ -1863,7 +1863,7 @@ positive-duration instance remains, the run fails without replacing the prior
 Alignment artifacts. No Alignment method promotes a zero-width interval to an
 implicit one-sample signal.
 
-For non-Burst metrics, each positive-width Clip, Stack, or Stitch fragment
+For non-Burst metrics, each complete positive-width Clip, Stack, or Stitch fragment
 must contain at least one sample after its boundaries are rounded to that
 metric's native grid. Run reports an empty fragment even at the end of a
 decimated Tensor. For historical trials with a fragment beyond the last
@@ -2000,6 +2000,21 @@ a missing value.
 - The two retained source pieces are hard boundaries. Each output sample is
   interpolated within its own piece; the software never interpolates from the
   end of one piece to the beginning of the other.
+- When an eligible window crosses the start or end of the recording, the epoch
+  keeps its configured duration. Unrecorded time is filled with `NaN`. Event
+  onset stays at `pad left` seconds and offset at
+  `pad left + anno left + anno right` seconds on the stitched axis.
+  A clipped fragment with no native samples also contributes missing values.
+  Epoch Inspector counts padding as missing for valid coverage. A Burst
+  display bin touching padding is missing, and native Features use only
+  recorded support. A phase entirely in padding has no valid duration.
+- Annotation exclusion still applies to the recorded portions. Finish places
+  zero-duration `EDGE` markers at the first and last sample. To include a
+  window that overlaps one, omit `edge` from the trial's drop fields or turn
+  off annotation exclusion for that trial.
+- For older Clip runs, a saved epoch shorter than the requested window
+  requires rerunning Align Epochs and Finish before extracting Features.
+  Older runs with complete windows retain their results.
 - If the configured window duration is `D` and rounding produces `N` samples,
   their physical coordinates are `0, D/N, ..., (N-1)D/N` and represent
   half-open support `[0,D)`. The saved metadata records both the requested rate

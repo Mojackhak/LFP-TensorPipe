@@ -310,6 +310,10 @@ def finish_review_snapshot(context, slug, picked, epochs):
         intervals = epoch.get("intervals_s")
         if intervals is None and "pad_left" in events:
             intervals = positive_pad_intervals(events)
+            if not intervals:
+                intervals = [
+                    [t, t] for t in dict.fromkeys((epoch["start_t"], epoch["end_t"]))
+                ]
         if intervals is None and np.all(
             np.isfinite([epoch.get("start_t", np.nan), epoch.get("end_t", np.nan)])
         ):

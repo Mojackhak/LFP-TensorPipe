@@ -108,6 +108,8 @@ def source_epoch_metadata(meta_epochs):
             item["side"] = str(getattr(ep, "side"))
         if getattr(ep, "sample_span_s", None) is not None:
             item["sample_span_s"] = ep.sample_span_s
+        if getattr(ep, "requested_intervals_s", None) is not None:
+            item["requested_intervals_s"] = ep.requested_intervals_s
         if hasattr(ep, "intervals_s"):
             item["intervals_s"] = list(getattr(ep, "intervals_s"))
         warp_events.append(item)

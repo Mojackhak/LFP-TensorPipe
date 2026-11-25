@@ -96,6 +96,26 @@ def missing_intervals(left, right, invalid, window):
     ]
 
 
+def clip_padding(data, epoch, window):
+    """Return the unrecorded parts of the QC window in aligned seconds."""
+    if getattr(data, "method", None) != "pad_warper" or not getattr(
+        data.epochs[epoch], "requested_intervals_s", None
+    ):
+        return []
+    cursor, end = window
+    missing = []
+    for segment in data.mappings[epoch]:
+        left = max(cursor, segment.target_start)
+        right = min(end, segment.target_end)
+        if left < right:
+            if cursor < left:
+                missing.append([cursor, left])
+            cursor = right
+    if cursor < end:
+        missing.append([cursor, end])
+    return missing
+
+
 def coverage_result(percent, rule, data, epoch, channel, window, **extra):
     if not np.isfinite(percent):
         return None, []
@@ -122,7 +142,9 @@ def signal_scores(data, signal, channel, rule, window):
     if rule["method"] == "Valid coverage":
         scores = []
         for i, spans in enumerate(signal):
+            padding = clip_padding(data, i, window)
             expected = sum(b - a for a, b in data.source_intervals(i, lo, hi))
+            expected += sum(b - a for a, b in padding)
             valid = sum(
                 np.sum(
                     np.maximum(0, np.minimum(s.end, hi) - np.maximum(s.time, lo))
@@ -140,7 +162,7 @@ def signal_scores(data, signal, channel, rule, window):
                 window,
             )
             if outcome:
-                details[0]["missing_time"] = [
+                details[0]["missing_time"] = padding + [
                     gap
                     for span in spans
                     for gap in missing_intervals(
@@ -275,7 +297,11 @@ def burst_coverage(data, epoch, channel, grid, freq_weights, window, missing=Non
     tensor, names, bands, times = data.native_burst
     edges = sample_cell_edges(times)
     c = names.index(channel)
-    valid = total = 0.0
+    padding = clip_padding(data, epoch, window)
+    if missing is not None:
+        missing.extend(padding)
+    valid = 0.0
+    total = sum(b - a for a, b in padding) * freq_weights.sum()
     for s in data.mappings[epoch]:
         a, b = max(window[0], s.target_start), min(window[1], s.target_end)
         if b <= a:
@@ -347,6 +373,7 @@ def metric_scores(data, metric, channel, rule, window):
             )
             if outcome:
                 if metric != "burst":
+                    missing.extend(clip_padding(data, i, window))
                     invalid = (~np.isfinite(plane[fw > 0])).any(axis=0)
                     for seg in data.mappings[i]:
                         bounds = (

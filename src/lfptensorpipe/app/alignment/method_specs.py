@@ -31,6 +31,7 @@ LINEAR_EVENT_PAIRING = "earliest_unused_end_unique_anchors"
 LINEAR_EVENT_PAIRING_DIAGNOSTICS_KEY = "linear_event_pairing_diagnostics"
 CLIP_STITCH_GEOMETRY_KEY = "clip_stitch_geometry"
 CLIP_STITCH_GEOMETRY = "piecewise_half_open_support"
+CLIP_BOUNDARY_PADDING_KEY = "clip_boundary_padding"
 BURST_DISPLAY_GRID_KEY = "burst_display_grid"
 BURST_DISPLAY_GRID = "half_open_physical_centers"
 ZERO_DURATION_ALIGNMENT_KEY = "zero_duration_alignment"
@@ -50,6 +51,7 @@ __all__ = [
     "BURST_DISPLAY_GRID_KEY",
     "CLIP_STITCH_GEOMETRY",
     "CLIP_STITCH_GEOMETRY_KEY",
+    "CLIP_BOUNDARY_PADDING_KEY",
     "LINEAR_WARP_GEOMETRY",
     "LINEAR_WARP_GEOMETRY_KEY",
     "LINEAR_EVENT_PAIRING",

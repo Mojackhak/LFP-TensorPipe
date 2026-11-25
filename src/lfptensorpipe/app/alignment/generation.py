@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from math import ulp
 from pathlib import Path
+from pickle import UnpicklingError
 from typing import Any, Literal
 
 from lfptensorpipe.app.localize.paths import (
@@ -34,10 +36,12 @@ from lfptensorpipe.lfp.burst.semantics import (
     BURST_SAMPLE_SUPPORT,
     BURST_SAMPLE_SUPPORT_KEY,
 )
+from lfptensorpipe.io.pkl_io import load_pkl
 
 from .method_specs import (
     BURST_DISPLAY_GRID,
     BURST_DISPLAY_GRID_KEY,
+    CLIP_BOUNDARY_PADDING_KEY,
     CLIP_STITCH_GEOMETRY,
     CLIP_STITCH_GEOMETRY_KEY,
     LINEAR_EVENT_PAIRING_KEY,
@@ -51,6 +55,8 @@ from .method_specs import (
     DEFAULT_DROP_MODE,
 )
 from .param_normalizers import _normalize_drop_fields
+from .paths import alignment_warp_labels_path
+from .warper_builder import _resolve_target_duration_s
 
 AlignmentGenerationStage = Literal["run", "finish"]
 
@@ -154,7 +160,7 @@ def _legacy_burst_sample_support(params: dict[str, Any], metrics: list[str]) -> 
 
 
 def _run_semantics_rerun_message(
-    params: dict[str, Any], metrics: list[str] | None
+    resolver: PathResolver, slug: str, params: dict[str, Any], metrics: list[str] | None
 ) -> str | None:
     """Return the first incompatible semantic setting consumed by this Run."""
     method = params.get("method")
@@ -191,6 +197,32 @@ def _run_semantics_rerun_message(
         and params.get(BURST_DISPLAY_GRID_KEY) != BURST_DISPLAY_GRID
     ):
         return ALIGNMENT_BURST_DISPLAY_RERUN_MESSAGE
+    if method == "pad_warper" and params.get(CLIP_BOUNDARY_PADDING_KEY) != "nan":
+        from lfptensorpipe.lfp.warp.pad_concat import positive_pad_intervals
+
+        try:
+            labels = load_pkl(alignment_warp_labels_path(resolver, slug))
+            target = _resolve_target_duration_s(
+                method=method, method_params=method_params, epochs_by_label=labels
+            )
+            for epoch in labels["ALL"]:
+                recorded = sum(b - a for a, b in positive_pad_intervals(epoch.events_t))
+                tolerance = 32 * ulp(max(1.0, abs(epoch.end_t), target))
+                if target - recorded > tolerance:
+                    return (
+                        "Latest Clip Around Event alignment stretched a recording-boundary "
+                        "epoch. Rerun Align Epochs and Finish before Extract Features."
+                    )
+        except (
+            OSError,
+            EOFError,
+            UnpicklingError,
+            KeyError,
+            AttributeError,
+            TypeError,
+            ValueError,
+        ):
+            return ALIGNMENT_RUN_MANIFEST_RERUN_MESSAGE
     return None
 
 
@@ -492,7 +524,10 @@ def alignment_stage_lineage_is_current(
 
     if stage == "run":
         run_params = latest[1].get("params")
-        if _run_semantics_rerun_message(run_params, metrics) is not None:
+        if (
+            _run_semantics_rerun_message(resolver, slug, run_params, metrics)
+            is not None
+        ):
             return False
         method = (
             str(run_params.get("method", "")).strip() or None
@@ -660,7 +695,7 @@ def alignment_generation_rerun_message(
         params = latest_run[1].get("params")
         if isinstance(params, dict):
             message = _run_semantics_rerun_message(
-                params, metrics_from_alignment_entry(latest_run[1])
+                resolver, slug, params, metrics_from_alignment_entry(latest_run[1])
             )
             if message is not None:
                 return message

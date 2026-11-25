@@ -40,6 +40,7 @@ from .generation import (
 from .method_specs import (
     BURST_DISPLAY_GRID,
     BURST_DISPLAY_GRID_KEY,
+    CLIP_BOUNDARY_PADDING_KEY,
     CLIP_STITCH_GEOMETRY,
     CLIP_STITCH_GEOMETRY_KEY,
     linear_event_pairing_mode,
@@ -422,6 +423,8 @@ def run_align_epochs(
                 if uses_current_clip_stitch_geometry:
                     meta_warped[CLIP_STITCH_GEOMETRY_KEY] = CLIP_STITCH_GEOMETRY
                     meta_warped["axes"]["time_coordinate"] = "epoch_seconds"
+                if method == "pad_warper":
+                    meta_warped[CLIP_BOUNDARY_PADDING_KEY] = "nan"
                 if uses_current_zero_duration_alignment:
                     meta_warped[ZERO_DURATION_ALIGNMENT_KEY] = ZERO_DURATION_ALIGNMENT
                 out_path = metric_output_paths[metric_key]
@@ -458,6 +461,8 @@ def run_align_epochs(
                 )
             if uses_current_clip_stitch_geometry:
                 run_params[CLIP_STITCH_GEOMETRY_KEY] = CLIP_STITCH_GEOMETRY
+            if method == "pad_warper":
+                run_params[CLIP_BOUNDARY_PADDING_KEY] = "nan"
             if uses_current_zero_duration_alignment:
                 run_params[ZERO_DURATION_ALIGNMENT_KEY] = ZERO_DURATION_ALIGNMENT
             excluded_count = int(excluded_zero_duration.get("count", 0) or 0)

@@ -101,6 +101,8 @@ def _fragment_values(
     source_times: np.ndarray,
     fragment: MappedFragment,
     segment: WarpSegment,
+    *,
+    boundary_padded: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     start = float(fragment.source_start)
     end = float(fragment.source_end)
@@ -116,7 +118,9 @@ def _fragment_values(
             abs(source_stop),
         )
     )
-    if start < float(source_times[0]) - tolerance or end > source_stop + tolerance:
+    if not boundary_padded and (
+        start < float(source_times[0]) - tolerance or end > source_stop + tolerance
+    ):
         raise ValueError("Alignment fragment exceeds native Tensor time support.")
     if (
         start < float(segment.source_start) - tolerance
@@ -136,6 +140,8 @@ def _fragment_values(
     segment_stop = time_s_to_sample_index(float(segment.source_end), source_rate)
     segment_stop = min(segment_stop, source_times.size)
     if segment_stop <= segment_start:
+        if boundary_padded:
+            return np.asarray([], dtype=float), values[..., :0]
         raise ValueError("Alignment source segment contains no native Tensor samples.")
     segment_times = source_times[segment_start:segment_stop]
     segment_values = values[..., segment_start:segment_stop]
@@ -294,6 +300,9 @@ def build_piecewise_mean_outputs(
     scalar_records: list[dict[str, Any]] = []
     for epoch_position, fragments_by_phase in enumerate(fragments_by_epoch):
         segments_by_occurrence = segments_by_epoch[epoch_position]
+        boundary_padded = bool(
+            getattr(all_epochs[picks[epoch_position]], "requested_intervals_s", None)
+        )
         for channel_index, _channel in enumerate(channels):
             base = metadata_rows[epoch_position * len(channels) + channel_index]
             source_frame = pd.DataFrame(
@@ -321,6 +330,7 @@ def build_piecewise_mean_outputs(
                         source_times,
                         fragment,
                         segments_by_occurrence[fragment.occurrence],
+                        boundary_padded=boundary_padded,
                     )
                     if nodes.size >= 2:
                         prepared_fragments.append((nodes, fragment_values))

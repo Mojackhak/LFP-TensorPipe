@@ -1248,6 +1248,13 @@ timestamps, the nearest sample owned by that fragment is held constant to the
 exact boundary. Samples from a gap or neighboring fragment are never used, and
 no trapezoid is drawn across a stitched boundary.
 
+Clip retains eligible trials at the recording boundary. For example, with a 0.5 s
+pre-onset window, an event at recording time 0.2 s has 0.3 s of leading
+`NaN` and the onset stays at aligned time 0.5 s. Padding contributes to
+missing coverage in Epoch Inspector. Ordinary means and Burst occupancy use
+the available native duration. When a phase contains only padding, both
+measurements are `NaN`.
+
 ### Feature value transformations
 
 Feature processing distinguishes between two numerical domains:
