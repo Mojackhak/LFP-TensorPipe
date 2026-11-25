@@ -202,8 +202,8 @@ def interpolate_freq_axis(
     the matching tolerance. Integer and boolean inputs produce floating-point
     output so interpolated fractions and missing support can be represented.
 
-    If freqs_in is NOT a strict subset of freqs_out:
-      - on_mismatch="raise": raise ValueError.
+    If an input center cannot be matched to the target grid within the tolerance:
+      - on_mismatch="raise": both linear and Savitzky-Golay interpolation raise ValueError.
       - on_mismatch="interpolate": fall back to pure linear interpolation. If
         method="savgol", we warn and still fall back to pure linear interpolation,
         because "missing-bin-only smoothing" is undefined without subset matching.
@@ -223,13 +223,12 @@ def interpolate_freq_axis(
     is_subset = bool(info["is_subset"])
     if is_subset:
         x_in = x_out[info["keep_out_idx"]]
-
+    elif on_mismatch == "raise":
+        raise ValueError(
+            "freqs_in must be a subset of freqs_out within the matching tolerance. "
+            "Set on_mismatch='interpolate' to resample onto a different grid."
+        )
     if method == "savgol" and not is_subset:
-        if on_mismatch == "raise":
-            raise ValueError(
-                "method='savgol' requires freqs_in to be a strict subset of freqs_out. "
-                "Set on_mismatch='interpolate' to fall back to pure linear interpolation."
-            )
         warnings.warn(
             "freqs_in is not a subset of freqs_out; falling back to pure linear interpolation "
             "(no missing-bin-only Savitzky-Golay smoothing).",
