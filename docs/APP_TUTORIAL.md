@@ -663,6 +663,8 @@ Window methods require at least one notch center and a complete estimation
 window in each valid processing segment. removePLI requires every generated
 harmonic and its fundamental estimator band to fit within the available frequency
 range. Its settling and transition times describe 95% response times.
+The frequency tracker holds its last estimate when a quiet interval has no
+tracking energy. Harmonic cosines are bounded at their mathematical endpoints.
 
 CleanLine's Significance threshold is an F-test p-value threshold: smaller values
 remove fewer components. Configure accepts per-channel values, or blank cells

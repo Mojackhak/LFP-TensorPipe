@@ -81,8 +81,9 @@ def remove_pli(data, sfreq, params):
                 lattice + previous2
             )
             denominator = forgetting * denominator + (1 - forgetting) * 2 * previous**2
-            estimate = min(1.0, max(-1.0, numerator / denominator))
-            kappa = smoothing * kappa + (1 - smoothing) * estimate
+            if denominator > 0.0:
+                estimate = min(1.0, max(-1.0, numerator / denominator))
+                kappa = smoothing * kappa + (1 - smoothing) * estimate
             previous2, previous = previous, lattice
             alpha = alpha_step * alpha + (1 - alpha_step) * alpha_final
             forgetting = (
@@ -91,7 +92,7 @@ def remove_pli(data, sfreq, params):
             old_cos, current_cos = kappa, 1.0
             error = sample
             for harmonic in range(count):
-                cosine = 2 * kappa * current_cos - old_cos
+                cosine = min(1.0, max(-1.0, 2 * kappa * current_cos - old_cos))
                 old_cos, current_cos = current_cos, cosine
                 tmp = cosine * (up[harmonic] + u[harmonic])
                 tmp2 = up[harmonic]
@@ -111,8 +112,10 @@ def remove_pli(data, sfreq, params):
                 error -= a[harmonic] * u[harmonic] + b[harmonic] * up[harmonic]
                 r1[harmonic] = amplitude_forgetting * r1[harmonic] + u[harmonic] ** 2
                 r4[harmonic] = amplitude_forgetting * r4[harmonic] + up[harmonic] ** 2
-                a[harmonic] += u[harmonic] * error / r1[harmonic]
-                b[harmonic] += up[harmonic] * error / r4[harmonic]
+                if r1[harmonic] > 0:
+                    a[harmonic] += u[harmonic] * error / r1[harmonic]
+                if r4[harmonic] > 0:
+                    b[harmonic] += up[harmonic] * error / r4[harmonic]
             result[channel, index] = error / 1000 + mean
     if not np.isfinite(result).all():
         raise ValueError("removePLI estimator produced nonfinite samples.")
