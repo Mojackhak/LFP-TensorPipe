@@ -28,9 +28,10 @@ from .features.phase_time import (
     aligned_phase_support,
     convert_phase_rows,
     effective_phase_windows,
+    phase_interval_unions,
+    same_interval_bounds,
     same_phase_boundary,
     same_phase_windows,
-    snap_phase_boundary,
     trial_seconds_duration,
 )
 from .path_resolver import PathResolver
@@ -145,9 +146,8 @@ def _same_definition(left, right):
         left[k] != right[k] for k in left if k != "phase_windows"
     ):
         return False
-    a, b = left.get("phase_windows", ()), right.get("phase_windows", ())
-    return len(a) == len(b) and all(
-        same_phase_boundary(x, y) for p, q in zip(a, b) for x, y in zip(p, q)
+    return same_interval_bounds(
+        left.get("phase_windows", ()), right.get("phase_windows", ())
     )
 
 
@@ -210,6 +210,7 @@ def _feature_values(run, paths, seconds):
             phase_rows = convert_phase_rows(
                 windows["times"], windows["time_unit"], unit_time, seconds
             )
+            phase_ranges = phase_interval_unions(phase_rows)
         for row in frame.to_dict("records"):
             source = row.get("SourceEpoch")
             if not isinstance(source, str):
@@ -233,7 +234,7 @@ def _feature_values(run, paths, seconds):
                     definition["band_hz"] = _window(axes["bands"], band)
                 if phase and kind in {"scalar", "spectral"}:
                     definition.update(
-                        phase_windows=_window(phase_rows, phase), time_unit=unit_time
+                        phase_windows=phase_ranges.get(phase, []), time_unit=unit_time
                     )
                 definitions[spec_key] = definition
             prefix = (
@@ -305,16 +306,6 @@ def _paired_coordinates(
                 )
 
 
-def _phase_ranges(rows, centers):
-    windows = defaultdict(list)
-    for row in rows:
-        start, end = (snap_phase_boundary(row[k], centers) for k in ("start", "end"))
-        windows[row["name"]].append((start, end))
-    from lfptensorpipe.tabular.grid import _merge_intervals
-
-    return {name: _merge_intervals(spans) for name, spans in windows.items()}
-
-
 def _coverage(run, resolver, metric):
     """Count aligned cells, including masked cells, in each configured band/phase."""
     result = {}
@@ -348,7 +339,7 @@ def _coverage(run, resolver, metric):
         or collapse["time_interval_mode"] == "percent"
         or metric == "burst"
     )
-    windows = _phase_ranges(rows, ts if converted else ())
+    windows = phase_interval_unions(rows, ts if converted else ())
     edges = np.append(ts[1:], duration)
     inclusive = collapse["inclusive"]
     for row in frame.to_dict("records"):

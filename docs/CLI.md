@@ -212,6 +212,10 @@ Coverage counts finite aligned time–frequency cells in each configured band an
 
 Phase comparisons use the accepted epoch duration to convert between percent and seconds. Pairing and coverage use the extraction tolerance for floating-point window endpoints, independently of the value tolerances `--atol` and `--rtol`. For a legacy phase table without `time_unit`, coverage follows the accepted reduction settings, including absolute seconds on physical-time epochs. Burst phase windows without a unit use percent.
 
+Windows with the same phase name are compared by their union. Adjacent or
+overlapping rows that cover the same time range give the same definition.
+Distinct names and gaps between windows remain part of the comparison.
+
 The Tensor setting `mask_edge_effects` is part of each output definition. Changing it sends the affected values to `unmatched.csv` as `different_definition`. The coverage report still describes the observed support in both runs.
 
 Native Burst scalar tables always identify observations by `Band`, `Phase` and `Value`. Comparison reads those columns even when the same run assigns custom output column names to other metrics. A sensitivity comparison with zero finite pairs saves its reports, explains the failure on standard error and exits with code 1. Interrupting an export or comparison returns code 130.

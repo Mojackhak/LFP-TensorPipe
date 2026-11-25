@@ -204,19 +204,33 @@ def same_phase_boundary(a, b):
     return abs(a - b) <= 4 * max(ulp(a), ulp(b))
 
 
+def phase_interval_unions(rows, centers=()):
+    """Group phase windows by name and merge their covered intervals."""
+    from lfptensorpipe.tabular.grid import _merge_intervals
+
+    groups = {}
+    for row in rows:
+        span = tuple(snap_phase_boundary(row[key], centers) for key in ("start", "end"))
+        groups.setdefault(row["name"], []).append(span)
+    return {name: _merge_intervals(spans) for name, spans in groups.items()}
+
+
+def same_interval_bounds(left, right):
+    return len(left) == len(right) and all(
+        same_phase_boundary(x, y) for a, b in zip(left, right) for x, y in zip(a, b)
+    )
+
+
 def same_phase_windows(a, b, duration: float | None) -> bool:
     left, right = a.get("times", []), b.get("times", [])
     left_unit, right_unit = a.get("time_unit", "percent"), b.get("time_unit", "percent")
-    if len(left) != len(right):
-        return False
     if left_unit != right_unit:
         if duration is None:
             return False
         left = convert_phase_rows(left, left_unit, right_unit, duration)
-    return all(
-        x["name"] == y["name"]
-        and all(same_phase_boundary(x[k], y[k]) for k in ("start", "end"))
-        for x, y in zip(left, right)
+    lhs, rhs = phase_interval_unions(left), phase_interval_unions(right)
+    return lhs.keys() == rhs.keys() and all(
+        same_interval_bounds(lhs[name], rhs[name]) for name in lhs
     )
 
 
