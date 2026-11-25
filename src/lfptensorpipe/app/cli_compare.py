@@ -23,6 +23,7 @@ from .features.generation import (
     accepted_feature_artifact_paths,
     features_derivatives_log_path,
 )
+from .features.indicator import extract_features_indicator_state
 from .features.phase_time import (
     aligned_phase_support,
     convert_phase_rows,
@@ -35,7 +36,7 @@ from .features.phase_time import (
 from .path_resolver import PathResolver
 from .shared.atomic_outputs import AtomicOutputSet
 from .shared.generation_lineage import accepted_result_generation_id
-from .shared.runlog_store import read_run_log
+from .shared.runlog_store import read_run_log, run_log_read_snapshot
 
 KEY = (
     "subject",
@@ -93,13 +94,23 @@ def _open_run(folder):
     if ctx.project_root != folder:
         raise ValueError("The selected record must belong to this run.")
     resolver = PathResolver(ctx)
-    paths = accepted_feature_artifact_paths(resolver, trial_slug=run["trial"])
-    entry = read_run_log(
-        features_derivatives_log_path(resolver, trial_slug=run["trial"])
-    )
-    published = run.get("stages", {}).get("features", {}).get("generation")
-    if not paths or not published or accepted_result_generation_id(entry) != published:
-        raise RunFailed(f"Features have changed since the run was published: {folder}")
+    trial = run["trial"]
+    with run_log_read_snapshot():
+        paths = accepted_feature_artifact_paths(resolver, trial_slug=trial)
+        entry = read_run_log(features_derivatives_log_path(resolver, trial_slug=trial))
+        published = run.get("stages", {}).get("features", {}).get("generation")
+        if (
+            not paths
+            or not published
+            or accepted_result_generation_id(entry) != published
+        ):
+            raise RunFailed(
+                f"Features have changed since the run was published: {folder}"
+            )
+        if extract_features_indicator_state(resolver, trial_slug=trial) != "green":
+            raise RunFailed(
+                f"Rerun Extract Features before comparing this run: {folder}"
+            )
     features = run["effective"]["features"]
     features["execution"] = normalized_execution_metadata(features["execution"])
     return run, resolver, paths

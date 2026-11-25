@@ -198,6 +198,10 @@ The first run of a variant with explicit overrides can reuse the baseline when t
 
 ## Comparing published Features
 
+Both runs must have current extracted Features. If either run uses an obsolete
+mean or Burst calculation, comparison stops before writing a report and
+identifies the run that needs a new Extract Features result.
+
 Repeat mode requires different result generation IDs for every numerical stage the two runs have in common. This includes Finish, the selected Tensor metrics, Align Run, Align Finish and Features. A missing stage receipt cannot establish independence. The frozen Raw and skipped preprocessing steps are excluded from this comparison.
 
 Run `lfptp compare-features --reference /results/gait_ecg/baseline/run-01 --candidate /results/gait_ecg/baseline/run-02 --mode repeat --atol 1e-9 --rtol 1e-7 --output /results/repeat`. For a preprocessing comparison use `--mode sensitivity` and the variant run as the candidate. `paired.csv` reports values and candidate minus reference in the recorded domain. `unmatched.csv` lists unmatched or ambiguous keys. `coverage.csv` reports per-event coverage and common valid support. `summary.json` records the configurations, retention, missingness and numerical agreement. Repeat mode requires equivalent inputs and settings, matching decisions and missingness, and values within tolerance. Sensitivity mode reports measured differences. Choose a study-specific threshold for any scientific claim.
