@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.localize.paths import LEAD_DBS, USER_LABELS
 from lfptensorpipe.gui.shell.common import (
     Any,
     _nested_get,
@@ -11,6 +12,12 @@ from lfptensorpipe.gui.shell.common import (
 class MainWindowRecordParamsApplyLocalizeMixin:
     def _apply_record_params_localize_snapshot(self, snapshot: dict[str, Any]) -> int:
         skipped = 0
+        localize = snapshot.get("localize") or {}
+        if isinstance(localize, dict) and "selected_source" in localize:
+            if "localize.selected_source" in self._record_param_dirty_keys:
+                skipped += 1
+            elif localize["selected_source"] in (None, LEAD_DBS, USER_LABELS):
+                self._localize_selected_source = localize["selected_source"]
 
         if "localize.atlas" not in self._record_param_dirty_keys:
             atlas = _nested_get(snapshot, ("localize", "atlas"))

@@ -636,6 +636,7 @@ class MainWindowLocalizeStateMixin:
                             expected is None or expected == signature
                         )
                 except (OSError, ValueError, KeyError, RuntimeError) as exc:
+                    reusable = False
                     selected_ready = False
                     lead_reason = str(exc)
         current = reusable and active == selected
@@ -663,4 +664,6 @@ class MainWindowLocalizeStateMixin:
         if log_error or (failed and not current):
             state = "yellow"
         self._set_indicator_color(self._localize_indicator, state)
-        self._localize_indicator.setToolTip(f"{tip} Active: {active_text}.")
+        self._localize_indicator.setToolTip(
+            f"{log_error or tip} Active: {active_text}."
+        )

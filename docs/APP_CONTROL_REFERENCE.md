@@ -436,6 +436,9 @@ reusing coordinates. A changed model with the same resolved contacts keeps the
 accepted geometry. FSL midpoint results bind to the anchor image used by the
 successful transformation. A read-only record can display its active source
 and readiness; an isolated derivative uses its retained Raw to read channel names.
+Restoring a record snapshot also restores its selected source. If the applied
+log or electrode identity cannot be read, the indicator and action explain the
+failure. A Match needs contact definitions from the loaded reconstruction.
 
 This dialog binds each record channel to a recording contact, reference contact, and representative
 coordinate mode.

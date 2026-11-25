@@ -629,9 +629,20 @@ def _run_localize(
                 "Localize selected_regions must contain available region names."
             )
         args = (context.project_root, context.subject, context.record)
-        saved = source_results(read_run_log(localize_log_path(*args))).get(LEAD_DBS, {})
+        log_path = localize_log_path(*args)
+        try:
+            saved = source_results(read_run_log(log_path)).get(LEAD_DBS, {})
+        except (OSError, ValueError) as exc:
+            raise RunFailed(
+                f"Cannot read the applied Localize result at {log_path}: {exc}"
+            ) from exc
         reco = reconstruction_mat_path(context.project_root, context.subject)
-        current_signature = cached_lead_signature(saved, reco, paths)
+        try:
+            current_signature = cached_lead_signature(saved, reco, paths)
+        except (OSError, RuntimeError) as exc:
+            raise RunFailed(
+                f"Cannot verify the saved Localize contact identity: {exc}"
+            ) from exc
         reconstruction = None
         if current_signature is None:
             ok, message, reconstruction = svc.load_reconstruction_contacts(

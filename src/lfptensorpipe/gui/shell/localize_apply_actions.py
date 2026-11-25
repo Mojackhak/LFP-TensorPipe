@@ -66,11 +66,16 @@ class MainWindowLocalizeApplyActionsMixin:
             or self._current_record is None
         ):
             return
-        payload = read_run_log(
-            localize_log_path(
-                self._current_project, self._current_subject, self._current_record
-            )
+        path = localize_log_path(
+            self._current_project, self._current_subject, self._current_record
         )
+        try:
+            payload = read_run_log(path)
+        except (OSError, ValueError) as exc:
+            self.statusBar().showMessage(
+                f"Contact Viewer unavailable: cannot read {path}: {exc}"
+            )
+            return
         atlas = source_results(payload).get(LEAD_DBS, {}).get("atlas")
         if not isinstance(atlas, str):
             self.statusBar().showMessage(

@@ -85,6 +85,14 @@ class MainWindowLocalizeMatchActionsMixin:
             )
             return
         self._localize_reconstruction_summary = summary
+        leads = [
+            item for item in (summary.get("leads") or ()) if isinstance(item, dict)
+        ]
+        if not leads:
+            self._show_warning(
+                "Match", "No lead contact definitions were found in the reconstruction."
+            )
+            return
 
         ok_channels, message_channels, channels = self._load_record_channels_for_match()
         if not ok_channels:
@@ -94,9 +102,7 @@ class MainWindowLocalizeMatchActionsMixin:
         current_payload = self._load_localize_match_payload()
         dialog = self._create_localize_match_dialog(
             channel_names=channels,
-            lead_specs=[
-                item for item in summary.get("leads", []) if isinstance(item, dict)
-            ],
+            lead_specs=leads,
             current_payload=current_payload,
             config_store=self._config_store,
             parent=self,
@@ -110,7 +116,7 @@ class MainWindowLocalizeMatchActionsMixin:
                 "record": self._current_record,
                 "space": self._localize_inferred_space,
                 "atlas": self._localize_selected_atlas,
-                "lead_signature": build_lead_signature(summary["leads"]),
+                "lead_signature": build_lead_signature(leads),
             }
         )
         self._save_localize_match_payload(payload)

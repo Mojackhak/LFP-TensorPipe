@@ -455,20 +455,26 @@ def run_localize_apply(
         # Report a failed scientific or filesystem operation while retaining
         # the last accepted binding (including a v0.3 single-source result).
         message = f"Localize apply failed: {exc}"
-        current = read_run_log(log_path)
-        append_run_log_event(
-            log_path,
-            RunLogRecord(
-                step="localize_apply",
-                completed=False,
-                params={"label_source": source},
-                message=message,
-            ),
-            state_replacements={
-                "active_source": applied_source(current),
-                "source_results": source_results(current),
-            },
-        )
+        try:
+            current = read_run_log(log_path)
+            append_run_log_event(
+                log_path,
+                RunLogRecord(
+                    step="localize_apply",
+                    completed=False,
+                    params={"label_source": source},
+                    message=message,
+                ),
+                state_replacements={
+                    "active_source": applied_source(current),
+                    "source_results": source_results(current),
+                },
+            )
+        except (OSError, ValueError) as log_error:
+            return (
+                False,
+                f"{message}. Could not record the failure in {log_path}: {log_error}",
+            )
         return False, message
 
     if not reuse or active != source:

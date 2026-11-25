@@ -82,18 +82,25 @@ class MainWindowLocalizeConfigMixin:
             or self._current_record is None
         ):
             return False, "Select project, subject, and record first.", []
-        saved = source_results(
-            read_run_log(
-                localize_log_path(
-                    self._current_project, self._current_subject, self._current_record
-                )
-            )
-        ).get(LEAD_DBS, {})
-        cached = cached_lead_signature(
-            saved,
-            reconstruction_mat_path(self._current_project, self._current_subject),
-            self._localize_paths,
+        path = localize_log_path(
+            self._current_project, self._current_subject, self._current_record
         )
+        try:
+            saved = source_results(read_run_log(path)).get(LEAD_DBS, {})
+        except (OSError, ValueError) as exc:
+            return (
+                False,
+                f"Cannot read the applied Localize result at {path}: {exc}",
+                [],
+            )
+        try:
+            cached = cached_lead_signature(
+                saved,
+                reconstruction_mat_path(self._current_project, self._current_subject),
+                self._localize_paths,
+            )
+        except (OSError, RuntimeError) as exc:
+            return False, f"Cannot verify the saved contact identity: {exc}", []
         if cached is not None:
             return True, "", cached
         active_context = (
