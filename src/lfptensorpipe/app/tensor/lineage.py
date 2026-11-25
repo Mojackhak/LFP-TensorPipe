@@ -263,8 +263,6 @@ def _frequency_support_is_current(
     resolver: PathResolver, metric_key: str, params: Mapping[str, Any]
 ) -> bool:
     if metric_key == "burst":
-        if not _burst_duration_limits_are_current(resolver, params):
-            return False
         if params.get("method") not in {"morlet", "multitaper"}:
             return True
         return _spectral_burst_grid_is_current(resolver, params)
@@ -421,6 +419,10 @@ def tensor_metric_lineage_is_current(
     if receipt is None:
         return False
     try:
+        if metric_key == "burst" and not _burst_duration_limits_are_current(
+            finish_resolver, payload["params"]
+        ):
+            return False
         if not _frequency_support_is_current(resolver, metric_key, payload["params"]):
             return False
     except (KeyError, OSError, TypeError, ValueError, ArithmeticError, yaml.YAMLError):

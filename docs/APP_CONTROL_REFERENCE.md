@@ -1260,6 +1260,10 @@ as the estimator. Raw power reports a configuration error when notch removal
 leaves fewer than two frequencies for interpolation. Inspecting missing Finish
 inputs leaves the record directory untouched.
 
+Alignment lists Periodic and Aperiodic together after both outputs of their
+SpecParam build are available. When reusing a legacy Burst result in another
+record, the consuming Finish supplies the sampling rate for the cycle limits.
+
 **M6 reference runtime** describes the selected job on the reference Apple
 M6 Mac mini. All installations use the bundled measurements. The reference
 budget is the requested CPU percentage applied to 12 logical cores with a

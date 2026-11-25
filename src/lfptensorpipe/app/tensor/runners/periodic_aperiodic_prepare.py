@@ -39,7 +39,7 @@ def build_periodic_aperiodic_paths(
 
 def validate_preproc_input(paths: PeriodicAperiodicPaths) -> str | None:
     if (
-        svc.indicator_from_log(svc.preproc_step_log_path(paths.resolver, "finish"))
+        svc.indicator_from_log(svc.preproc_step_log_path(paths.resolver, "finish", create=False))
         != "green"
     ):
         return "Missing green preproc finish log."

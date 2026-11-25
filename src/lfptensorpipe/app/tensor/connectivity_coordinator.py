@@ -634,7 +634,7 @@ def _write_plan_failure(
         metric_key,
         completed=False,
         params=svc._sanitize_metric_params_for_logs(plan.runner_kwargs),
-        input_path=str(svc.preproc_step_raw_path(resolver, "finish")),
+        input_path=str(svc.preproc_step_raw_path(resolver, "finish", create=False)),
         output_path=str(svc.tensor_metric_tensor_path(resolver, metric_key)),
         message=f"{plan.metric_label} failed: {message}",
     )
@@ -800,7 +800,7 @@ def run_connectivity_coordinator(
         executor_kwargs: dict[str, Any] = {
             "max_workers": min(max(int(global_compute_slots), 1), len(chunks)),
             "initializer": initialize_connectivity_worker,
-            "initargs": (str(svc.preproc_step_raw_path(resolver, "finish")),),
+            "initargs": (str(svc.preproc_step_raw_path(resolver, "finish", create=False)),),
         }
         if executor_factory is None:
             executor_kwargs["mp_context"] = multiprocessing.get_context("spawn")
