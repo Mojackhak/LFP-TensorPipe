@@ -248,6 +248,7 @@ source export and parse it again; the parser does not alter the packet timeline
 or create a partial preview.
 
 Medtronic `TimeDomainData` must be a non-empty one-dimensional sample list.
+Each run lasts through its longest channel. An absent channel or a shorter channel tail is zero-filled on the continuous timeline and marked `BAD_gap` for that channel alone. Gaps between runs carry a recording-wide `BAD_gap`. These annotations are created during import from the source JSON. To recover missing channel coverage in an older import, use the original JSON because measured zeros and zero padding have the same stored value.
 Nested or nested-empty arrays are rejected during `Parse`; the importer does not
 flatten them into time samples or create a zero-length preview. Correct the
 source export and parse it again before confirming the import.

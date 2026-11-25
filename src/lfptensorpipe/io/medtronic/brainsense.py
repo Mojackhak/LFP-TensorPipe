@@ -273,8 +273,7 @@ def _parse_entries(session: dict[str, Any], *, version: str) -> list[_Entry]:
             raise ParseError(
                 code="PARSE_SCHEMA_INVALID",
                 message=(
-                    "SampleRateInHz must be finite and > 0 "
-                    f"at {SECTION_NAME}[{order}]."
+                    f"SampleRateInHz must be finite and > 0 at {SECTION_NAME}[{order}]."
                 ),
                 version=version,
             )
@@ -351,8 +350,8 @@ def _collect_channel_order(entries: list[_Entry]) -> list[str]:
 
 
 def _build_runs(
-    entries: list[_Entry], *, sfreq_hz: float, version: str
-) -> tuple[list[_Run], list[tuple[float, float]]]:
+    entries: list[_Entry], *, channel_order: list[str], sfreq_hz: float, version: str
+) -> tuple[list[_Run], list[tuple[float, float, tuple[str, ...]]]]:
     grouped: dict[dt.datetime, dict[str, np.ndarray]] = {}
     for entry in entries:
         channel_map = grouped.setdefault(entry.run_start_utc, {})
@@ -367,7 +366,7 @@ def _build_runs(
     sorted_starts = sorted(grouped.keys())
     global_start_utc = sorted_starts[0]
     runs: list[_Run] = []
-    gap_specs: list[tuple[float, float]] = []
+    gap_specs: list[tuple[float, float, tuple[str, ...]]] = []
 
     prev_end_sample = 0
     for idx, run_start_utc in enumerate(sorted_starts):
@@ -398,9 +397,21 @@ def _build_runs(
                     (
                         prev_end_sample / sfreq_hz,
                         (start_sample - prev_end_sample) / sfreq_hz,
+                        (),
                     )
                 )
 
+        for name in channel_order:
+            series = channel_data.get(name)
+            observed = 0 if series is None else series.size
+            if observed < run_len:
+                gap_specs.append(
+                    (
+                        (start_sample + observed) / sfreq_hz,
+                        (run_len - observed) / sfreq_hz,
+                        (name,),
+                    )
+                )
         runs.append(
             _Run(
                 run_start_utc=run_start_utc,
@@ -452,17 +463,23 @@ def _build_raw(
     return raw
 
 
-def _append_gap_annotations(raw: Any, gap_specs: list[tuple[float, float]]) -> None:
+def _append_gap_annotations(
+    raw: Any, gap_specs: list[tuple[float, float, tuple[str, ...]]]
+) -> None:
     if not gap_specs:
         return
     import mne
 
-    onsets = np.asarray([spec[0] for spec in gap_specs], dtype=float)
-    durations = np.asarray([spec[1] for spec in gap_specs], dtype=float)
-    descriptions = ["BAD_gap"] * len(gap_specs)
+    onsets, durations, channels = zip(*gap_specs)
     raw.set_annotations(
         raw.annotations
-        + mne.Annotations(onset=onsets, duration=durations, description=descriptions)
+        + mne.Annotations(
+            onsets,
+            durations,
+            ["BAD_gap"] * len(gap_specs),
+            ch_names=channels,
+            orig_time=raw.annotations.orig_time,
+        )
     )
 
 
@@ -518,7 +535,9 @@ def parse_session(
     sfreq_hz = float(next(iter(sfreq_set)))
 
     channel_order = _collect_channel_order(entries)
-    runs, gap_specs = _build_runs(entries, sfreq_hz=sfreq_hz, version=version)
+    runs, gap_specs = _build_runs(
+        entries, channel_order=channel_order, sfreq_hz=sfreq_hz, version=version
+    )
 
     ch_type = "dbs"
     if options is not None and options.get("ch_type") is not None:
