@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from lfptensorpipe.app.alignment.method_params import linear_anchor_selection_error
+
 from copy import deepcopy
 from typing import Any
 
@@ -555,7 +557,9 @@ class AlignmentMethodParamsDialog(QDialog):
             message = "Select at least one annotation label."
             ok = False
         if ok:
-            return
+            message = linear_anchor_selection_error(self._method_key, normalized)
+            if not message:
+                return
 
         lowered = message.lower()
         targets: list[QWidget] = []

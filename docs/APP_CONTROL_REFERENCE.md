@@ -1870,17 +1870,17 @@ native center, compare its rounded start and stop indices before reusing it.
 During restore, annotations that are unavailable in the current trial remain
 unselected. For `linear_warper`, anchors that reference unavailable annotations
 are removed. If the remaining anchors do not form a valid mapping, the anchor
-table is left empty so the existing automatic-anchor behavior remains
-available. Missing references do not produce warnings, error highlighting,
-fuzzy matching, or automatic replacements. This filtering changes only the
-dialog draft and does not modify the saved app default.
+table is left empty for editing. Standard Line Up Key Events requires explicit
+0% and 100% annotation labels before Run, config export or Set as Default.
+Restoring a draft preserves the saved app default. Cue-response uses the
+anchors defined by its event pairs and durations.
 
 ### 8.2 Epoch Inspector
 
 Restoring a record applies its selected method, parameters and epoch picks only to the saved trial. If that trial no longer exists, the selected trial keeps its own settings. A method unavailable in this installation is skipped.
 
 Each successful Align Run starts with all epochs included and none selected for viewing.
-For Line Up Key Events with automatic anchors, QC and Preview map 0% and 100% to the start and end stored in each accepted epoch. Existing Runs can be inspected with their original event times.
+Historical Line Up Key Events runs with an empty anchor table inferred their endpoint labels from alphabetical order. QC and Preview can still inspect the stored event times. Verify those endpoints against the intended events before using older results, and configure the labels explicitly for a new run.
 The five columns are `Include`, `Epoch`, `Duration`, `View`, and `Notes`. Duration is in seconds.
 Across adjoining linear warp segments, each native waveform sample belongs to one segment. Coverage can include fractions of the same sample interval on both sides of an anchor. A rolling QC baseline therefore sees ordered waveform times while retaining the full observed duration.
 Double-click Epoch or Duration to inspect the native Preprocessed Signal. Double-click Notes for an optional multiline note.

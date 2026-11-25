@@ -11,6 +11,7 @@ from lfptensorpipe.app import (
 from lfptensorpipe.app.alignment.generation import (
     alignment_generation_rerun_message,
 )
+from lfptensorpipe.app.alignment.method_params import linear_anchor_selection_error
 
 
 class MainWindowAlignmentRunMixin:
@@ -204,6 +205,10 @@ class MainWindowAlignmentRunMixin:
         )
         if not ok_params:
             self._show_warning("Run Align Epochs", message_params)
+            return
+        anchor_error = linear_anchor_selection_error(method_key, normalized_params)
+        if anchor_error:
+            self._show_warning("Run Align Epochs", anchor_error)
             return
         if method_key != "linear_warper" and not normalized_params.get("annotations"):
             self._show_warning(

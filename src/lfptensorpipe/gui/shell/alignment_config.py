@@ -8,6 +8,7 @@ from lfptensorpipe.app.shared.page_config import json_value, page_config_node
 from lfptensorpipe.app.alignment.annotation_source import (
     explicit_alignment_annotation_error,
 )
+from lfptensorpipe.app.alignment.method_params import linear_anchor_selection_error
 from lfptensorpipe.gui.shell.common import (
     Any,
     Path,
@@ -81,6 +82,9 @@ class MainWindowAlignmentConfigMixin:
         )
         if not ok:
             raise ValueError(message)
+        anchor_error = linear_anchor_selection_error(method_key, normalized_params)
+        if anchor_error:
+            raise ValueError(anchor_error)
         if method_key != "linear_warper" and not normalized_params.get("annotations"):
             raise ValueError(
                 "Select at least one annotation before exporting Align Epochs configs."

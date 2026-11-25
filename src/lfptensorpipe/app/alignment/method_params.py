@@ -18,6 +18,13 @@ from .param_normalizers import (
 )
 
 
+def linear_anchor_selection_error(method_key, params):
+    """Allow empty drafts while requiring explicit endpoints for a new run."""
+    if method_key == "linear_warper" and "cue_response" not in params and not params.get("anchors_percent"):
+        return "Configure explicit 0% and 100% annotation anchors for Line Up Key Events."
+    return None
+
+
 def default_alignment_method_params(method_key: str) -> dict[str, Any]:
     key = str(method_key).strip()
     if key == "linear_warper":

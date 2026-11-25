@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .method_params import linear_anchor_selection_error
+
 from typing import Any
 
 import numpy as np
@@ -149,6 +151,9 @@ def run_align_epochs(
     method_params = paradigm.get("method_params", {})
     if not isinstance(method_params, dict):
         method_params = {}
+    anchor_error = linear_anchor_selection_error(method, method_params)
+    if anchor_error:
+        return False, anchor_error, []
     warper_diagnostics: dict[str, Any] = {}
     linear_pairing_diagnostics: dict[str, Any] = {}
 

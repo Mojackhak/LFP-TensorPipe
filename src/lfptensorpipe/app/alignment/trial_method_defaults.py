@@ -7,6 +7,7 @@ from typing import Any
 from lfptensorpipe.app.config_store import AppConfigStore
 
 from .config_payload import _normalize_method_defaults, _read_alignment_payload
+from .method_params import linear_anchor_selection_error
 from .validation import ALIGNMENT_METHODS_BY_KEY
 
 
@@ -56,6 +57,9 @@ def save_alignment_method_default_params(
         annotation_labels=annotation_labels,
     )
     if not ok_params:
+        return False, message, None
+    message = linear_anchor_selection_error(key, normalized_params)
+    if message:
         return False, message, None
     paradigms = svc.load_alignment_paradigms(config_store)
     defaults = svc.load_alignment_method_defaults(config_store)

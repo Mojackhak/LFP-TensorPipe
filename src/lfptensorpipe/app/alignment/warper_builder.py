@@ -26,9 +26,6 @@ def _build_warper(
     pad_warper_fn = pad_warper_fn or svc.pad_warper
     concat_warper_fn = concat_warper_fn or svc.concat_warper
     stack_warper_fn = stack_warper_fn or svc.stack_warper
-    labels = sorted(
-        set(str(item) for item in raw.annotations.description if str(item).strip())
-    )
     mode = "exact"
     drop_mode = (
         str(method_params.get("drop_mode", svc.DEFAULT_DROP_MODE)).strip().lower()
@@ -64,16 +61,6 @@ def _build_warper(
             drop_mode=drop_mode,
         )
     if method == "linear_warper":
-        anchors = method_params.get("anchors_percent", {})
-        if not isinstance(anchors, dict) or len(anchors) < 2:
-            if len(labels) >= 2:
-                anchors = {0.0: labels[0], 100.0: labels[-1]}
-            elif len(labels) == 1:
-                anchors = {0.0: labels[0], 100.0: labels[0]}
-            else:
-                raise ValueError(
-                    "No annotation labels available for linear warper anchors."
-                )
         epoch_duration_range = svc._float_pair_list(
             method_params.get("epoch_duration_range"),
             (None, None),
@@ -81,7 +68,7 @@ def _build_warper(
         tolerance_value = method_params.get("percent_tolerance")
         return linear_warper_fn(
             raw,
-            anchors_percent=anchors,
+            anchors_percent=method_params.get("anchors_percent", {}),
             mode=mode,
             drop_mode=drop_mode,
             epoch_duration_range=epoch_duration_range,
@@ -91,6 +78,9 @@ def _build_warper(
             ),
             anno_drop=anno_drop,
         )
+    labels = sorted(
+        set(str(item) for item in raw.annotations.description if str(item).strip())
+    )
     if method == "pad_warper":
         keep = method_params.get("annotations")
         if keep is None:
