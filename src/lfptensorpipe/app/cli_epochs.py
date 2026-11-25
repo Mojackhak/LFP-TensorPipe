@@ -11,6 +11,7 @@ from .alignment.epoch_view import epoch_key
 from .alignment.generation import (
     latest_alignment_step_entry,
     alignment_generation_rerun_message,
+    alignment_stage_lineage_is_current,
 )
 from .alignment.paths import alignment_warp_labels_path
 from .cli import ConfigError, RunFailed
@@ -24,6 +25,8 @@ def accepted_selection(context, trial):
     why = alignment_generation_rerun_message(resolver, trial_slug=trial, stage="finish")
     if why:
         raise RunFailed(why)
+    if not alignment_stage_lineage_is_current(resolver, trial_slug=trial, stage="finish"):
+        raise RunFailed("A current accepted Align Run and Finish are required to export epoch decisions.")
     match = latest_alignment_step_entry(
         resolver, trial_slug=trial, step="build_raw_table"
     )
@@ -51,7 +54,7 @@ def selection_reference(value, context, trial):
         value = accepted_selection(context, trial)
     elif isinstance(value, str):
         try:
-            value = json.loads(Path(value).read_text(encoding="utf-8"))
+            value = json.loads(Path(value).expanduser().read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             raise ConfigError(f"Cannot read the epoch selection: {exc}") from exc
     if not isinstance(value, dict) or any(

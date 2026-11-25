@@ -78,7 +78,7 @@ def _pages(plan, parent, context, trial):
     for key in PAGES:
         if not isinstance(base[key], str):
             raise ConfigError(f"base.{key} must be a page JSON path.")
-        page, node, version = read_page((parent / base[key]).resolve())
+        page, node, version = read_page((parent / Path(base[key]).expanduser()).resolve())
         if page != key:
             raise ConfigError(f"Expected a {key} configuration, got {page}.")
         pages[key] = node
@@ -345,9 +345,19 @@ def _adopt_alignment(source, target, trial, align, baseline, metrics):
     old = accepted_selection(source.context, trial)
     reference = align.get("epoch_selection")
     mode = epoch_match_mode(align, reference)
-    shutil.copytree(
-        source.alignment_paradigm_dir(trial), target.alignment_paradigm_dir(trial)
-    )
+    from .alignment.paths import alignment_trial_raw_table_path
+    from .shared.atomic_outputs import AtomicOutputSet
+
+    src = source.alignment_paradigm_dir(trial)
+    dst = target.alignment_paradigm_dir(trial, create=True)
+    for relative in ["warp_fn.pkl", "warp_labels.pkl", *(f"{m}/tensor_warped.pkl" for m in outputs)]:
+        path = dst / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src / relative, path)
+    log_name = "lfptensorpipe_log.json"
+    saved = read_run_log(src / log_name)
+    run_history = saved.get("history", [prior[1]])[:prior[0] + 1]
+    write_json_atomically(dst / log_name, {**saved, **prior[1], "history": run_history})
     ctx = target.context
     config = _trial_config(ctx, trial, allow_missing=False)
     if reference is None:
@@ -359,6 +369,14 @@ def _adopt_alignment(source, target, trial, align, baseline, metrics):
     if picks == old_picks and (
         reference is None or reference["decisions"] == old["decisions"]
     ):
+        tables = [alignment_trial_raw_table_path(target, trial_slug=trial, metric_key=m) for m in outputs]
+        log = dst / log_name
+        state = read_run_log(log).get("state", {})
+        with AtomicOutputSet([*tables, log]) as artifacts:
+            for table in tables:
+                shutil.copy2(src / table.relative_to(dst), artifacts.staged_path(table))
+            write_json_atomically(artifacts.staged_path(log), {**saved, "state": state})
+            artifacts.commit()
         return ("run_align_epochs", "build_raw_table")
     if not svc.persist_alignment_epoch_picks(
         ctx, paradigm_slug=trial, picked_epoch_indices=picks
@@ -714,14 +732,16 @@ def run_plan(context, trial, plan, parent, root):
             settings = deepcopy(configs)
             changed = configs["preprocess"] != base["preprocess"]
             align = settings["alignment"]
+            same_alignment = all(align.get(k) == base["alignment"].get(k) for k in ("method", "method_params"))
             if previous_selection and "epoch_match" not in align:
                 align["epoch_selection"] = previous_selection
-            elif decisions and "epoch_selection" not in align:
+            elif decisions and "epoch_selection" not in align and (same_alignment or "epoch_match" in align):
                 align["epoch_selection"] = decisions
             if (
                 reference_features
                 and "execution" not in settings["features"]
                 and settings["tensor"] == base["tensor"]
+                and same_alignment
             ):
                 settings["features"]["execution"] = reference_features
             if "epoch_selection" in align and "epoch_match" not in align:

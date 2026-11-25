@@ -15,14 +15,16 @@ def export_page(context, page, trial=None):
             page: export_preprocess(context),
         }
     if page in ("epoch-selection", "alignment"):
-        selection = accepted_selection(context, trial)
-        if page == "epoch-selection":
-            return selection
         from .alignment.generation import latest_alignment_step_entry
+        from .shared.runlog_store import run_log_read_snapshot
 
-        entry = latest_alignment_step_entry(
-            PathResolver(context), trial_slug=trial, step="run_align_epochs"
-        )[1]["params"]
+        with run_log_read_snapshot():
+            selection = accepted_selection(context, trial)
+            if page == "epoch-selection":
+                return selection
+            entry = latest_alignment_step_entry(
+                PathResolver(context), trial_slug=trial, step="run_align_epochs"
+            )[1]["params"]
         config = entry.get("trial_config", entry)
         node = {k: config[k] for k in ("method", "method_params")}
         node["epoch_selection"] = selection

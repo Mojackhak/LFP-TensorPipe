@@ -112,6 +112,8 @@ def resolve_references(page, node, parent):
         and isinstance(owner.get(key), str)
         and not (key == "epoch_selection" and owner[key] == "accepted")
     ):
+        if not owner[key].strip():
+            raise ValueError(f"{key} must be a nonempty path.")
         owner[key] = str((parent / Path(owner[key]).expanduser()).resolve())
 
 
@@ -173,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
                 context,
                 args.trial,
                 node,
-                args.config.resolve().parent,
+                args.config.expanduser().resolve().parent,
                 args.output_root.expanduser().resolve(),
             )
             print("\n".join(str(path) for path in results))
@@ -218,6 +220,7 @@ def analysis_command(command, argv):
         parser.add_argument("--atol", type=float, default=0.0)
         parser.add_argument("--rtol", type=float, default=0.0)
     args = parser.parse_args(argv)
+    args.output = args.output.expanduser().resolve()
     from .app.cli import RunFailed
 
     try:
