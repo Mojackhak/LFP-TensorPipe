@@ -1725,6 +1725,8 @@ fields retain their drafts but do not affect computation.
 
 **Notes**
 
+Each requested cycle interval must contain a positive whole number of native samples in every effective band. For example, at 250 Hz in the 13–30 Hz band, 2.0–2.05 cycles spans 23.26–23.84 samples. Build reports the band and the incompatible limits so they can be adjusted. Equal cycle limits are valid when they specify an attainable sample duration. An older Burst result calculated with an empty sample range needs a new Burst run with feasible limits.
+
 - A loaded threshold snapshot replaces threshold estimation. Percentile and
   Baseline values remain dormant until `Clear thresholds` is selected.
 - The JSON must contain strictly positive finite values plus unique channel and

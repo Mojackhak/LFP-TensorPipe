@@ -263,6 +263,8 @@ def _frequency_support_is_current(
     resolver: PathResolver, metric_key: str, params: Mapping[str, Any]
 ) -> bool:
     if metric_key == "burst":
+        if not _burst_duration_limits_are_current(resolver, params):
+            return False
         if params.get("method") not in {"morlet", "multitaper"}:
             return True
         return _spectral_burst_grid_is_current(resolver, params)
@@ -282,6 +284,38 @@ def _frequency_support_is_current(
                 == regular_frequency_grid(fit_low, fit_high, step)[-1]
             )
     return True
+
+
+def _burst_duration_limits_are_current(resolver, params):
+    maximum = params.get("max_cycles")
+    if maximum is None:
+        return True
+    if "max_run_samples_by_band" in params:
+        return all(
+            lo <= hi
+            for lo, hi in zip(
+                params["min_run_samples_by_band"],
+                params["max_run_samples_by_band"],
+                strict=True,
+            )
+        )
+    minimum = params["min_cycles"]
+    # All valid band centers lie below Nyquist, so half a cycle spans more
+    # than one sample. Only narrower historical intervals need a header read.
+    if maximum - minimum >= 0.5:
+        return True
+    import mne
+    from math import ceil, floor
+    from lfptensorpipe.lfp.burst.grid import _normalize_bands
+
+    _, _, edges = _normalize_bands(params["bands_used"])
+    sfreq = mne.io.read_info(
+        resolver.preproc_step_dir("finish") / "raw.fif", verbose="ERROR"
+    )["sfreq"]
+    return all(
+        ceil(minimum * sfreq / center) <= floor(maximum * sfreq / center)
+        for center in edges.mean(axis=1)
+    )
 
 
 def _spectral_burst_grid_is_current(

@@ -119,6 +119,25 @@ def _normalize_bands(bands: BandSpec) -> tuple[list[str], list[list[Band]], np.n
     return band_names, band_segments, np.asarray(union_edges, dtype=float)
 
 
+def burst_run_sample_limits(name, center_hz, sfreq_hz, min_cycles, max_cycles):
+    """Convert inclusive cycle limits into achievable native run lengths."""
+    minimum = int(np.ceil(min_cycles * sfreq_hz / center_hz))
+    if max_cycles is None:
+        return minimum, None
+    maximum = int(np.floor(max_cycles * sfreq_hz / center_hz))
+    if minimum <= maximum:
+        return minimum, maximum
+    # A decimal cycle limit can round to the other side of an integer sample.
+    for samples in (maximum, minimum):
+        if samples > 0 and min_cycles <= samples * center_hz / sfreq_hz <= max_cycles:
+            return samples, samples
+    raise ValueError(
+        f"Burst band '{name}' ({center_hz:g} Hz center, {sfreq_hz:g} Hz sampling): "
+        f"{min_cycles:g}–{max_cycles:g} cycles contains no whole-sample duration "
+        f"(minimum {minimum}, maximum {maximum} samples)."
+    )
+
+
 def _compute_decim(sfreq_hz: float, hop_s: float | None, decim: int | None) -> int:
     if decim is not None:
         if isinstance(decim, (bool, np.bool_)):
@@ -909,6 +928,20 @@ def grid(
             "Burst tensors must use the native sampling rate; effective decim must be 1."
         )
 
+    band_names, band_segments, band_union_edges = _normalize_bands(bands)
+    nyquist = sfreq / 2.0
+    if np.any(band_union_edges[:, 1] >= nyquist):
+        raise ValueError("Burst band upper bounds must be below Nyquist.")
+    band_centers = band_union_edges.mean(axis=1)
+    min_run_samples_by_band, max_run_samples_by_band = zip(
+        *(
+            burst_run_sample_limits(
+                name, float(center), sfreq, float(min_cycles), max_cycles_eff
+            )
+            for name, center in zip(band_names, band_centers)
+        )
+    )
+
     # Pull data
     data = raw.get_data(picks=picks)  # (n_channels, n_times)
     ch_names = list(
@@ -985,11 +1018,6 @@ def grid(
             for interval in baseline_support_info["matched_intervals"]
         ]
 
-    band_names, band_segments, band_union_edges = _normalize_bands(bands)
-    nyquist = sfreq / 2.0
-    if np.any(band_union_edges[:, 1] >= nyquist):
-        raise ValueError("Burst band upper bounds must be below Nyquist.")
-    band_centers = band_union_edges.mean(axis=1)
     frequency_grids_by_band: list[np.ndarray] = []
     hilbert_fir_filter_specs_by_band: list[list[dict[str, Any]] | None] = []
     for name, segments in zip(band_names, band_segments):
@@ -1020,19 +1048,6 @@ def grid(
                     )
             frequency_grids_by_band.append(frequencies)
             hilbert_fir_filter_specs_by_band.append(None)
-    min_run_samples_by_band = [
-        int(np.ceil(float(min_cycles) * sfreq / float(f_center)))
-        for f_center in band_centers
-    ]
-    max_run_samples_by_band: list[int | None] = (
-        [
-            int(np.floor(max_cycles_eff * sfreq / float(f_center)))
-            for f_center in band_centers
-        ]
-        if max_cycles_eff is not None
-        else [None] * len(band_names)
-    )
-
     # Validate user-provided thresholds (if any) after we know n_channels.
     thresholds_by_band: list[np.ndarray] | None = None
     if thresholds is not None:

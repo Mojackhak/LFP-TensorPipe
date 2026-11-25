@@ -298,6 +298,21 @@ def build_task_summary(context: RecordContext, params, mask_edge_effects, cpu_pe
                 bands = [b for b in prepared.metric_bands if b["name"] in segments]
                 if not bands:
                     raise ValueError("No valid Burst bands.")
+                if runner_args.get("max_cycles") is not None:
+                    from lfptensorpipe.lfp.burst.grid import (
+                        _normalize_bands,
+                        burst_run_sample_limits,
+                    )
+
+                    names, _, edges = _normalize_bands(segments)
+                    for name, center in zip(names, edges.mean(axis=1)):
+                        burst_run_sample_limits(
+                            name,
+                            center,
+                            sfreq,
+                            runner_args["min_cycles"],
+                            runner_args["max_cycles"],
+                        )
                 output_bins = len(bands)
                 compute_bins = sum(map(len, grids.values())) if grids else 1
                 work = n_samples * len(row.channels) * output_bins
@@ -337,7 +352,7 @@ def build_task_summary(context: RecordContext, params, mask_edge_effects, cpu_pe
             size = len(row.pairs) or len(row.channels)
             row.array_bytes = size * (output_bins + parameter_bins) * output_times * 8
             row.output_grid = (
-                f"{output_bins} {'band' if output_bins==1 else 'bands'}"
+                f"{output_bins} {'band' if output_bins == 1 else 'bands'}"
                 if bands
                 else f"{output_bins} freq"
             )

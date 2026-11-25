@@ -501,6 +501,10 @@ def run_burst_metric(
                 outer_n_jobs=int(outer_n_jobs),
             ),
         }
+        if max_cycles is not None:
+            for key in ("min_run_samples_by_band", "max_run_samples_by_band"):
+                if key in metadata.get("params", {}):
+                    log_params[key] = metadata["params"][key]
         outputs = [
             (
                 output_path,
