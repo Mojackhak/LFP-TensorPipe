@@ -236,24 +236,16 @@ def concat_warper(
                 "All concat segments are empty after clipping. Check annotations and pad_s."
             )
 
-        concat = np.concatenate(segs, axis=-1)
-        L = int(concat.shape[-1])
-
         if n_samples is None:
-            out = concat[np.newaxis, ...]
-            percent = np.linspace(0.0, 100.0, L, dtype=float)
-            return out.astype(np.result_type(out, np.float64)), percent, [epoch]
-
-        if not (isinstance(n_samples, int) and int(n_samples) >= 2):
-            raise ValueError("`n_samples` must be an integer >= 2 or None.")
-
-        resamp = resample_piecewise_segments(
-            segs,
-            n_samples=int(n_samples),
-            segment_weights=segment_weights,
-        )
-        out = resamp[np.newaxis, ...]
-        percent = np.linspace(0.0, 100.0, int(n_samples), dtype=float)
+            stitched = np.concatenate(segs, axis=-1)
+        else:
+            if not (isinstance(n_samples, int) and n_samples >= 2):
+                raise ValueError("`n_samples` must be an integer >= 2 or None.")
+            stitched = resample_piecewise_segments(
+                segs, n_samples=n_samples, segment_weights=segment_weights
+            )
+        out = stitched[np.newaxis, ...]
+        percent = np.linspace(0.0, 100.0, out.shape[-1], endpoint=False)
         return out.astype(np.result_type(out, np.float64)), percent, [epoch]
 
     warp_fn.alignment_diagnostics = {  # type: ignore[attr-defined]

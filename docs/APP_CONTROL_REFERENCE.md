@@ -2130,7 +2130,11 @@ coordinates needs a new Align Run and Finish before its tables can be reused.
   integration. No transition is synthesized between the final sample of one
   interval and the first sample of the next.
 - For total retained duration `D` and `N` output samples, physical coordinates
-  are `0, D/N, ..., (N-1)D/N`, representing `[0,D)`. Saved metadata distinguishes
+  are `0, D/N, ..., (N-1)D/N`, representing `[0,D)`. The percent coordinate
+  at sample `k` is `100*k/N` for native and resampled outputs. For a previously
+  saved Stitch tensor whose final center is labeled 100%, use
+  `100 * time / duration_s` or rerun Align for that trial to refresh the file.
+  Saved metadata distinguishes
   the requested rate from the effective rate `N/D` after sample-count rounding.
 
 ## 9. Extract Features and Available Features
