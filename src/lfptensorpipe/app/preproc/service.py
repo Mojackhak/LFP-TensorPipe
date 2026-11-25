@@ -463,6 +463,7 @@ def apply_filter_step(
     thread_module: Any = threading,
     read_raw_fif_fn: Any | None = None,
     mark_lfp_bad_segments_fn: Any | None = None,
+    preview_dir: Path | None = None,
 ) -> tuple[bool, str]:
     ok, message = _apply_filter_step_impl(
         context,
@@ -474,8 +475,9 @@ def apply_filter_step(
         thread_module=thread_module,
         read_raw_fif_fn=read_raw_fif_fn,
         mark_lfp_bad_segments_fn=mark_lfp_bad_segments_fn,
+        preview_dir=preview_dir,
     )
-    if ok and _clear_preproc_step_skip(context, "filter"):
+    if ok and preview_dir is None and _clear_preproc_step_skip(context, "filter"):
         invalidate_downstream_preproc_steps(context, "filter")
     return ok, message
 
@@ -488,6 +490,7 @@ def finalize_filter_review(
     read_raw_fif_fn: Any | None = None,
     finalize_reviewed_filter_fn: Any | None = None,
     review_source_is_current_fn: Any | None = None,
+    preview_dir: Path | None = None,
 ) -> tuple[bool, str]:
     ok, message = _finalize_filter_review_impl(
         context,
@@ -498,6 +501,7 @@ def finalize_filter_review(
         read_raw_fif_fn=read_raw_fif_fn,
         finalize_reviewed_filter_fn=finalize_reviewed_filter_fn,
         review_source_is_current_fn=review_source_is_current_fn,
+        preview_dir=preview_dir,
     )
     if ok:
         _clear_preproc_step_skip(context, "filter")

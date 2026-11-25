@@ -107,6 +107,8 @@ def apply_signal_repair_step(
             for kind, counts in report["summary"].items()
         )
         return True, detail
+    except PreprocInputGenerationChanged as exc:
+        return False, str(exc)
     finally:
         raw.close()
         if output is not None:

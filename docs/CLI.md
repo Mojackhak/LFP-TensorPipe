@@ -154,6 +154,12 @@ An Align configuration accepts `epoch_selection` as an exported decision file, a
 
 For non-Burst metrics, `occupation` is a proportion from 0 to 1. Burst `occupancy` is a percentage from 0 to 100. Each exported output domain follows the stored PKL. Raw, mean and median use their metric's transform policy. Count, occupation, rate, duration and Burst occupancy use the identity transform. Replay and comparison interpret older exports using these same reducer definitions.
 
+Filter replay applies edits to a private detection preview. A successful review
+publishes the accepted data and QC together. A rejected edit preserves the prior
+Filter, routing choice and pending GUI preview. Review replay recognizes the
+annotation onset and end as serialized in FIF across successive edits. Each
+step regenerates its own filter-edge markers after applying the human changes.
+
 ## Running named variants
 
 The following plan uses the ordinary page JSON files. The baseline preprocessing recipe applies ECG correction.

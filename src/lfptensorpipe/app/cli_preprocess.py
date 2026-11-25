@@ -1,6 +1,7 @@
 """Run or export the desktop preprocessing decisions for one record."""
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from .cli import ConfigError, RunFailed, _checked_result
 from .path_resolver import PathResolver
@@ -16,7 +17,7 @@ from .preproc.paths import (
     preproc_filter_preview_raw_path,
     write_preproc_step_routing,
 )
-from .preproc.review_edits import apply_edits, current_state
+from .preproc.review_edits import apply_edits, current_state, validate_review_changes
 from .shared.generation_lineage import accepted_result_generation_id
 from .shared.runlog_store import read_run_log
 
@@ -145,6 +146,14 @@ def recipe_steps(recipe):
             if "csv" in spec:
                 spec["rows"] = annotation_rows(spec.pop("csv"))
             spec["rows"] = _normalized_annotation_rows(spec["rows"])
+        review = spec.get("review" if step == "filter" else "review_edits")
+        if isinstance(review, dict):
+            state = review.get("accepted_state")
+            if not isinstance(state, dict) or set(state) != {"annotations", "bads"}:
+                raise ConfigError(f"Invalid saved review for {step}.")
+            validate_review_changes([{"add_annotations": state["annotations"], "add_bads": state["bads"]}])
+        elif "review_edits" in spec or (step == "filter" and review != "detected"):
+            validate_review_changes(review)
         result[step] = spec
     return result
 
@@ -380,29 +389,33 @@ def run_preprocess(context, recipe, *, reused=(), report=None):
                     )
                 )
             elif step == "filter":
-                _checked_result(
-                    svc.apply_filter_step(
-                        context,
-                        advance_params=spec.get("advance"),
-                        notches=spec.get("notches"),
-                        l_freq=spec.get("low_freq"),
-                        h_freq=spec.get("high_freq"),
-                    )
-                )
-                with mne.io.read_raw_fif(
-                    preproc_filter_preview_raw_path(resolver),
-                    preload=False,
-                    verbose="ERROR",
-                ) as preview:
-                    if spec["review"] != "detected":
-                        apply_edits(preview, spec["review"])
+                with TemporaryDirectory() as folder:
+                    directory = Path(folder)
                     _checked_result(
-                        svc.finalize_filter_review(
+                        svc.apply_filter_step(
                             context,
-                            reviewed_annotations=preview.annotations.copy(),
-                            reviewed_bads=list(preview.info["bads"]),
+                            advance_params=spec.get("advance"),
+                            preview_dir=directory,
+                            notches=spec.get("notches"),
+                            l_freq=spec.get("low_freq"),
+                            h_freq=spec.get("high_freq"),
                         )
                     )
+                    with mne.io.read_raw_fif(
+                        directory / preproc_filter_preview_raw_path(resolver).name,
+                        preload=False,
+                        verbose="ERROR",
+                    ) as preview:
+                        if spec["review"] != "detected":
+                            apply_edits(preview, spec["review"], step="filter")
+                        _checked_result(
+                            svc.finalize_filter_review(
+                                context,
+                                preview_dir=directory,
+                                reviewed_annotations=preview.annotations.copy(),
+                                reviewed_bads=list(preview.info["bads"]),
+                            )
+                        )
             elif step == "ecg_artifact_removal":
                 _checked_result(
                     svc.apply_ecg_step(

@@ -162,7 +162,8 @@ def _normalize_annotation_rows(
     normalized: list[dict[str, Any]] = []
     invalid_rows: list[int] = []
     for idx, row in enumerate(rows):
-        description = str(row.get("description", "")).strip()
+        label = row.get("description")
+        description = label.strip() if isinstance(label, str) else ""
         onset_raw = row.get("onset", "")
         duration_raw = row.get("duration", "")
         try:
@@ -173,6 +174,8 @@ def _normalize_annotation_rows(
             continue
         if (
             not description
+            or isinstance(onset_raw, bool)
+            or isinstance(duration_raw, bool)
             or not math.isfinite(onset)
             or not math.isfinite(duration)
             or duration < 0.0

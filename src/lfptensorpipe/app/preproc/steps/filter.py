@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, replace
 import math
+from pathlib import Path
+from shutil import copyfile
 import threading
 from typing import Any, Callable
 
@@ -288,6 +290,15 @@ def normalize_filter_advance_params(
     )
 
 
+def _preview_paths(resolver, directory=None):
+    paths = (
+        preproc_filter_preview_raw_path(resolver),
+        preproc_filter_preview_config_path(resolver),
+        preproc_filter_preview_log_path(resolver),
+    )
+    return tuple(directory / path.name for path in paths) if directory else paths
+
+
 def apply_filter_step(
     context: RecordContext,
     *,
@@ -299,14 +310,13 @@ def apply_filter_step(
     thread_module: Any = threading,
     read_raw_fif_fn: Callable[..., Any] | None = None,
     mark_lfp_bad_segments_fn: Callable[..., Any] | None = None,
+    preview_dir: Path | None = None,
 ) -> tuple[bool, str]:
     """Create a detection-filtered Preview for manual BAD review."""
     from lfptensorpipe.preproc.filter import BadAnnotationConfig, mark_lfp_bad_segments
 
     resolver = PathResolver(context)
-    preview = preproc_filter_preview_raw_path(resolver)
-    preview_config_path = preproc_filter_preview_config_path(resolver)
-    preview_log_path = preproc_filter_preview_log_path(resolver)
+    preview, preview_config_path, preview_log_path = _preview_paths(resolver, preview_dir)
     reject_plot_path = (
         resolver.preproc_step_dir("filter", create=True) / "qc" / "reject.png"
     )
@@ -383,7 +393,7 @@ def apply_filter_step(
         )
         channel_thresholds = cleanline_channel_thresholds(cfg.notch_model, raw.ch_names)
         runtime_reject_plot_path = (
-            reject_plot_path
+            (preview_dir / reject_plot_path.name if preview_dir else reject_plot_path)
             if thread_module.current_thread() is thread_module.main_thread()
             else None
         )
@@ -536,15 +546,14 @@ def finalize_filter_review(
     read_raw_fif_fn: Callable[..., Any] | None = None,
     finalize_reviewed_filter_fn: Callable[..., Any] | None = None,
     review_source_is_current_fn: Callable[[], bool] | None = None,
+    preview_dir: Path | None = None,
 ) -> tuple[bool, str]:
     """Regenerate and atomically accept Filter output from reviewed annotations."""
     from lfptensorpipe.preproc.filter import finalize_reviewed_lfp_filter
 
     resolver = PathResolver(context)
     dst = preproc_step_raw_path(resolver, "filter")
-    preview = preproc_filter_preview_raw_path(resolver)
-    preview_config_path = preproc_filter_preview_config_path(resolver)
-    preview_log_path = preproc_filter_preview_log_path(resolver)
+    preview, preview_config_path, preview_log_path = _preview_paths(resolver, preview_dir)
     config_path = preproc_step_config_path(resolver, "filter")
     log_path = preproc_step_log_path(resolver, "filter")
     captured = capture_preproc_input_generation(resolver, "filter")
@@ -570,6 +579,8 @@ def finalize_filter_review(
         and filter_preview_lineage_is_current(resolver, preview_payload)
     )
     state_log_path = preview_log_path if pending_preview else log_path
+    if preview_dir is not None and not pending_preview:
+        return False, "Filter replay preview no longer matches its source."
     state_config_path = preview_config_path if pending_preview else config_path
     payload = read_run_log(state_log_path)
     params = payload.get("params") if isinstance(payload, dict) else None
@@ -682,6 +693,7 @@ def finalize_filter_review(
                     review_state(
                         reviewed_annotations, reviewed_bads, opened.first_time
                     ),
+                    step="filter",
                 )
             if pending_preview or "review_edits" in params:
                 final_params["review_edits"] = [
@@ -738,10 +750,17 @@ def finalize_filter_review(
         else:
             final_params.pop("bad_channel_detection_semantics", None)
             final_config.pop("bad_channel_detection_semantics", None)
+        qc_plot = preproc_filter_preview_raw_path(resolver).with_name("reject.png")
+        candidate_plot = preview_dir / qc_plot.name if preview_dir else None
+        targets = [dst, config_path, log_path]
+        if candidate_plot and candidate_plot.is_file():
+            targets.append(qc_plot)
         with AtomicOutputSet(
-            [dst, config_path, log_path],
+            targets,
             cleanup_stale_residues=True,
         ) as output_set:
+            if qc_plot in targets:
+                copyfile(candidate_plot, output_set.staged_path(qc_plot))
             finalized.save(str(output_set.staged_path(dst)), overwrite=True)
             write_preproc_step_config(
                 resolver=resolver,
@@ -784,7 +803,7 @@ def finalize_filter_review(
                 )
             output_set.commit()
         cleanup_errors: list[str] = []
-        for preview_artifact in (preview, preview_config_path, preview_log_path):
+        for preview_artifact in _preview_paths(resolver):
             try:
                 preview_artifact.unlink()
             except FileNotFoundError:
