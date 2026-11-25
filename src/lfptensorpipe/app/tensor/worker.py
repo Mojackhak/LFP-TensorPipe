@@ -24,6 +24,7 @@ from lfptensorpipe.desktop_runtime import (
 from .cancellation import (
     BUILD_TENSOR_CANCELLED_MESSAGE,
     TENSOR_CANCEL_REQUEST_PATH_ENV,
+    TENSOR_RUN_TERMINATE_TIMEOUT_S,
     backfill_cancelled_build_tensor_run,
 )
 from .cpu_budget import DEFAULT_TENSOR_CPU_PERCENT
@@ -33,7 +34,6 @@ from .process_tree import BuildTensorProcessTree, build_tensor_popen_kwargs
 from .transaction_manifest import recover_tensor_run_transactions
 
 TENSOR_RUN_COOPERATIVE_TIMEOUT_S = 5.0
-TENSOR_RUN_TERMINATE_TIMEOUT_S = 5.0
 TENSOR_RUN_DESCENDANT_DRAIN_TIMEOUT_S = 1.0
 
 

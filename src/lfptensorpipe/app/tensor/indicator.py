@@ -343,12 +343,15 @@ def _metric_log_signature(
     if notch_payload is None:
         return None
     notches, notch_radii = notch_payload
+    freq_range = (
+        _periodic_freq_range(params) if metric_key == "periodic_aperiodic" else None
+    )
     try:
         notch_intervals = _notch_intervals_signature(
             notches=notches,
             notch_radii=notch_radii,
-            low_freq=float(params.get("low_freq")),
-            high_freq=float(params.get("high_freq")),
+            low_freq=freq_range[0] if freq_range else float(params.get("low_freq")),
+            high_freq=freq_range[1] if freq_range else float(params.get("high_freq")),
         )
     except (TypeError, ValueError):
         return None
@@ -374,7 +377,6 @@ def _metric_log_signature(
         return signature
     if metric_key == "periodic_aperiodic":
         channels = _normalize_channels(params.get("selected_channels"))
-        freq_range = _periodic_freq_range(params)
         if channels is None or freq_range is None:
             return None
         peak_width_limits = params.get("peak_width_limits_hz", [2.0, 12.0])
@@ -677,11 +679,14 @@ def _current_metric_signature(
     if notch_payload is None:
         return None
     notches, notch_radii = notch_payload
+    fit_range = (
+        prepared.parsed_freq_range if metric_key == "periodic_aperiodic" else None
+    )
     notch_intervals = _notch_intervals_signature(
         notches=notches,
         notch_radii=notch_radii,
-        low_freq=prepared.metric_low,
-        high_freq=prepared.metric_high,
+        low_freq=fit_range[0] if fit_range else prepared.metric_low,
+        high_freq=fit_range[1] if fit_range else prepared.metric_high,
     )
     if metric_key == "raw_power":
         channels = _normalize_channels(prepared.metric_channels)
@@ -894,7 +899,7 @@ def _current_metric_signature(
             _, thresholds_used = select_burst_threshold_subset(
                 thresholds_payload,
                 channels=channels,
-                bands=runtime_bands,
+                bands=bands_used,
                 estimator=estimator_signature,
                 frequency_grid_hz_by_band=spectral_grids,
             )

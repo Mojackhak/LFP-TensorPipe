@@ -1134,6 +1134,14 @@ Advance saving, Tensor config import/export, and Build Tensor validation reject
 an interval that touches or crosses either fitting boundary or has no clean,
 equal-width donor segment.
 
+Periodic/Aperiodic tracks notch intervals across the entire fitting range,
+including frequencies outside the output grid. Its fit reports, periodic and
+aperiodic tensors, settings and run log are published together after fitting.
+Stopping a run preserves the previously accepted reports. The scheduler waits
+for interrupted metric workers to exit before releasing their slots and files.
+For Burst, external threshold values are matched by channel and band name,
+independently of how the bands are ordered in the configuration.
+
 After reconstruction and the configured smoothing steps, SpecParam estimates
 the aperiodic and periodic model components. The Periodic tensor is evaluated
 over the complete frequency grid from the fitted Gaussian center frequency,

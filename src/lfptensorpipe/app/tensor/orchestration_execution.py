@@ -23,6 +23,7 @@ from lfptensorpipe.app.path_resolver import RecordContext
 
 from .cancellation import (
     BuildTensorCancellationRequested,
+    TENSOR_RUN_TERMINATE_TIMEOUT_S,
     raise_if_tensor_cancellation_requested,
     tensor_cancellation_requested,
 )
@@ -428,13 +429,15 @@ def _execute_runtime_plan_phase_in_subprocesses(
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-        except Exception as exc:  # noqa: BLE001
+        except BaseException as exc:
             if slot_gate is not None:
                 slot_gate.release()
             if request_path is not None:
                 request_path.unlink(missing_ok=True)
             if result_path is not None:
                 result_path.unlink(missing_ok=True)
+            if not isinstance(exc, Exception):
+                raise
             runtime_results[metric_key] = _runtime_plan_failure_result(
                 svc,
                 resolver,
@@ -539,6 +542,18 @@ def _execute_runtime_plan_phase_in_subprocesses(
         if slot_gate is not None and pending_keys:
             slot_gate.discard_pending_independent(len(pending_keys))
         for state in process_states.values():
+            process = state["process"]
+            if process.poll() is None:
+                process.terminate()
+        for state in process_states.values():
+            process = state["process"]
+            try:
+                process.wait(timeout=TENSOR_RUN_TERMINATE_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            if slot_gate is not None:
+                slot_gate.release()
             state["request_path"].unlink(missing_ok=True)
             state["result_path"].unlink(missing_ok=True)
 

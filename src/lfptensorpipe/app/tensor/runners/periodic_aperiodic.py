@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from pathlib import Path
-import shutil
 from typing import Any
-from uuid import uuid4
 
 import numpy as np
+
+from lfptensorpipe.app.shared.atomic_outputs import AtomicOutputSet
 
 from .. import service as svc
 from ..lineage import tensor_runner_entry
@@ -25,47 +23,6 @@ from .periodic_aperiodic_prepare import (
     prepare_periodic_aperiodic_runtime,
     validate_preproc_input,
 )
-
-
-def _rmtree_ignore_missing_entries(path: Path) -> None:
-    def _onerror(_func: Any, _target: str, exc_info: Any) -> None:
-        exc = exc_info[1]
-        if isinstance(exc, FileNotFoundError):
-            return
-        raise exc
-
-    try:
-        shutil.rmtree(path, onerror=_onerror)
-    except FileNotFoundError:
-        return
-
-
-def _remove_path(path: Path) -> None:
-    if not path.exists():
-        return
-    if path.is_dir():
-        _rmtree_ignore_missing_entries(path)
-        return
-    path.unlink(missing_ok=True)
-
-
-@contextmanager
-def _prepare_specparam_report_dir(report_dir: Path):
-    backup_dir: Path | None = None
-    if report_dir.exists():
-        backup_dir = report_dir.parent / f".{report_dir.name}.bak-{uuid4().hex}"
-        report_dir.replace(backup_dir)
-    report_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        yield report_dir
-    except Exception:
-        _remove_path(report_dir)
-        if backup_dir is not None and backup_dir.exists():
-            backup_dir.replace(report_dir)
-        raise
-    else:
-        if backup_dir is not None:
-            _remove_path(backup_dir)
 
 
 @tensor_runner_entry
@@ -157,18 +114,31 @@ def run_periodic_aperiodic_metric(
             load_tensor_filter_inheritance_fn=load_tensor_filter_inheritance_fn,
             compute_notch_intervals_fn=compute_notch_intervals_fn,
         )
-        with _prepare_specparam_report_dir(paths.report_dir):
+        with AtomicOutputSet(
+            [
+                paths.output_path,
+                paths.aperiodic_output_path,
+                paths.report_dir,
+                paths.config_path,
+                paths.log_path,
+            ],
+            directory_targets=[paths.report_dir],
+        ) as publication:
+            staged_report = publication.staged_path(paths.report_dir)
+            staged_report.mkdir()
             outputs = compute_periodic_aperiodic_outputs(
                 prepared,
                 options,
-                paths.report_dir,
+                staged_report,
                 tfr_grid_fn=tfr_grid_fn,
                 interpolate_freq_tensor_fn=interpolate_freq_tensor_fn,
                 smooth_axis_fn=smooth_axis_fn,
                 decompose_fn=decompose_fn,
                 make_gof_rsquared_masker_fn=make_gof_rsquared_masker_fn,
             )
-            return write_periodic_aperiodic_success(paths, options, prepared, outputs)
+            return write_periodic_aperiodic_success(
+                paths, options, prepared, outputs, publication
+            )
     except Exception as exc:  # noqa: BLE001
         runtime_notch_payload = svc.build_tensor_metric_notch_payload(
             options.notches,

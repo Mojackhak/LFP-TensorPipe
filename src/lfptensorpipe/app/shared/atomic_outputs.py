@@ -24,6 +24,14 @@ logger = logging.getLogger(__name__)
 _TRANSACTION_TOKEN_PATTERN = r"[0-9a-f]{32}"
 
 
+def remove_output_path(path: Path, *, directory: bool) -> None:
+    """Remove a transaction artifact, recursing only for a declared directory."""
+    if directory and not path.is_symlink() and path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink(missing_ok=True)
+
+
 @dataclass(frozen=True)
 class _PreparedOutput:
     target: Path
@@ -51,9 +59,16 @@ class AtomicOutputSet:
         replace_fn: ReplaceFn | None = None,
         cleanup_stale_residues: bool = False,
         retire_existing_fn: Callable[[Path], None] | None = None,
+        directory_targets: Iterable[Path] = (),
     ) -> None:
         token = uuid4().hex
         self._token = token
+        self._directory_targets: set[Path] = set()
+        for directory in directory_targets:
+            directory = Path(directory).expanduser()
+            if directory.is_symlink():
+                raise ValueError(f"Cannot replace a linked output directory: {directory}")
+            self._directory_targets.add(directory.resolve())
         prepared: list[_PreparedOutput] = []
         seen: set[Path] = set()
         for raw_target in targets:
@@ -144,7 +159,13 @@ class AtomicOutputSet:
 
         self._expand_fif_output_sets()
         missing = [
-            item.temporary for item in self._prepared if not item.temporary.is_file()
+            item.temporary
+            for item in self._prepared
+            if not (
+                item.temporary.is_dir()
+                if item.target in self._directory_targets
+                else item.temporary.is_file()
+            )
         ]
         if missing:
             raise FileNotFoundError(
@@ -155,7 +176,6 @@ class AtomicOutputSet:
             if item.target_mode is not None:
                 item.temporary.chmod(item.target_mode)
 
-        committed: list[Path] = []
         promotion_complete = False
         try:
             for item in self._prepared:
@@ -163,21 +183,27 @@ class AtomicOutputSet:
                     self._replace(item.target, item.backup)
             for item in self._prepared:
                 self._replace(item.temporary, item.target)
-                committed.append(item.target)
             self._mark_manifest_committed()
             promotion_complete = True
-        except Exception:
+        except BaseException:
             if promotion_complete:
                 raise
             rollback_complete = False
             try:
-                for target in committed:
-                    target.unlink(missing_ok=True)
                 for item in self._prepared:
                     if item.backup.exists():
+                        remove_output_path(
+                            item.target,
+                            directory=item.target in self._directory_targets,
+                        )
                         self._replace(item.backup, item.target)
+                    elif not item.had_original and not item.temporary.exists():
+                        remove_output_path(
+                            item.target,
+                            directory=item.target in self._directory_targets,
+                        )
                 rollback_complete = True
-            except Exception:
+            except BaseException:
                 self._recovery_retained = True
                 raise
             finally:
@@ -190,6 +216,19 @@ class AtomicOutputSet:
         self._cleanup_obsolete_fif_splits()
         if self._cleanup_stale_residues_enabled:
             self._cleanup_stale_residues()
+
+    def write_and_commit(
+        self,
+        outputs: Iterable[tuple[Path, OutputWriter]],
+        *,
+        precommit_check: PrecommitCheck | None = None,
+    ) -> None:
+        """Write the remaining staged artifacts and promote the full output set."""
+        for target, writer in outputs:
+            writer(self.staged_path(target))
+        if precommit_check is not None:
+            precommit_check()
+        self.commit()
 
     def _staging_directories(self) -> tuple[Path, ...]:
         return tuple(
@@ -456,7 +495,8 @@ class AtomicOutputSet:
 
     def _cleanup_paths(self, *, retire_existing: bool = False) -> None:
         for item in self._prepared:
-            item.temporary.unlink(missing_ok=True)
+            directory = item.target in self._directory_targets
+            remove_output_path(item.temporary, directory=directory)
             if (
                 retire_existing
                 and self._retire_existing is not None
@@ -464,7 +504,7 @@ class AtomicOutputSet:
             ):
                 self._retire_existing(item.backup)
             else:
-                item.backup.unlink(missing_ok=True)
+                remove_output_path(item.backup, directory=directory)
         self._cleanup_staging_directories()
 
     def _cleanup_staging_directories(self) -> None:
@@ -511,11 +551,7 @@ def write_outputs_atomically(
         replace_fn=replace_fn,
         cleanup_stale_residues=cleanup_stale_residues,
     ) as output_set:
-        for target, writer in outputs:
-            writer(output_set.staged_path(target))
-        if precommit_check is not None:
-            precommit_check()
-        output_set.commit()
+        output_set.write_and_commit(outputs, precommit_check=precommit_check)
 
 
 __all__ = [

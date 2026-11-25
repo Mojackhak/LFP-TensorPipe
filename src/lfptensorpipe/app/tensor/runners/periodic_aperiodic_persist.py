@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ..task_progress import publish_metric
+from ..lineage import require_tensor_input_generation_unchanged
 
 import numpy as np
 
@@ -125,6 +126,7 @@ def write_periodic_aperiodic_success(
     options: PeriodicAperiodicOptions,
     prepared: PeriodicAperiodicPreparedInput,
     outputs: PeriodicAperiodicOutputs,
+    publication,
 ) -> tuple[bool, str]:
     interpolation_seed = derive_notch_interpolation_seed(options.context)
     notch_metadata = {
@@ -270,7 +272,7 @@ def write_periodic_aperiodic_success(
     }
     publish_metric(
         METRIC_KEY,
-        svc._write_outputs_atomically,
+        publication.write_and_commit,
         [
             (
                 paths.output_path,
@@ -401,6 +403,7 @@ def write_periodic_aperiodic_success(
                 ),
             ),
         ],
+        precommit_check=require_tensor_input_generation_unchanged,
     )
     success_message = (
         "Periodic/APeriodic tensor computed with reproducible local residual notch imputation."

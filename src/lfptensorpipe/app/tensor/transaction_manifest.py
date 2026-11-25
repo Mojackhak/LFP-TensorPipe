@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 from typing import Any
+
+from ..shared.atomic_outputs import remove_output_path
 
 TRANSACTION_MANIFEST_SCHEMA = "lfptensorpipe.tensor-output-transaction"
 TRANSACTION_MANIFEST_PREFIX = ".lfptensorpipe-txn-"
@@ -57,20 +60,27 @@ def _load_manifest(
     for entry in entries:
         if not isinstance(entry, dict):
             raise ValueError(f"Invalid transaction manifest entry: {path}")
-        normalized_entries.append(
-            {
-                "target": _scoped_path(
-                    entry.get("target"), validation_root=validation_root
-                ),
-                "temporary": _scoped_path(
-                    entry.get("temporary"), validation_root=validation_root
-                ),
-                "backup": _scoped_path(
-                    entry.get("backup"), validation_root=validation_root
-                ),
-                "had_original": bool(entry.get("had_original", False)),
-            }
+        item: dict[str, Any] = {
+            key: _scoped_path(entry.get(key), validation_root=validation_root)
+            for key in ("target", "temporary", "backup")
+        }
+        item["had_original"] = bool(entry.get("had_original", False))
+        target = item["target"]
+        item["directory"] = (
+            target == validation_root.resolve() / "periodic" / "specparam_report"
         )
+        if item["directory"]:
+            token = re.fullmatch(
+                r"\.specparam_report\.tmp-([0-9a-f]{32})", item["temporary"].name
+            )
+            if (
+                not token
+                or item["temporary"].parent != target.parent
+                or item["backup"]
+                != target.with_name(f".specparam_report.bak-{token[1]}")
+            ):
+                raise ValueError(f"Invalid SpecParam report transaction paths: {path}")
+        normalized_entries.append(item)
     return {
         "phase": str(payload.get("phase", "prepared")),
         "entries": normalized_entries,
@@ -85,16 +95,16 @@ def _rollback_prepared(entries: list[dict[str, Any]]) -> None:
         had_original = bool(entry["had_original"])
         if had_original:
             if backup.exists():
-                target.unlink(missing_ok=True)
+                remove_output_path(target, directory=entry["directory"])
                 backup.replace(target)
             elif not target.exists():
                 raise RuntimeError(
                     f"Cannot recover missing original Tensor artifact: {target}"
                 )
         else:
-            target.unlink(missing_ok=True)
-        temporary.unlink(missing_ok=True)
-        backup.unlink(missing_ok=True)
+            remove_output_path(target, directory=entry["directory"])
+        remove_output_path(temporary, directory=entry["directory"])
+        remove_output_path(backup, directory=entry["directory"])
 
 
 def _complete_committed(entries: list[dict[str, Any]]) -> None:
@@ -105,8 +115,8 @@ def _complete_committed(entries: list[dict[str, Any]]) -> None:
             + ", ".join(str(path) for path in missing)
         )
     for entry in entries:
-        entry["temporary"].unlink(missing_ok=True)
-        entry["backup"].unlink(missing_ok=True)
+        remove_output_path(entry["temporary"], directory=entry["directory"])
+        remove_output_path(entry["backup"], directory=entry["directory"])
 
 
 def recover_tensor_run_transactions(

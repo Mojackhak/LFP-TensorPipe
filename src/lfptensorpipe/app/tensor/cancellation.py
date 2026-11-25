@@ -27,6 +27,7 @@ from .paths import (
 CANCELLED_RUN_STATUS = "cancelled"
 BUILD_TENSOR_CANCELLED_MESSAGE = "Build Tensor cancelled by user."
 TENSOR_CANCEL_REQUEST_PATH_ENV = "LFPTENSORPIPE_TENSOR_CANCEL_REQUEST_PATH"
+TENSOR_RUN_TERMINATE_TIMEOUT_S = 5.0
 
 logger = logging.getLogger(__name__)
 
