@@ -279,6 +279,12 @@ class MainWindowFeaturesTrialsMixin:
         axes_by_metric = params.get("axes_by_metric")
         if not isinstance(axes_by_metric, dict):
             return None
+        from lfptensorpipe.app.features.phase_time import resolve_stored_phase_axes
+        mode = params.get("collapse_settings", {}).get("time_interval_mode")
+        axes_by_metric = {
+            key: resolve_stored_phase_axes(PathResolver(context), trial_slug, key, axes, mode)
+            for key, axes in axes_by_metric.items() if isinstance(axes, dict)
+        }
         return self._normalize_features_trial_params(
             trial_slug.strip(),
             {"axes_by_metric": axes_by_metric},
@@ -570,6 +576,7 @@ class MainWindowFeaturesTrialsMixin:
             self._features_last_plot_figure = None
             self._features_last_plot_data = None
             self._features_last_plot_name = ""
+            self._features_last_plot_type = ""
             if restore_slug is not None:
                 self._restore_features_trial_params(
                     restore_slug,

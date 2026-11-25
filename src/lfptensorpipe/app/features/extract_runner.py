@@ -70,6 +70,7 @@ from .phase_time import (
     aligned_phase_support,
     convert_phase_rows,
     effective_phase_windows,
+    resolve_stored_phase_axes,
     elapsed_feature_frame,
     elapsed_intervals,
     trial_seconds_duration,
@@ -572,6 +573,7 @@ def _extract_metric_outputs(
                 include_spectral=bool(outputs.get("spectral", False))
                 and (only_stems is None or "mean-spectral" in only_stems),
                 include_scalar=bool(outputs.get("scalar", False))
+                and bool(freqs_axis)
                 and (only_stems is None or "mean-scalar" in only_stems),
                 time_interval_mode=str(
                     collapse_base_cfg.get("time_interval_mode", "percent")
@@ -636,6 +638,8 @@ def _extract_metric_outputs(
                     raise ValueError(f"Missing assigned output path: {stem}")
                 if export_xlsx and not _should_export_xlsx(enabled_output):
                     _remove_stale_xlsx(out_xlsx)
+                if enabled_output in {"trace", "scalar"} and not freqs_axis:
+                    raise ValueError(f"bands axis is required for {enabled_output}.")
                 if (
                     uses_piecewise_native_mean
                     and reducer == "mean"
@@ -656,8 +660,6 @@ def _extract_metric_outputs(
                         **collapse_base_cfg,
                     )
                 elif enabled_output == "trace":
-                    if not freqs_axis:
-                        raise ValueError("bands axis is required for trace.")
                     derived = split_nested_values(
                         reduction_payload,
                         bands=freqs_axis,
@@ -667,8 +669,6 @@ def _extract_metric_outputs(
                         **collapse_base_cfg,
                     )
                 else:
-                    if not freqs_axis:
-                        raise ValueError("bands axis is required for scalar.")
                     if not time_axis:
                         raise ValueError("times axis is required for scalar.")
                     derived = grid_nested_values(
@@ -942,8 +942,12 @@ def run_extract_features(
                         prior_log_path.parent / path.relative_to(deriv_root),
                         output_set.staged_path(path),
                     )
+            relabeled_axes = {
+                key: resolve_stored_phase_axes(resolver, slug, key, planned_axes[key], settings["time_interval_mode"])
+                for key in {path.parent.name for path in relabel}
+            }
             for path in sorted(relabel):
-                axes = planned_axes[path.parent.name]
+                axes = relabeled_axes[path.parent.name]
                 table = load_pkl(prior_log_path.parent / path.relative_to(deriv_root))
                 table.attrs["phase_windows"] = {
                     "time_unit": axes.get("time_unit", "percent"),

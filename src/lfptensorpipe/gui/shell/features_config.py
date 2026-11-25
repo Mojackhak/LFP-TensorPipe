@@ -47,6 +47,8 @@ class MainWindowFeaturesConfigMixin:
 
     def _build_features_config_export_payload(self) -> dict[str, Any]:
         metric_keys = self._features_metric_keys_for_selected_trial()
+        if not metric_keys:
+            raise ValueError("A current Align Finish with at least one metric is required to export Features.")
         axes_ok, axes_message = self._validate_features_axes_for_run(metric_keys)
         if not axes_ok:
             raise ValueError(axes_message)

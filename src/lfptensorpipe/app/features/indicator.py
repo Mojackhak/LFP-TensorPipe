@@ -254,10 +254,12 @@ def features_panel_state(
             return "yellow"
         if not kinds.intersection({"scalar", "spectral"}):
             continue
-        if ("time_unit" in axes) != ("time_unit" in prior) and params.get(
-            "collapse_settings", {}
-        ).get("time_interval_mode") == "absolute":
-            return "yellow"
+        if ("time_unit" in axes) != ("time_unit" in prior):
+            from .phase_time import resolve_stored_phase_axes
+            mode = params.get("collapse_settings", {}).get("time_interval_mode")
+            slug = trial_slug or paradigm_slug
+            axes = resolve_stored_phase_axes(resolver, slug, metric, axes, mode)
+            prior = resolve_stored_phase_axes(resolver, slug, metric, prior, mode)
         if axes.get("time_unit", "percent") != prior.get("time_unit", "percent"):
             if duration is None:
                 duration = trial_seconds_duration(resolver, trial_slug or paradigm_slug)

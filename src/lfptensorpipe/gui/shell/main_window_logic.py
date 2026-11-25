@@ -315,6 +315,7 @@ class MainWindow(
         self._features_last_plot_figure: Any | None = None
         self._features_last_plot_data: pd.DataFrame | None = None
         self._features_last_plot_name: str = ""
+        self._features_last_plot_type: str = ""
         self._space_value_edit: QLineEdit | None = None
         self._localize_selected_source = None
         self._localize_label_channels: tuple[str, ...] = ()

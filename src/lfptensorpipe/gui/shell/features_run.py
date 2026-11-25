@@ -53,7 +53,7 @@ class MainWindowFeaturesRunMixin:
         if self._features_import_button is not None:
             self._features_import_button.setEnabled(has_context and has_slug)
         if self._features_export_button is not None:
-            self._features_export_button.setEnabled(has_context and has_slug)
+            self._features_export_button.setEnabled(has_context and has_slug and alignment_green and metrics_ready)
         if self._features_refresh_button is not None:
             self._features_refresh_button.setEnabled(has_context and has_slug)
         self._refresh_features_axis_buttons()

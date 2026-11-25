@@ -399,6 +399,7 @@ def prepare_features_config(
     metrics: list[str],
     *,
     trial: str | None = None,
+    config_store: Any = None,
 ) -> dict[str, Any]:
     from .features.derive_axes import (
         feature_band_support_error,
@@ -407,6 +408,7 @@ def prepare_features_config(
     from .features.derive_defaults import _metric_uses_auto_bands
     from .features.phase_time import (
         phase_limit,
+        resolve_stored_phase_axes,
         trial_seconds_duration,
         validate_phase_bounds,
     )
@@ -417,6 +419,9 @@ def prepare_features_config(
     _require_fields(node["axes_by_metric"], metrics, "features.axes_by_metric")
     axes = {}
     duration = None
+    execution = node.get("execution")
+    collapse = execution.get("collapse") if isinstance(execution, dict) else None
+    interval_mode = collapse.get("time_interval_mode") if isinstance(collapse, dict) else None
     for metric in metrics:
         source = node["axes_by_metric"][metric]
         auto = _metric_uses_auto_bands(metric)
@@ -428,6 +433,11 @@ def prepare_features_config(
         bands = (
             [] if auto else normalize_feature_axis_rows(source["bands"], min_start=0.0)
         )
+        if "time_unit" not in source and metric != "burst" and trial:
+            if interval_mode is None:
+                from .features.derive_defaults import _load_collapse_base_cfg
+                interval_mode = _load_collapse_base_cfg(config_store)["time_interval_mode"]
+            source = resolve_stored_phase_axes(PathResolver(context), trial, metric, source, interval_mode)
         unit = source.get("time_unit", "percent")
         try:
             if unit == "s" and duration is None and trial:
@@ -501,7 +511,7 @@ def _run_features(
     metrics = accepted_alignment_metrics(resolver, trial_slug=trial, stage="finish")
     if not metrics:
         raise RunFailed("The selected trial must have a current Align Finish.")
-    snapshot = prepare_features_config(context, node, metrics, trial=trial)
+    snapshot = prepare_features_config(context, node, metrics, trial=trial, config_store=config_store)
     message = _checked_result(
         run_extract_features(
             context,

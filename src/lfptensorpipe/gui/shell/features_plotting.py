@@ -288,11 +288,7 @@ class MainWindowFeaturesPlottingMixin:
             self._show_warning("Export", "Run Plot first.")
             return
         selected = self._selected_features_file()
-        derived_type = (
-            str(selected.get("derived_type", "")).strip().lower()
-            if isinstance(selected, dict)
-            else ""
-        )
+        derived_type = self._features_last_plot_type
         try:
             self._validate_features_plot_advance_for_payload(
                 self._features_last_plot_data,
@@ -482,6 +478,7 @@ class MainWindowFeaturesPlottingMixin:
             self._features_last_plot_figure = fig
             self._features_last_plot_data = payload
             self._features_last_plot_name = str(path.stem)
+            self._features_last_plot_type = derived_type
             self._tighten_features_plot_figure(fig)
             self._refresh_features_controls()
             self._track_plot_figure(fig)

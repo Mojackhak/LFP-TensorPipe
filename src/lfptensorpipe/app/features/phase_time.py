@@ -9,7 +9,7 @@ from typing import Any
 import pandas as pd
 
 from lfptensorpipe.app.alignment.generation import latest_alignment_step_entry
-from lfptensorpipe.app.alignment.paths import alignment_warp_labels_path
+from lfptensorpipe.app.alignment.paths import alignment_trial_raw_table_path, alignment_warp_labels_path
 from lfptensorpipe.app.alignment.warper_builder import _resolve_target_duration_s
 from lfptensorpipe.app.path_resolver import PathResolver
 from lfptensorpipe.io.pkl_io import load_pkl
@@ -101,6 +101,26 @@ def effective_phase_windows(axes, metric, interval_mode, support):
                     for row in rows
                 ]
     return {"time_unit": unit, "time_origin": "epoch_start", "times": rows}
+
+
+def resolve_stored_phase_axes(resolver, slug, metric, axes, interval_mode):
+    """Resolve unitless absolute windows using the Finish timeline that owned them."""
+    if "time_unit" in axes or interval_mode != "absolute" or metric == "burst" or not slug:
+        return axes
+    duration = trial_seconds_duration(resolver, slug)
+    if duration is None:
+        return axes
+    support = (0.0, duration)
+    run = latest_alignment_step_entry(resolver, trial_slug=slug, step="run_align_epochs")[1]
+    if "cue_response" in run["params"]["method_params"]:
+        path = alignment_trial_raw_table_path(resolver, trial_slug=slug, metric_key=metric)
+        if path.is_file():
+            support = aligned_phase_support(load_pkl(path), "linear_warper") or support
+    try:
+        windows = effective_phase_windows(axes, metric, interval_mode, support)
+    except (KeyError, TypeError) as exc:
+        raise ValueError("Invalid stored phase window.") from exc
+    return {**axes, "time_unit": windows["time_unit"], "times": windows["times"]}
 
 
 def same_phase_boundary(a, b):
