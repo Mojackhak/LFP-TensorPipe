@@ -247,6 +247,11 @@ indices. Time zero is the first observed sample. Each missing interval is
 zero-filled and marked `BAD_gap` for all channels. Tags stay with their
 source samples after the gap.
 
+In both SceneRay layouts, a missing channel reading in a received row is
+stored as 0 µV and marked `BAD_gap` on that channel for the missing samples.
+A recorded zero remains valid. Re-import the original CSV to recover timing
+or missing-channel annotations in an affected older recording.
+
 Legacy CSV, PINS, and Sceneray neural-signal inputs reject positive and negative
 infinity during `Parse`, before canonical Raw construction. Infinity is not
 cleaned, replaced, or partially accepted. Legacy CSV `NaN` missing values and

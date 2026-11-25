@@ -277,8 +277,7 @@ def _drop_dups_and_fill_packet_index(
     # Reindexed loss-packet rows are zero-filled.
     df2 = (
         df.set_index(packet_col)
-        .reindex(full_idx)
-        .fillna(0.0)
+        .reindex(full_idx, fill_value=0.0)
         .reset_index()
         .rename(columns={"index": packet_col})
     )
@@ -447,12 +446,25 @@ def _raw_from_channels(df: pd.DataFrame, sfreq_hz: float, version: str) -> Any:
             message=f"sr must be finite and > 0, got {sfreq_hz}",
             version=version,
         )
+    gaps = [
+        (start / sfreq_hz, (end - start + 1) / sfreq_hz, (channel,))
+        for channel in df.columns
+        for start, end in _compress_int_ranges(
+            np.flatnonzero(df[channel].isna()).tolist()
+        )
+    ]
     try:
-        return df2mne(df, sr=sfreq_hz, unit="uV")
+        raw = df2mne(df.fillna(0.0) if gaps else df, sr=sfreq_hz, unit="uV")
     except InfiniteSignalValuesError as exc:
         raise ParseError(
             code="PARSE_SCHEMA_INVALID", message=str(exc), version=version
         ) from exc
+    if gaps:
+        onsets, durations, channels = zip(*gaps)
+        raw.annotations.append(
+            onsets, durations, ["BAD_gap"] * len(gaps), ch_names=channels
+        )
+    return raw
 
 
 def _parse_packet_rows(
@@ -580,7 +592,7 @@ def _parse_sample_rows(
         )
     names = _parse_channel_names(channel_tokens, len(ordered_columns))
     try:
-        channels = table[ordered_columns].astype(float).fillna(0.0)
+        channels = table[ordered_columns].astype(float)
     except ValueError as exc:
         raise ParseError(
             code="PARSE_SCHEMA_INVALID",
