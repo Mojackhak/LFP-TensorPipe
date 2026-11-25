@@ -5,6 +5,7 @@ from pathlib import Path
 
 from lfptensorpipe.app.shared.generation_lineage import parse_generation_lineage
 from . import generation
+from .derive_defaults import _metric_uses_auto_bands
 from .indicator import _normalize_axes_by_metric
 from .phase_time import same_phase_windows
 
@@ -91,6 +92,13 @@ def reusable_axis_outputs(
         old, new = previous[metric], axes[metric]
         same_time = same_phase_windows(old, new, duration)
         for stem, path in paths.items():
+            if (
+                stem == "mean-scalar"
+                and alignment_method in {"pad_warper", "concat_warper"}
+                and not new["bands"]
+                and not _metric_uses_auto_bands(metric)
+            ):
+                continue
             relative = Path(metric, path.name)
             source = source_root / relative if source_root is not None else path
             if relative not in manifest.get(metric, ()) or not source.is_file():

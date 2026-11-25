@@ -857,14 +857,6 @@ def run_extract_features(
         }
         if any(value is None for value in planned_axes.values()):
             raise ValueError("Invalid Features axes or phase unit for this trial.")
-        for metric, axes in planned_axes.items():
-            if (
-                not svc._metric_uses_auto_bands(metric)
-                and not axes["bands"]
-                and "mean-scalar" in final_paths_by_metric[metric]
-                and alignment_method in {"pad_warper", "concat_warper"}
-            ):
-                raise ValueError(f"{metric}: bands axis is required for scalar.")
         settings = collapse_settings(collapse_base_cfg)
         previous_axes = (
             (prior_log_payload or {}).get("params", {}).get("axes_by_metric", {})
