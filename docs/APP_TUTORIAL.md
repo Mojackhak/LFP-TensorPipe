@@ -1235,9 +1235,18 @@ their boundary point, but that zero-width point does not duplicate any integrate
 area. Within a nonzero-width interval, an isolated finite sample separated from
 other finite samples by non-finite values has no continuous trapezoidal support
 and does not contribute to the mean. If no finite segment spans a positive
-coordinate width, the mean is `NaN`. An explicitly configured zero-width
-interval remains a point query. Other reducers retain their discrete sample or
-event-selection semantics.
+coordinate width, the mean is `NaN`. For example, on a frequency axis starting
+at 10 Hz, a 5–10 Hz band has zero overlap width and its mean is `NaN`, even
+with inclusive endpoints. An explicit 10–10 Hz query returns the finite
+10 Hz value when the endpoint is included. Other reducers retain their
+discrete sample or event-selection semantics.
+
+Extract Features refreshes earlier numeric means that used inclusive windows
+and could have counted a clipped endpoint as a point query. Older receipts
+without an endpoint setting can also require this refresh. Means recorded
+with half-open windows retain their existing support. Re-extraction also
+reuses outputs whose means use only named bands or native Clip/Stitch time
+integration, as well as the Raw tables.
 
 For `Clip Around Event` and `Stitch Trials`, every retained source fragment is
 a discontinuous piece even though the display places the pieces next to each

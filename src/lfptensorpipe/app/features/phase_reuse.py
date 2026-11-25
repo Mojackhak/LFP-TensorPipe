@@ -44,7 +44,9 @@ def _reduction_options(metric, stem, axes, settings, semantics, method):
             "percent" if "time_unit" in axes else settings.get("time_interval_mode")
         )
     if stem.startswith("mean-"):
-        options["mean"] = semantics.get(generation.NUMERIC_MEAN_SEMANTICS_KEY)
+        options["mean"] = generation.effective_numeric_mean_semantics(
+            semantics, settings, metric, method, stem
+        )
         if method in {"pad_warper", "concat_warper"} and kind in {"spectral", "scalar"}:
             options["piecewise_mean"] = semantics.get(
                 generation.CLIP_STITCH_MEAN_SUPPORT_KEY

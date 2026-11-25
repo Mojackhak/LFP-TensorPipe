@@ -70,7 +70,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Literal, Mapping, Sequence
+from typing import Any, Iterator, Literal, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -332,12 +332,17 @@ def resolve_intervals(
             "Intervals must be a list/array of length-2 numeric sequences, e.g. [[0, 1], [2, 3]]."
         )
 
-    out: list[Interval] = []
-    hi = float(coords[-1])
-    for i, it in enumerate(intervals):
-        if len(it) != 2:
-            raise ValueError(f"Interval #{i} must have length 2, got: {it!r}")
+    return _merge_intervals(
+        [samples for samples, _ in _clipped_interval_support(intervals, coords, mode)]
+    )
 
+
+def _clipped_interval_support(
+    intervals: IntervalsLike, coords: np.ndarray, mode: AxisIntervalMode
+) -> Iterator[tuple[Interval, Interval | None]]:
+    """Yield the discrete selection bounds and the continuous mean support."""
+    hi = float(coords[-1])
+    for it in intervals:
         a = float(it[0])
         b = float(it[1])
         if not np.isfinite(a) or not np.isfinite(b):
@@ -351,15 +356,14 @@ def resolve_intervals(
         clipped = _clip_interval_to_axis((a2, b2), coords)
         if clipped is not None:
             left, right = clipped
+            mean_support = clipped if left < right or a == b else None
             # If the interval right edge was cropped by axis max, keep that endpoint
             # effectively inclusive under right-open masking (`x < end`) by nudging
             # the clipped upper bound to the next representable float.
             if b2 > hi and np.isclose(right, hi, rtol=0.0, atol=0.0):
                 right = float(np.nextafter(hi, np.inf))
             # Left edge uses `x >= start` in both modes; no extra handling needed.
-            out.append((left, right))
-
-    return _merge_intervals(out)
+            yield (left, right), mean_support
 
 
 def intervals_total_length(intervals: Sequence[Interval]) -> float:
@@ -470,13 +474,19 @@ def parse_axis_selection(
             "or numeric intervals (list of [start, end])."
         )
 
-    intervals = resolve_intervals(spec, axis.coords, mode=interval_mode)  # type: ignore[arg-type]
+    samples = []
+    mean_intervals = []
+    for bounds, support in _clipped_interval_support(spec, axis.coords, interval_mode):  # type: ignore[arg-type]
+        samples.append(bounds)
+        if support is not None and (inclusive or support[0] < support[1]):
+            mean_intervals.append(support)
+    intervals = _merge_intervals(samples)
     mask = mask_union_intervals(axis.coords, intervals, inclusive=inclusive)
     total_len = intervals_total_length(intervals)
     return AxisSelection(
         mask=mask,
         total_length=total_len,
-        intervals=tuple(intervals),
+        intervals=tuple(_merge_intervals(mean_intervals)),
     )
 
 

@@ -27,6 +27,7 @@ from lfptensorpipe.lfp.burst.semantics import (
     BURST_SAMPLE_SUPPORT_KEY,
 )
 
+from .derive_defaults import _metric_uses_auto_bands
 from .indicator import features_derivatives_log_path, features_derivatives_root
 
 FEATURE_MANIFEST_RERUN_MESSAGE = (
@@ -34,7 +35,8 @@ FEATURE_MANIFEST_RERUN_MESSAGE = (
     "Rerun Extract Features."
 )
 NUMERIC_MEAN_SEMANTICS_KEY = "numeric_mean_semantics"
-NUMERIC_MEAN_SEMANTICS = "continuous_interval_trapezoid_positive_width_runs"
+NUMERIC_MEAN_SEMANTICS = "continuous_interval_trapezoid_explicit_point_queries"
+_PREVIOUS_MEAN_SEMANTICS = "continuous_interval_trapezoid_positive_width_runs"
 NUMERIC_MEAN_RERUN_MESSAGE = (
     "Latest Extract Features result uses legacy numeric mean interval semantics. "
     "Rerun Extract Features."
@@ -298,25 +300,56 @@ def feature_generation_lineage_is_current(
     )
 
 
+def effective_numeric_mean_semantics(
+    params: Mapping[str, Any],
+    settings: Mapping[str, Any] | None,
+    metric: str,
+    method: str | None,
+    stem: str,
+) -> str | None:
+    """Recognize earlier mean results whose integration support is identical."""
+    marker = params.get(NUMERIC_MEAN_SEMANTICS_KEY)
+    if marker != _PREVIOUS_MEAN_SEMANTICS:
+        return marker if isinstance(marker, str) else None
+    if isinstance(settings, Mapping) and settings.get("inclusive") is False:
+        return NUMERIC_MEAN_SEMANTICS
+    numeric_band = stem in {
+        "mean-trace",
+        "mean-scalar",
+    } and not _metric_uses_auto_bands(metric)
+    aligned_time = stem in {"mean-spectral", "mean-scalar"} and method not in {
+        "pad_warper",
+        "concat_warper",
+    }
+    if not (numeric_band or aligned_time):
+        return NUMERIC_MEAN_SEMANTICS
+    return marker
+
+
 def feature_generation_requires_numeric_mean_rerun(entry: dict[str, Any]) -> bool:
     """Return whether one accepted generation predates current mean semantics."""
+    params = entry.get("params")
+    if (
+        not isinstance(params, dict)
+        or params.get(NUMERIC_MEAN_SEMANTICS_KEY) == NUMERIC_MEAN_SEMANTICS
+    ):
+        return False
     outputs = outputs_from_features_entry(entry)
     if outputs is None:
         return False
-    affected = any(
+    return any(
         metric != "burst"
-        and any(
-            path.name in {"mean-spectral.pkl", "mean-trace.pkl", "mean-scalar.pkl"}
-            for path in paths
+        and path.name in {"mean-spectral.pkl", "mean-trace.pkl", "mean-scalar.pkl"}
+        and effective_numeric_mean_semantics(
+            params,
+            params.get("collapse_settings"),
+            metric,
+            params.get("alignment_method"),
+            path.stem,
         )
+        != NUMERIC_MEAN_SEMANTICS
         for metric, paths in outputs.items()
-    )
-    if not affected:
-        return False
-    params = entry.get("params")
-    return not (
-        isinstance(params, dict)
-        and params.get(NUMERIC_MEAN_SEMANTICS_KEY) == NUMERIC_MEAN_SEMANTICS
+        for path in paths
     )
 
 
@@ -400,6 +433,7 @@ __all__ = [
     "NUMERIC_MEAN_SEMANTICS_KEY",
     "accepted_feature_artifact_paths",
     "capture_feature_input_generations",
+    "effective_numeric_mean_semantics",
     "feature_generation_lineage_is_current",
     "feature_generation_requires_burst_sample_support_rerun",
     "feature_generation_requires_clip_stitch_mean_support_rerun",
