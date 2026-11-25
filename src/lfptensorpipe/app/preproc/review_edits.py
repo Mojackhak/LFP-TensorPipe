@@ -197,6 +197,41 @@ def user_review_changes(edits, step):
     return result
 
 
+def without_repair_roundtrips(edits, raw, intervals):
+    """Discard balanced FIF precision changes to annotations owned by repair decisions."""
+    if not edits or isinstance(edits, dict):
+        return edits
+    sfreq = raw.info["sfreq"]
+    def sample_key(onset, duration, desc, channels):
+        return desc, tuple(channels), round(onset * sfreq), round((onset + duration) * sfreq)
+
+    managed = set()
+    for item in intervals:
+        if "accepted" not in item:
+            continue
+        label = "INTERPOLATED_gap" if item["kind"] == "gaps" else "INTERPOLATED_peak"
+        managed.add((label, (item["channel"],), item["start_sample"], item["stop_sample"]))
+        for onset, duration, desc, channels, *_ in item["gap_annotations"]:
+            managed.add(sample_key(onset - raw.first_time, duration, desc, channels))
+
+    result = []
+    for change in edits:
+        if not (change.get("add_annotations") and change.get("remove_annotations")):
+            result.append(change)
+            continue
+        removed = list(change["remove_annotations"])
+        added = []
+        for row in change["add_annotations"]:
+            if sample_key(*row[:4]) in managed and row in removed:
+                removed.remove(row)
+            else:
+                added.append(row)
+        kept = {**change, "add_annotations": added, "remove_annotations": removed}
+        if any(kept.values()):
+            result.append({key: rows for key, rows in kept.items() if rows})
+    return result
+
+
 def apply_edits(raw, edits, *, step=None):
     import mne
     from lfptensorpipe.preproc.filter import _set_annotations_from_attached_frame
@@ -352,7 +387,10 @@ def plot_edits(raw_path, reviewed, step, prior, updates, *, persisted=None):
             step=step,
             persisted=persisted,
         )
-    return [*prior.get("review_edits", []), *([delta] if delta else [])]
+        edits = [*prior.get("review_edits", []), *([delta] if delta else [])]
+        if step == "signal_repair" and "intervals" in updates:
+            edits = without_repair_roundtrips(edits, original, updates["intervals"])
+        return edits
 
 
 def stored_plot_edits(original_path, staged_path, reviewed, step, prior, updates):

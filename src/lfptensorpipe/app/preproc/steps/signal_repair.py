@@ -14,7 +14,7 @@ from lfptensorpipe.app.shared.generation_lineage import (
 )
 from lfptensorpipe.preproc.signal_repair import repair_signal
 
-from ..review_edits import write_reviewed_fif
+from ..review_edits import without_repair_roundtrips, write_reviewed_fif
 from ..lineage import (
     PreprocInputGenerationChanged,
     capture_preproc_input_generation,
@@ -61,7 +61,7 @@ def apply_signal_repair_step(
             review_params = write_reviewed_fif(
                 outputs.staged_path(dst),
                 lambda path: output.save(str(path), fmt="double", overwrite=True),
-                review_edits,
+                without_repair_roundtrips(review_edits, output, report["intervals"]),
                 resolver=resolver,
                 step="signal_repair",
                 source_step=source_step,

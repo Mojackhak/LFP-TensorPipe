@@ -61,6 +61,7 @@ from .finish_fingerprint import (
     finish_legacy_bridge,
 )
 from .lineage import (
+    _filter_preview_blocks_routing,
     capture_preproc_input_generation,
     preproc_step_is_skipped,
     preproc_step_lineage_is_current,
@@ -381,7 +382,7 @@ def skip_preproc_step(context: RecordContext, step: str) -> tuple[bool, str]:
     resolver = PathResolver(context)
     currently_skipped = preproc_step_is_skipped(resolver, step)
     if not currently_skipped:
-        preview_pending = step == "filter" and preproc_filter_review_required(resolver)
+        preview_pending = step == "filter" and _filter_preview_blocks_routing(resolver)
         if (
             _preproc_step_indicator_state_impl(resolver, step) == "gray"
             and not preview_pending

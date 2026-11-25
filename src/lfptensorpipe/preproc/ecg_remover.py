@@ -1278,13 +1278,11 @@ def _perceive_ecg_remover_core(
         )
         bad_skipped_peaks.update(peaks[overlaps_bad].astype(int).tolist())
         template_peaks = peaks[eligible_template]
-        if template_peaks.size == 0:
-            run.candidate_beats = int(peaks.size)
-            run.bad_overlap_skipped_beats = len(bad_skipped_peaks)
-            run.unchanged_reason = (
-                "No full clean Perceive template epochs were available."
-            )
-            return run
+    if template_peaks.size == 0:
+        run.candidate_beats = int(peaks.size)
+        run.bad_overlap_skipped_beats = len(bad_skipped_peaks)
+        run.unchanged_reason = "No full clean Perceive template epochs were available."
+        return run
 
     template_mean = create_ecg_template(
         x,
@@ -1385,15 +1383,15 @@ def _perceive_ecg_remover_core(
         # Build full replacement (length template_len) in the "virtual" index space [start, end).
         interp_start = start - before_samples - 1
         left_slice = x[max(0, interp_start) : max(0, start)]
-        mirror_before = left_slice[::-1]
-        if mirror_before.size < (before_samples + 1):
-            pad_len = (before_samples + 1) - int(mirror_before.size)
-            mirror_before = np.pad(
-                mirror_before,
+        if left_slice.size < (before_samples + 1):
+            pad_len = (before_samples + 1) - int(left_slice.size)
+            left_slice = np.pad(
+                left_slice,
                 (pad_len, 0),
                 mode="constant",
                 constant_values=float(x[0]),
             )
+        mirror_before = left_slice[::-1]
 
         interp_end = end + after_samples
         right_slice = x[min(n, end) : min(n, interp_end)]

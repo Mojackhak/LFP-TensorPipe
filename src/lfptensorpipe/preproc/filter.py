@@ -1288,7 +1288,7 @@ def filter_lfp_with_bad_annotations(
 ) -> Tuple[mne.io.RawArray, Dict[str, Any]]:
     """
     End-to-end helper to:
-      1) attach BAD annotations onto raw (optional)
+      1) attach optional BAD annotations supplied in the Raw's annotation frame
       2) apply pre-filtering on the continuous recording (optional)
       3) remove globally scoped BAD samples and rebuild a compressed RawArray
          (no raw.crop used); channel-specific BAD annotations remain scoped on
@@ -1367,7 +1367,9 @@ def filter_lfp_with_bad_annotations(
                 orig_time=target_orig_time,
                 ch_names=filtered_bad_ch_names,
             )
-            raw_labeled.set_annotations(bad_annotations + raw_labeled.annotations)
+            _set_annotations_from_attached_frame(
+                raw_labeled, bad_annotations + raw_labeled.annotations
+            )
 
     sfreq = float(raw_labeled.info["sfreq"])
     n_times = int(raw_labeled.n_times)
@@ -1489,11 +1491,13 @@ def filter_lfp_with_bad_annotations(
         if is_bad_desc(desc) and not annotation_scope:
             continue
 
+        if (
+            onset < raw_labeled.first_time
+            and onset + duration <= raw_labeled.first_time
+        ):
+            continue
         a_start = int(round(float(onset) * sfreq)) - sample_shift
         a_end = int(round((float(onset) + float(duration)) * sfreq)) - sample_shift
-        a_start = max(a_start, 0)
-        a_end = min(a_end, n_times)
-
         # Handle point events (duration == 0)
         if a_end <= a_start:
             seg_i = find_containing_segment(a_start)
@@ -1505,6 +1509,11 @@ def filter_lfp_with_bad_annotations(
             new_durs.append(0.0)
             new_descs.append(str(desc))
             new_ch_names.append(annotation_scope)
+            continue
+
+        a_start = max(a_start, 0)
+        a_end = min(a_end, n_times)
+        if a_end <= a_start:
             continue
 
         if overlap_policy == "drop":
