@@ -1189,12 +1189,33 @@ def _normalize_emm_ci_columns(emw: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _log_y_limits(values, lower_pad, upper_pad):
+    """Pad positive observations in log space, including a constant series."""
+    values = np.asarray(values, dtype=float)
+    positive = values[np.isfinite(values) & (values > 0)]
+    if not positive.size:
+        return (1.0, 10.0)
+    lo, hi = np.log([positive.min(), positive.max()])
+    width = hi - lo if hi > lo else np.log(10.0)
+    limits = np.finfo(float)
+    return tuple(
+        np.exp(
+            np.clip(
+                [lo - lower_pad * width, hi + upper_pad * width],
+                np.log(limits.smallest_subnormal),
+                np.log(limits.max),
+            )
+        )
+    )
+
+
 def _auto_y_limits_scalar(
     dfw: pd.DataFrame,
     emw: pd.DataFrame,
     *,
     value_col: str,
     y_limits: Optional[Tuple[float, float]],
+    y_log: bool = False,
 ) -> Tuple[float, float]:
     """Compute reasonable y-limits for scalar plots based on raw + EMM CI."""
     if y_limits is not None:
@@ -1205,6 +1226,11 @@ def _auto_y_limits_scalar(
         if value_col in dfw.columns
         else np.array([0.0, 1.0])
     )
+    if y_log:
+        limits = [
+            emw[c].to_numpy(dtype=float) for c in ("lower.CL", "upper.CL") if c in emw
+        ]
+        return _log_y_limits(np.concatenate([raw, *limits]), 0.10, 0.30)
     raw = raw[np.isfinite(raw)]
     if raw.size == 0:
         raw = np.array([0.0, 1.0])
@@ -1417,7 +1443,7 @@ def _plot_interaction_scalar_grid(
     x_to_num = {str(lv): i + x_offset for i, lv in enumerate(x_levels)}
 
     y_limits_use = _auto_y_limits_scalar(
-        dfw, emw, value_col=value_col, y_limits=y_limits
+        dfw, emw, value_col=value_col, y_limits=y_limits, y_log=y_log
     )
 
     nrows = len(row_levels)
@@ -1460,12 +1486,17 @@ def _plot_interaction_scalar_grid(
             ax = axes[i, j]
 
             # background shadows
+            if y_log:
+                ax.set_yscale("log")
+            if x_log:
+                ax.set_xscale("log")
+
             if vertical_shadows:
                 for (x0, x1), c in vertical_shadows.items():
-                    ax.axvspan(x0, x1, color=_rgba_color(c), zorder=0)
+                    _safe_axvspan(ax, x0, x1, color=_rgba_color(c), zorder=0)
             if horizontal_shadows:
                 for (y0, y1), c in horizontal_shadows.items():
-                    ax.axhspan(y0, y1, color=_rgba_color(c), zorder=0)
+                    _safe_axhspan(ax, y0, y1, color=_rgba_color(c), zorder=0)
 
             cell_raw = dfw
             if col_var is not None and col_lv is not None:
@@ -1689,10 +1720,6 @@ def _plot_interaction_scalar_grid(
             # axis cosmetics
             if y_limits_use is not None:
                 ax.set_ylim(*y_limits_use)
-            if y_log:
-                ax.set_yscale("log")
-            if x_log:
-                ax.set_xscale("log")
             ax.set_xticks(list(x_to_num.values()))
             ax.set_xlim(
                 *(
@@ -2590,6 +2617,8 @@ def _auto_limits_series(
                 else:
                     y_cat = mean
                 y_f = y_cat[np.isfinite(y_cat)]
+                if y_log:
+                    y_f = y_f[y_f > 0]
                 if y_f.size:
                     ymins.append(float(np.min(y_f)))
                     ymaxs.append(float(np.max(y_f)))
@@ -2602,6 +2631,8 @@ def _auto_limits_series(
             x = _to_numeric_index(s.index)
             y = s.to_numpy(dtype=float)
             y = y[np.isfinite(y)]
+            if y_log:
+                y = y[y > 0]
             x = x[np.isfinite(x)]
             if x.size:
                 xmins.append(float(np.min(x)))
@@ -2629,7 +2660,9 @@ def _auto_limits_series(
         else:
             y0, y1 = 0.0, 1.0
         if y_log:
-            y_limits = (y0, y1)
+            y_limits = (
+                (y0, y1) if 0 < y0 < y1 else _log_y_limits(ymins + ymaxs, 0.05, 0.05)
+            )
         else:
             yr = y1 - y0
             if (not np.isfinite(yr)) or yr == 0:
@@ -2791,6 +2824,11 @@ def _plot_interaction_series_grid(
         for j, col_lv in enumerate(col_levels):
             ax = axes[i, j]
 
+            if x_log:
+                ax.set_xscale("log")
+            if y_log:
+                ax.set_yscale("log")
+
             if vertical_shadows:
                 for (x0, x1), c in vertical_shadows.items():
                     _safe_axvspan(ax, x0, x1, color=_rgba_color(c), zorder=0)
@@ -2860,10 +2898,6 @@ def _plot_interaction_series_grid(
             ax.set_xlim(*x_limits_use)
             ax.set_ylim(*y_limits_use)
 
-            if x_log:
-                ax.set_xscale("log")
-            if y_log:
-                ax.set_yscale("log")
 
             if y_tick_labels is not None:
                 labels = [str(v) for v in y_tick_labels]
@@ -3428,8 +3462,17 @@ def _compute_global_vrange(
 
     if vmode == "sym":
         m = max(abs(vmin0), abs(vmax0))
-        return -m, m
-
+        vmin0, vmax0 = -m, m
+        if vmin is not None and vmin < 0:
+            return float(vmin), -float(vmin)
+        if vmax is not None and vmax > 0:
+            return -float(vmax), float(vmax)
+    if vmin is not None:
+        upper = vmax0 if vmax0 > vmin else mpl.transforms.nonsingular(vmin, vmin)[1]
+        return float(vmin), upper
+    if vmax is not None:
+        lower = vmin0 if vmin0 < vmax else mpl.transforms.nonsingular(vmax, vmax)[0]
+        return lower, float(vmax)
     return vmin0, vmax0
 
 
@@ -3592,6 +3635,11 @@ def _plot_interaction_df_grid(
         for j, col_lv in enumerate(col_levels):
             ax = axes[i, j]
 
+            if x_log:
+                ax.set_xscale("log")
+            if y_log:
+                ax.set_yscale("log")
+
             if vertical_shadows:
                 for (x0, x1), c in vertical_shadows.items():
                     _safe_axvspan(ax, x0, x1, color=_rgba_color(c), zorder=2)
@@ -3632,10 +3680,6 @@ def _plot_interaction_df_grid(
                         zorder=3,
                     )
 
-            if x_log:
-                ax.set_xscale("log")
-            if y_log:
-                ax.set_yscale("log")
             if x_limits:
                 ax.set_xlim(*x_limits)
             if y_limits:
@@ -4150,7 +4194,7 @@ def _auto_limits(x_arrays, y_arrays, x_pad_frac, y_pad_frac, y_log: bool = False
     y_pad = yr * float(y_pad_frac)
 
     if y_log:
-        y0 = max(y0, 1e-12)
+        return (x0 - x_pad, x1 + x_pad), _log_y_limits(ys, y_pad_frac, y_pad_frac)
 
     return (x0 - x_pad, x1 + x_pad), (y0 - y_pad, y1 + y_pad)
 
@@ -4369,6 +4413,11 @@ def _plot_interaction_fit_grid(
         for j, col_lv in enumerate(col_levels):
             ax = axes[i, j]
 
+            if x_log:
+                ax.set_xscale("log")
+            if y_log:
+                ax.set_yscale("log")
+
             if vertical_shadows:
                 for (x0, x1), c in vertical_shadows.items():
                     _safe_axvspan(ax, x0, x1, color=_rgba_color(c), zorder=0)
@@ -4539,10 +4588,6 @@ def _plot_interaction_fit_grid(
             ax.set_xlim(*x_limits)
             ax.set_ylim(*y_limits)
 
-            if x_log:
-                ax.set_xscale("log")
-            if y_log:
-                ax.set_yscale("log")
 
             ax.tick_params(labelsize=tick_label_fontsize)
 
@@ -5231,6 +5276,11 @@ def plot_prism_boxplot(
     )
     ax = axes[0, 0]
 
+    if x_log:
+        ax.set_xscale("log")
+    if y_log:
+        ax.set_yscale("log")
+
     if vertical_shadows:
         for (x0, x1), c in vertical_shadows.items():
             _safe_axvspan(ax, x0, x1, color=_rgba_color(c), zorder=0)
@@ -5371,10 +5421,6 @@ def plot_prism_boxplot(
     ax.set_xticklabels(
         [str(g) for g in groups], fontsize=tick_label_fontsize, rotation=xtick_rotation
     )
-    if x_log:
-        ax.set_xscale("log")
-    if y_log:
-        ax.set_yscale("log")
     for t in ax.get_yticklabels():
         t.set_rotation(ytick_rotation)
     ax.tick_params(labelsize=tick_label_fontsize)
@@ -5387,9 +5433,13 @@ def plot_prism_boxplot(
 
     if y_limits is not None:
         ax.set_ylim(*y_limits)
+    elif y_log:
+        ax.set_ylim(
+            *_log_y_limits(np.concatenate(all_vals) if all_vals else [], 0.10, 0.30)
+        )
     elif all_vals and any(v.size for v in all_vals):
         ymin = float(np.min([np.min(v) for v in all_vals if v.size]))
-        zero_floor = y_min_zero and ymin >= 0.0 and not y_log
+        zero_floor = y_min_zero and ymin >= 0.0
         if zero_floor:
             ymin = 0.0
         ymax = float(np.max([np.max(v) for v in all_vals if v.size]))
@@ -5504,22 +5554,22 @@ def plot_prism_boxplot(
                 )
 
         pairs = []
-        norm_map = {_norm_label(g): g for g in x_levels}
+        norm_map = {_norm_label(g): str(g) for g in groups}
         for _, row in tuk.iterrows():
             comp = row.get(pair_col, None)
             stars = row.get(star_col, None)
             if comp is None or pd.isna(comp) or stars is None or pd.isna(stars):
                 continue
             s = _norm_label(stars)
-            if s.lower() == "ns" and hide_ns:
+            if hide_ns and _is_ns_label(s):
                 continue
             txt = _norm_label(comp)
             parts = re.split(r"\s+vs\.?\s+", txt, maxsplit=1, flags=re.I)
             if len(parts) != 2:
                 continue
             a, b = _norm_label(parts[0]), _norm_label(parts[1])
-            g1 = norm_map.get(a) or (a if a in x_levels else None)
-            g2 = norm_map.get(b) or (b if b in x_levels else None)
+            g1 = norm_map.get(a)
+            g2 = norm_map.get(b)
             if g1 is None or g2 is None:
                 continue
             pairs.append((g1, g2, s))

@@ -62,10 +62,11 @@ def safe_divide(
     numerator: Any,
     denominator: Any,
     *,
+    reference_values: Any = None,
     abs_tol: float = DEFAULT_ABS_TOL,
     rel_tol: float = DEFAULT_REL_TOL,
 ) -> np.ndarray:
-    """Divide with `NaN` output when the denominator is invalid or near zero."""
+    """Use source samples to scale a reduced denominator, or its own array otherwise."""
 
     numer = np.asarray(numerator, dtype=float)
     denom = np.asarray(denominator, dtype=float)
@@ -73,7 +74,7 @@ def safe_divide(
 
     out = np.full(numer_b.shape, np.nan, dtype=float)
     tol = dynamic_denominator_tolerance(
-        denom_b,
+        denom_b if reference_values is None else reference_values,
         abs_tol=abs_tol,
         rel_tol=rel_tol,
     )

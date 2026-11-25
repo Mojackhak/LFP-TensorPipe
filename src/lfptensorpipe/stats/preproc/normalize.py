@@ -195,6 +195,7 @@ def _reduce(obj: Union[pd.Series, pd.DataFrame], how: BaselineStat, axis=None):
 def _safe_divide_frame_rows(
     numer: np.ndarray,
     denom_by_row: np.ndarray,
+    reference_rows: np.ndarray,
     *,
     abs_tol: float,
     rel_tol: float,
@@ -205,7 +206,8 @@ def _safe_divide_frame_rows(
     for row_idx in range(numer.shape[0]):
         out[row_idx, :] = safe_divide(
             numer[row_idx, :],
-            np.full((numer.shape[1],), denom_by_row[row_idx], dtype=float),
+            denom_by_row[row_idx],
+            reference_values=reference_rows[row_idx],
             abs_tol=abs_tol,
             rel_tol=rel_tol,
         )
@@ -333,7 +335,8 @@ def baseline_normalize(
         if mode == "ratio":
             out = safe_divide(
                 x_vals,
-                np.full_like(x_vals, float(base_rep), dtype=float),
+                float(base_rep),
+                reference_values=x_vals[idx],
                 abs_tol=abs_tol_i,
                 rel_tol=rel_tol_i,
             )
@@ -341,7 +344,8 @@ def baseline_normalize(
         if mode == "percent":
             out = safe_divide(
                 x_vals - float(base_rep),
-                np.full_like(x_vals, float(base_rep), dtype=float),
+                float(base_rep),
+                reference_values=x_vals[idx],
                 abs_tol=abs_tol_i,
                 rel_tol=rel_tol_i,
             )
@@ -350,7 +354,8 @@ def baseline_normalize(
             base_sd = base.std(ddof=0)
             out = safe_divide(
                 x_vals - float(base_rep),
-                np.full_like(x_vals, float(base_sd), dtype=float),
+                float(base_sd),
+                reference_values=x_vals[idx],
                 abs_tol=abs_tol_i,
                 rel_tol=rel_tol_i,
             )
@@ -371,6 +376,7 @@ def baseline_normalize(
             out = _safe_divide_frame_rows(
                 x_vals,
                 base_rep_vals,
+                x_vals[:, idx],
                 abs_tol=abs_tol_i,
                 rel_tol=rel_tol_i,
             )
@@ -379,6 +385,7 @@ def baseline_normalize(
             out = _safe_divide_frame_rows(
                 x_vals - base_rep_vals[:, None],
                 base_rep_vals,
+                x_vals[:, idx],
                 abs_tol=abs_tol_i,
                 rel_tol=rel_tol_i,
             )
@@ -389,6 +396,7 @@ def baseline_normalize(
             out = _safe_divide_frame_rows(
                 x_vals - base_rep_vals[:, None],
                 base_sd_vals,
+                x_vals[:, idx],
                 abs_tol=abs_tol_i,
                 rel_tol=rel_tol_i,
             )

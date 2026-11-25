@@ -109,7 +109,8 @@ def transform_df(
         spread = float(np.nanstd(x))
         out[:] = safe_divide(
             x - center,
-            np.full_like(x, spread, dtype=float),
+            spread,
+            reference_values=x,
             abs_tol=abs_tol_i,
             rel_tol=rel_tol_i,
         )
@@ -125,7 +126,8 @@ def transform_df(
         for row_idx in range(x.shape[0]):
             out[row_idx, :] = safe_divide(
                 x[row_idx, :] - means[row_idx, 0],
-                np.full((x.shape[1],), spreads[row_idx, 0], dtype=float),
+                spreads[row_idx, 0],
+                reference_values=x[row_idx],
                 abs_tol=abs_tol_i,
                 rel_tol=rel_tol_i,
             )

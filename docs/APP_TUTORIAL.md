@@ -1337,6 +1337,17 @@ A Features plot and its export data belong to the selected trial. After
 switching trials in either Align Epochs or Features, plot the new trial before
 exporting. Plot Advance requires Boolean values for the log-axis switches.
 
+Series and row-wise z-scores compare the standard deviation with the scale
+of the original samples. Baseline z-scores, ratios and percent changes use
+the selected baseline samples for that row. The relative tolerance uses the
+95th percentile of their finite absolute values. An effectively zero
+denominator yields `NaN`.
+
+In the Python plotting helpers, a supplied color limit fixes that end of the
+scale. Automatic logarithmic y limits use the positive observations, and
+shadows are clipped to the logarithmic domain. Prism significance brackets
+accept numeric group labels and respect the option to hide nonsignificant pairs.
+
 Feature processing distinguishes between two numerical domains:
 
 - The **native domain** contains the original metric values, such as linear
