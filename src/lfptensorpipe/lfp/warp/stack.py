@@ -152,7 +152,7 @@ def stack_warper(
             end = min(end, t_stop)
 
         if end < start:
-            start, end = end, start
+            continue
 
         if drop_intervals:
             has_drop = False

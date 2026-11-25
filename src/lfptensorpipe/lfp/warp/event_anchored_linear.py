@@ -612,10 +612,11 @@ def cue_response_anchors(config):
     pre, reaction, post = (
         config[k] for k in ("pre_cue_s", "response_target_s", "post_response_s")
     )
-    targets = np.array([0.0, pre, pre + reaction, pre + reaction + post])
+    total = pre + reaction + post
+    targets = (0.0, float(pre / total * 100), float((pre + reaction) / total * 100), 100.0)
     return dict(
         zip(
-            targets / targets[-1] * 100.0,
+            targets,
             ("window_start", "cue", "response", "window_end"),
         )
     )

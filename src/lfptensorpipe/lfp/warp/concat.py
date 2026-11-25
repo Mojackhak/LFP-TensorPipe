@@ -151,7 +151,7 @@ def concat_warper(
             start = max(start, t_min)
             end = min(end, t_stop)
         if end < start:
-            start, end = end, start
+            continue
 
         if drop_intervals:
             has_drop = False

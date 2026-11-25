@@ -229,22 +229,15 @@ def validate_alignment_method_params(
             "",
         )
 
+    annotation_value = candidate.get("annotations", defaults["annotations"])
+    ok_annotations, annotations, msg_annotations = _normalize_annotations(
+        annotation_value,
+        allow_empty=True,
+    )
+    if not ok_annotations:
+        return False, defaults, msg_annotations
+
     if key == "pad_warper":
-        annotation_value = candidate.get("annotations", defaults["annotations"])
-        ok_annotations, annotations, msg_annotations = _normalize_annotations(
-            annotation_value,
-            allow_empty=True,
-        )
-        if not ok_annotations and labels:
-            ok_annotations, annotations, msg_annotations = _normalize_annotations(
-                labels,
-                allow_empty=True,
-            )
-        if not ok_annotations and not labels:
-            annotations = []
-            ok_annotations = True
-        if not ok_annotations:
-            return False, defaults, msg_annotations
         ok_range, duration_range, msg_range = _normalize_duration_range(
             candidate.get("duration_range", defaults["duration_range"]),
             allow_none=True,
@@ -304,21 +297,6 @@ def validate_alignment_method_params(
             "",
         )
 
-    annotation_value = candidate.get("annotations", defaults["annotations"])
-    ok_annotations, annotations, msg_annotations = _normalize_annotations(
-        annotation_value,
-        allow_empty=True,
-    )
-    if not ok_annotations and labels:
-        ok_annotations, annotations, msg_annotations = _normalize_annotations(
-            labels,
-            allow_empty=True,
-        )
-    if not ok_annotations and not labels:
-        annotations = []
-        ok_annotations = True
-    if not ok_annotations:
-        return False, defaults, msg_annotations
     if key == "concat_warper":
         return (
             True,
