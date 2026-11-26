@@ -1,12 +1,9 @@
 """Execute named sensitivity variants in independent, ordinary record layouts."""
 
 from copy import deepcopy
-from importlib import metadata
 from pathlib import Path
-import platform
 import re
 import shutil
-import subprocess
 
 from lfptensorpipe.cli import read_page, resolve_references
 from lfptensorpipe.io.atomic_file import write_json_atomically
@@ -19,6 +16,7 @@ from .preproc.lineage import preproc_step_lineage_is_current
 from .preproc.paths import preproc_step_log_path, preproc_step_raw_path
 from .shared.generation_lineage import accepted_result_generation_id
 from .shared.runlog_store import read_run_log, read_ui_state
+from .shared.software_info import software_identity
 
 PAGES = ("preprocess", "tensor", "alignment", "features")
 
@@ -236,45 +234,6 @@ def _copy_localize(source, target):
             {"completed": True, "params": source_results(payload)[active]}
         ),
     }
-
-
-def software_identity():
-    import sys
-
-    packages = {}
-    for name in (
-        "lfp-tensorpipe",
-        "numpy",
-        "scipy",
-        "mne",
-        "pandas",
-        "mne-connectivity",
-        "specparam",
-        "fooof",
-        "scikit-learn",
-    ):
-        try:
-            packages[name] = metadata.version(name)
-        except metadata.PackageNotFoundError:
-            pass
-    result = {
-        "python": sys.version.split()[0],
-        "platform": platform.platform(),
-        "packages": packages,
-    }
-    root = Path(__file__).resolve().parents[3]
-    if (root / ".git").exists() and shutil.which("git"):
-        result["git_commit"] = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=root, text=True
-        ).strip()
-        result["working_tree_modified"] = bool(
-            subprocess.check_output(
-                ["git", "status", "--porcelain", "--", "src/lfptensorpipe"],
-                cwd=root,
-                text=True,
-            ).strip()
-        )
-    return result
 
 
 def _reuse_prefix(source, target, base, selected):

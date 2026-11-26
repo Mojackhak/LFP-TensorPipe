@@ -78,7 +78,7 @@ def selection_reference(value, context, trial):
             epoch_key(row)
         except (KeyError, TypeError, ValueError) as exc:
             raise ConfigError(str(exc)) from exc
-    return value
+    return {key: item for key, item in value.items() if key != "software"}
 
 
 def epoch_match_mode(node, reference):

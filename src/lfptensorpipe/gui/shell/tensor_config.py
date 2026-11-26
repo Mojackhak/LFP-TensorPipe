@@ -7,6 +7,7 @@ import re
 from copy import deepcopy
 
 from lfptensorpipe.app.shared.page_config import json_value, page_config_node
+from lfptensorpipe.app.shared.software_info import software_identity
 from lfptensorpipe.app.tensor import service as tensor_service
 from lfptensorpipe.app.tensor.config import (
     TENSOR_CONFIG_FIELDS_BY_METRIC,
@@ -156,6 +157,7 @@ class MainWindowTensorConfigMixin:
         return {
             "schema": TENSOR_CONFIG_SCHEMA,
             "version": TENSOR_CONFIG_VERSION,
+            "software": software_identity(),
             "tensor": {
                 "selected_metrics": selected_metrics,
                 "active_metric": active_metric,

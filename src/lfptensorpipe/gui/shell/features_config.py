@@ -7,6 +7,7 @@ from lfptensorpipe.app.features.phase_time import phase_limit, validate_phase_bo
 import json
 
 from lfptensorpipe.app.shared.page_config import json_value, page_config_node
+from lfptensorpipe.app.shared.software_info import software_identity
 from lfptensorpipe.gui.shell.common import (
     Any,
     Path,
@@ -72,6 +73,7 @@ class MainWindowFeaturesConfigMixin:
         payload = {
             "schema": FEATURES_CONFIG_SCHEMA,
             "version": FEATURES_CONFIG_VERSION,
+            "software": software_identity(),
             "features": {
                 "active_metric": active_metric,
                 "axes_by_metric": self._features_config_json_value(axes_by_metric),

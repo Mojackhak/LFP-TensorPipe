@@ -63,6 +63,7 @@ labels, acquisition contacts and actual software derivations in the adjacent
 New record sidecars store the importing software in a `software` object.
 Each new run-log event identifies the software that wrote the event. A
 Localize source result keeps its producer when that source is reactivated.
+Exported page configurations identify the exporter.
 Earlier records can lack software information. Reading them or updating
 review state preserves the recorded history. An invalid software field in
 the log summary or a historical event stops an append before the file changes.

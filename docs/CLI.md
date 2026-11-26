@@ -203,6 +203,19 @@ The first listed variant defines the baseline. Independent repetitions compute t
 
 An explicit `alignment.epoch_match` applies to both fresh and reused alignments. Use `exact` to require all reference candidates, or `common` to permit missing or additional candidates. Without an explicit policy, the first run of a preprocessing sensitivity variant uses common matching and independent repetitions use exact matching against the preceding accepted selection. The software manifest records the installed `lfp-tensorpipe` distribution version and, for a source checkout, its Git commit.
 
+Each process collects its software identity on first use. In a source
+checkout, `git_commit` identifies the revision and `git_describe` records the
+tag description when available. A tagged source description supplies the
+displayed version. The `packages` map lists the installed distribution
+versions, which can differ from the checked-out source. The source modification
+flag covers the package code, shipped default configurations and package
+definition. A packaged desktop build uses its build metadata when available.
+
+An exported configuration or epoch selection records the software that wrote
+the file. Replay uses the page settings and epoch decisions. Changing only
+the exporter metadata leaves comparison settings and stage reuse unchanged.
+A state-only log update keeps the producing event's original software.
+
 A variant materializes only its requested Feature outputs. A retained output must match its input generations, axes and reduction settings. Narrowing the Tensor selection also narrows the inherited Feature definitions to the remaining metrics. Burst reuse checks the variant's baseline annotations before copying the tensor or thresholds. If a variant requires epoch decisions from a failed baseline, its manifest records the missing dependency and independent variants can still run.
 The first run of a variant with explicit overrides can reuse the baseline when those overrides have the same effective settings. Additional repetitions still compute independently from Raw.
 

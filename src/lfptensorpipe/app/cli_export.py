@@ -4,6 +4,7 @@ from .cli import RunFailed
 from .cli_epochs import accepted_selection
 from .path_resolver import PathResolver
 from .shared.page_config import PAGE_SCHEMAS
+from .shared.software_info import software_identity
 
 
 def export_page(context, page, trial=None):
@@ -12,6 +13,7 @@ def export_page(context, page, trial=None):
 
         return {
             "schema": "lfptensorpipe.preprocess-config",
+            "software": software_identity(),
             page: export_preprocess(context),
         }
     if page in ("epoch-selection", "alignment"):
@@ -21,7 +23,7 @@ def export_page(context, page, trial=None):
         with run_log_read_snapshot():
             selection = accepted_selection(context, trial)
             if page == "epoch-selection":
-                return selection
+                return {**selection, "software": software_identity()}
             entry = latest_alignment_step_entry(
                 PathResolver(context), trial_slug=trial, step="run_align_epochs"
             )[1]["params"]
@@ -52,4 +54,9 @@ def export_page(context, page, trial=None):
     else:
         raise ValueError(f"Unsupported export: {page}")
     schema, versions = PAGE_SCHEMAS[page]
-    return {"schema": schema, "version": versions[-1], page: node}
+    return {
+        "schema": schema,
+        "version": versions[-1],
+        "software": software_identity(),
+        page: node,
+    }

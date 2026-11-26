@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from lfptensorpipe.app.shared.page_config import json_value, page_config_node
+from lfptensorpipe.app.shared.software_info import software_identity
 from lfptensorpipe.app.alignment.annotation_source import (
     explicit_alignment_annotation_error,
 )
@@ -92,6 +93,7 @@ class MainWindowAlignmentConfigMixin:
         return {
             "schema": ALIGNMENT_CONFIG_SCHEMA,
             "version": ALIGNMENT_CONFIG_VERSION,
+            "software": software_identity(),
             "alignment": {
                 "method": method_key,
                 "method_params": self._alignment_config_json_value(normalized_params),

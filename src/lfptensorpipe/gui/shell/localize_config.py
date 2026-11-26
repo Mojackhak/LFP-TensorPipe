@@ -19,6 +19,7 @@ from lfptensorpipe.app.localize.paths import (
 )
 from lfptensorpipe.app.runlog_store import read_run_log
 from lfptensorpipe.app.shared.page_config import page_config_node
+from lfptensorpipe.app.shared.software_info import software_identity
 from lfptensorpipe.io.atomic_file import write_json_atomically
 from lfptensorpipe.gui.shell.common import (
     Any,
@@ -247,6 +248,7 @@ class MainWindowLocalizeConfigMixin:
         return {
             "schema": LOCALIZE_CONFIG_SCHEMA,
             "version": LOCALIZE_CONFIG_VERSION,
+            "software": software_identity(),
             "localize": {
                 "atlas": atlas,
                 "selected_regions": list(self._localize_selected_regions),
