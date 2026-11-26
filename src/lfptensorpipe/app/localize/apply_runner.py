@@ -28,6 +28,7 @@ from lfptensorpipe.app.shared.generation_lineage import (
     new_result_generation_id,
     params_with_generation_lineage,
 )
+from lfptensorpipe.app.shared.software_info import software_identity
 from lfptensorpipe.io.pkl_io import load_pkl, save_pkl
 
 from .atlas_lookup import (
@@ -409,6 +410,7 @@ def run_localize_apply(
                 undirected_pair_rows=len(undirected),
                 undirected_pair_columns=len(undirected.columns),
                 computed_at=datetime.now(timezone.utc).isoformat(),
+                software=software_identity(),
             )
             params = params_with_generation_lineage(
                 params,

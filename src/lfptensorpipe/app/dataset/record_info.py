@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 from typing import Any
 
+from lfptensorpipe.app.shared.software_info import software_identity
 from lfptensorpipe.io.atomic_file import write_json_atomically
 from lfptensorpipe.io.source_metadata import SourceMetadata
 
@@ -89,6 +90,7 @@ class RecordProvenance:
     metadata_file: str | None = None
     marker_file: str | None = None
     source_sampling_rate_hz: float | None = None
+    software: dict[str, Any] | None = None
 
     @classmethod
     def from_parsed(
@@ -103,6 +105,7 @@ class RecordProvenance:
             marker_file=metadata.marker_file,
             source_sampling_rate_hz=metadata.sampling_rate_hz
             or getattr(raw, "info", {}).get("sfreq"),
+            software=software_identity(),
         )
 
     def save(self, fif_path: Path) -> None:
@@ -134,6 +137,9 @@ class RecordProvenance:
                 type(rate) not in (float, int) or not math.isfinite(rate) or rate <= 0
             ):
                 raise ValueError("Invalid source sampling rate.")
+            software = data.get("software")
+            if software is not None and not isinstance(software, dict):
+                raise ValueError("Invalid software metadata.")
             if any(
                 not isinstance(row.source_label, str) or not row.source_label
                 for row in inputs

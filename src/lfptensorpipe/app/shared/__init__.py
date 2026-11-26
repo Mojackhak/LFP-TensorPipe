@@ -42,9 +42,11 @@ from .generation_lineage import (
 )
 from .path_resolver import PathResolver, RecordContext
 from .runlog_store import (
+    OPTIONAL_LOG_KEYS,
     RUNLOG_SCHEMA_KEY,
     RUNLOG_SCHEMA_NAME,
     RUNLOG_SCHEMA_VERSION,
+    RUNLOG_SOFTWARE_KEY,
     RUNLOG_VERSION_KEY,
     RunLogRecord,
     append_run_log_event,
@@ -56,12 +58,14 @@ from .runlog_store import (
     write_run_log,
     write_ui_state,
 )
+from .software_info import software_identity
 
 __all__ = [
     "GENERATION_RECEIPT_SEMANTICS",
     "GENERATION_RECEIPT_SEMANTICS_KEY",
     "INPUT_GENERATIONS_KEY",
     "LOCALIZE_GENERATION_REF",
+    "OPTIONAL_LOG_KEYS",
     "RESULT_GENERATION_ID_KEY",
     "GenerationLineage",
     "AppConfigStore",
@@ -83,6 +87,7 @@ __all__ = [
     "RUNLOG_SCHEMA_KEY",
     "RUNLOG_SCHEMA_NAME",
     "RUNLOG_SCHEMA_VERSION",
+    "RUNLOG_SOFTWARE_KEY",
     "RUNLOG_VERSION_KEY",
     "accepted_result_generation_id",
     "alignment_generation_ref",
@@ -97,6 +102,7 @@ __all__ = [
     "preproc_generation_ref",
     "read_run_log",
     "read_ui_state",
+    "software_identity",
     "update_run_log_state",
     "write_run_log",
     "write_ui_state",

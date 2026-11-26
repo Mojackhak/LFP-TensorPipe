@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import shutil
 from typing import Any, Callable
 
+from lfptensorpipe.app.shared.software_info import software_identity
 from lfptensorpipe.io.source_metadata import SourceMetadata
 from lfptensorpipe.io.timeline import (
     format_timeline_normalization,
@@ -107,6 +109,8 @@ def _persist_record_import(
         owned_roots.append(rawdata_root)
         raw_fif_path.parent.mkdir(parents=True, exist_ok=True)
         raw.save(str(raw_fif_path))
+        if record_info.software is None:
+            record_info = replace(record_info, software=software_identity())
         record_info.save(raw_fif_path)
 
         if not bool(is_fif_input):

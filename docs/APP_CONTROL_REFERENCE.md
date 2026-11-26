@@ -60,6 +60,13 @@ supplies the effective rate and output channels. New imports store their source
 labels, acquisition contacts and actual software derivations in the adjacent
 `record_info.json`.
 
+New record sidecars store the importing software in a `software` object.
+Each new run-log event identifies the software that wrote the event. A
+Localize source result keeps its producer when that source is reactivated.
+Earlier records can lack software information. Reading them or updating
+review state preserves the recorded history. An invalid software field in
+the log summary or a historical event stops an append before the file changes.
+
 Output contact roles follow the saved signal and reference operands, including
 unary inversion. A channel's display name may be renamed freely. When the
 original operation cannot be recovered, Record Information shows `Unknown`.

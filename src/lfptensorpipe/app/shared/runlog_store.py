@@ -16,6 +16,8 @@ import stat
 import tempfile
 from typing import Any, ParamSpec, TypeVar
 
+from .software_info import software_identity
+
 REQUIRED_LOG_KEYS = (
     "step",
     "completed",
@@ -25,6 +27,8 @@ REQUIRED_LOG_KEYS = (
     "output_path",
     "message",
 )
+RUNLOG_SOFTWARE_KEY = "software"
+OPTIONAL_LOG_KEYS = (RUNLOG_SOFTWARE_KEY,)
 RUNLOG_SCHEMA_NAME = "lfptensorpipe.runlog"
 RUNLOG_SCHEMA_KEY = "log_schema"
 RUNLOG_VERSION_KEY = "log_version"
@@ -87,11 +91,17 @@ class RunLogRecord:
     output_path: str = ""
     message: str = ""
     timestamp_utc: str | None = None
+    software: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to a serialized log payload with UTC timestamp."""
+        """Convert to a serialized log payload with UTC timestamp and software metadata."""
         timestamp = self.timestamp_utc or datetime.now(timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
+        )
+        software = (
+            deepcopy(self.software)
+            if self.software is not None
+            else software_identity()
         )
         return {
             "step": self.step,
@@ -101,7 +111,14 @@ class RunLogRecord:
             "input_path": self.input_path,
             "output_path": self.output_path,
             "message": self.message,
+            RUNLOG_SOFTWARE_KEY: software,
         }
+
+
+def _invalid_software_field(event: dict[str, Any]) -> bool:
+    return RUNLOG_SOFTWARE_KEY in event and not isinstance(
+        event[RUNLOG_SOFTWARE_KEY], dict
+    )
 
 
 def _validate_run_log_event(payload: dict[str, Any]) -> list[str]:
@@ -115,6 +132,8 @@ def _validate_run_log_event(payload: dict[str, Any]) -> list[str]:
         errors.append("Key 'completed' must be a bool.")
     if "params" in payload and not isinstance(payload["params"], dict):
         errors.append("Key 'params' must be a JSON object (dict).")
+    if _invalid_software_field(payload):
+        errors.append(f"Key '{RUNLOG_SOFTWARE_KEY}' must be a JSON object (dict).")
 
     for text_key in ("step", "timestamp_utc", "input_path", "output_path", "message"):
         if text_key in payload and not isinstance(payload[text_key], str):
@@ -126,6 +145,11 @@ def _validate_run_log_event(payload: dict[str, Any]) -> list[str]:
 def validate_run_log(payload: dict[str, Any]) -> list[str]:
     """Return fixed v0.2.0 envelope validation errors."""
     errors = _validate_run_log_event(payload)
+    history = payload.get(RUNLOG_HISTORY_KEY)
+    if isinstance(history, list):
+        for index, event in enumerate(history):
+            if isinstance(event, dict) and _invalid_software_field(event):
+                errors.append(f"history[{index}].software must be a JSON object (dict).")
 
     if RUNLOG_SCHEMA_KEY not in payload:
         errors.append(f"Missing required key: {RUNLOG_SCHEMA_KEY}")
@@ -238,16 +262,15 @@ def _coerce_record_payload(record: RunLogRecord | dict[str, Any]) -> dict[str, A
         payload = record.to_dict()
     elif isinstance(record, dict):
         payload = {key: record.get(key) for key in REQUIRED_LOG_KEYS}
+        for key in OPTIONAL_LOG_KEYS:
+            if key in record:
+                payload[key] = deepcopy(record[key])
     else:
         raise TypeError("record must be RunLogRecord or dict.")
     errors = _validate_run_log_event(payload)
     if errors:
         raise ValueError("; ".join(errors))
     return payload
-
-
-def _summary_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    return {key: payload.get(key) for key in REQUIRED_LOG_KEYS}
 
 
 def _merge_dict(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
@@ -277,13 +300,11 @@ def append_run_log_event(
     out_path = Path(path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     entry = _coerce_record_payload(record)
+    if RUNLOG_SOFTWARE_KEY not in entry:
+        entry[RUNLOG_SOFTWARE_KEY] = software_identity()
 
     existing_path = Path(source_path) if source_path is not None else out_path
-    existing: dict[str, Any] | None
-    try:
-        existing = read_run_log(existing_path)
-    except Exception:
-        existing = None
+    existing = read_run_log(existing_path)
 
     history: list[dict[str, Any]] = []
     state: dict[str, Any] = {}
@@ -298,7 +319,7 @@ def append_run_log_event(
                         continue
         else:
             try:
-                history.append(_coerce_record_payload(_summary_from_payload(existing)))
+                history.append(_coerce_record_payload(existing))
             except Exception:
                 pass
         existing_state = existing.get(RUNLOG_STATE_KEY)
@@ -384,7 +405,7 @@ def latest_run_log_entry(
                     continue
     if not candidates:
         try:
-            candidates = [_coerce_record_payload(_summary_from_payload(payload))]
+            candidates = [_coerce_record_payload(payload)]
         except Exception:
             candidates = []
     if not candidates:
@@ -477,11 +498,13 @@ def indicator_from_log(path: str | Path) -> str:
 
 
 __all__ = [
+    "OPTIONAL_LOG_KEYS",
     "REQUIRED_LOG_KEYS",
     "RUNLOG_HISTORY_KEY",
     "RUNLOG_SCHEMA_KEY",
     "RUNLOG_SCHEMA_NAME",
     "RUNLOG_SCHEMA_VERSION",
+    "RUNLOG_SOFTWARE_KEY",
     "RUNLOG_STATE_KEY",
     "RUNLOG_VERSION_KEY",
     "RunLogRecord",
