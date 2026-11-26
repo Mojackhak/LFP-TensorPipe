@@ -247,6 +247,17 @@ indices. Time zero is the first observed sample. Each missing interval is
 zero-filled and marked `BAD_gap` for all channels. Tags stay with their
 source samples after the gap.
 
+In a packet export (`*_uv.csv`), the first row in file order for each packet
+index supplies all its channel samples, Tag Code and Tag Index. Later rows for
+that index are ignored, even when they use a different signal or tag format.
+The recording spans the lowest through highest packet index. For each absent
+index, the importer inserts a zero-filled packet and marks its duration as
+`BAD_gap`. A table in which every packet index repeats still yields one packet
+per observed index.
+Packet IDs are read as exact integers. Integral decimal and exponent spellings
+are accepted. A fractional ID is reported as invalid input even if converting
+it to a binary floating-point number would round it to an integer.
+
 Both SceneRay tables reject data rows wider than their header and require
 distinct normalized electrode names. Packet blocks repeat the channel headers
 in sample order or identify their slots with numeric suffixes such as `CH1.2`
@@ -255,6 +266,9 @@ A malformed block name such as `CH1_note` or a second `Packet Index` column
 produces `PARSE_SCHEMA_INVALID`, including in a one-row sample table.
 UTF-8 files may begin with a byte
 order mark, and the packet header's first field is case-insensitive.
+
+Both layouts read voltage fields directly from their decimal text. For example,
+`0.00000000000000001` and `1e-17` µV both yield `1e-23` V before FIF storage.
 
 In both SceneRay layouts, a missing channel reading in a received row is
 stored as 0 µV and marked `BAD_gap` on that channel for the missing samples.

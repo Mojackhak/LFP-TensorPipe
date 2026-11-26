@@ -268,7 +268,8 @@ def _compress_int_ranges(values: Sequence[int]) -> list[tuple[int, int]]:
 
 def _drop_dups_and_fill_packet_index(
     df: pd.DataFrame,
-) -> tuple[pd.DataFrame, list[tuple[int, int]], int]:
+    version: str,
+) -> tuple[pd.DataFrame, list[tuple[int, int]]]:
     packet_col = "Packet Index"
     if packet_col not in df.columns:
         raise ParseError(
@@ -276,41 +277,28 @@ def _drop_dups_and_fill_packet_index(
             message=f"Missing required CSV column: {packet_col}",
         )
 
-    df = df.copy()
     try:
-        df[packet_col] = pd.array(
-            [parse_packet_integer(value) for value in df[packet_col]], dtype="Int64"
-        )
-    except (TypeError, ValueError, ArithmeticError) as exc:
+        packet_ids = [parse_packet_integer(value) for value in df[packet_col]]
+    except (ValueError, TypeError, ArithmeticError) as exc:
         raise ParseError(
             code="PARSE_SCHEMA_INVALID",
             message="Packet Index must contain finite integers.",
+            version=version,
         ) from exc
-
-    dup_mask = df.duplicated(subset=packet_col, keep=False)
-    if dup_mask.any():
-        df = df.loc[~dup_mask].copy()
-    if df.empty:
+    if not packet_ids:
         raise ParseError(
             code="PARSE_SCHEMA_INVALID",
-            message="No unique Packet Index rows remain.",
+            message="The SceneRay packet table contains no packet rows.",
+            version=version,
         )
 
-    min_idx = int(df[packet_col].min())
-    max_idx = int(df[packet_col].max())
-    full_idx = np.arange(min_idx, max_idx + 1, dtype=int)
-    present = set(int(v) for v in df[packet_col].to_list())
-    missing_values = [int(i) for i in full_idx if int(i) not in present]
-
-    # Reindexed loss-packet rows are zero-filled.
-    df2 = (
-        df.set_index(packet_col)
-        .reindex(full_idx, fill_value=0.0)
-        .reset_index()
-        .rename(columns={"index": packet_col})
-    )
-    df2[packet_col] = df2[packet_col].astype(int)
-    return df2, _compress_int_ranges(missing_values), min_idx
+    first = min(packet_ids)
+    df = df.set_axis([value - first for value in packet_ids])
+    df = df.loc[~df.index.duplicated(keep="first")]
+    offsets = pd.RangeIndex(max(packet_ids) - first + 1)
+    missing = offsets.difference(df.index).tolist()
+    packets = df.drop(columns=packet_col).reindex(offsets, fill_value=0.0)
+    return packets, _compress_int_ranges(missing)
 
 
 def _collect_channel_block_columns(
@@ -509,15 +497,16 @@ def _raw_from_channels(df: pd.DataFrame, sfreq_hz: float, version: str) -> Any:
 def _parse_packet_rows(
     table: pd.DataFrame, channel_tokens: list[str], sfreq_hz: float, version: str
 ) -> Any:
-    packets, missing_ranges, first_packet = _drop_dups_and_fill_packet_index(table)
+    packets, missing_ranges = _drop_dups_and_fill_packet_index(table, version)
     n_channels = _infer_n_channels_from_columns(packets)
     names = _parse_channel_names(channel_tokens, n_channels)
     cols_by_ch = _collect_channel_block_columns(packets, n_channels)
     n_blocks = len(cols_by_ch[0])
     cube = np.empty((len(packets), n_blocks, n_channels), dtype=float)
     for ch0, cols in enumerate(cols_by_ch):
+        fields = packets.iloc[:, cols]
         try:
-            cube[:, :, ch0] = packets.iloc[:, cols].astype(float).to_numpy()
+            cube[:, :, ch0] = fields.to_numpy(dtype=float)
         except (TypeError, ValueError) as exc:
             raise ParseError(
                 code="PARSE_SCHEMA_INVALID",
@@ -530,7 +519,7 @@ def _parse_packet_rows(
     tags = _build_tag_code_series(packets, n_blocks=n_blocks, sfreq_hz=sfreq_hz)
     gaps = []
     for start, end in missing_ranges:
-        onset = (start - first_packet) * n_blocks / sfreq_hz
+        onset = start * n_blocks / sfreq_hz
         duration = (end - start + 1) * n_blocks / sfreq_hz
         gaps.append((onset, duration))
     _append_annotations(raw, sfreq_hz=sfreq_hz, tag_code_ts=tags, gap_specs=gaps)
@@ -760,14 +749,22 @@ def parse(
                     message=f"Repeated table field: {field}",
                     version=version,
                 )
+        # Use column positions because the original channel headers can have spaces.
+        field_types = (
+            object
+            if table_header == "Packet Index"
+            else {
+                index: str
+                for index, name in enumerate(columns)
+                if name.startswith("CH") or name == "Packet Index"
+            }
+        )
         try:
             table = pd.read_csv(
                 csv_path,
                 skiprows=header_row,
                 skipinitialspace=True,
-                dtype=(
-                    object if table_header == "Packet Index" else {"Packet Index": str}
-                ),
+                dtype=field_types,
             )
         except pd.errors.ParserError as exc:
             raise ParseError(
