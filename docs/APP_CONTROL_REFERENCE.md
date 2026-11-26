@@ -247,6 +247,15 @@ indices. Time zero is the first observed sample. Each missing interval is
 zero-filled and marked `BAD_gap` for all channels. Tags stay with their
 source samples after the gap.
 
+Both SceneRay tables reject data rows wider than their header and require
+distinct normalized electrode names. Packet blocks repeat the channel headers
+in sample order or identify their slots with numeric suffixes such as `CH1.2`
+and `CH1_2`. Every channel must supply the same slots exactly once.
+A malformed block name such as `CH1_note` or a second `Packet Index` column
+produces `PARSE_SCHEMA_INVALID`, including in a one-row sample table.
+UTF-8 files may begin with a byte
+order mark, and the packet header's first field is case-insensitive.
+
 In both SceneRay layouts, a missing channel reading in a received row is
 stored as 0 µV and marked `BAD_gap` on that channel for the missing samples.
 A recorded zero remains valid. Re-import the original CSV to recover timing

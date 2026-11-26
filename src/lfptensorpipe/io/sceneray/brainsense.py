@@ -188,12 +188,12 @@ def csv_layout(filename: str) -> tuple[str, str] | None:
 
 def _find_header_and_meta_rows(
     csv_path: Path, table_header: str
-) -> tuple[int, float | None, list[str]]:
+) -> tuple[int, list[str], float | None, list[str]]:
     sfreq_hz: float | None = None
     channel_tokens: list[str] = []
     first_column = table_header.lower()
 
-    with csv_path.open("r", encoding="utf-8", errors="ignore", newline="") as f:
+    with csv_path.open("r", encoding="utf-8-sig", errors="ignore", newline="") as f:
         reader = csv.reader(f)
         for row_idx, row in enumerate(reader):
             if not row:
@@ -210,7 +210,23 @@ def _find_header_and_meta_rows(
                     str(cell).strip() for cell in row[1:] if str(cell).strip()
                 ]
             if first == first_column:
-                return row_idx, sfreq_hz, channel_tokens
+                # pandas infers an index from an oversized first data row,
+                # even a RangeIndex indistinguishable from its default.
+                for data_row in reader:
+                    if not data_row or (len(data_row) == 1 and not data_row[0].strip()):
+                        continue
+                    if len(data_row) > len(row):
+                        raise ParseError(
+                            code="PARSE_SCHEMA_INVALID",
+                            message="SceneRay data rows contain more fields than the header.",
+                        )
+                    break
+                return (
+                    row_idx,
+                    [table_header, *(cell.strip() for cell in row[1:])],
+                    sfreq_hz,
+                    channel_tokens,
+                )
 
     raise ParseError(
         code="PARSE_SCHEMA_INVALID",
@@ -297,44 +313,49 @@ def _drop_dups_and_fill_packet_index(
     return df2, _compress_int_ranges(missing_values), min_idx
 
 
-def _block_sort_key(col_name: str) -> tuple[int, str]:
-    s = str(col_name).strip()
-    if re.fullmatch(r"CH\d+", s):
-        return (0, s)
-    m = re.fullmatch(r"CH\d+\.(\d+)", s)
-    if m:
-        return (int(m.group(1)), s)
-    m = re.fullmatch(r"CH\d+_(\d+)", s)
-    if m:
-        return (int(m.group(1)), s)
-    m = re.search(r"[._](\d+)$", s)
-    return (int(m.group(1)) if m else 0, s)
-
-
 def _collect_channel_block_columns(
     df: pd.DataFrame, n_channels: int
-) -> list[list[str]]:
-    cols_by_ch: list[list[str]] = []
+) -> list[list[int]]:
+    cols_by_ch: list[list[int]] = []
+    first_slots = None
     for ch_i in range(1, n_channels + 1):
         pattern = re.compile(rf"^CH{ch_i}(?!\d)")
-        cols = [c for c in df.columns if pattern.search(str(c))]
-        if not cols:
+        positions = {}
+        occurrence = 0
+        for position, name in enumerate(df.columns):
+            if not pattern.match(name):
+                continue
+            if name == f"CH{ch_i}":
+                slot = occurrence
+                occurrence += 1
+            else:
+                suffix = re.fullmatch(rf"CH{ch_i}[._](\d+)", name)
+                if suffix is None:
+                    raise ParseError(
+                        code="PARSE_SCHEMA_INVALID",
+                        message=f"Invalid packet channel header: {name}",
+                    )
+                slot = int(suffix.group(1))
+            if slot in positions:
+                raise ParseError(
+                    code="PARSE_SCHEMA_INVALID",
+                    message=f"Repeated block {slot} for CH{ch_i}.",
+                )
+            positions[slot] = position
+        if not positions:
             raise ParseError(
                 code="PARSE_SCHEMA_INVALID",
                 message=f"No block columns found for channel CH{ch_i}.",
             )
-        cols_by_ch.append(sorted(cols, key=_block_sort_key))
-
-    n_blocks = len(cols_by_ch[0])
-    for ch_i, cols in enumerate(cols_by_ch, start=1):
-        if len(cols) != n_blocks:
+        slots = sorted(positions)
+        if first_slots is None:
+            first_slots = slots
+        elif slots != first_slots:
             raise ParseError(
                 code="PARSE_SCHEMA_INVALID",
-                message=(
-                    f"Inconsistent block count: CH1 has {n_blocks} blocks, "
-                    f"CH{ch_i} has {len(cols)} blocks."
-                ),
+                message=f"Inconsistent packet block slots: CH1 has {first_slots}, CH{ch_i} has {slots}.",
             )
+        cols_by_ch.append([positions[slot] for slot in slots])
     return cols_by_ch
 
 
@@ -496,7 +517,7 @@ def _parse_packet_rows(
     cube = np.empty((len(packets), n_blocks, n_channels), dtype=float)
     for ch0, cols in enumerate(cols_by_ch):
         try:
-            cube[:, :, ch0] = packets[cols].astype(float).to_numpy()
+            cube[:, :, ch0] = packets.iloc[:, cols].astype(float).to_numpy()
         except (TypeError, ValueError) as exc:
             raise ParseError(
                 code="PARSE_SCHEMA_INVALID",
@@ -598,13 +619,6 @@ def _parse_sample_rows(
         raise ParseError(
             code="PARSE_SCHEMA_INVALID",
             message="The SceneRay sample table contains no sample rows.",
-            version=version,
-        )
-    # Pandas uses the leading fields as an index when a row is wider than its header.
-    if not isinstance(table.index, pd.RangeIndex):
-        raise ParseError(
-            code="PARSE_SCHEMA_INVALID",
-            message="The SceneRay sample rows contain more fields than the header.",
             version=version,
         )
     signal_columns = [col for col in table if col.startswith("CH")]
@@ -710,8 +724,8 @@ def parse(
                     version=version,
                 )
 
-        header_row, sfreq_from_csv, channel_tokens = _find_header_and_meta_rows(
-            csv_path, table_header
+        header_row, columns, sfreq_from_csv, channel_tokens = (
+            _find_header_and_meta_rows(csv_path, table_header)
         )
         if source_metadata is not None:
             source_metadata.labels.update(
@@ -737,6 +751,15 @@ def parse(
                 version=version,
             )
 
+        for field in dict.fromkeys(
+            (table_header, "Packet Index", "Tag Code", "Tag Index")
+        ):
+            if columns.count(field) > 1:
+                raise ParseError(
+                    code="PARSE_SCHEMA_INVALID",
+                    message=f"Repeated table field: {field}",
+                    version=version,
+                )
         try:
             table = pd.read_csv(
                 csv_path,
@@ -747,14 +770,13 @@ def parse(
                 ),
             )
         except pd.errors.ParserError as exc:
-            if suffix != "_uv_reorg.csv":
-                raise
             raise ParseError(
                 code="PARSE_SCHEMA_INVALID",
-                message=f"Invalid SceneRay sample table: {exc}",
+                message=f"Invalid SceneRay data table: {exc}",
                 version=version,
             ) from exc
-        table.columns = [str(c).strip() for c in table.columns]
+        # Keep original repeated channel names for block-slot assignment.
+        table.columns = columns
         if suffix == "_uv_reorg.csv":
             source_rate = sfreq_from_csv or (
                 txt_meta.sample_frequency_hz if txt_meta else None
