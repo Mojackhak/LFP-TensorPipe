@@ -5,7 +5,6 @@ import datetime as dt
 import re
 from collections import Counter
 from dataclasses import dataclass
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +12,11 @@ import numpy as np
 import pandas as pd
 
 from lfptensorpipe.io.source_metadata import SourceMetadata
-from lfptensorpipe.io.converter import InfiniteSignalValuesError, df2mne
+from lfptensorpipe.io.converter import (
+    InfiniteSignalValuesError,
+    df2mne,
+    parse_packet_integer,
+)
 
 VENDOR_NAME = "PINS"
 CANONICAL_CHANNEL_RE = re.compile(r"^\d+[A-Za-z]*_\d+[A-Za-z]*(_[LR])?$")
@@ -82,19 +85,6 @@ def _parse_float(value: Any) -> float:
 
 def _parse_int(value: Any) -> int:
     return int(float(str(value).strip()))
-
-
-def _parse_packet_int(value: Any) -> int:
-    token = str(value).strip()
-    parsed_float = float(token)
-    parsed_decimal = Decimal(token)
-    if (
-        not np.isfinite(parsed_float)
-        or not parsed_decimal.is_finite()
-        or parsed_decimal != parsed_decimal.to_integral_value()
-    ):
-        raise ValueError("packet field must be a finite integer")
-    return int(parsed_decimal)
 
 
 def _extract_first_float(text: str) -> float | None:
@@ -370,8 +360,8 @@ def _read_signal_packets(
                 )
 
             try:
-                packet_num = _parse_packet_int(row[idx_packet_num])
-                packet_len = _parse_packet_int(row[idx_packet_len])
+                packet_num = parse_packet_integer(row[idx_packet_num])
+                packet_len = parse_packet_integer(row[idx_packet_len])
                 vals = [_parse_float(row[i]) for i in channel_cols]
             except Exception as exc:
                 raise ParseError(

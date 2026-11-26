@@ -273,6 +273,13 @@ fractional value is rejected instead of being rounded or truncated. Correct the
 source export and parse it again; the parser does not alter the packet timeline
 or create a partial preview.
 
+PINS marker onsets retain the device's time relative to the recording start,
+including between samples. FIF stores these onsets with finite precision.
+For example, the bundled 500 Hz recording has manual markers at 84.171 s
+and 86.699 s. After a FIF round trip in MNE, the observed onsets were about
+2 and 3 µs earlier. At these half-sample boundaries, conversion to the nearest
+sample selected the preceding sample in both cases.
+
 Medtronic `TimeDomainData` must be a non-empty one-dimensional sample list.
 Each run lasts through its longest channel. An absent channel or a shorter channel tail is zero-filled on the continuous timeline and marked `BAD_gap` for that channel alone. Gaps between runs carry a recording-wide `BAD_gap`. These annotations are created during import from the source JSON. To recover missing channel coverage in an older import, use the original JSON because measured zeros and zero padding have the same stored value.
 Nested or nested-empty arrays are rejected during `Parse`; the importer does not
